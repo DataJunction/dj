@@ -8,8 +8,6 @@ from typing import Coroutine, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import (
-    check_dimension_attributes_exist,
-    check_metrics_exist,
     get_attribute_type,
     get_node_namespace,
     COLUMN_NAME_REGEX,
@@ -98,6 +96,8 @@ from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
 )
 from datajunction_server.utils import SEPARATOR, Version, get_namespace_from_name
+
+from sqlalchemy.orm import joinedload, selectinload, defer
 
 
 logger = logging.getLogger(__name__)
@@ -781,28 +781,29 @@ class DeploymentOrchestrator:
         logger.info("Starting bulk deployment of %d cubes", len(cubes_to_deploy))
         start = time.perf_counter()
 
+        # Bulk validate cubes
         validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
-        print("validation_results", validation_results)
 
+        # Bulk create cubes from validation results
         nodes, revisions, deployment_results = await self._create_cubes_from_validation(
             validation_results,
         )
 
-        # Step 3: Bulk add to session and commit
+        # Commit all cubes
         self.session.add_all(nodes)
         self.session.add_all(revisions)
         await self.session.commit()
 
-        # Step 4: Refresh nodes for latest state
+        # Refresh all deployed cube nodes
         all_nodes = await self.refresh_nodes(
             [cube.rendered_name for cube in cubes_to_deploy],
         )
-
-        # Update registry with deployed nodes
         self.registry.add_nodes(all_nodes)
 
         logger.info(
-            f"Deployed {len(nodes)} cubes in bulk in {time.perf_counter() - start:.2f}s",
+            "Deployed %d cubes in %.3fs",
+            len(nodes),
+            time.perf_counter() - start,
         )
         return deployment_results
 
@@ -815,6 +816,40 @@ class DeploymentOrchestrator:
             return []
 
         # Collect all unique metrics and dimensions across all cubes
+        all_metric_names, all_dimension_names = self._collect_cube_dependencies(
+            cube_specs,
+        )
+
+        # Batch load all metrics and dimensions
+        (
+            metric_nodes_map,
+            dimension_mapping,
+            missing_metrics,
+            missing_dimensions,
+        ) = await self._batch_load_metrics_and_dimensions(
+            all_metric_names,
+            all_dimension_names,
+        )
+        print("missing_dimensions", missing_dimensions)
+
+        # Validate each cube using the batch-loaded data
+        validation_results = []
+        for cube_spec in cube_specs:
+            validation_result = await self._validate_single_cube(
+                cube_spec,
+                metric_nodes_map,
+                missing_metrics,
+                missing_dimensions,
+                dimension_mapping,
+            )
+            validation_results.append(validation_result)
+        return validation_results
+
+    def _collect_cube_dependencies(
+        self,
+        cube_specs: list[CubeSpec],
+    ) -> tuple[set[str], set[str]]:
+        """Collect all unique metrics and dimensions across all cubes"""
         all_metric_names = set()
         all_dimension_names = set()
 
@@ -822,150 +857,206 @@ class DeploymentOrchestrator:
             all_metric_names.update(cube_spec.rendered_metrics or [])
             all_dimension_names.update(cube_spec.rendered_dimensions or [])
 
-        # Batch load all metrics
+        return all_metric_names, all_dimension_names
+
+    async def _batch_load_metrics_and_dimensions(
+        self,
+        all_metric_names: set[str],
+        all_dimension_names: set[str],
+    ) -> tuple[dict[str, Node], dict[str, Node], set[str], set[str]]:
+        """Batch load metrics and dimensions with single DB queries"""
+        from datajunction_server.construction.build_v2 import FullColumnName
+
         missing_metrics = set()
-        try:
-            # Batch load all metrics
-            all_metric_nodes = await check_metrics_exist(
-                self.session,
-                list(all_metric_names),
-            )
-            metric_nodes_map = {node.name: node for node in all_metric_nodes}
-        except Exception as exc:
-            logger.exception(exc)
-            missing_metrics = set(all_metric_names) - {
-                metric.name for metric in all_metric_nodes
-            }
+        metric_nodes_map = {}
+
+        # Batch load all metrics
+        all_metric_nodes = await Node.get_by_names(
+            self.session,
+            list(all_metric_names),
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                    joinedload(NodeRevision.catalog),
+                    selectinload(NodeRevision.parents),
+                ),
+            ],
+            include_inactive=False,
+        )
+        metric_nodes_map = {node.name: node for node in all_metric_nodes}
+        missing_metrics = set(all_metric_names) - {
+            metric.name for metric in all_metric_nodes
+        }
 
         # Batch load all dimension attributes
         missing_dimensions = set()
-        try:
-            (
-                all_dimension_attributes,
-                all_dimension_nodes_dict,
-            ) = await check_dimension_attributes_exist(
+        dimension_mapping = {}
+
+        dimension_attributes: list[FullColumnName] = [
+            FullColumnName(dimension_attribute)
+            for dimension_attribute in all_dimension_names
+        ]
+        dimension_node_names = [attr.node_name for attr in dimension_attributes]
+        dimension_nodes: dict[str, Node] = {
+            node.name: node
+            for node in await Node.get_by_names(
                 self.session,
-                list(all_dimension_names),
-            )
-            dimension_mapping = {
-                attr.name: all_dimension_nodes_dict[attr.node_name]
-                for attr in all_dimension_attributes
-            }
-        except Exception as exc:
-            logger.exception(exc)
-            missing_dimensions = set(all_dimension_names) - set(
-                dimension_mapping.keys(),
-            )
-
-        # Validate each cube using the batch-loaded data
-        validation_results = []
-        for cube_spec in cube_specs:
-            errors = []
-            if missing_for_cube := set(cube_spec.rendered_metrics).intersection(
-                missing_metrics,
-            ):
-                errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_CUBE,
-                        message=(
-                            f"One or more metrics not found for cube "
-                            f"{cube_spec.rendered_name}: {', '.join(missing_for_cube)}"
+                dimension_node_names,
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.columns).options(
+                            selectinload(Column.node_revision),
                         ),
+                        defer(NodeRevision.query_ast),
                     ),
-                )
-            if missing_for_cube := set(cube_spec.rendered_dimensions).intersection(
-                missing_dimensions,
+                ],
+            )
+        }
+        for attr in dimension_attributes:
+            if attr.node_name not in dimension_nodes:
+                missing_dimensions.add(attr.name)
+            if not any(
+                col.name == attr.column_name
+                for col in dimension_nodes[attr.node_name].current.columns
             ):
-                errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_CUBE,
-                        message=(
-                            f"One or more dimensions not found for cube "
-                            f"{cube_spec.rendered_name}: {', '.join(missing_for_cube)}"
-                        ),
+                missing_dimensions.add(attr.name)
+
+        dimension_mapping = {
+            attr.name: dimension_nodes[attr.node_name]
+            for attr in dimension_attributes
+            if attr.node_name in dimension_nodes
+        }
+        return metric_nodes_map, dimension_mapping, missing_metrics, missing_dimensions
+
+    def _collect_cube_errors(
+        self,
+        cube_spec: CubeSpec,
+        missing_metrics: set[str],
+        missing_dimensions: set[str],
+        catalogs: list[Catalog],
+    ):
+        errors = []
+        if missing_for_cube := set(cube_spec.rendered_metrics).intersection(
+            missing_metrics,
+        ):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_CUBE,
+                    message=(
+                        f"One or more metrics not found for cube "
+                        f"{cube_spec.rendered_name}: {', '.join(missing_for_cube)}"
                     ),
-                )
-
-            if errors:
-                validation_results.append(
-                    NodeValidationResult(
-                        spec=cube_spec,
-                        status=NodeStatus.INVALID,
-                        inferred_columns=[],
-                        errors=errors,
-                        dependencies=[],
+                ),
+            )
+        if missing_for_cube := set(cube_spec.rendered_dimensions).intersection(
+            missing_dimensions,
+        ):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_CUBE,
+                    message=(
+                        f"One or more dimensions not found for cube "
+                        f"{cube_spec.rendered_name}: {', '.join(missing_for_cube)}"
                     ),
-                )
-                continue
+                ),
+            )
 
-            cube_metric_nodes = [
-                metric_nodes_map[metric_name]
-                for metric_name in cube_spec.rendered_metrics or []
-            ]
+        if len(set(catalogs)) > 1:
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_CUBE,
+                    message=(
+                        f"Metrics for cube {cube_spec.rendered_name} belong to "
+                        f"different catalogs: {', '.join(cat.name for cat in catalogs if cat)}"
+                    ),
+                ),
+            )
+        return errors
 
-            # Get dimensions for this cube from batch-loaded data
-            cube_dimension_nodes = []
-            cube_dimensions = []
-            dimension_attributes = [
-                dimension_attribute.rsplit(SEPARATOR, 1)
-                for dimension_attribute in (cube_spec.rendered_dimensions or [])
-            ]
+    async def _validate_single_cube(
+        self,
+        cube_spec: CubeSpec,
+        metric_nodes_map: dict[str, Node],
+        missing_metrics: set[str],
+        missing_dimensions: set[str],
+        dimension_mapping: dict[str, Node],
+    ) -> NodeValidationResult:
+        cube_metric_nodes = [
+            metric_nodes_map[metric_name]
+            for metric_name in cube_spec.rendered_metrics or []
+        ]
 
-            for node_name, column_name in dimension_attributes:
-                full_key = f"{node_name}{SEPARATOR}{column_name}"
-                dimension_node = dimension_mapping[full_key]
-                if dimension_node not in cube_dimension_nodes:
-                    cube_dimension_nodes.append(dimension_node)
+        # Extract metric columns and catalogs
+        metric_columns = [node.current.columns[0] for node in cube_metric_nodes]
+        catalogs = [metric.current.catalog for metric in cube_metric_nodes]
+        catalog = catalogs[0] if catalogs else None
 
-                # Get the actual column
-                columns = {col.name: col for col in dimension_node.current.columns}
-                column_name_without_role = column_name
-                match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
-                if match:
-                    column_name_without_role = match.groups()[0]
-
-                if column_name_without_role in columns:
-                    cube_dimensions.append(columns[column_name_without_role])
-
-            # Extract metric columns and validate catalog consistency
-            metric_columns = [node.current.columns[0] for node in cube_metric_nodes]
-            catalogs = [metric.current.catalog for metric in cube_metric_nodes]
-            catalog = catalogs[0] if catalogs else None
-
-            if len(set(catalogs)) > 1:
-                raise DJInvalidInputException(
-                    f"Metrics cannot be from multiple catalogs: {catalogs}",
-                )
-
-            validation_result = NodeValidationResult(
+        # Collect errors for missing metrics/dimensions or catalog mismatches
+        errors = self._collect_cube_errors(
+            cube_spec,
+            missing_metrics,
+            missing_dimensions,
+            catalogs,
+        )
+        if errors:
+            return NodeValidationResult(
                 spec=cube_spec,
-                status=(  # Check if all dependencies are valid
-                    NodeStatus.VALID
-                    if (
-                        all(
-                            metric.current.status == NodeStatus.VALID
-                            for metric in cube_metric_nodes
-                        )
-                        and all(
-                            dim.current.status == NodeStatus.VALID
-                            for dim in cube_dimension_nodes
-                        )
-                    )
-                    else NodeStatus.INVALID
-                ),
-                inferred_columns=cube_spec.rendered_columns,
-                errors=[],
+                status=NodeStatus.INVALID,
+                inferred_columns=[],
+                errors=errors,
                 dependencies=[],
-                _cube_validation_data=CubeValidationData(
-                    metric_columns=metric_columns,
-                    metric_nodes=cube_metric_nodes,
-                    dimension_nodes=cube_dimension_nodes,
-                    dimension_columns=cube_dimensions,
-                    catalog=catalog,
-                ),
             )
-            validation_results.append(validation_result)
-        return validation_results
+
+        # Get dimensions for this cube from batch-loaded data
+        cube_dimension_nodes = []
+        cube_dimensions = []
+        dimension_attributes = [
+            dimension_attribute.rsplit(SEPARATOR, 1)
+            for dimension_attribute in (cube_spec.rendered_dimensions or [])
+        ]
+        for node_name, column_name in dimension_attributes:
+            full_key = f"{node_name}{SEPARATOR}{column_name}"
+            dimension_node = dimension_mapping[full_key]
+            if dimension_node not in cube_dimension_nodes:
+                cube_dimension_nodes.append(dimension_node)
+
+            # Get the actual column
+            columns = {col.name: col for col in dimension_node.current.columns}
+            column_name_without_role = column_name
+            match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
+            if match:
+                column_name_without_role = match.groups()[0]
+
+            if column_name_without_role in columns:
+                cube_dimensions.append(columns[column_name_without_role])
+
+        return NodeValidationResult(
+            spec=cube_spec,
+            status=(  # Check if all dependencies are valid
+                NodeStatus.VALID
+                if (
+                    all(
+                        metric.current.status == NodeStatus.VALID
+                        for metric in cube_metric_nodes
+                    )
+                    and all(
+                        dim.current.status == NodeStatus.VALID
+                        for dim in cube_dimension_nodes
+                    )
+                )
+                else NodeStatus.INVALID
+            ),
+            inferred_columns=cube_spec.rendered_columns,
+            errors=[],
+            dependencies=[],
+            _cube_validation_data=CubeValidationData(
+                metric_columns=metric_columns,
+                metric_nodes=cube_metric_nodes,
+                dimension_nodes=cube_dimension_nodes,
+                dimension_columns=cube_dimensions,
+                catalog=catalog,
+            ),
+        )
 
     async def _create_cubes_from_validation(
         self,
