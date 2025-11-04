@@ -41,6 +41,17 @@ class ValidationContext:
 
 
 @dataclass
+class CubeValidationData:
+    """Stores validation results for a cube to avoid re-validation"""
+
+    metric_columns: list
+    metric_nodes: list
+    dimension_nodes: list
+    dimension_columns: list
+    catalog: Optional[object]
+
+
+@dataclass
 class NodeValidationResult:
     """Immutable validation result for a single node"""
 
@@ -49,6 +60,9 @@ class NodeValidationResult:
     inferred_columns: list[ColumnSpec]
     errors: list[DJError]
     dependencies: list[str]
+
+    # Internal use only
+    _cube_validation_data: Optional[CubeValidationData] = None
 
 
 class NodeSpecBulkValidator:

@@ -607,7 +607,9 @@ async def create_cube_node_revision(
         )
         node_column = Column(
             name=full_element_name,
-            display_name=col.display_name,
+            display_name=referenced_node.display_name
+            if referenced_node.type == NodeType.METRIC
+            else col.display_name,
             type=col.type,
             attributes=[
                 ColumnAttribute(attribute_type_id=attr.attribute_type_id)
