@@ -7,6 +7,7 @@ from typing import Coroutine, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_namespace,
@@ -821,16 +822,12 @@ class DeploymentOrchestrator:
         )
 
         # Batch load all metrics and dimensions
-        (
-            metric_nodes_map,
-            dimension_mapping,
-            missing_metrics,
-            missing_dimensions,
-        ) = await self._batch_load_metrics_and_dimensions(
+        metric_nodes_map, missing_metrics = await self._batch_load_metrics(
             all_metric_names,
+        )
+        dimension_mapping, missing_dimensions = await self._batch_load_dimensions(
             all_dimension_names,
         )
-        print("missing_dimensions", missing_dimensions)
 
         # Validate each cube using the batch-loaded data
         validation_results = []
@@ -859,18 +856,13 @@ class DeploymentOrchestrator:
 
         return all_metric_names, all_dimension_names
 
-    async def _batch_load_metrics_and_dimensions(
+    async def _batch_load_metrics(
         self,
         all_metric_names: set[str],
-        all_dimension_names: set[str],
-    ) -> tuple[dict[str, Node], dict[str, Node], set[str], set[str]]:
-        """Batch load metrics and dimensions with single DB queries"""
-        from datajunction_server.construction.build_v2 import FullColumnName
-
+    ) -> tuple[dict[str, Node], set[str]]:
+        """Batch load all metrics"""
         missing_metrics = set()
         metric_nodes_map = {}
-
-        # Batch load all metrics
         all_metric_nodes = await Node.get_by_names(
             self.session,
             list(all_metric_names),
@@ -887,11 +879,15 @@ class DeploymentOrchestrator:
         missing_metrics = set(all_metric_names) - {
             metric.name for metric in all_metric_nodes
         }
+        return metric_nodes_map, missing_metrics
 
-        # Batch load all dimension attributes
+    async def _batch_load_dimensions(
+        self,
+        all_dimension_names: set[str],
+    ) -> tuple[dict[str, Node], set[str]]:
+        """Batch load all dimension attributes"""
         missing_dimensions = set()
         dimension_mapping = {}
-
         dimension_attributes: list[FullColumnName] = [
             FullColumnName(dimension_attribute)
             for dimension_attribute in all_dimension_names
@@ -915,6 +911,7 @@ class DeploymentOrchestrator:
         for attr in dimension_attributes:
             if attr.node_name not in dimension_nodes:
                 missing_dimensions.add(attr.name)
+                continue
             if not any(
                 col.name == attr.column_name
                 for col in dimension_nodes[attr.node_name].current.columns
@@ -926,7 +923,7 @@ class DeploymentOrchestrator:
             for attr in dimension_attributes
             if attr.node_name in dimension_nodes
         }
-        return metric_nodes_map, dimension_mapping, missing_metrics, missing_dimensions
+        return dimension_mapping, missing_dimensions
 
     def _collect_cube_errors(
         self,
