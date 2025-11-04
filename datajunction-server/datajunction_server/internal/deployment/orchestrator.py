@@ -22,7 +22,7 @@ from datajunction_server.database.tag import Tag
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.database.node import Node
-from datajunction_server.models.node import CreateCubeNode, NodeType
+from datajunction_server.models.node import NodeType
 from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
     CubeValidationData,
@@ -782,6 +782,7 @@ class DeploymentOrchestrator:
         start = time.perf_counter()
 
         validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
+        print("validation_results", validation_results)
 
         nodes, revisions, deployment_results = await self._create_cubes_from_validation(
             validation_results,
@@ -816,23 +817,10 @@ class DeploymentOrchestrator:
         # Step 1: Collect all unique metrics and dimensions across all cubes
         all_metric_names = set()
         all_dimension_names = set()
-        cube_data_map = {}
 
         for cube_spec in cube_specs:
-            create_cube_data = CreateCubeNode(
-                name=cube_spec.rendered_name,
-                display_name=cube_spec.display_name,
-                description=cube_spec.description,
-                mode=cube_spec.mode,
-                custom_metadata=cube_spec.custom_metadata,
-                owners=cube_spec.owners,
-                metrics=cube_spec.rendered_metrics,
-                dimensions=cube_spec.rendered_dimensions,
-                filters=cube_spec.rendered_filters,
-            )
-            cube_data_map[cube_spec.rendered_name] = create_cube_data
-            all_metric_names.update(create_cube_data.metrics or [])
-            all_dimension_names.update(create_cube_data.dimensions or [])
+            all_metric_names.update(cube_spec.rendered_metrics or [])
+            all_dimension_names.update(cube_spec.rendered_dimensions or [])
 
         # Step 2: Batch load all metrics and dimensions with single DB queries
         try:
@@ -852,12 +840,13 @@ class DeploymentOrchestrator:
                 list(all_dimension_names),
             )
             dimension_mapping = {
-                f"{node_name}{SEPARATOR}{attr}": all_dimension_nodes_dict[node_name]
-                for node_name, attr in all_dimension_attributes
+                attr.name: all_dimension_nodes_dict[attr.node_name]
+                for attr in all_dimension_attributes
             }
-
         except Exception as exc:
+            # TODO: make the validation result more granular; e.g., per cube errors
             # If batch loading fails, return errors for all cubes
+            logger.exception(exc)
             return [
                 NodeValidationResult(
                     spec=cube_spec,
@@ -874,11 +863,9 @@ class DeploymentOrchestrator:
 
         for cube_spec in cube_specs:
             try:
-                create_cube_data = cube_data_map[cube_spec.rendered_name]
-
                 # Get metrics for this cube from batch-loaded data
                 cube_metric_nodes = []
-                for metric_name in create_cube_data.metrics or []:
+                for metric_name in cube_spec.rendered_metrics or []:
                     if metric_name not in metric_nodes_map:
                         raise DJInvalidInputException(f"Metric {metric_name} not found")
                     node = metric_nodes_map[metric_name]
@@ -896,7 +883,7 @@ class DeploymentOrchestrator:
                 cube_dimensions = []
                 dimension_attributes = [
                     dimension_attribute.rsplit(SEPARATOR, 1)
-                    for dimension_attribute in (create_cube_data.dimensions or [])
+                    for dimension_attribute in (cube_spec.rendered_dimensions or [])
                 ]
 
                 for node_name, column_name in dimension_attributes:
@@ -1075,20 +1062,9 @@ class DeploymentOrchestrator:
         """Create cube node revision using pre-computed validation data"""
         # Build the "columns" for this node based on the cube elements
         node_columns = []
-        create_cube_data = CreateCubeNode(
-            name=cube_spec.rendered_name,
-            display_name=cube_spec.display_name,
-            description=cube_spec.description,
-            mode=cube_spec.mode,
-            custom_metadata=cube_spec.custom_metadata,
-            owners=cube_spec.owners,
-            metrics=cube_spec.rendered_metrics,
-            dimensions=cube_spec.rendered_dimensions,
-            filters=cube_spec.rendered_filters,
-        )
 
         dimension_to_roles_mapping = map_dimensions_to_roles(
-            create_cube_data.dimensions or [],
+            cube_spec.rendered_dimensions or [],
         )
 
         for idx, col in enumerate(
