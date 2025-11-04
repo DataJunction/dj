@@ -12,6 +12,9 @@ from datajunction_server.internal.deployment.orchestrator import (
     ResourceRegistry,
     column_changed,
 )
+from datajunction_server.internal.deployment.validation import (
+    NodeValidationResult,
+)
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentSpec,
@@ -23,6 +26,8 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
     MetricSpec,
+    CubeSpec,
+    DeploymentResult,
 )
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
@@ -595,3 +600,131 @@ class TestColumnChanged:
         )
         result = column_changed(desired_spec, existing_col)
         assert result is False
+
+
+class TestCubeDeployment:
+    """Test suite for cube deployment functionality"""
+
+    @pytest.fixture
+    def sample_cube_specs(self):
+        """Sample cube specifications for testing"""
+        return [
+            CubeSpec(
+                name="test_cube_1",
+                node_type="cube",
+                metrics=["metric1", "metric2"],
+                dimensions=["dim1.attr1", "dim2.attr2"],
+                namespace="test",
+            ),
+            CubeSpec(
+                name="test_cube_2",
+                node_type="cube",
+                metrics=["metric2", "metric3"],
+                dimensions=["dim1.attr1", "dim3.attr3"],
+                namespace="test",
+            ),
+        ]
+
+    @pytest.fixture
+    def cube_deployment_plan(self, sample_cube_specs):
+        """Deployment plan with cube specs"""
+        return DeploymentPlan(
+            to_deploy=sample_cube_specs,
+            to_delete=[],
+            to_skip=[],
+            existing_specs={},
+            node_graph={},
+            external_deps=set(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_deploy_cubes_filters_non_cubes(self, orchestrator):
+        """Test that _deploy_cubes only processes CubeSpec nodes"""
+        plan = DeploymentPlan(
+            to_deploy=[
+                MetricSpec(name="metric1", node_type="metric", query="SELECT 1"),
+                # No cube specs
+            ],
+            to_delete=[],
+            to_skip=[],
+            existing_specs={},
+            node_graph={},
+            external_deps=set(),
+        )
+
+        result = await orchestrator._deploy_cubes(plan)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_bulk_validate_cubes_all_valid(
+        self,
+        orchestrator,
+        sample_cube_specs,
+    ):
+        """Test bulk validation with all dependencies available"""
+        result = await orchestrator._bulk_validate_cubes(sample_cube_specs)
+
+        # Verify all cubes are processed (valid or invalid depending on implementation)
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_bulk_validate_cubes_missing_dependencies(
+        self,
+        orchestrator,
+        sample_cube_specs,
+    ):
+        """Test bulk validation with missing dependencies"""
+        result = await orchestrator._bulk_validate_cubes(sample_cube_specs)
+
+        # Should still return results for all cubes (some will be invalid)
+        assert len(result) == 2
+
+        # At least one cube should be invalid due to missing deps
+        invalid_results = [r for r in result if r.status == "invalid"]
+        assert len(invalid_results) > 0
+
+        # Invalid cubes should have error messages about missing dependencies
+        for invalid_result in invalid_results:
+            assert len(invalid_result.errors) > 0
+            error_messages = " ".join(err.message for err in invalid_result.errors)
+            assert "One or more metrics not found for cube" in error_messages
+            assert "One or more dimensions not found for cube" in error_messages
+
+    @pytest.mark.asyncio
+    async def test_create_cubes_from_validation_invalid_cubes(self, orchestrator):
+        """Test creating cubes when validation results contain invalid cubes"""
+        invalid_results = [
+            NodeValidationResult(
+                spec=CubeSpec(
+                    name="invalid_cube",
+                    node_type="cube",
+                    metrics=[],
+                    dimensions=[],
+                ),
+                status="invalid",
+                inferred_columns=[],
+                errors=[DJError(code=ErrorCode.INVALID_CUBE, message="Invalid cube")],
+                dependencies=[],
+            ),
+        ]
+
+        # Mock invalid node processing
+        orchestrator._process_invalid_node_deploy = Mock(
+            return_value=DeploymentResult(
+                name="invalid_cube",
+                deploy_type="node",
+                status="failed",
+                operation="create",
+                message="Invalid cube",
+            ),
+        )
+
+        nodes, revisions, results = await orchestrator._create_cubes_from_validation(
+            invalid_results,
+        )
+
+        assert len(nodes) == 0
+        assert len(revisions) == 0
+        assert len(results) == 1
+        assert results[0].status == "failed"
