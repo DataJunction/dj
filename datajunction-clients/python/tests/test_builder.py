@@ -855,7 +855,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         assert (
             result["message"]
-            == "Please make sure that `dimension_that_does_not_exist` is a dimensional attribute."
+            == "Please make sure that `foo.bar.dimension_that_does_not_exist` is a dimensional attribute."
             or result["message"]
             == "foo.bar.dimension_that_does_not_exist are not available dimensions on "
             "foo.bar.avg_repair_price"
@@ -1004,6 +1004,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "partition": None,
         } in response["columns"]
         assert {
@@ -1015,6 +1016,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ],
             "description": None,
             "dimension": None,
+            "dimension_column": None,
             "partition": None,
         } in response["columns"]
 
@@ -1051,6 +1053,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "State Id",
                 "name": "state_id",
                 "type": "int",
@@ -1060,6 +1063,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Name",
                 "name": "name",
                 "type": "string",
@@ -1069,6 +1073,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Abbr",
                 "name": "abbr",
                 "type": "string",
@@ -1078,6 +1083,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "attributes": [],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Region",
                 "name": "region",
                 "type": "int",
@@ -1121,6 +1127,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 ],
                 "description": None,
                 "dimension": None,
+                "dimension_column": None,
                 "display_name": "Contact Title",
                 "name": "contact_title",
                 "type": "string",
