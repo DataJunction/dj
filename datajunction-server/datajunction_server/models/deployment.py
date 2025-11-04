@@ -462,26 +462,10 @@ class CubeSpec(NodeSpec):
         return (
             super().__eq__(other)
             and eq_columns(self.rendered_columns, other.rendered_columns)
+            or self.rendered_columns == []
             and set(self.rendered_metrics) == set(other.rendered_metrics)
             and set(self.rendered_dimensions) == set(other.rendered_dimensions)
             and (self.rendered_filters or []) == (other.rendered_filters or [])
-        )
-
-    def diff(self, other: "NodeSpec") -> list[str]:
-        """
-        Return a list of fields that differ between this and another NodeSpec.
-        """
-        return diff(
-            self,
-            other,
-            ignore_fields=[
-                "name",
-                "namespace",
-                "metrics",
-                "dimensions",
-                "filters",
-                "columns",
-            ],
         )
 
 
@@ -501,6 +485,7 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     """
     Compare two Pydantic models and return a list of fields that have changed.
     """
+    print("Comparing models:", one.model_dump(), two.model_dump())
     changed_fields = [
         field
         for field in one.model_fields.keys()

@@ -981,6 +981,7 @@ class DeploymentOrchestrator:
         cube_metric_nodes = [
             metric_nodes_map[metric_name]
             for metric_name in cube_spec.rendered_metrics or []
+            if metric_name in metric_nodes_map
         ]
 
         # Extract metric columns and catalogs
@@ -1080,7 +1081,7 @@ class DeploymentOrchestrator:
                     raise DJInvalidDeploymentConfig(
                         f"Missing validation data for cube {cube_spec.rendered_name}",
                     )
-
+                changelog = await self._generate_changelog(result)
                 if existing:
                     logger.info("Updating cube node %s", cube_spec.rendered_name)
                     new_node = existing
@@ -1137,7 +1138,8 @@ class DeploymentOrchestrator:
                     deploy_type=DeploymentResult.Type.NODE,
                     status=DeploymentResult.Status.SUCCESS,
                     operation=operation,
-                    message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})",
+                    message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
+                    + ("\n".join([""] + changelog)),
                 )
 
                 deployment_results.append(deployment_result)
