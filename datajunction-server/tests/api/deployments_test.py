@@ -1,12 +1,8 @@
 import asyncio
 import json
 from unittest import mock
-from datajunction_server.internal.deployment.deployment import (
-    safe_task,
-)
 from datajunction_server.models.deployment import (
     ColumnSpec,
-    DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
     DimensionReferenceLinkSpec,
@@ -17,7 +13,6 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DimensionJoinLinkSpec,
 )
-from datajunction_server.errors import DJException
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node
 from datajunction_server.database.tag import Tag
@@ -2847,103 +2842,6 @@ FROM ${prefix}default.hard_hats""",
         ],
     )
     assert orig_spec == spec_with_diff_namespace
-
-
-@pytest.mark.asyncio
-async def test_safe_task_success():
-    async def dummy_coro():
-        await asyncio.sleep(0.1)
-        return DeploymentResult(
-            deploy_type=DeploymentResult.Type.NODE,
-            name="node1",
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.CREATE,
-            message="ok",
-        )
-
-    semaphore = asyncio.Semaphore(1)
-    result = await safe_task(
-        name="node1",
-        deploy_type=DeploymentResult.Type.NODE,
-        coroutine=dummy_coro(),
-        semaphore=semaphore,
-        timeout=1,
-    )
-    assert result.status == DeploymentResult.Status.SUCCESS
-    assert result.name == "node1"
-
-
-@pytest.mark.asyncio
-async def test_safe_task_timeout():
-    async def slow_coro():
-        await asyncio.sleep(2)
-        return DeploymentResult(
-            deploy_type=DeploymentResult.Type.NODE,
-            name="node1",
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.CREATE,
-            message="ok",
-        )
-
-    semaphore = asyncio.Semaphore(1)
-    result = await safe_task(
-        name="node1",
-        deploy_type=DeploymentResult.Type.NODE,
-        coroutine=slow_coro(),
-        semaphore=semaphore,
-        timeout=0.1,
-    )
-    assert result.status == DeploymentResult.Status.FAILED
-    assert "timed out" in result.message
-
-
-@pytest.mark.asyncio
-async def test_safe_task_semaphore_limit():
-    results = []
-    semaphore = asyncio.Semaphore(2)
-
-    async def dummy_coro(i):
-        await asyncio.sleep(0.1)
-        return DeploymentResult(
-            deploy_type=DeploymentResult.Type.NODE,
-            name=f"node{i}",
-            status=DeploymentResult.Status.SUCCESS,
-            operation=DeploymentResult.Operation.CREATE,
-            message="ok",
-        )
-
-    tasks = [
-        safe_task(
-            name=f"node{i}",
-            deploy_type=DeploymentResult.Type.NODE,
-            coroutine=dummy_coro(i),
-            semaphore=semaphore,
-            timeout=1,
-        )
-        for i in range(4)
-    ]
-    results = await asyncio.gather(*tasks)
-
-    assert all(r.status == DeploymentResult.Status.SUCCESS for r in results)
-    assert {r.name for r in results} == {"node0", "node1", "node2", "node3"}
-
-
-@pytest.mark.asyncio
-async def test_safe_task_other_failure():
-    async def exception_coro():
-        await asyncio.sleep(0.1)
-        raise DJException("Something went wrong")
-
-    semaphore = asyncio.Semaphore(1)
-    result = await safe_task(
-        name="node1",
-        deploy_type=DeploymentResult.Type.NODE,
-        coroutine=exception_coro(),
-        semaphore=semaphore,
-        timeout=20,
-    )
-    assert result.status == DeploymentResult.Status.FAILED
-    assert "Something went wrong" in result.message
 
 
 @pytest.mark.asyncio

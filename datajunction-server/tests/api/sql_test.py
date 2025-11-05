@@ -2975,13 +2975,13 @@ async def test_get_sql_for_metrics2(client_with_examples: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_sql_including_dimension_ids(
-    module__client_with_examples: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Test getting SQL when there are dimensions ids included
     """
 
-    response = await module__client_with_examples.get(
+    response = await client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -3042,7 +3042,7 @@ FROM default_DOT_repair_orders_fact_metrics
 """
     assert str(parse(str(data["sql"]))) == str(parse(str(expected)))
 
-    response = await module__client_with_examples.get(
+    response = await client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -3119,13 +3119,13 @@ FROM default_DOT_repair_orders_fact_metrics
 
 @pytest.mark.asyncio
 async def test_get_sql_including_dimensions_with_disambiguated_columns(
-    module__client_with_examples: AsyncClient,
+    client_with_roads: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test getting SQL that includes dimensions with SQL that has to disambiguate projection columns with prefixes
     """
-    response = await module__client_with_examples.get(
+    response = await client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.total_repair_cost"],
@@ -3252,7 +3252,7 @@ FROM default_DOT_repair_orders_fact_metrics
         (39, "B", None, "Philadelphia", 1135603.0),
     ]
 
-    response = await module__client_with_examples.get(
+    response = await client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
