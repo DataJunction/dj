@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.rbac import RBACService, RBACValidator
-from datajunction_server.models.access import Resource, ResourceType
+from datajunction_server.models.access import (
+    Resource,
+    ResourceRequestVerb,
+    ResourceType,
+)
 
 
 async def can_user_edit_node(user: User, node_name: str, session: AsyncSession) -> bool:
@@ -25,8 +29,8 @@ async def can_user_edit_node(user: User, node_name: str, session: AsyncSession) 
         True if user can edit, False otherwise
     """
     validator = RBACValidator(session)
-    resource = Resource(name=node_name, resource_type=ResourceType.NODE, owner="")
-    return await validator.check_permission(user, "WRITE", resource)
+    resource = Resource(name=node_name, resource_type=ResourceType.NODE)
+    return await validator.check_permission(user, ResourceRequestVerb.WRITE, resource)
 
 
 async def can_user_manage_namespace(
@@ -47,7 +51,7 @@ async def can_user_manage_namespace(
     """
     validator = RBACValidator(session)
     resource = Resource.from_namespace(namespace)
-    return await validator.check_permission(user, "MANAGE", resource)
+    return await validator.check_permission(user, ResourceRequestVerb.WRITE, resource)
 
 
 async def make_namespace_owners(
@@ -76,8 +80,8 @@ async def make_namespace_owners(
         if user:
             await rbac_service.assign_role(
                 principal_id=user.id,
-                role_name="owner",
-                scope_type="namespace",
+                role_name=f"owner-{namespace}",
+                scope_type=ResourceType.NAMESPACE,
                 scope_value=namespace,
                 granted_by_id=granted_by.id,
             )
@@ -128,8 +132,8 @@ async def make_team_namespace_owners(
     # Make team owner of namespace
     await rbac_service.assign_role(
         principal_id=team_group.id,
-        role_name="owner",
-        scope_type="namespace",
+        role_name=f"owner-{namespace}",
+        scope_type=ResourceType.NAMESPACE,
         scope_value=namespace,
         granted_by_id=created_by.id,
     )
@@ -157,9 +161,12 @@ async def get_my_accessible_namespaces(
 
     namespaces = set()
     for assignment in assignments:
-        if assignment.scope_type == "namespace" and assignment.scope_value:
+        if assignment.scope_type == ResourceType.NAMESPACE and assignment.scope_value:
             namespaces.add(assignment.scope_value)
-        elif assignment.scope_type == "global":
+        elif (
+            assignment.scope_type == ResourceType.NAMESPACE
+            and not assignment.scope_value
+        ):
             namespaces.add("*")  # Global access
 
     return sorted(list(namespaces))
@@ -195,6 +202,84 @@ async def get_my_owned_nodes(
     return owned_nodes
 
 
+async def auto_assign_ownership_on_node_create(
+    node_name: str,
+    creator: User,
+    session: AsyncSession,
+) -> None:
+    """
+    Automatically assign ownership when a node is created
+
+    Args:
+        node_name: Full node name (e.g., "growth.metrics.new_metric")
+        creator: User who created the node
+        session: Database session
+    """
+    rbac_service = RBACService(session)
+
+    await rbac_service.auto_assign_ownership_on_create(
+        resource_type=ResourceType.NODE,
+        resource_name=node_name,
+        creator=creator,
+    )
+
+
+async def setup_team_namespace(
+    team_name: str,
+    namespace: str,
+    team_members: List[str],
+    admin_user: User,
+    session: AsyncSession,
+) -> dict:
+    """
+    Set up a team to own an entire namespace
+
+    Growth team example:
+    setup_team_namespace(
+        team_name="growth-dse",
+        namespace="growth",
+        team_members=["alice", "bob", "charlie"],
+        admin_user=admin,
+        session=session
+    )
+
+    Result: growth-dse team owns everything in growth.*
+    """
+    rbac_service = RBACService(session)
+
+    # Create team group
+    team_group = await rbac_service.create_group(
+        name=team_name,
+        display_name=team_name.replace("-", " ").title(),
+        created_by_id=admin_user.id,
+    )
+
+    # Add members to team
+    members_added = []
+    for username in team_members:
+        user = await User.get_by_username(session, username)
+        if user:
+            await rbac_service.add_to_group(
+                member_id=user.id,
+                group_id=team_group.id,
+                added_by_id=admin_user.id,
+            )
+            members_added.append(username)
+
+    # Give team ownership of namespace
+    await rbac_service.setup_team_namespace_ownership(
+        team_group=team_group,
+        namespace=namespace,
+        granted_by=admin_user,
+    )
+
+    return {
+        "team_group": team_group.username,
+        "namespace": namespace,
+        "members": members_added,
+    }
+
+
 async def setup_basic_namespace_structure(
     admin_user: User,
     session: AsyncSession,
@@ -219,8 +304,8 @@ async def setup_basic_namespace_structure(
     for namespace in namespaces:
         await rbac_service.assign_role(
             principal_id=admin_user.id,
-            role_name="owner",
-            scope_type="namespace",
+            role_name=f"owner-{namespace}",
+            scope_type=ResourceType.NAMESPACE,
             scope_value=namespace,
             granted_by_id=admin_user.id,
         )
@@ -255,22 +340,13 @@ def require_permission(action: str, resource_type: str = "node"):
 async def assign_role_by_names(
     principal_name: str,
     role_name: str,
-    scope_type: str,
+    scope_type: ResourceType,
     scope_value: Optional[str],
     granted_by: User,
     session: AsyncSession,
 ) -> bool:
     """
     Assign role using names instead of IDs
-
-    Args:
-        principal_name: Username or group name
-        role_name: Name of role to assign
-        scope_type: Scope type (global, namespace, node)
-        scope_value: Scope value
-        granted_by: User granting the role
-        session: Database session
-
     Returns:
         True if successful, False if principal not found
     """

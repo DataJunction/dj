@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.models.access import ResourceType
 from datajunction_server.database.rbac import Role, RoleAssignment
 from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -45,7 +46,7 @@ class RoleAssignmentCreate(BaseModel):
 
     principal_id: int
     role_name: str
-    scope_type: str  # 'global', 'namespace', 'node'
+    scope_type: ResourceType
     scope_value: Optional[str] = None
 
 
@@ -57,7 +58,7 @@ class RoleAssignmentResponse(BaseModel):
     principal_name: str
     principal_kind: str
     role_name: str
-    scope_type: str
+    scope_type: ResourceType
     scope_value: Optional[str]
     granted_by_id: int
     granted_by_name: str
@@ -208,7 +209,7 @@ async def assign_role(
 async def list_role_assignments(
     principal_id: Optional[int] = Query(None),
     role_name: Optional[str] = Query(None),
-    scope_type: Optional[str] = Query(None),
+    scope_type: Optional[ResourceType] = Query(None),
     session: AsyncSession = Depends(get_session),
 ) -> List[RoleAssignmentResponse]:
     """List role assignments with optional filtering"""

@@ -15,7 +15,7 @@ from datajunction_server.models.access import (
     ResourceRequestVerb,
     ResourceType,
 )
-from datajunction_server.utils import get_namespace_from_name
+from datajunction_server.utils import get_namespace_from_name, is_namespace_under
 
 
 class GroupResolver(ABC):
@@ -141,7 +141,11 @@ class RBACValidator:
 
         # Get role definition
         role = await Role.get_by_name(self.session, assignment.role_name)
-        if not role or verb.value not in role.permissions:
+        if not role:
+            return False
+
+        # Check if role has this verb permission
+        if verb.value not in role.permissions:
             return False
 
         # Check if assignment scope covers the resource
@@ -153,44 +157,30 @@ class RBACValidator:
 
     def _scope_covers_resource(
         self,
-        scope_type: str,
+        scope_type: ResourceType,
         scope_value: Optional[str],
         resource: Resource,
     ) -> bool:
         """Check if assignment scope covers the requested resource"""
 
-        if scope_type == "global":
-            return True
-
-        elif scope_type == "namespace":
+        if scope_type == ResourceType.NAMESPACE:
+            # Handle global namespace access (empty scope_value = all namespaces)
+            if not scope_value:
+                return True
             if resource.resource_type == ResourceType.NAMESPACE:
-                # Namespace resource: check if it starts with scope
-                return resource.name.startswith(scope_value or "")
+                # Namespace resource: check if it's under the scope namespace
+                return is_namespace_under(resource.name, scope_value)
             elif resource.resource_type == ResourceType.NODE:
-                # Node resource: check if node's namespace starts with scope
+                # Node resource: check if node's namespace is under scope namespace
                 node_namespace = get_namespace_from_name(resource.name)
-                return node_namespace.startswith(scope_value or "")
-
-        elif scope_type == "node":
+                return is_namespace_under(node_namespace, scope_value)
+        elif scope_type == ResourceType.NODE:
             # Node-specific assignment only covers exact node match
             return (
                 resource.resource_type == ResourceType.NODE
                 and resource.name == scope_value
             )
-
         return False
-
-    def _verb_to_action(self, verb: ResourceRequestVerb) -> str:
-        """Convert ResourceRequestVerb to action string"""
-        mapping = {
-            ResourceRequestVerb.READ: "READ",
-            ResourceRequestVerb.BROWSE: "READ",
-            ResourceRequestVerb.WRITE: "WRITE",
-            ResourceRequestVerb.EXECUTE: "EXECUTE",
-            ResourceRequestVerb.DELETE: "DELETE",
-            ResourceRequestVerb.USE: "READ",  # Map USE to READ for now
-        }
-        return mapping.get(verb, "READ")
 
 
 class RBACService:
@@ -198,14 +188,19 @@ class RBACService:
     Service class for RBAC operations like assigning roles, managing groups, etc.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        group_resolver: Optional[GroupResolver] = None,
+    ):
         self.session = session
+        self.group_resolver = group_resolver or LocalGroupResolver()
 
     async def assign_role(
         self,
         principal_id: int,
         role_name: str,
-        scope_type: str,
+        scope_type: ResourceType,
         scope_value: Optional[str] = None,
         granted_by_id: int = None,
     ) -> RoleAssignment:
@@ -241,8 +236,8 @@ class RBACService:
         for principal_id in principal_ids:
             assignment = await self.assign_role(
                 principal_id=principal_id,
-                role_name="owner",
-                scope_type="namespace",
+                role_name=f"owner-{namespace}",
+                scope_type=ResourceType.NAMESPACE,
                 scope_value=namespace,
                 granted_by_id=granted_by_id,
             )
@@ -307,6 +302,62 @@ class RBACService:
 
         return owners
 
+    async def auto_assign_ownership_on_create(
+        self,
+        resource_type: ResourceType,
+        resource_name: str,
+        creator: User,
+    ) -> RoleAssignment:
+        """
+        Automatically assign ownership when a resource is created
+
+        Logic:
+        1. If creator is in groups, assign ownership to primary group
+        2. Otherwise, assign ownership to creator
+        3. Scope can be namespace or node level based on resource
+        """
+
+        # Get creator's groups
+        user_groups = await self.group_resolver.get_user_groups(
+            self.session,
+            creator.id,
+        )
+
+        if user_groups:
+            # Assign to primary group (first group)
+            owner_id = user_groups[0]
+        else:
+            # Assign to creator
+            owner_id = creator.id
+
+        # Create ownership assignment
+        return await self.assign_role(
+            principal_id=owner_id,
+            role_name=f"owner-{resource_name}",
+            scope_type=resource_type,
+            scope_value=resource_name,
+            granted_by_id=creator.id,
+        )
+
+    async def setup_team_namespace_ownership(
+        self,
+        team_group: User,  # Group principal
+        namespace: str,
+        granted_by: User,
+    ) -> RoleAssignment:
+        """
+        Set up a team to own an entire namespace
+
+        Example: growth-dse team owns growth.* namespace
+        """
+        return await self.assign_role(
+            principal_id=team_group.id,
+            role_name=f"owner-{namespace}",
+            scope_type=ResourceType.NAMESPACE,
+            scope_value=namespace,
+            granted_by_id=granted_by.id,
+        )
+
     async def migrate_existing_ownership(self) -> None:
         """
         Migrate existing node ownership to RBAC system
@@ -317,16 +368,14 @@ class RBACService:
         from datajunction_server.database.nodeowner import NodeOwner
 
         # Migrate node creators to owners
-        nodes_with_creators = await self.session.execute(
-            select(Node).where(Node.created_by_id.isnot(None)),
-        )
+        nodes_with_creators = await self.session.execute(select(Node))
 
         for node in nodes_with_creators.scalars():
             try:
                 await self.assign_role(
                     principal_id=node.created_by_id,
-                    role_name="owner",
-                    scope_type="node",
+                    role_name=f"owner-{node.name}",
+                    scope_type=ResourceType.NODE,
                     scope_value=node.name,
                     granted_by_id=node.created_by_id,  # Self-granted
                 )
@@ -342,8 +391,8 @@ class RBACService:
                 try:
                     await self.assign_role(
                         principal_id=owner_rel.user_id,
-                        role_name="owner",
-                        scope_type="node",
+                        role_name=f"owner-{owner_rel.node.name}",
+                        scope_type=ResourceType.NODE,
                         scope_value=owner_rel.node.name,
                         granted_by_id=owner_rel.user_id,  # Self-granted
                     )

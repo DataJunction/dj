@@ -46,30 +46,25 @@ class Resource(BaseModel):
     that are passed to injected validation logic
     """
 
-    name: str  # name of the node
+    name: str  # name of the node or namespace
     resource_type: ResourceType
-    owner: str
 
     def __hash__(self) -> int:
-        return hash((self.name, self.resource_type, self.owner))
+        return hash((self.name, self.resource_type))
 
     @classmethod
     def from_node(cls, node: Union[NodeRevision, Node]) -> "Resource":
         """
         Create a resource object from a DJ Node
         """
-        return cls(name=node.name, resource_type=ResourceType.NODE, owner="")
+        return cls(name=node.name, resource_type=ResourceType.NODE)
 
     @classmethod
     def from_namespace(cls, namespace: str) -> "Resource":
         """
         Create a resource object from a namespace
         """
-        return cls(
-            name=namespace,
-            resource_type=ResourceType.NAMESPACE,
-            owner="",
-        )
+        return cls(name=namespace, resource_type=ResourceType.NAMESPACE)
 
 
 class ResourceRequest(BaseModel):
