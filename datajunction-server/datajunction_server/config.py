@@ -146,6 +146,17 @@ class Settings(BaseSettings):  # pragma: no cover
     fanout_threshold: int = 50
     max_concurrency: int = 20
 
+    # RBAC (Role-Based Access Control) configuration
+    rbac_enabled: bool = True
+    rbac_default_public_read: bool = True  # Allow read access to all users by default
+    rbac_group_resolver: str = (
+        "local"  # "local" or "external" (for enterprise integrations)
+    )
+
+    # External group resolver configuration (for enterprise)
+    external_group_resolver_url: Optional[str] = None
+    external_group_resolver_type: Optional[str] = None  # "gandalf", "ldap", etc.
+
     @property
     def celery(self) -> Celery:
         """

@@ -55,6 +55,7 @@ class PrincipalKind(StrEnum):
 
     USER = "user"
     SERVICE_ACCOUNT = "service_account"
+    GROUP = "group"
 
 
 class User(Base):
