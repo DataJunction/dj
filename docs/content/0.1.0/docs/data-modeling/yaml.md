@@ -19,12 +19,11 @@ If you've already started developing DJ entities through the UI or a different c
 ```sh
 dj pull default ./example_project
 ```
-<!-- 
-TODO: This is not supported
+
 2. **Validation**: Once you've made changes to the YAML files, you can validate those changes with:
 ```sh
 dj push ./example_project --dryrun
-``` -->
+```
 
 3. **Deployment**: When satisfied, you can deploy the changes like this:
 ```sh
