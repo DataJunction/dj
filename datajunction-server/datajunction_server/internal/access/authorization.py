@@ -48,6 +48,9 @@ def validate_access() -> ValidateAccessFn:
     """
     A placeholder validate access dependency injected function
     that returns a ValidateAccessFn that approves all requests
+
+    NOTE: This is the fallback when RBAC is disabled.
+    When RBAC is enabled, use get_rbac_validate_access instead.
     """
 
     def _(access_control: AccessControl):
@@ -73,3 +76,18 @@ def validate_access() -> ValidateAccessFn:
         access_control.approve_all()
 
     return _
+
+
+def get_rbac_validate_access(session) -> ValidateAccessFn:
+    """
+    Get RBAC-based validation function
+    Use this when RBAC is enabled
+    """
+    from datajunction_server.internal.access.rbac import RBACValidator
+
+    async def rbac_validate(access_control: AccessControl):
+        """RBAC validation function"""
+        validator = RBACValidator(session)
+        await validator(access_control)
+
+    return rbac_validate
