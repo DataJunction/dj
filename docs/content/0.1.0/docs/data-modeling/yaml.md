@@ -187,11 +187,11 @@ columns:
     type_: temporal
 ```
 
-## Advanced Deployment Features
+## Deployment Features
 
-### Deployment Orchestration
+### Orchestration
 
-DJ uses an advanced deployment orchestrator that provides several powerful features:
+The DJ CLI's deployment command (`dj push`) leverages backend APIs designed for fast, atomic deployments with full tracking. This orchestration system handles the complexity of dependency management, status tracking, and transactional deployment while providing you with real-time feedback through the CLI.
 
 #### Topological Sorting
 
