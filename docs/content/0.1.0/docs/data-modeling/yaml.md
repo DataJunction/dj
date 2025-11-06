@@ -13,21 +13,22 @@ You can anchor your project to a specific namespace in DJ, and use YAML files to
 
 ### From Existing
 
-If you've already started developing DJ entities through the UI or a different client, you can export the existing entities to a YAML project to get started quickly. Note that this process only supports exporting a single namespace at a time.
+If you've already started developing DJ entities through the UI or a different client, you can export the existing entities to a YAML project to get started quickly.
 
 1. **Export**: Use the DJ CLI (installed when you install the DJ Python client) to export your DJ entities to a YAML project. This snippet will export the `default` namespace to a YAML project in the `./example_project` directory:
 ```sh
 dj pull default ./example_project
 ```
-
+<!-- 
+TODO: This is not supported
 2. **Validation**: Once you've made changes to the YAML files, you can validate those changes with:
 ```sh
-dj deploy ./example_project --dryrun
-```
+dj push ./example_project --dryrun
+``` -->
 
 3. **Deployment**: When satisfied, you can deploy the changes like this:
 ```sh
-dj deploy ./example_project
+dj push ./example_project --namespace <optional namespace>
 ```
 
 ### From Scratch
@@ -36,23 +37,15 @@ You can also create a YAML project from scratch.
 
 1. Create a `dj.yaml` file with project metadata. See additional details on [project metadata fields below](#project-metadata-fields). Example:
 ```
-name: Roads Project
-description: Roads example project
-prefix: projects.roads
-mode: published
+namespace: projects.roads
 tags:
   - name: deprecated
     description: This node is deprecated
     tag_type: Maintenance
-build:
-  priority:
-    - roads.date
-    - roads.repair_order_details
-    - roads.contractors
-    - roads.hard_hats
 ```
-2. Create YAML files that represent each node. Use file infixes to define node types, like `foo.dimension.yaml` or `foo.transform.yaml`). Here is an example for the `roads.date_dim` node, in file `./roads/
+2. Create YAML files that represent each node. Here is an example for the `roads.date_dim` node, in file `./roads/date_dim.yaml`:
 ```
+name: ${prefix}date_dim
 display_name: Date
 description: Date dimension
 query: |
@@ -69,12 +62,8 @@ primary_key:
 
 | Field | Required? | Description |
 | ---- | ---- | ---- |
-| `name` | Yes | Name of the YAML project |
-| `description` | Yes | Description of the YAML project |
-| `prefix` | Yes | This is set to a DJ namespace. Node names are derived from the directory and file structure. For example, for the prefix `projects.roads` and file `./baz/boom.source.yaml`, the node name becomes `projects.roads.baz.boom`. |
-| `mode` | No | Whether the project is published or draft (defaults to published) |
+| `namespace` | Yes | The DJ namespace for this YAML project |
 | `tags` | No | Used to define any tags that are used by nodes in the project |
-| `build.priority` | No | Used to control the ordering of node deployment |
 
 
 #### Node YAML Fields Overview
@@ -198,3 +187,118 @@ columns:
     granularity: day
     type_: temporal
 ```
+
+## Advanced Deployment Features
+
+### Deployment Orchestration
+
+DJ uses an advanced deployment orchestrator that provides several powerful features:
+
+#### Topological Sorting
+
+The deployment system automatically analyzes dependencies between nodes and deploys them in the correct order. You do not need to manually specify deployment priority, as DJ will:
+
+- Detect dependencies between nodes through SQL parsing to build a dependency graph
+- Ensure dependent nodes are deployed after their dependencies
+
+#### Real-Time Status Tracking
+
+Each deployment is assigned a unique UUID and tracked in real-time. The deployment process provides:
+
+- Live progress updates in the terminal
+- Detailed status for each node being deployed
+- Rich formatted output showing deployment progress and errors
+
+#### Deployment Phases
+
+The deployment orchestrator executes deployments in distinct phases:
+
+1. **Setup Phase**: Validates resources (tags, namespaces, catalogs)
+2. **Node Deployment**: Deploys nodes in topologically sorted order, with each independent layer of nodes deployed atomically.
+3. **Dimension Links**: Creates dimension links between nodes
+4. **Cubes**: Deploys all cube nodes in a single transaction, after the dimensional graph is complete
+5. **Cleanup**: Handles any nodes marked for deletion
+
+### Supported CLI Commands
+
+#### `dj push` - Streamlined Deployment
+
+The `dj push` command provides a streamlined deployment experience:
+
+```sh
+# Push all YAML files in a directory
+dj push ./my-project
+
+# Override the namespace specified in dj.yaml
+dj push ./my-project --namespace production.analytics
+
+# Example with real-time output
+dj push ./example_project --namespace my.namespace
+```
+
+#### `dj pull` - Export to YAML
+
+Export existing nodes from a namespace to YAML files:
+
+```sh
+# Export all nodes from a namespace
+dj pull default ./exported-nodes
+
+# Export production namespace for backup
+dj pull production.metrics ./backups/production-$(date +%Y%m%d)
+```
+
+### Deployment Workflow Examples
+
+#### Complete Development Workflow
+
+```sh
+# 1. Export existing namespace to get started
+dj pull production.analytics ./my-project
+
+# 2. Make changes to YAML files
+# ... edit files ...
+
+# 3. Validate changes with dry run
+dj deploy ./my-project --dryrun
+
+# 4. Deploy to development namespace first
+dj push ./my-project --namespace development.analytics
+
+# 5. After testing, deploy to production
+dj push ./my-project --namespace production.analytics
+```
+
+#### Real-Time Deployment Output
+
+When you run `dj push`, you'll see output like this:
+
+```
+Pushing project from: ./my-project
+
+┌─────────────────────────────────────────────────────────────┐
+│                      Deployment Status                      │
+├──────────────────────┬─────────────┬────────────────────────┤
+│ UUID                 │ Status      │ Progress               │
+├──────────────────────┼─────────────┼────────────────────────┤
+│ abc123-def456-...    │ RUNNING     │ Deploying nodes...     │
+└──────────────────────┴─────────────┴────────────────────────┘
+
+Deployment finished: SUCCESS
+```
+
+### Error Handling and Troubleshooting
+
+#### Common Deployment Issues
+
+1. **Dependency Errors**: If nodes have circular dependencies or missing dependencies, the deployment will fail with clear error messages identifying the problematic nodes.
+
+2. **Validation Failures**: SQL validation errors, invalid column references, or schema mismatches will be reported during the validation phase.
+
+#### Best Practices
+
+- **Test in Development**: Always deploy to a development namespace first and complete verification.
+- **Use Dry Runs**: Validate changes with `--dryrun` before actual deployment
+- **Backup Existing Namespaces**: Use `dj pull` to backup production namespaces before major changes
+- **Monitor Dependencies**: Be aware of dependencies between nodes when making structural changes
+- **Namespace Isolation**: Use separate namespaces for different environments (dev, staging, production)
