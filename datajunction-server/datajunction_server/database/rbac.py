@@ -10,6 +10,7 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     DateTime,
+    Enum,
     ForeignKey,
     Integer,
     String,
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
+from datajunction_server.models.access import ResourceType
 from datajunction_server.typing import UTCDatetime
 
 
@@ -97,10 +99,10 @@ class RoleAssignment(Base):
     )
 
     # Scope - where this role applies
-    scope_type: Mapped[str] = mapped_column(String(20))  # 'global', 'namespace', 'node'
+    scope_type: Mapped[ResourceType] = mapped_column(Enum(ResourceType))
     scope_value: Mapped[Optional[str]] = mapped_column(
         String(500),
-    )  # null, namespace path, node name
+    )  # For NAMESPACE: namespace path (empty = all), For NODE: node name
 
     # Metadata
     granted_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

@@ -382,6 +382,38 @@ def get_namespace_from_name(name: str) -> str:
     return node_namespace
 
 
+def is_namespace_under(child_namespace: str, parent_namespace: str) -> bool:
+    """
+    Check if child_namespace is under parent_namespace using proper dot-separated hierarchy
+
+    Examples:
+    - _is_namespace_under("one.two.three.four", "one.two.three") → True
+    - _is_namespace_under("one.two.three.four", "one.two") → True
+    - _is_namespace_under("one.two.three.four", "one") → True
+    - _is_namespace_under("one.two.three.four", "one.two.three.foursomething") → False
+    - _is_namespace_under("one.two.three.four", "one.two.three.four") → True (exact match)
+    """
+
+    # Exact match
+    if child_namespace == parent_namespace:
+        return True
+
+    # Check if child is under parent in the hierarchy
+    parent_parts = parent_namespace.split(".")
+    child_parts = child_namespace.split(".")
+
+    # Parent must have fewer or equal parts than child
+    if len(parent_parts) > len(child_parts):
+        return False
+
+    # Check that all parent parts match child parts exactly
+    for i, parent_part in enumerate(parent_parts):
+        if i >= len(child_parts) or child_parts[i] != parent_part:
+            return False
+
+    return True
+
+
 async def get_current_user(request: Request) -> User:
     """
     Returns the current authenticated user
