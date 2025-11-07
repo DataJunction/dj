@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.hierarchy import (
     Hierarchy,
     HierarchyLevel,
@@ -20,9 +21,11 @@ from datajunction_server.database.hierarchy import (
     list_hierarchies,
     validate_hierarchy_levels,
 )
+from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.hierarchy import (
     HierarchyCreateRequest,
@@ -61,6 +64,9 @@ async def list_all_hierarchies(
             name=h.name,
             display_name=h.display_name,
             description=h.description,
+            created_by_id=h.created_by_id,
+            created_by_username=h.created_by.username,
+            created_at=h.created_at,
             level_count=len(h.levels),
         )
         for h in hierarchies
@@ -77,6 +83,7 @@ async def create_hierarchy(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    save_history=Depends(get_save_history),
 ) -> HierarchyOutput:
     """
     Create a new hierarchy definition.
@@ -127,6 +134,7 @@ async def create_hierarchy(
         name=hierarchy_data.name,
         display_name=hierarchy_data.display_name,
         description=hierarchy_data.description,
+        created_by_id=current_user.id,
     )
     session.add(hierarchy)
     await session.flush()  # Get the ID
@@ -144,11 +152,37 @@ async def create_hierarchy(
 
     await session.commit()
 
+    # Log creation in history
+    await save_history(
+        event=History(
+            entity_type=EntityType.HIERARCHY,
+            entity_name=hierarchy.name,
+            activity_type=ActivityType.CREATE,
+            user=current_user.username,
+            post={
+                "name": hierarchy.name,
+                "display_name": hierarchy.display_name,
+                "description": hierarchy.description,
+                "levels": [
+                    {
+                        "name": level_def["name"],
+                        "dimension_node_id": level_def["dimension_node_id"],
+                        "level_order": level_def["level_order"],
+                        "grain_columns": level_def.get("grain_columns"),
+                    }
+                    for level_def in level_defs
+                ],
+            },
+        ),
+        session=session,
+    )
+
     # Reload with relationships
     result = await session.execute(
         select(Hierarchy)
         .options(
             selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
+            selectinload(Hierarchy.created_by),
         )
         .where(Hierarchy.id == hierarchy.id),
     )
@@ -172,6 +206,7 @@ async def get_hierarchy(
         select(Hierarchy)
         .options(
             selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
+            selectinload(Hierarchy.created_by),
         )
         .where(Hierarchy.name == name),
     )
@@ -193,6 +228,7 @@ async def update_hierarchy(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    save_history=Depends(get_save_history),
 ) -> HierarchyOutput:
     """
     Update a hierarchy.
@@ -203,6 +239,22 @@ async def update_hierarchy(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"Hierarchy '{name}' not found",
         )
+
+    # Capture pre-state for history
+    pre_state = {
+        "name": hierarchy.name,
+        "display_name": hierarchy.display_name,
+        "description": hierarchy.description,
+        "levels": [
+            {
+                "name": level.name,
+                "dimension_node_id": level.dimension_node_id,
+                "level_order": level.level_order,
+                "grain_columns": level.grain_columns,
+            }
+            for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+        ],
+    }
 
     # Update basic fields
     if update_data.display_name is not None:
@@ -262,15 +314,47 @@ async def update_hierarchy(
 
     await session.commit()
 
-    # Reload with relationships
+    # Reload with relationships for post-state and response
     result = await session.execute(
         select(Hierarchy)
         .options(
             selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
+            selectinload(Hierarchy.created_by),
         )
         .where(Hierarchy.id == hierarchy.id),
     )
     updated_hierarchy = result.scalar_one()
+
+    # Capture post-state and log update in history
+    post_state = {
+        "name": updated_hierarchy.name,
+        "display_name": updated_hierarchy.display_name,
+        "description": updated_hierarchy.description,
+        "levels": [
+            {
+                "name": level.name,
+                "dimension_node_id": level.dimension_node_id,
+                "level_order": level.level_order,
+                "grain_columns": level.grain_columns,
+            }
+            for level in sorted(
+                updated_hierarchy.levels,
+                key=lambda lvl: lvl.level_order,
+            )
+        ],
+    }
+
+    await save_history(
+        event=History(
+            entity_type=EntityType.HIERARCHY,
+            entity_name=updated_hierarchy.name,
+            activity_type=ActivityType.UPDATE,
+            user=current_user.username,
+            pre=pre_state,
+            post=post_state,
+        ),
+        session=session,
+    )
 
     return _convert_to_output(updated_hierarchy)
 
@@ -281,7 +365,8 @@ async def delete_hierarchy(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-):
+    save_history=Depends(get_save_history),
+) -> None:
     """
     Delete a hierarchy.
     """
@@ -292,8 +377,36 @@ async def delete_hierarchy(
             detail=f"Hierarchy '{name}' not found",
         )
 
+    # Capture pre-state for history before deletion
+    pre_state = {
+        "name": hierarchy.name,
+        "display_name": hierarchy.display_name,
+        "description": hierarchy.description,
+        "levels": [
+            {
+                "name": level.name,
+                "dimension_node_id": level.dimension_node_id,
+                "level_order": level.level_order,
+                "grain_columns": level.grain_columns,
+            }
+            for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+        ],
+    }
+
     await session.delete(hierarchy)
     await session.commit()
+
+    # Log deletion in history
+    await save_history(
+        event=History(
+            entity_type=EntityType.HIERARCHY,
+            entity_name=name,
+            activity_type=ActivityType.DELETE,
+            user=current_user.username,
+            pre=pre_state,
+        ),
+        session=session,
+    )
 
 
 @router.get("/hierarchies/{name}/levels", response_model=List[HierarchyLevelOutput])
@@ -385,6 +498,9 @@ def _convert_to_output(hierarchy: Hierarchy) -> HierarchyOutput:
         name=hierarchy.name,
         display_name=hierarchy.display_name,
         description=hierarchy.description,
+        created_by_id=hierarchy.created_by_id,
+        created_by_username=hierarchy.created_by.username,
+        created_at=hierarchy.created_at,
         levels=[
             HierarchyLevelOutput(
                 id=level.id,

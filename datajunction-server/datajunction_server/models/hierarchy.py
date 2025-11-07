@@ -3,6 +3,7 @@ Pydantic models for hierarchies.
 """
 
 from typing import List, Optional
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -104,6 +105,9 @@ class HierarchyOutput(BaseModel):
     name: str
     display_name: Optional[str] = None
     description: Optional[str] = None
+    created_by_id: int
+    created_by_username: str
+    created_at: datetime
     levels: List[HierarchyLevelOutput]
 
     class Config:
@@ -117,6 +121,9 @@ class HierarchyInfo(BaseModel):
     name: str
     display_name: Optional[str] = None
     description: Optional[str] = None
+    created_by_id: int
+    created_by_username: str
+    created_at: datetime
     level_count: int
 
     class Config:
