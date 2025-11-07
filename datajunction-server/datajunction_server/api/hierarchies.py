@@ -1,12 +1,11 @@
 """
 Hierarchies API endpoints.
 
-This module provides endpoints for managing dimensional hierarchies,
-including CRUD operations and validation.
+Handles creation, retrieval, updating, deletion, and validation of hierarchies.
 """
 
 from http import HTTPStatus
-from typing import List
+from typing import Callable, List
 
 from fastapi import Depends, HTTPException, Query
 from sqlalchemy import select
@@ -17,9 +16,6 @@ from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.hierarchy import (
     Hierarchy,
     HierarchyLevel,
-    get_hierarchy_by_name,
-    list_hierarchies,
-    validate_hierarchy_levels,
 )
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
@@ -56,7 +52,7 @@ async def list_all_hierarchies(
     """
     List all available hierarchies.
     """
-    hierarchies = await list_hierarchies(session, limit=limit, offset=offset)
+    hierarchies = await Hierarchy.list_all(session, limit=limit, offset=offset)
 
     return [
         HierarchyInfo(
@@ -83,13 +79,13 @@ async def create_hierarchy(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    save_history=Depends(get_save_history),
+    save_history: Callable = Depends(get_save_history),
 ) -> HierarchyOutput:
     """
     Create a new hierarchy definition.
     """
     # Check if hierarchy already exists
-    existing = await get_hierarchy_by_name(session, hierarchy_data.name)
+    existing = await Hierarchy.get_by_name(session, hierarchy_data.name)
     if existing:
         raise HTTPException(
             status_code=HTTPStatus.CONFLICT,
@@ -123,7 +119,7 @@ async def create_hierarchy(
         for level in hierarchy_data.levels
     ]
 
-    validation_errors = await validate_hierarchy_levels(session, level_defs)
+    validation_errors = await Hierarchy.validate_levels(session, level_defs)
     if validation_errors:
         raise DJInvalidInputException(
             message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
@@ -233,7 +229,7 @@ async def update_hierarchy(
     """
     Update a hierarchy.
     """
-    hierarchy = await get_hierarchy_by_name(session, name)
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
@@ -291,7 +287,7 @@ async def update_hierarchy(
             for level in update_data.levels
         ]
 
-        validation_errors = await validate_hierarchy_levels(session, level_defs)
+        validation_errors = await Hierarchy.validate_levels(session, level_defs)
         if validation_errors:
             raise DJInvalidInputException(
                 message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
@@ -370,7 +366,7 @@ async def delete_hierarchy(
     """
     Delete a hierarchy.
     """
-    hierarchy = await get_hierarchy_by_name(session, name)
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
@@ -457,7 +453,7 @@ async def validate_hierarchy(
     """
     Validate a hierarchy's structure and relationships.
     """
-    hierarchy = await get_hierarchy_by_name(session, name)
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
@@ -475,7 +471,7 @@ async def validate_hierarchy(
         for level in hierarchy.levels
     ]
 
-    validation_errors = await validate_hierarchy_levels(session, level_defs)
+    validation_errors = await Hierarchy.validate_levels(session, level_defs)
 
     errors = [
         HierarchyValidationError(
