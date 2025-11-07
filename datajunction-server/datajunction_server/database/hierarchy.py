@@ -1,9 +1,12 @@
 """Hierarchy database schema."""
 
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
+from functools import partial
+from typing import TYPE_CHECKING, List, Optional, Dict, Any
 
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -16,7 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
 from datajunction_server.models.base import labelize
+from datajunction_server.typing import UTCDatetime
+
+# Import for type checking to avoid circular imports
+if TYPE_CHECKING:
+    from datajunction_server.database.history import History
 
 
 class Hierarchy(Base):  # type: ignore
@@ -40,11 +49,33 @@ class Hierarchy(Base):  # type: ignore
     )
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Audit fields
+    created_by_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    created_by: Mapped[User] = relationship(
+        "User",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
+    )
+    created_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        insert_default=partial(datetime.now, timezone.utc),
+    )
+
     # Relationships
     levels: Mapped[List["HierarchyLevel"]] = relationship(
         back_populates="hierarchy",
         cascade="all, delete-orphan",
         order_by="HierarchyLevel.level_order",
+    )
+
+    history: Mapped[List["History"]] = relationship(
+        primaryjoin="History.entity_name==Hierarchy.name",
+        order_by="History.created_at",
+        foreign_keys="History.entity_name",
+        viewonly=True,
     )
 
     def __repr__(self):
@@ -130,7 +161,10 @@ async def list_hierarchies(
     """List all hierarchies."""
     result = await session.execute(
         select(Hierarchy)
-        .options(relationship(Hierarchy.levels))
+        .options(
+            relationship(Hierarchy.levels),
+            relationship(Hierarchy.created_by),
+        )
         .limit(limit)
         .offset(offset),
     )
