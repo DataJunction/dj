@@ -5,12 +5,10 @@ Handles creation, retrieval, updating, deletion, and validation of hierarchies.
 """
 
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Callable, List, cast
 
 from fastapi import Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.hierarchy import (
@@ -20,7 +18,11 @@ from datajunction_server.database.hierarchy import (
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import (
+    DJAlreadyExistsException,
+    DJDoesNotExistException,
+    DJInvalidInputException,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.user import UserNameOnly
@@ -87,9 +89,8 @@ async def create_hierarchy(
     # Check if hierarchy already exists
     existing = await Hierarchy.get_by_name(session, hierarchy_data.name)
     if existing:
-        raise HTTPException(
-            status_code=HTTPStatus.CONFLICT,
-            detail=f"Hierarchy '{hierarchy_data.name}' already exists",
+        raise DJAlreadyExistsException(
+            message=f"Hierarchy '{hierarchy_data.name}' already exists",
         )
 
     # Validate and resolve dimension node names to IDs
@@ -174,16 +175,10 @@ async def create_hierarchy(
     )
 
     # Reload with relationships
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.id == hierarchy.id),
+    created_hierarchy = cast(
+        Hierarchy,
+        await Hierarchy.get_by_id(session, hierarchy.id),
     )
-    created_hierarchy = result.scalar_one()
-
     return _convert_to_output(created_hierarchy)
 
 
@@ -197,23 +192,9 @@ async def get_hierarchy(
     """
     Get a specific hierarchy by name.
     """
-    # Load hierarchy with dimension node information
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.name == name),
-    )
-    hierarchy = result.scalar_one_or_none()
-
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
-
+        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
     return _convert_to_output(hierarchy)
 
 
@@ -261,9 +242,13 @@ async def update_hierarchy(
     # Update levels if provided
     if update_data.levels is not None:
         # Validate and resolve dimension nodes
-        dimension_nodes = {}
+        dimension_node_names = {level.dimension_node for level in update_data.levels}
+        dimension_nodes = {
+            node.name: node
+            for node in await Node.get_by_names(session, list(dimension_node_names))
+        }
         for level in update_data.levels:
-            node = await Node.get_by_name(session, level.dimension_node)
+            node = dimension_nodes.get(level.dimension_node)
             if not node:
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
@@ -274,19 +259,17 @@ async def update_hierarchy(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Node '{level.dimension_node}' is not a dimension node",
                 )
-            dimension_nodes[level.dimension_node] = node.id
 
         # Validate hierarchy structure
         level_defs = [
             {
                 "name": level.name,
-                "dimension_node_id": dimension_nodes[level.dimension_node],
+                "dimension_node_id": dimension_nodes[level.dimension_node].id,
                 "level_order": level.level_order,
                 "grain_columns": level.grain_columns,
             }
             for level in update_data.levels
         ]
-
         validation_errors = await Hierarchy.validate_levels(session, level_defs)
         if validation_errors:
             raise DJInvalidInputException(
@@ -314,18 +297,12 @@ async def update_hierarchy(
 
     await session.commit()
 
-    # Reload with relationships for post-state and response
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.id == hierarchy.id),
+    updated_hierarchy = cast(
+        Hierarchy,
+        await Hierarchy.get_by_id(session, hierarchy.id),
     )
-    updated_hierarchy = result.scalar_one()
 
-    # Capture post-state and log update in history
+    # Log update in history
     post_state = {
         "name": updated_hierarchy.name,
         "display_name": updated_hierarchy.display_name,
@@ -343,8 +320,6 @@ async def update_hierarchy(
             )
         ],
     }
-    print("post_state", post_state)
-
     await save_history(
         event=History(
             entity_type=EntityType.HIERARCHY,
@@ -420,20 +395,9 @@ async def get_hierarchy_levels(
     """
     Get all levels for a specific hierarchy.
     """
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-        )
-        .where(Hierarchy.name == name),
-    )
-    hierarchy = result.scalar_one_or_none()
-
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
+        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
 
     return [
         HierarchyLevelOutput(

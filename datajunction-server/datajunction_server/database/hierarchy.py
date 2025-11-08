@@ -23,7 +23,6 @@ from datajunction_server.database.user import User
 from datajunction_server.models.base import labelize
 from datajunction_server.typing import UTCDatetime
 
-# Import for type checking to avoid circular imports
 if TYPE_CHECKING:
     from datajunction_server.database.history import History
 
@@ -89,7 +88,14 @@ class Hierarchy(Base):  # type: ignore
     ) -> Optional["Hierarchy"]:
         """Get a hierarchy by name with its levels loaded."""
         result = await session.execute(
-            select(cls).options(selectinload(cls.levels)).where(cls.name == name),
+            select(Hierarchy)
+            .options(
+                selectinload(Hierarchy.levels).selectinload(
+                    HierarchyLevel.dimension_node,
+                ),
+                selectinload(Hierarchy.created_by),
+            )
+            .where(Hierarchy.name == name),
         )
         return result.scalar_one_or_none()
 
@@ -101,7 +107,14 @@ class Hierarchy(Base):  # type: ignore
     ) -> Optional["Hierarchy"]:
         """Get a hierarchy by ID with its levels loaded."""
         result = await session.execute(
-            select(cls).options(selectinload(cls.levels)).where(cls.id == hierarchy_id),
+            select(Hierarchy)
+            .options(
+                selectinload(Hierarchy.levels).selectinload(
+                    HierarchyLevel.dimension_node,
+                ),
+                selectinload(Hierarchy.created_by),
+            )
+            .where(cls.id == hierarchy_id),
         )
         return result.scalar_one_or_none()
 
