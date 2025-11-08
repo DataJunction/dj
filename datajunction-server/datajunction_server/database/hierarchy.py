@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional, Dict, Any
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -13,17 +13,21 @@ from sqlalchemy import (
     JSON,
     Text,
     select,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
-from datajunction_server.database.node import Node
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
+from datajunction_server.models.dimensionlink import JoinCardinality
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.base import labelize
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 
-# Import for type checking to avoid circular imports
 if TYPE_CHECKING:
     from datajunction_server.database.history import History
 
@@ -89,7 +93,14 @@ class Hierarchy(Base):  # type: ignore
     ) -> Optional["Hierarchy"]:
         """Get a hierarchy by name with its levels loaded."""
         result = await session.execute(
-            select(cls).options(selectinload(cls.levels)).where(cls.name == name),
+            select(Hierarchy)
+            .options(
+                selectinload(Hierarchy.levels).selectinload(
+                    HierarchyLevel.dimension_node,
+                ),
+                selectinload(Hierarchy.created_by),
+            )
+            .where(Hierarchy.name == name),
         )
         return result.scalar_one_or_none()
 
@@ -101,7 +112,14 @@ class Hierarchy(Base):  # type: ignore
     ) -> Optional["Hierarchy"]:
         """Get a hierarchy by ID with its levels loaded."""
         result = await session.execute(
-            select(cls).options(selectinload(cls.levels)).where(cls.id == hierarchy_id),
+            select(Hierarchy)
+            .options(
+                selectinload(Hierarchy.levels).selectinload(
+                    HierarchyLevel.dimension_node,
+                ),
+                selectinload(Hierarchy.created_by),
+            )
+            .where(cls.id == hierarchy_id),
         )
         return result.scalar_one_or_none()
 
@@ -143,48 +161,140 @@ class Hierarchy(Base):  # type: ignore
     async def validate_levels(
         cls,
         session: AsyncSession,
-        levels: List[Dict[str, Any]],
-    ) -> List[str]:
+        levels: list[HierarchyLevelInput],
+    ) -> tuple[list[str], dict[str, Node]]:
         """
         Validate hierarchy level definitions and return any validation errors.
         """
         errors = []
+        existing_nodes: dict[str, Node] = {}
 
         if len(levels) < 2:
             errors.append("Hierarchy must have at least 2 levels")
-            return errors
+            return errors, existing_nodes
 
         # Check for unique level orders
-        orders = [level.get("level_order") for level in levels]
+        orders = [level.level_order for level in levels]
         if len(set(orders)) != len(orders):
             errors.append("Level orders must be unique")
 
         # Check for unique level names
-        names = [level.get("name") for level in levels]
+        names = [level.name for level in levels]
         if len(set(names)) != len(names):
             errors.append("Level names must be unique")
 
-        # Validate dimension nodes exist
-        dimension_node_ids = [level.get("dimension_node_id") for level in levels]
-        result = await session.execute(
-            select(Node.id).where(Node.id.in_(dimension_node_ids)),
-        )
-        existing_ids = {row[0] for row in result.all()}
+        # Resolve dimension node names to IDs and validate they exist (single DB call)
+        dimension_node_names = [level.dimension_node for level in levels]
+        existing_nodes = {
+            node.name: node
+            for node in await Node.get_by_names(session, dimension_node_names)
+        }
 
+        # Check each level's dimension node and resolve to IDs
         for level in levels:
-            node_id = level.get("dimension_node_id")
-            if node_id not in existing_ids:
-                errors.append(f"Dimension node with ID {node_id} does not exist")
+            node_name = level.dimension_node
+            if node_name not in existing_nodes:
+                errors.append(
+                    f"Level '{level.name}': Dimension node '{node_name}' does not exist",
+                )
+                continue
 
-        # For multi-dimension hierarchies, validate dimension links exist
-        # (This is a simplified check - in practice you'd want to verify actual FK relationships)
-        dimension_nodes = set(dimension_node_ids)
-        if len(dimension_nodes) > 1:
-            # TODO: Add validation for dimension links between consecutive levels
-            # This would check that level[i+1] has a dimension link to level[i]
-            pass
+            if existing_nodes[node_name].type != NodeType.DIMENSION:
+                errors.append(
+                    f"Level '{level.name}': Node '{node_name}' "
+                    f"is not a dimension node (type: {existing_nodes[node_name].type})",
+                )
+                continue
 
-        return errors
+        # Sort levels by level_order to check consecutive relationships
+        sorted_levels = sorted(levels, key=lambda x: x.level_order)
+
+        # For multi-dimension hierarchies, validate dimension FK relationships
+        for i in range(len(sorted_levels) - 1):
+            current_level = sorted_levels[i]
+            next_level = sorted_levels[i + 1]
+
+            # Skip if nodes are the same (single-dimension hierarchy section)
+            if current_level.dimension_node == next_level.dimension_node:
+                continue
+
+            parent_node = existing_nodes.get(current_level.dimension_node)
+            child_node = existing_nodes.get(next_level.dimension_node)
+            # Check if there's a valid dimension link from child to parent
+            if child_node and parent_node:
+                valid_link, link_errors = await cls.has_valid_hierarchy_link_to(
+                    session,
+                    child_node=child_node,
+                    parent_node=parent_node,
+                )
+                errors += link_errors
+        return errors, existing_nodes
+
+    @classmethod
+    async def has_valid_hierarchy_link_to(
+        cls,
+        session: AsyncSession,
+        child_node: Node,
+        parent_node: Node,
+    ) -> tuple[bool, list[str]]:
+        """
+        Validate hierarchical dimension link between child and parent nodes.
+        """
+        # Get dimension links
+        result = await session.execute(
+            select(
+                DimensionLink.join_cardinality,
+                DimensionLink.join_type,
+                DimensionLink.join_sql,
+            )
+            .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
+            .where(
+                NodeRevision.node_id == child_node.id,
+                DimensionLink.dimension_id == parent_node.id,
+            ),
+        )
+
+        links = result.all()
+        messages = []
+
+        if not links:
+            return False, [
+                f"No dimension link exists between {child_node.name} and {parent_node.name}",
+            ]
+
+        # Validate cardinality (hard requirement)
+        valid_links = [link for link in links if link[0] == JoinCardinality.MANY_TO_ONE]
+        if not valid_links:
+            return False, ["Invalid cardinality (expected MANY_TO_ONE)"]
+
+        # Check if join_sql references parent's primary key
+        for cardinality, join_type, join_sql in valid_links:
+            join_sql_lower = join_sql.lower()
+            parent_name_lower = parent_node.name.lower()
+
+            # Simple heuristic: check if PK columns are mentioned in join
+            parent_pk_columns = [col.name for col in parent_node.current.primary_key()]
+            print(
+                "searching for pk cols",
+                [
+                    f"{parent_name_lower}.{pk_col.lower()}"
+                    for pk_col in parent_pk_columns
+                ],
+                "in",
+                join_sql_lower,
+            )
+            pk_referenced = any(
+                f"{parent_name_lower}.{pk_col.lower()}" in join_sql_lower
+                for pk_col in parent_pk_columns
+            )
+
+            if not pk_referenced:
+                messages.append(
+                    f"WARN: Join SQL may not reference parent's primary key columns {parent_pk_columns}. "
+                    f"Join: {join_sql}",
+                )
+
+        return True, messages
 
 
 class HierarchyLevel(Base):  # type: ignore
@@ -196,14 +306,12 @@ class HierarchyLevel(Base):  # type: ignore
     """
 
     __tablename__ = "hierarchy_levels"
+    __table_args__ = (UniqueConstraint("hierarchy_id", "name"),)
 
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        primary_key=True,
-    )
+    id: Mapped[int] = mapped_column(BigInteger(), primary_key=True)
 
     hierarchy_id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
+        BigInteger(),
         ForeignKey("hierarchies.id"),
         nullable=False,
     )
@@ -212,7 +320,7 @@ class HierarchyLevel(Base):  # type: ignore
     name: Mapped[str] = mapped_column(String, nullable=False)
 
     dimension_node_id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
+        BigInteger(),
         ForeignKey("node.id"),
         nullable=False,
     )
@@ -223,9 +331,6 @@ class HierarchyLevel(Base):  # type: ignore
     # Optional: For single-dimension hierarchies where multiple levels
     # reference the same dimension node but use different grain columns
     grain_columns: Mapped[Optional[List[str]]] = mapped_column(JSON)
-
-    # Unique constraints
-    __table_args__ = ({"sqlite_autoincrement": True},)
 
     def __repr__(self):
         return f"<HierarchyLevel {self.name} (order={self.level_order})>"

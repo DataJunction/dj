@@ -5,12 +5,10 @@ Handles creation, retrieval, updating, deletion, and validation of hierarchies.
 """
 
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Callable, List, cast
 
 from fastapi import Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.hierarchy import (
@@ -20,19 +18,29 @@ from datajunction_server.database.hierarchy import (
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.errors import (
+    DJAlreadyExistsException,
+    DJDoesNotExistException,
+    DJInvalidInputException,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.models.user import UserNameOnly
+from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.models.hierarchy import (
     HierarchyCreateRequest,
+    HierarchyLevelInput,
     HierarchyOutput,
     HierarchyInfo,
     HierarchyLevelOutput,
     HierarchyUpdateRequest,
     HierarchyValidationResult,
     HierarchyValidationError,
+    DimensionHierarchiesResponse,
+    DimensionHierarchyNavigation,
+    NavigationTarget,
 )
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -56,17 +64,107 @@ async def list_all_hierarchies(
 
     return [
         HierarchyInfo(
-            id=h.id,
             name=h.name,
             display_name=h.display_name,
             description=h.description,
-            created_by_id=h.created_by_id,
-            created_by_username=h.created_by.username,
+            created_by=UserNameOnly(username=h.created_by.username),
             created_at=h.created_at,
             level_count=len(h.levels),
         )
         for h in hierarchies
     ]
+
+
+@router.get(
+    "/nodes/{dimension}/hierarchies/",
+    response_model=DimensionHierarchiesResponse,
+)
+async def get_dimension_hierarchies(
+    dimension: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DimensionHierarchiesResponse:
+    """
+    Get all hierarchies that use a specific dimension node and show navigation options.
+
+    This endpoint helps users discover:
+    - What hierarchies include this dimension
+    - What position the dimension occupies in each hierarchy
+    - What other dimensions they can drill up or down to
+    """
+    # Validate that the dimension node exists and is a dimension
+    node = cast(
+        Node,
+        await Node.get_by_name(session, dimension, raise_if_not_exists=True),
+    )
+
+    if node.type != NodeType.DIMENSION:
+        raise DJInvalidInputException(
+            message=f"Node '{dimension}' is not a dimension node (type: {node.type})",
+        )
+
+    # Find all hierarchies that use this dimension
+    hierarchies_using_dimension = await Hierarchy.get_using_dimension(
+        session,
+        node.id,
+    )
+
+    # Build navigation information for each hierarchy
+    navigation_info = []
+    for hierarchy in hierarchies_using_dimension:
+        # Find the level that references this dimension
+        current_level = None
+        for level in hierarchy.levels:  # pragma: no cover
+            if level.dimension_node_id == node.id:
+                current_level = level
+                break
+
+        if not current_level:
+            continue  # pragma: no cover
+
+        # Get sorted levels for navigation
+        sorted_levels = sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+
+        # Build drill-up targets (lower level_order = coarser grain)
+        drill_up = [
+            NavigationTarget(
+                level_name=level.name,
+                dimension_node=level.dimension_node.name,
+                level_order=level.level_order,
+                steps=current_level.level_order - level.level_order,
+            )
+            for level in sorted_levels
+            if level.level_order < current_level.level_order
+        ]
+
+        # Build drill-down targets (higher level_order = finer grain)
+        drill_down = [
+            NavigationTarget(
+                level_name=level.name,
+                dimension_node=level.dimension_node.name,
+                level_order=level.level_order,
+                steps=level.level_order - current_level.level_order,
+            )
+            for level in sorted_levels
+            if level.level_order > current_level.level_order
+        ]
+
+        navigation_info.append(
+            DimensionHierarchyNavigation(
+                hierarchy_name=hierarchy.name,
+                hierarchy_display_name=hierarchy.display_name,
+                current_level=current_level.name,
+                current_level_order=current_level.level_order,
+                drill_up=drill_up,
+                drill_down=drill_down,
+            ),
+        )
+
+    return DimensionHierarchiesResponse(
+        dimension_node=dimension,
+        hierarchies=navigation_info,
+    )
 
 
 @router.post(
@@ -87,43 +185,25 @@ async def create_hierarchy(
     # Check if hierarchy already exists
     existing = await Hierarchy.get_by_name(session, hierarchy_data.name)
     if existing:
-        raise HTTPException(
-            status_code=HTTPStatus.CONFLICT,
-            detail=f"Hierarchy '{hierarchy_data.name}' already exists",
+        raise DJAlreadyExistsException(
+            message=f"Hierarchy '{hierarchy_data.name}' already exists",
         )
 
-    # Validate and resolve dimension node names to IDs
-    dimension_nodes = {}
-    for level in hierarchy_data.levels:
-        node = await Node.get_by_name(session, level.dimension_node)
-        if not node:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Dimension node '{level.dimension_node}' not found",
-            )
-        if node.type != NodeType.DIMENSION:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Node '{level.dimension_node}' is not a dimension node",
-            )
-        dimension_nodes[level.dimension_node] = node.id
-
-    # Validate hierarchy structure
-    level_defs = [
-        {
-            "name": level.name,
-            "dimension_node_id": dimension_nodes[level.dimension_node],
-            "level_order": level.level_order,
-            "grain_columns": level.grain_columns,
-        }
-        for level in hierarchy_data.levels
-    ]
-
-    validation_errors = await Hierarchy.validate_levels(session, level_defs)
+    # Validate hierarchy structure (this also resolves dimension node names to IDs)
+    validation_errors, existing_nodes = await Hierarchy.validate_levels(
+        session,
+        hierarchy_data.levels,
+    )
     if validation_errors:
         raise DJInvalidInputException(
             message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
         )
+
+    # Resolve dimension node names to IDs for creation (validation already confirmed they exist)
+    dimension_nodes = {
+        level.dimension_node: existing_nodes[level.dimension_node].id
+        for level in hierarchy_data.levels
+    }
 
     # Create hierarchy
     hierarchy = Hierarchy(
@@ -136,13 +216,13 @@ async def create_hierarchy(
     await session.flush()  # Get the ID
 
     # Create levels
-    for level_def in level_defs:
+    for level_input in hierarchy_data.levels:
         level = HierarchyLevel(
             hierarchy_id=hierarchy.id,
-            name=level_def["name"],
-            dimension_node_id=level_def["dimension_node_id"],
-            level_order=level_def["level_order"],
-            grain_columns=level_def["grain_columns"],
+            name=level_input.name,
+            dimension_node_id=dimension_nodes[level_input.dimension_node],
+            level_order=level_input.level_order,
+            grain_columns=level_input.grain_columns,
         )
         session.add(level)
 
@@ -161,12 +241,14 @@ async def create_hierarchy(
                 "description": hierarchy.description,
                 "levels": [
                     {
-                        "name": level_def["name"],
-                        "dimension_node_id": level_def["dimension_node_id"],
-                        "level_order": level_def["level_order"],
-                        "grain_columns": level_def.get("grain_columns"),
+                        "name": level_input.name,
+                        "dimension_node_id": dimension_nodes[
+                            level_input.dimension_node
+                        ],
+                        "level_order": level_input.level_order,
+                        "grain_columns": level_input.grain_columns,
                     }
-                    for level_def in level_defs
+                    for level_input in hierarchy_data.levels
                 ],
             },
         ),
@@ -174,16 +256,10 @@ async def create_hierarchy(
     )
 
     # Reload with relationships
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.id == hierarchy.id),
+    created_hierarchy = cast(
+        Hierarchy,
+        await Hierarchy.get_by_id(session, hierarchy.id),
     )
-    created_hierarchy = result.scalar_one()
-
     return _convert_to_output(created_hierarchy)
 
 
@@ -197,23 +273,9 @@ async def get_hierarchy(
     """
     Get a specific hierarchy by name.
     """
-    # Load hierarchy with dimension node information
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.name == name),
-    )
-    hierarchy = result.scalar_one_or_none()
-
+    hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
-
+        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
     return _convert_to_output(hierarchy)
 
 
@@ -260,68 +322,39 @@ async def update_hierarchy(
 
     # Update levels if provided
     if update_data.levels is not None:
-        # Validate and resolve dimension nodes
-        dimension_nodes = {}
-        for level in update_data.levels:
-            node = await Node.get_by_name(session, level.dimension_node)
-            if not node:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Dimension node '{level.dimension_node}' not found",
-                )
-            if node.type != NodeType.DIMENSION:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Node '{level.dimension_node}' is not a dimension node",
-                )
-            dimension_nodes[level.dimension_node] = node.id
-
-        # Validate hierarchy structure
-        level_defs = [
-            {
-                "name": level.name,
-                "dimension_node_id": dimension_nodes[level.dimension_node],
-                "level_order": level.level_order,
-                "grain_columns": level.grain_columns,
-            }
-            for level in update_data.levels
-        ]
-
-        validation_errors = await Hierarchy.validate_levels(session, level_defs)
+        # Validate hierarchy structure (this also resolves dimension node names to IDs)
+        validation_errors, dimension_nodes = await Hierarchy.validate_levels(
+            session,
+            update_data.levels,
+        )
         if validation_errors:
             raise DJInvalidInputException(
                 message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
             )
 
-        # Delete existing levels and create new ones
-        for level in hierarchy.levels:
-            await session.delete(level)
+        # Delete existing levels by clearing the collection
+        hierarchy.levels.clear()
+        await session.flush()
 
         # Create new levels
-        for level_def in level_defs:
+        for level_input in update_data.levels:
             level = HierarchyLevel(
                 hierarchy_id=hierarchy.id,
-                name=level_def["name"],
-                dimension_node_id=level_def["dimension_node_id"],
-                level_order=level_def["level_order"],
-                grain_columns=level_def["grain_columns"],
+                name=level_input.name,
+                dimension_node_id=dimension_nodes[level_input.dimension_node].id,
+                level_order=level_input.level_order,
+                grain_columns=level_input.grain_columns,
             )
-            session.add(level)
+            hierarchy.levels.append(level)
 
     await session.commit()
 
-    # Reload with relationships for post-state and response
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-            selectinload(Hierarchy.created_by),
-        )
-        .where(Hierarchy.id == hierarchy.id),
+    updated_hierarchy = cast(
+        Hierarchy,
+        await Hierarchy.get_by_id(session, hierarchy.id),
     )
-    updated_hierarchy = result.scalar_one()
 
-    # Capture post-state and log update in history
+    # Log update in history
     post_state = {
         "name": updated_hierarchy.name,
         "display_name": updated_hierarchy.display_name,
@@ -339,7 +372,6 @@ async def update_hierarchy(
             )
         ],
     }
-
     await save_history(
         event=History(
             entity_type=EntityType.HIERARCHY,
@@ -405,44 +437,6 @@ async def delete_hierarchy(
     )
 
 
-@router.get("/hierarchies/{name}/levels", response_model=List[HierarchyLevelOutput])
-async def get_hierarchy_levels(
-    name: str,
-    *,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> List[HierarchyLevelOutput]:
-    """
-    Get all levels for a specific hierarchy.
-    """
-    result = await session.execute(
-        select(Hierarchy)
-        .options(
-            selectinload(Hierarchy.levels).selectinload(HierarchyLevel.dimension_node),
-        )
-        .where(Hierarchy.name == name),
-    )
-    hierarchy = result.scalar_one_or_none()
-
-    if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
-
-    return [
-        HierarchyLevelOutput(
-            id=level.id,
-            name=level.name,
-            dimension_node_id=level.dimension_node_id,
-            dimension_node_name=level.dimension_node.name,
-            level_order=level.level_order,
-            grain_columns=level.grain_columns,
-        )
-        for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
-    ]
-
-
 @router.post("/hierarchies/{name}/validate", response_model=HierarchyValidationResult)
 async def validate_hierarchy(
     name: str,
@@ -460,18 +454,18 @@ async def validate_hierarchy(
             detail=f"Hierarchy '{name}' not found",
         )
 
-    # Perform validation
-    level_defs = [
-        {
-            "name": level.name,
-            "dimension_node_id": level.dimension_node_id,
-            "level_order": level.level_order,
-            "grain_columns": level.grain_columns,
-        }
+    # Convert database objects to input objects for validation
+    level_inputs = [
+        HierarchyLevelInput(
+            name=level.name,
+            dimension_node=level.dimension_node.name,
+            level_order=level.level_order,
+            grain_columns=level.grain_columns,
+        )
         for level in hierarchy.levels
     ]
 
-    validation_errors = await Hierarchy.validate_levels(session, level_defs)
+    validation_errors, _ = await Hierarchy.validate_levels(session, level_inputs)
 
     errors = [
         HierarchyValidationError(
@@ -490,22 +484,18 @@ async def validate_hierarchy(
 def _convert_to_output(hierarchy: Hierarchy) -> HierarchyOutput:
     """Convert database hierarchy to output model."""
     return HierarchyOutput(
-        id=hierarchy.id,
         name=hierarchy.name,
         display_name=hierarchy.display_name,
         description=hierarchy.description,
-        created_by_id=hierarchy.created_by_id,
-        created_by_username=hierarchy.created_by.username,
+        created_by=UserNameOnly(username=hierarchy.created_by.username),
         created_at=hierarchy.created_at,
         levels=[
             HierarchyLevelOutput(
-                id=level.id,
                 name=level.name,
-                dimension_node_id=level.dimension_node_id,
-                dimension_node_name=level.dimension_node.name,
+                dimension_node=NodeNameOutput(name=level.dimension_node.name),
                 level_order=level.level_order,
                 grain_columns=level.grain_columns,
             )
-            for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+            for level in sorted(hierarchy.levels, key=lambda lvl: int(lvl.level_order))
         ],
     )
