@@ -5,6 +5,8 @@ Pydantic models for hierarchies.
 from typing import List, Optional
 from datetime import datetime
 
+from datajunction_server.models.node import NodeNameOutput
+from datajunction_server.models.user import UserNameOnly
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -20,10 +22,8 @@ class HierarchyLevelInput(BaseModel):
 class HierarchyLevelOutput(BaseModel):
     """Output model for hierarchy levels."""
 
-    id: int
     name: str
-    dimension_node_id: int
-    dimension_node_name: str
+    dimension_node: NodeNameOutput
     level_order: int
     grain_columns: Optional[List[str]] = None
 
@@ -101,12 +101,10 @@ class HierarchyUpdateRequest(BaseModel):
 class HierarchyOutput(BaseModel):
     """Output model for hierarchies."""
 
-    id: int
     name: str
     display_name: Optional[str] = None
     description: Optional[str] = None
-    created_by_id: int
-    created_by_username: str
+    created_by: UserNameOnly
     created_at: datetime
     levels: List[HierarchyLevelOutput]
 
@@ -117,12 +115,10 @@ class HierarchyOutput(BaseModel):
 class HierarchyInfo(BaseModel):
     """Simplified hierarchy info for listings."""
 
-    id: int
     name: str
     display_name: Optional[str] = None
     description: Optional[str] = None
-    created_by_id: int
-    created_by_username: str
+    created_by: UserNameOnly
     created_at: datetime
     level_count: int
 

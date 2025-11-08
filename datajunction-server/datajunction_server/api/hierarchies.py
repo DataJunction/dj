@@ -23,6 +23,8 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.models.user import UserNameOnly
+from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.models.hierarchy import (
     HierarchyCreateRequest,
     HierarchyOutput,
@@ -56,12 +58,10 @@ async def list_all_hierarchies(
 
     return [
         HierarchyInfo(
-            id=h.id,
             name=h.name,
             display_name=h.display_name,
             description=h.description,
-            created_by_id=h.created_by_id,
-            created_by_username=h.created_by.username,
+            created_by=UserNameOnly(username=h.created_by.username),
             created_at=h.created_at,
             level_count=len(h.levels),
         )
@@ -295,18 +295,22 @@ async def update_hierarchy(
 
         # Delete existing levels and create new ones
         for level in hierarchy.levels:
-            await session.delete(level)
+            session.delete(level)
 
         # Create new levels
-        for level_def in level_defs:
-            level = HierarchyLevel(
+        levels = [
+            HierarchyLevel(
                 hierarchy_id=hierarchy.id,
                 name=level_def["name"],
                 dimension_node_id=level_def["dimension_node_id"],
                 level_order=level_def["level_order"],
                 grain_columns=level_def["grain_columns"],
             )
-            session.add(level)
+            for level_def in level_defs
+        ]
+        session.add_all(levels)
+        hierarchy.levels = levels
+        session.add(hierarchy)
 
     await session.commit()
 
@@ -339,6 +343,7 @@ async def update_hierarchy(
             )
         ],
     }
+    print("post_state", post_state)
 
     await save_history(
         event=History(
@@ -432,10 +437,8 @@ async def get_hierarchy_levels(
 
     return [
         HierarchyLevelOutput(
-            id=level.id,
             name=level.name,
-            dimension_node_id=level.dimension_node_id,
-            dimension_node_name=level.dimension_node.name,
+            dimension_node=NodeNameOutput(name=level.dimension_node.name),
             level_order=level.level_order,
             grain_columns=level.grain_columns,
         )
@@ -490,22 +493,18 @@ async def validate_hierarchy(
 def _convert_to_output(hierarchy: Hierarchy) -> HierarchyOutput:
     """Convert database hierarchy to output model."""
     return HierarchyOutput(
-        id=hierarchy.id,
         name=hierarchy.name,
         display_name=hierarchy.display_name,
         description=hierarchy.description,
-        created_by_id=hierarchy.created_by_id,
-        created_by_username=hierarchy.created_by.username,
+        created_by=UserNameOnly(username=hierarchy.created_by.username),
         created_at=hierarchy.created_at,
         levels=[
             HierarchyLevelOutput(
-                id=level.id,
                 name=level.name,
-                dimension_node_id=level.dimension_node_id,
-                dimension_node_name=level.dimension_node.name,
+                dimension_node=NodeNameOutput(name=level.dimension_node.name),
                 level_order=level.level_order,
                 grain_columns=level.grain_columns,
             )
-            for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+            for level in sorted(hierarchy.levels, key=lambda lvl: int(lvl.level_order))
         ],
     )
