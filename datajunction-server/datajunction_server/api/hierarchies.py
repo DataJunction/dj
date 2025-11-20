@@ -29,6 +29,7 @@ from datajunction_server.models.user import UserNameOnly
 from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.models.hierarchy import (
     HierarchyCreateRequest,
+    HierarchyLevelInput,
     HierarchyOutput,
     HierarchyInfo,
     HierarchyLevelOutput,
@@ -36,7 +37,6 @@ from datajunction_server.models.hierarchy import (
     HierarchyValidationResult,
     HierarchyValidationError,
 )
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -93,38 +93,19 @@ async def create_hierarchy(
             message=f"Hierarchy '{hierarchy_data.name}' already exists",
         )
 
-    # Validate and resolve dimension node names to IDs
-    dimension_nodes = {}
-    for level in hierarchy_data.levels:
-        node = await Node.get_by_name(session, level.dimension_node)
-        if not node:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Dimension node '{level.dimension_node}' not found",
-            )
-        if node.type != NodeType.DIMENSION:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Node '{level.dimension_node}' is not a dimension node",
-            )
-        dimension_nodes[level.dimension_node] = node.id
-
-    # Validate hierarchy structure
-    level_defs = [
-        {
-            "name": level.name,
-            "dimension_node_id": dimension_nodes[level.dimension_node],
-            "level_order": level.level_order,
-            "grain_columns": level.grain_columns,
-        }
-        for level in hierarchy_data.levels
-    ]
-
-    validation_errors = await Hierarchy.validate_levels(session, level_defs)
+    # Validate hierarchy structure (this also resolves dimension node names to IDs)
+    validation_errors = await Hierarchy.validate_levels(session, hierarchy_data.levels)
     if validation_errors:
         raise DJInvalidInputException(
             message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
         )
+
+    # Resolve dimension node names to IDs for creation (validation already confirmed they exist)
+    dimension_nodes = {}
+    for level in hierarchy_data.levels:
+        node = await Node.get_by_name(session, level.dimension_node)
+        if node:
+            dimension_nodes[level.dimension_node] = node.id
 
     # Create hierarchy
     hierarchy = Hierarchy(
@@ -137,13 +118,13 @@ async def create_hierarchy(
     await session.flush()  # Get the ID
 
     # Create levels
-    for level_def in level_defs:
+    for level_input in hierarchy_data.levels:
         level = HierarchyLevel(
             hierarchy_id=hierarchy.id,
-            name=level_def["name"],
-            dimension_node_id=level_def["dimension_node_id"],
-            level_order=level_def["level_order"],
-            grain_columns=level_def["grain_columns"],
+            name=level_input.name,
+            dimension_node_id=dimension_nodes[level_input.dimension_node],
+            level_order=level_input.level_order,
+            grain_columns=level_input.grain_columns,
         )
         session.add(level)
 
@@ -162,12 +143,14 @@ async def create_hierarchy(
                 "description": hierarchy.description,
                 "levels": [
                     {
-                        "name": level_def["name"],
-                        "dimension_node_id": level_def["dimension_node_id"],
-                        "level_order": level_def["level_order"],
-                        "grain_columns": level_def.get("grain_columns"),
+                        "name": level_input.name,
+                        "dimension_node_id": dimension_nodes[
+                            level_input.dimension_node
+                        ],
+                        "level_order": level_input.level_order,
+                        "grain_columns": level_input.grain_columns,
                     }
-                    for level_def in level_defs
+                    for level_input in hierarchy_data.levels
                 ],
             },
         ),
@@ -241,40 +224,19 @@ async def update_hierarchy(
 
     # Update levels if provided
     if update_data.levels is not None:
-        # Validate and resolve dimension nodes
+        # Validate hierarchy structure (this also resolves dimension node names to IDs)
+        validation_errors = await Hierarchy.validate_levels(session, update_data.levels)
+        if validation_errors:
+            raise DJInvalidInputException(
+                message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
+            )
+
+        # Resolve dimension node names to IDs for creation (validation already confirmed they exist)
         dimension_node_names = {level.dimension_node for level in update_data.levels}
         dimension_nodes = {
             node.name: node
             for node in await Node.get_by_names(session, list(dimension_node_names))
         }
-        for level in update_data.levels:
-            node = dimension_nodes.get(level.dimension_node)
-            if not node:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Dimension node '{level.dimension_node}' not found",
-                )
-            if node.type != NodeType.DIMENSION:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Node '{level.dimension_node}' is not a dimension node",
-                )
-
-        # Validate hierarchy structure
-        level_defs = [
-            {
-                "name": level.name,
-                "dimension_node_id": dimension_nodes[level.dimension_node].id,
-                "level_order": level.level_order,
-                "grain_columns": level.grain_columns,
-            }
-            for level in update_data.levels
-        ]
-        validation_errors = await Hierarchy.validate_levels(session, level_defs)
-        if validation_errors:
-            raise DJInvalidInputException(
-                message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
-            )
 
         # Delete existing levels and create new ones
         for level in hierarchy.levels:
@@ -284,12 +246,12 @@ async def update_hierarchy(
         levels = [
             HierarchyLevel(
                 hierarchy_id=hierarchy.id,
-                name=level_def["name"],
-                dimension_node_id=level_def["dimension_node_id"],
-                level_order=level_def["level_order"],
-                grain_columns=level_def["grain_columns"],
+                name=level.name,
+                dimension_node_id=dimension_nodes[level.dimension_node].id,
+                level_order=level.level_order,
+                grain_columns=level.grain_columns,
             )
-            for level_def in level_defs
+            for level in update_data.levels
         ]
         session.add_all(levels)
         hierarchy.levels = levels
@@ -427,18 +389,18 @@ async def validate_hierarchy(
             detail=f"Hierarchy '{name}' not found",
         )
 
-    # Perform validation
-    level_defs = [
-        {
-            "name": level.name,
-            "dimension_node_id": level.dimension_node_id,
-            "level_order": level.level_order,
-            "grain_columns": level.grain_columns,
-        }
+    # Convert database objects to input objects for validation
+    level_inputs = [
+        HierarchyLevelInput(
+            name=level.name,
+            dimension_node=level.dimension_node.name,
+            level_order=level.level_order,
+            grain_columns=level.grain_columns,
+        )
         for level in hierarchy.levels
     ]
 
-    validation_errors = await Hierarchy.validate_levels(session, level_defs)
+    validation_errors = await Hierarchy.validate_levels(session, level_inputs)
 
     errors = [
         HierarchyValidationError(

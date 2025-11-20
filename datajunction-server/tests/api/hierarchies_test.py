@@ -128,6 +128,7 @@ class TestHierarchiesAPI:
             "/hierarchies/",
             json=hierarchy_data,
         )
+        print("ress", response.json())
         assert response.status_code == HTTPStatus.CREATED
         data = response.json()
 

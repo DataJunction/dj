@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 
 # Import shared fixtures
 from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
@@ -154,7 +155,7 @@ class TestHierarchy:
         hierarchy_names = {h.name for h in hierarchies_with_week}
         assert hierarchy_names == {"calendar_hierarchy", "weekly_hierarchy"}
 
-    async def test_hierarchy_validation_with_proper_dimensions(
+    async def test_hierarchy_validation_with_invalid_levels(
         self,
         session: AsyncSession,
         time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
@@ -162,35 +163,36 @@ class TestHierarchy:
         """Test hierarchy level validation with proper dimension nodes."""
         dimensions, _ = time_dimensions
 
-        # Valid levels using existing dimension nodes
+        # Invalid levels with existing dimension nodes, where links don't exist
         valid_levels = [
-            {
-                "name": "year",
-                "dimension_node_id": dimensions["year"].id,
-                "level_order": 0,
-            },
-            {
-                "name": "month",
-                "dimension_node_id": dimensions["month"].id,
-                "level_order": 1,
-            },
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="month",
+                dimension_node=dimensions["month"].name,
+                level_order=1,
+            ),
         ]
 
         errors = await Hierarchy.validate_levels(session, valid_levels)
-        assert len(errors) == 0
+        assert len(errors) == 1
+        assert "No dimension link exists" in errors[0]
 
         # Invalid levels with non-existent dimension node
         invalid_levels = [
-            {
-                "name": "year",
-                "dimension_node_id": 99999,  # Non-existent ID
-                "level_order": 0,
-            },
-            {
-                "name": "month",
-                "dimension_node_id": dimensions["month"].id,
-                "level_order": 1,
-            },
+            HierarchyLevelInput(
+                name="year",
+                dimension_node="non_existent",  # Non-existent ID
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="month",
+                dimension_node=dimensions["month"].name,
+                level_order=1,
+            ),
         ]
 
         errors = await Hierarchy.validate_levels(session, invalid_levels)

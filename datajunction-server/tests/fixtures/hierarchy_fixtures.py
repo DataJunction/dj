@@ -8,6 +8,7 @@ across both model and API tests for hierarchies.
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -185,6 +186,10 @@ async def time_dimensions(
     dimensions = {}
     revisions = {}
 
+    primary_key = AttributeType(namespace="system", name="primary_key", description="")
+    session.merge(primary_key)
+    await session.flush()
+
     # Year dimension
     year_dim = Node(
         name="default.year_dim",
@@ -199,7 +204,12 @@ async def time_dimensions(
         version="v1",
         query="SELECT year_id, year_name FROM default.year_source",
         columns=[
-            Column(name="year_id", type=IntegerType(), order=0),
+            Column(
+                name="year_id",
+                type=IntegerType(),
+                order=0, 
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="year_name", type=StringType(), order=1),
         ],
         created_by_id=current_user.id,
@@ -223,7 +233,10 @@ async def time_dimensions(
         query="SELECT year_id, quarter_id, quarter_name FROM default.quarter_source",
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
-            Column(name="quarter_id", type=IntegerType(), order=1),
+            Column(
+                name="quarter_id", type=IntegerType(), order=1,
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="quarter_name", type=StringType(), order=2),
         ],
         created_by_id=current_user.id,
@@ -248,7 +261,8 @@ async def time_dimensions(
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
             Column(name="quarter_id", type=IntegerType(), order=1),
-            Column(name="month_id", type=IntegerType(), order=2),
+            Column(name="month_id", type=IntegerType(), order=2, 
+                attributes=[ColumnAttribute(attribute_type=primary_key)],),
             Column(name="month_name", type=StringType(), order=3),
         ],
         created_by_id=current_user.id,
@@ -273,7 +287,9 @@ async def time_dimensions(
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
             Column(name="month_id", type=IntegerType(), order=1),
-            Column(name="week_id", type=IntegerType(), order=2),
+            Column(name="week_id", type=IntegerType(), order=2,
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="week_name", type=StringType(), order=3),
         ],
         created_by_id=current_user.id,
@@ -300,7 +316,8 @@ async def time_dimensions(
             Column(name="quarter_id", type=IntegerType(), order=1),
             Column(name="month_id", type=IntegerType(), order=2),
             Column(name="week_id", type=IntegerType(), order=3),
-            Column(name="day_id", type=IntegerType(), order=4),
+            Column(name="day_id", type=IntegerType(), order=4, 
+                attributes=[ColumnAttribute(attribute_type=primary_key)],),
             Column(name="day_date", type=DateType(), order=5),
         ],
         created_by_id=current_user.id,
@@ -469,3 +486,4 @@ async def fiscal_hierarchy(
     await session.commit()
     await session.refresh(hierarchy, ["levels"])
     return hierarchy
+
