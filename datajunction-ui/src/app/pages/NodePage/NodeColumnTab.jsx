@@ -198,17 +198,15 @@ export default function NodeColumnTab({ node, djClient }) {
                     </a>
                   </span>
                 )}
-                {fkLinksForColumn.length === 0 && !referenceLink && (
-                  <span style={{ color: '#6c757d', fontSize: '0.875rem' }}>
-                    -
-                  </span>
-                )}
                 <ManageDimensionLinksDialog
                   column={col}
                   node={node}
                   dimensions={dimensions}
                   fkLinks={fkLinksForColumn}
                   referenceLink={referenceLink}
+                  hasLinks={
+                    fkLinksForColumn.length > 0 || referenceLink !== null
+                  }
                   onSubmit={async () => {
                     const res = await djClient.node(node.name);
                     setLinks(res.dimension_links);
