@@ -67,8 +67,9 @@ async def build_node_sql(
     Build node SQL and save it to query requests
     """
     import time
+
     start_time = time.time()
-    
+
     if orderby:
         validate_orderby(orderby, [node_name], dimensions or [])
 
@@ -76,7 +77,7 @@ async def build_node_sql(
     node = cast(
         Node,
         await Node.get_by_name_eager(
-            session, 
+            session,
             node_name,
             load_dimensions=bool(dimensions),  # Only load if we need dimensions
             load_parents=True,  # Always load for upstream references
@@ -155,7 +156,7 @@ async def build_node_sql(
         columns=columns,
         dialect=engine.dialect if engine else None,
     )
-    
+
     # Log timing
     build_time = (time.time() - start_time) * 1000
     logger.info(
@@ -164,7 +165,7 @@ async def build_node_sql(
         len(dimensions or []),
         build_time,
     )
-    
+
     return result
 
 

@@ -287,8 +287,8 @@ class QueryBuilder:
     ) -> "QueryBuilder":
         """
         Create a QueryBuilder instance for the node revision.
-        
-        Note: If the node was loaded with Node.get_by_name_eager(), 
+
+        Note: If the node was loaded with Node.get_by_name_eager(),
         required_dimensions and dimension_links will already be loaded.
         """
         # Only refresh if not already loaded (i.e., not from eager loading)
@@ -298,7 +298,7 @@ class QueryBuilder:
             links_loaded = True
         except:  # noqa: E722
             links_loaded = False
-            
+
         if not links_loaded:
             await refresh_if_needed(
                 session,
@@ -479,14 +479,14 @@ class QueryBuilder:
             columns_loaded = True
         except:  # noqa: E722
             columns_loaded = False
-            
+
         if not columns_loaded:
             await refresh_if_needed(
                 self.session,
                 self.node_revision,
                 ["availability", "columns", "query_ast"],
             )
-        
+
         if self.node_revision.query_ast:
             node_ast = self.node_revision.query_ast  # pragma: no cover
         else:
