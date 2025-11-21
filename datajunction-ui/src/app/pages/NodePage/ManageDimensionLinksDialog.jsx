@@ -13,7 +13,6 @@ export default function ManageDimensionLinksDialog({
   dimensions,
   fkLinks,
   referenceLink,
-  hasLinks = false,
   onSubmit,
 }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -151,9 +150,8 @@ export default function ManageDimensionLinksDialog({
         style={{
           marginLeft: '0.35rem',
           padding: '0',
-          opacity: hasLinks ? 0 : 0.5,
-          visibility: hasLinks ? 'hidden' : 'visible',
-          transition: 'opacity 0.2s ease, visibility 0.2s ease',
+          opacity: 0.5,
+          transition: 'opacity 0.2s ease',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
