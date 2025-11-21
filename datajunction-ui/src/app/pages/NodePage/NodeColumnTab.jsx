@@ -204,9 +204,6 @@ export default function NodeColumnTab({ node, djClient }) {
                   dimensions={dimensions}
                   fkLinks={fkLinksForColumn}
                   referenceLink={referenceLink}
-                  hasLinks={
-                    fkLinksForColumn.length > 0 || referenceLink !== null
-                  }
                   onSubmit={async () => {
                     const res = await djClient.node(node.name);
                     setLinks(res.dimension_links);
@@ -254,13 +251,19 @@ export default function NodeColumnTab({ node, djClient }) {
     <>
       <style>
         {`
-          .column-row:hover .dimension-link-edit {
-            opacity: 0.5 !important;
-            visibility: visible !important;
-          }
           .dimension-link-edit:hover {
             opacity: 1 !important;
             color: #007bff !important;
+          }
+          .dimension-badge a {
+            max-width: 300px;
+            display: inline-block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: bottom;
+            direction: rtl;
+            text-align: left;
           }
         `}
       </style>
