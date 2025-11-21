@@ -290,23 +290,29 @@ export function NamespacePage() {
           </div>
           <div className="table-responsive">
             <div className={`sidebar`}>
-              <span
+              <div
                 style={{
-                  textTransform: 'uppercase',
-                  fontSize: '0.8125rem',
-                  fontWeight: '600',
-                  color: '#95aac9',
                   padding: '1rem 1rem 1rem 0',
                 }}
               >
-                Namespaces <AddNamespacePopover namespace={namespace} />
-              </span>
+                <span
+                  style={{
+                    textTransform: 'uppercase',
+                    fontSize: '0.8125rem',
+                    fontWeight: '600',
+                    color: '#95aac9',
+                  }}
+                >
+                  Namespaces
+                </span>
+              </div>
               {namespaceHierarchy
                 ? namespaceHierarchy.map(child => (
                     <Explorer
                       item={child}
                       current={state.namespace}
                       defaultExpand={true}
+                      isTopLevel={true}
                       key={child.namespace}
                     />
                   ))
