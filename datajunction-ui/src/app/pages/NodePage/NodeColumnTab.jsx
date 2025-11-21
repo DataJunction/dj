@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import * as React from 'react';
 import EditColumnPopover from './EditColumnPopover';
 import EditColumnDescriptionPopover from './EditColumnDescriptionPopover';
-import LinkDimensionPopover from './LinkDimensionPopover';
+import ManageDimensionLinksDialog from './ManageDimensionLinksDialog';
+import AddComplexDimensionLinkPopover from './AddComplexDimensionLinkPopover';
 import { labelize } from '../../../utils/form';
 import PartitionColumnPopover from './PartitionColumnPopover';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
-import { link } from 'fs';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
@@ -85,18 +85,29 @@ export default function NodeColumnTab({ node, djClient }) {
 
   const columnList = columns => {
     return columns?.map(col => {
-      const dimensionLinks = (links.length > 0 ? links : node?.dimension_links)
-        .map(link => [
-          link.dimension.name,
-          Object.entries(link.foreign_keys).filter(
-            entry => entry[0] === node.name + '.' + col.name,
-          ),
-        ])
-        .filter(keys => keys[1].length >= 1);
-      const referencedDimensionNode =
-        dimensionLinks.length > 0 ? dimensionLinks[0][0] : null;
+      // FK Links: Only show links that specifically reference THIS column's foreign keys
+      // Filter out complex dimension links that may join on multiple columns
+      const fkLinksForColumn = (
+        links.length > 0 ? links : node?.dimension_links
+      )
+        .filter(link => {
+          // Check if this link has a foreign key entry for this specific column
+          const foreignKeys = Object.keys(link.foreign_keys || {});
+          const columnKey = `${node.name}.${col.name}`;
+          return foreignKeys.includes(columnKey);
+        })
+        .map(link => link.dimension.name);
+
+      // Check if this column has a reference dimension link
+      const referenceLink = col.dimension
+        ? {
+            dimension: col.dimension.name,
+            dimension_column: col.dimension_column,
+            role: col.dimension.role,
+          }
+        : null;
       return (
-        <tr key={col.name}>
+        <tr key={col.name} className="column-row">
           <td
             className="text-start"
             role="columnheader"
@@ -146,28 +157,65 @@ export default function NodeColumnTab({ node, djClient }) {
             </span>
           </td>
           {node.type !== 'cube' ? (
-            <td>
-              {dimensionLinks.length > 0
-                ? dimensionLinks.map(link => (
-                    <span
-                      className="rounded-pill badge bg-secondary-soft"
-                      style={{ fontSize: '14px' }}
-                      key={link[0]}
-                    >
-                      <a href={`/nodes/${link[0]}`}>{link[0]}</a>
-                    </span>
-                  ))
-                : ''}
-              <LinkDimensionPopover
-                column={col}
-                dimensionNodes={dimensionLinks.map(link => link[0])}
-                node={node}
-                options={dimensions}
-                onSubmit={async () => {
-                  const res = await djClient.node(node.name);
-                  setLinks(res.dimension_links);
+            <td className="dimension-links-cell">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.25rem',
+                  position: 'relative',
                 }}
-              />
+              >
+                {fkLinksForColumn.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '0.25rem',
+                    }}
+                  >
+                    {fkLinksForColumn.map(dimName => (
+                      <span
+                        className="rounded-pill badge bg-secondary-soft dimension-badge"
+                        style={{ fontSize: '14px', position: 'relative' }}
+                        key={dimName}
+                        title="FK Link (via primary key)"
+                      >
+                        <a href={`/nodes/${dimName}`}>{dimName}</a>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {referenceLink && (
+                  <span
+                    className="rounded-pill badge bg-info dimension-badge"
+                    style={{ fontSize: '14px', position: 'relative' }}
+                    title={`Reference Link: ${referenceLink.dimension}.${referenceLink.dimension_column}`}
+                  >
+                    <a href={`/nodes/${referenceLink.dimension}`}>
+                      {referenceLink.dimension}.{referenceLink.dimension_column}
+                    </a>
+                  </span>
+                )}
+                {fkLinksForColumn.length === 0 && !referenceLink && (
+                  <span style={{ color: '#6c757d', fontSize: '0.875rem' }}>
+                    -
+                  </span>
+                )}
+                <ManageDimensionLinksDialog
+                  column={col}
+                  node={node}
+                  dimensions={dimensions}
+                  fkLinks={fkLinksForColumn}
+                  referenceLink={referenceLink}
+                  onSubmit={async () => {
+                    const res = await djClient.node(node.name);
+                    setLinks(res.dimension_links);
+                    setColumns(res.columns);
+                  }}
+                />
+              </div>
             </td>
           ) : (
             ''
@@ -206,6 +254,18 @@ export default function NodeColumnTab({ node, djClient }) {
 
   return (
     <>
+      <style>
+        {`
+          .column-row:hover .dimension-link-edit {
+            opacity: 0.5 !important;
+            visibility: visible !important;
+          }
+          .dimension-link-edit:hover {
+            opacity: 1 !important;
+            color: #007bff !important;
+          }
+        `}
+      </style>
       <div className="table-responsive">
         <table className="card-inner-table table">
           <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
@@ -216,7 +276,7 @@ export default function NodeColumnTab({ node, djClient }) {
               <th>Type</th>
               {node?.type !== 'cube' ? (
                 <>
-                  <th>Linked Dimension</th>
+                  <th>Dimension Links</th>
                   <th>Attributes</th>
                 </>
               ) : (
@@ -229,39 +289,122 @@ export default function NodeColumnTab({ node, djClient }) {
         </table>
       </div>
       <div>
-        <h3>Linked Dimensions (Custom Join SQL)</h3>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '1rem',
+          }}
+        >
+          <h3 style={{ margin: 0 }}>
+            Complex Dimension Links (Custom Join SQL)
+          </h3>
+          <AddComplexDimensionLinkPopover
+            node={node}
+            dimensions={dimensions}
+            onSubmit={async () => {
+              const res = await djClient.node(node.name);
+              setLinks(res.dimension_links);
+            }}
+          />
+        </div>
         <table className="card-inner-table table">
           <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
             <tr>
               <th className="text-start">Dimension Node</th>
               <th>Join Type</th>
               <th>Join SQL</th>
+              <th>Join Cardinality</th>
               <th>Role</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {node?.dimension_links.map(link => {
-              return (
-                <tr key={link.dimension.name}>
-                  <td>
-                    <a href={'/nodes/' + link.dimension.name}>
-                      {link.dimension.name}
-                    </a>
-                  </td>
-                  <td>{link.join_type.toUpperCase()}</td>
-                  <td style={{ width: '25rem', maxWidth: 'none' }}>
-                    <SyntaxHighlighter
-                      language="sql"
-                      style={foundation}
-                      wrapLongLines={true}
-                    >
-                      {link.join_sql}
-                    </SyntaxHighlighter>
-                  </td>
-                  <td>{link.role}</td>
-                </tr>
-              );
-            })}
+            {node?.dimension_links && node.dimension_links.length > 0 ? (
+              node.dimension_links.map((link, idx) => {
+                return (
+                  <tr key={`${link.dimension.name}-${link.role || idx}`}>
+                    <td>
+                      <a href={'/nodes/' + link.dimension.name}>
+                        {link.dimension.name}
+                      </a>
+                    </td>
+                    <td>{link.join_type.toUpperCase()}</td>
+                    <td style={{ width: '25rem', maxWidth: 'none' }}>
+                      <SyntaxHighlighter
+                        language="sql"
+                        style={foundation}
+                        wrapLongLines={true}
+                      >
+                        {link.join_sql}
+                      </SyntaxHighlighter>
+                    </td>
+                    <td>
+                      {link.join_cardinality
+                        ? link.join_cardinality.replace(/_/g, ' ').toUpperCase()
+                        : 'N/A'}
+                    </td>
+                    <td>{link.role || '-'}</td>
+                    <td>
+                      <button
+                        onClick={async () => {
+                          if (
+                            window.confirm(
+                              `Remove link to ${link.dimension.name}?`,
+                            )
+                          ) {
+                            const response =
+                              await djClient.removeComplexDimensionLink(
+                                node.name,
+                                link.dimension.name,
+                                link.role,
+                              );
+                            if (
+                              response.status === 200 ||
+                              response.status === 201
+                            ) {
+                              const res = await djClient.node(node.name);
+                              setLinks(res.dimension_links);
+                            } else {
+                              alert(
+                                response.json?.message ||
+                                  'Failed to remove link',
+                              );
+                            }
+                          }
+                        }}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          fontSize: '0.75rem',
+                          background: '#dc3545',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td
+                  colSpan="6"
+                  style={{
+                    textAlign: 'center',
+                    padding: '2rem',
+                    color: '#6c757d',
+                  }}
+                >
+                  No complex dimension links. Click the + button above to add
+                  one.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

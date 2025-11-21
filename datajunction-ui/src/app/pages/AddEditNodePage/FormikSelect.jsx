@@ -14,6 +14,10 @@ export const FormikSelect = ({
   isMulti = false,
   isClearable = false,
   onFocus = event => {},
+  onChange: customOnChange,
+  menuPortalTarget,
+  styles,
+  ...rest
 }) => {
   // eslint-disable-next-line no-unused-vars
   const [field, _, helpers] = useField(formikFieldName);
@@ -28,6 +32,13 @@ export const FormikSelect = ({
     }
   };
 
+  const handleChange = selected => {
+    setValue(getValue(selected));
+    if (customOnChange) {
+      customOnChange(selected);
+    }
+  };
+
   return (
     <Select
       className={className}
@@ -36,12 +47,14 @@ export const FormikSelect = ({
       name={field.name}
       placeholder={placeholder}
       onBlur={field.onBlur}
-      onChange={selected => setValue(getValue(selected))}
-      styles={style}
+      onChange={handleChange}
+      styles={styles || style}
       isMulti={isMulti}
       isClearable={isClearable}
       onFocus={event => onFocus(event)}
       id={field.name}
+      menuPortalTarget={menuPortalTarget}
+      {...rest}
     />
   );
 };
