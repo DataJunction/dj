@@ -31,7 +31,7 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
   }, [isCreatingChild]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = event => {
       if (formRef.current && !formRef.current.contains(event.target)) {
         handleCancelAdd();
       }
@@ -59,8 +59,10 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
       return;
     }
 
-    const fullNamespace = items.path ? `${items.path}.${newNamespace}` : newNamespace;
-    
+    const fullNamespace = items.path
+      ? `${items.path}.${newNamespace}`
+      : newNamespace;
+
     const response = await djClient.addNamespace(fullNamespace);
     if (response.status === 200 || response.status === 201) {
       setIsCreatingChild(false);
@@ -88,10 +90,7 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
 
   return (
     <>
-      <div
-        className="namespace-item"
-        style={{ position: 'relative' }}
-      >
+      <div className="namespace-item" style={{ position: 'relative' }}>
         <div
           className={`select-name ${
             highlight === items.path ? 'select-name-highlight' : ''
@@ -99,8 +98,12 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
           onClick={handleClickOnParent}
           onMouseEnter={() => setShowAddButton(true)}
           onMouseLeave={() => setShowAddButton(false)}
-          style={{ display: 'inline-flex', alignItems: 'center', width: '100%', position: 'relative', 
-             }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            width: '100%',
+            position: 'relative',
+          }}
         >
           {items.children && items.children.length > 0 ? (
             <span style={{ marginRight: '4px' }}>
@@ -112,7 +115,7 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
           <a href={`/namespaces/${items.path}`}>{items.namespace}</a>
           <button
             className="namespace-add-button"
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               setIsCreatingChild(true);
               setExpand(true);
@@ -156,12 +159,14 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
                   gap: '4px',
                 }}
               >
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <div
+                  style={{ display: 'flex', gap: '4px', alignItems: 'center' }}
+                >
                   <input
                     ref={inputRef}
                     type="text"
                     value={newNamespace}
-                    onChange={(e) => setNewNamespace(e.target.value)}
+                    onChange={e => setNewNamespace(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="New namespace name"
                     style={{
@@ -210,7 +215,11 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
                   className={`${expand ? '' : 'inactive'}`}
                   key={`nested-${index}`}
                 >
-                  <Explorer item={item} current={highlight} isTopLevel={false} />
+                  <Explorer
+                    item={item}
+                    current={highlight}
+                    isTopLevel={false}
+                  />
                 </div>
               </div>
             ))}

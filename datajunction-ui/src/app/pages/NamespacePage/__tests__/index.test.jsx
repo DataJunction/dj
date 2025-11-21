@@ -209,7 +209,7 @@ describe('NamespacePage', () => {
       set: jest.fn(),
       get: jest.fn(),
     });
-    
+
     mockDjClient.addNamespace.mockReturnValue({
       status: 201,
       json: {},
@@ -233,15 +233,19 @@ describe('NamespacePage', () => {
     });
 
     // Find the namespace and hover to reveal add button
-    const defaultNamespace = screen.getByText('default').closest('.select-name');
+    const defaultNamespace = screen
+      .getByText('default')
+      .closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
     const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn => 
-      btn.closest('.namespace-item')?.querySelector('a[href="/namespaces/default"]')
+    const defaultAddButton = addButtons.find(btn =>
+      btn
+        .closest('.namespace-item')
+        ?.querySelector('a[href="/namespaces/default"]'),
     );
-    
+
     expect(defaultAddButton).toBeInTheDocument();
     fireEvent.click(defaultAddButton);
 
@@ -250,7 +254,7 @@ describe('NamespacePage', () => {
       const input = screen.getByPlaceholderText('New namespace name');
       expect(input).toBeInTheDocument();
     });
-    
+
     const input = screen.getByPlaceholderText('New namespace name');
     await userEvent.type(input, 'new_child');
 
@@ -259,7 +263,9 @@ describe('NamespacePage', () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(mockDjClient.addNamespace).toHaveBeenCalledWith('default.new_child');
+      expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
+        'default.new_child',
+      );
     });
   });
 
@@ -287,15 +293,19 @@ describe('NamespacePage', () => {
     });
 
     // Find the namespace and hover to reveal add button
-    const defaultNamespace = screen.getByText('default').closest('.select-name');
+    const defaultNamespace = screen
+      .getByText('default')
+      .closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
     const addButtons = screen.getAllByTitle('Add child namespace');
-    const defaultAddButton = addButtons.find(btn => 
-      btn.closest('.namespace-item')?.querySelector('a[href="/namespaces/default"]')
+    const defaultAddButton = addButtons.find(btn =>
+      btn
+        .closest('.namespace-item')
+        ?.querySelector('a[href="/namespaces/default"]'),
     );
-    
+
     expect(defaultAddButton).toBeInTheDocument();
     fireEvent.click(defaultAddButton);
 
@@ -304,7 +314,7 @@ describe('NamespacePage', () => {
       const input = screen.getByPlaceholderText('New namespace name');
       expect(input).toBeInTheDocument();
     });
-    
+
     const input = screen.getByPlaceholderText('New namespace name');
     await userEvent.type(input, 'bad_namespace');
 
