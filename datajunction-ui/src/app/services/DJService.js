@@ -1120,6 +1120,46 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
 
+  addReferenceDimensionLink: async function (
+    nodeName,
+    nodeColumn,
+    dimensionNode,
+    dimensionColumn,
+    role = null,
+  ) {
+    const url = new URL(
+      `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
+    );
+    url.searchParams.append('dimension_node', dimensionNode);
+    url.searchParams.append('dimension_column', dimensionColumn);
+    if (role) {
+      url.searchParams.append('role', role);
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
+  removeReferenceDimensionLink: async function (nodeName, nodeColumn) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+
   deactivate: async function (nodeName) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}`, {
       method: 'DELETE',
