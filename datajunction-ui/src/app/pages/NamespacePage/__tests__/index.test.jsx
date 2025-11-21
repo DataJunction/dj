@@ -201,7 +201,15 @@ describe('NamespacePage', () => {
     fireEvent.click(screen.getByText('common'));
   });
 
-  it('can add new namespace via add namespace popover', async () => {
+  it('can add new namespace via inline creation', async () => {
+    // Mock window.location to track navigation
+    delete window.location;
+    window.location = { href: jest.fn() };
+    Object.defineProperty(window.location, 'href', {
+      set: jest.fn(),
+      get: jest.fn(),
+    });
+
     mockDjClient.addNamespace.mockReturnValue({
       status: 201,
       json: {},
@@ -212,45 +220,53 @@ describe('NamespacePage', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+      <MemoryRouter initialEntries={['/namespaces/default']}>
         <Routes>
           <Route path="namespaces/:namespace" element={element} />
         </Routes>
       </MemoryRouter>,
     );
 
-    // Find the button to toggle the add namespace popover
-    const addNamespaceToggle = screen.getByRole('button', {
-      name: 'AddNamespaceTogglePopover',
-    });
-    expect(addNamespaceToggle).toBeInTheDocument();
-
-    // Click the toggle and verify that the popover displays
-    fireEvent.click(addNamespaceToggle);
-    const addNamespacePopover = screen.getByRole('dialog', {
-      name: 'AddNamespacePopover',
-    });
-    expect(addNamespacePopover).toBeInTheDocument();
-
-    // Type in the new namespace
-    await userEvent.type(
-      screen.getByLabelText('Namespace'),
-      'some.random.namespace',
-    );
-
-    // Save
-    const saveNamespace = screen.getByRole('button', {
-      name: 'SaveNamespace',
-    });
+    // Wait for namespaces to load
     await waitFor(() => {
-      fireEvent.click(saveNamespace);
+      expect(screen.getByText('default')).toBeInTheDocument();
     });
-    expect(mockDjClient.addNamespace).toHaveBeenCalled();
-    expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
-      'test.namespace.some.random.namespace',
+
+    // Find the namespace and hover to reveal add button
+    const defaultNamespace = screen
+      .getByText('default')
+      .closest('.select-name');
+    fireEvent.mouseEnter(defaultNamespace);
+
+    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
+    const addButtons = screen.getAllByTitle('Add child namespace');
+    const defaultAddButton = addButtons.find(btn =>
+      btn
+        .closest('.namespace-item')
+        ?.querySelector('a[href="/namespaces/default"]'),
     );
-    expect(screen.getByText('Saved')).toBeInTheDocument();
-    expect(window.location.reload).toHaveBeenCalled();
+
+    expect(defaultAddButton).toBeInTheDocument();
+    fireEvent.click(defaultAddButton);
+
+    // Type in the new namespace name
+    await waitFor(() => {
+      const input = screen.getByPlaceholderText('New namespace name');
+      expect(input).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText('New namespace name');
+    await userEvent.type(input, 'new_child');
+
+    // Submit the form
+    const submitButton = screen.getByRole('button', { name: '✓' });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
+        'default.new_child',
+      );
+    });
   });
 
   it('can fail to add namespace', async () => {
@@ -264,34 +280,51 @@ describe('NamespacePage', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+      <MemoryRouter initialEntries={['/namespaces/default']}>
         <Routes>
           <Route path="namespaces/:namespace" element={element} />
         </Routes>
       </MemoryRouter>,
     );
 
-    // Open the add namespace popover
-    const addNamespaceToggle = screen.getByRole('button', {
-      name: 'AddNamespaceTogglePopover',
+    // Wait for namespaces to load
+    await waitFor(() => {
+      expect(screen.getByText('default')).toBeInTheDocument();
     });
-    fireEvent.click(addNamespaceToggle);
 
-    // Type in the new namespace
-    await userEvent.type(
-      screen.getByLabelText('Namespace'),
-      'some.random.namespace',
+    // Find the namespace and hover to reveal add button
+    const defaultNamespace = screen
+      .getByText('default')
+      .closest('.select-name');
+    fireEvent.mouseEnter(defaultNamespace);
+
+    // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
+    const addButtons = screen.getAllByTitle('Add child namespace');
+    const defaultAddButton = addButtons.find(btn =>
+      btn
+        .closest('.namespace-item')
+        ?.querySelector('a[href="/namespaces/default"]'),
     );
 
-    // Save
-    const saveNamespace = screen.getByRole('button', {
-      name: 'SaveNamespace',
-    });
+    expect(defaultAddButton).toBeInTheDocument();
+    fireEvent.click(defaultAddButton);
+
+    // Type in the new namespace name
     await waitFor(() => {
-      fireEvent.click(saveNamespace);
+      const input = screen.getByPlaceholderText('New namespace name');
+      expect(input).toBeInTheDocument();
     });
 
+    const input = screen.getByPlaceholderText('New namespace name');
+    await userEvent.type(input, 'bad_namespace');
+
+    // Submit the form
+    const submitButton = screen.getByRole('button', { name: '✓' });
+    fireEvent.click(submitButton);
+
     // Should display failure alert
-    expect(screen.getByText('you failed')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('you failed')).toBeInTheDocument();
+    });
   });
 });
