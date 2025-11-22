@@ -70,7 +70,9 @@ export default function AddComplexDimensionLinkPopover({
 
       if (response.status === 200 || response.status === 201) {
         setStatus({
-          success: `Complex dimension link ${isEditMode ? 'updated' : 'added'} successfully!`,
+          success: `Complex dimension link ${
+            isEditMode ? 'updated' : 'added'
+          } successfully!`,
         });
         setTimeout(() => {
           setPopoverAnchor(false);
@@ -167,169 +169,179 @@ export default function AddComplexDimensionLinkPopover({
               <div
                 style={{ maxHeight: 'calc(85vh - 4rem)', overflowY: 'auto' }}
               >
-        <Formik
-          initialValues={{
-            dimensionNode: existingLink?.dimension.name || '',
-            joinType: existingLink?.join_type || 'left',
-            joinOn: existingLink?.join_sql || '',
-            joinCardinality: existingLink?.join_cardinality || 'many_to_one',
-            role: existingLink?.role || '',
-          }}
-          onSubmit={handleSubmit}
-          validate={values => {
-            const errors = {};
-            if (!values.dimensionNode) {
-              errors.dimensionNode = 'Required';
-            }
-            if (!values.joinOn) {
-              errors.joinOn = 'Required';
-            }
-            return errors;
-          }}
-        >
-          {function Render({ isSubmitting, status, values }) {
-            return (
-              <Form>
-                <h3
-                  style={{
-                    margin: '0 0 1rem 0',
-                    fontSize: '1.25rem',
-                    fontWeight: '600',
+                <Formik
+                  initialValues={{
+                    dimensionNode: existingLink?.dimension.name || '',
+                    joinType: existingLink?.join_type || 'left',
+                    joinOn: existingLink?.join_sql || '',
+                    joinCardinality:
+                      existingLink?.join_cardinality || 'many_to_one',
+                    role: existingLink?.role || '',
+                  }}
+                  onSubmit={handleSubmit}
+                  validate={values => {
+                    const errors = {};
+                    if (!values.dimensionNode) {
+                      errors.dimensionNode = 'Required';
+                    }
+                    if (!values.joinOn) {
+                      errors.joinOn = 'Required';
+                    }
+                    return errors;
                   }}
                 >
-                  {isEditMode ? 'Edit' : 'Add'} Complex Dimension Link
-                </h3>
-                {displayMessageAfterSubmit(status)}
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <ErrorMessage name="dimensionNode" component="span" />
-                  <label htmlFor="dimensionNode">Dimension Node *</label>
-                  {isEditMode ? (
-                    <div
-                      style={{
-                        padding: '0.5rem',
-                        backgroundColor: '#f5f5f5',
-                        borderRadius: '4px',
-                        color: '#666',
-                      }}
-                    >
-                      {existingLink?.dimension.name}
-                      <small
-                        style={{
-                          display: 'block',
-                          marginTop: '0.25rem',
-                          fontSize: '0.75rem',
-                          color: '#999',
-                        }}
-                      >
-                        To link a different dimension node, remove this link and
-                        create a new one
-                      </small>
-                    </div>
-                  ) : (
-                    <FormikSelect
-                      selectOptions={dimensions}
-                      formikFieldName="dimensionNode"
-                      placeholder="Select dimension"
-                    />
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '1rem',
-                    marginBottom: '1rem',
-                  }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <label htmlFor="joinType">Join Type</label>
-                    <FormikSelect
-                      selectOptions={joinTypeOptions}
-                      formikFieldName="joinType"
-                      placeholder="Select join type"
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label htmlFor="joinCardinality">Join Cardinality</label>
-                    <FormikSelect
-                      selectOptions={joinCardinalityOptions}
-                      formikFieldName="joinCardinality"
-                      placeholder="Select join cardinality"
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <ErrorMessage name="joinOn" component="span" />
-                  <label htmlFor="joinOn">Join SQL *</label>
-                  <small style={{ color: '#6c757d', fontSize: '0.75rem' }}>
-                    Specify the join condition
-                  </small>
-                  <Field name="joinOn">
-                      {({ field, form }) => (
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className="relative flex bg-[#282a36]"
+                  {function Render({ isSubmitting, status, values }) {
+                    return (
+                      <Form>
+                        <h3
+                          style={{
+                            margin: '0 0 1rem 0',
+                            fontSize: '1.25rem',
+                            fontWeight: '600',
+                          }}
                         >
-                          <CodeMirror
-                            id="joinOn"
-                            name="joinOn"
-                            extensions={[langs.sql()]}
-                            value={field.value?.trim()}
-                            placeholder="e.g., node_table.dimension_id = dimension_table.id"
-                            width="100%"
-                            height="150px"
+                          {isEditMode ? 'Edit' : 'Add'} Complex Dimension Link
+                        </h3>
+                        {displayMessageAfterSubmit(status)}
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <ErrorMessage name="dimensionNode" component="span" />
+                          <label htmlFor="dimensionNode">
+                            Dimension Node *
+                          </label>
+                          {isEditMode ? (
+                            <div
+                              style={{
+                                padding: '0.5rem',
+                                backgroundColor: '#f5f5f5',
+                                borderRadius: '4px',
+                                color: '#666',
+                              }}
+                            >
+                              {existingLink?.dimension.name}
+                              <small
+                                style={{
+                                  display: 'block',
+                                  marginTop: '0.25rem',
+                                  fontSize: '0.75rem',
+                                  color: '#999',
+                                }}
+                              >
+                                To link a different dimension node, remove this
+                                link and create a new one
+                              </small>
+                            </div>
+                          ) : (
+                            <FormikSelect
+                              selectOptions={dimensions}
+                              formikFieldName="dimensionNode"
+                              placeholder="Select dimension"
+                            />
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '1rem',
+                            marginBottom: '1rem',
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <label htmlFor="joinType">Join Type</label>
+                            <FormikSelect
+                              selectOptions={joinTypeOptions}
+                              formikFieldName="joinType"
+                              placeholder="Select join type"
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label htmlFor="joinCardinality">
+                              Join Cardinality
+                            </label>
+                            <FormikSelect
+                              selectOptions={joinCardinalityOptions}
+                              formikFieldName="joinCardinality"
+                              placeholder="Select join cardinality"
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <ErrorMessage name="joinOn" component="span" />
+                          <label htmlFor="joinOn">Join SQL *</label>
+                          <small
+                            style={{ color: '#6c757d', fontSize: '0.75rem' }}
+                          >
+                            Specify the join condition
+                          </small>
+                          <Field name="joinOn">
+                            {({ field, form }) => (
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                className="relative flex bg-[#282a36]"
+                              >
+                                <CodeMirror
+                                  id="joinOn"
+                                  name="joinOn"
+                                  extensions={[langs.sql()]}
+                                  value={field.value?.trim()}
+                                  placeholder="e.g., node_table.dimension_id = dimension_table.id"
+                                  width="100%"
+                                  height="150px"
+                                  style={{
+                                    fontSize: '14px',
+                                    textAlign: 'left',
+                                  }}
+                                  onChange={value => {
+                                    form.setFieldValue('joinOn', value);
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </Field>
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label htmlFor="role">Role (Optional)</label>
+                          <Field
+                            type="text"
+                            name="role"
+                            id="role"
+                            placeholder="e.g., birth_date, registration_date"
                             style={{
-                              fontSize: '14px',
-                              textAlign: 'left',
-                            }}
-                            onChange={value => {
-                              form.setFieldValue('joinOn', value);
+                              width: '100%',
+                              padding: '0.5rem',
                             }}
                           />
+                          <small
+                            style={{ color: '#6c757d', fontSize: '0.75rem' }}
+                          >
+                            Optional role if linking the same dimension multiple
+                            times
+                          </small>
                         </div>
-                      )}
-                  </Field>
-                </div>
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <label htmlFor="role">Role (Optional)</label>
-                  <Field
-                    type="text"
-                    name="role"
-                    id="role"
-                    placeholder="e.g., birth_date, registration_date"
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem',
-                    }}
-                  />
-                  <small style={{ color: '#6c757d', fontSize: '0.75rem' }}>
-                    Optional role if linking the same dimension multiple times
-                  </small>
-                </div>
-
-                <button
-                  className="add_node"
-                  type="submit"
-                  aria-label="SaveComplexDimensionLink"
-                  disabled={isSubmitting}
-                  style={{ marginTop: '1rem' }}
-                >
-                  {isSubmitting ? (
-                    <LoadingIcon />
-                  ) : isEditMode ? (
-                    'Save Changes'
-                  ) : (
-                    'Add Link'
-                  )}
-                </button>
-              </Form>
-            );
-          }}
-        </Formik>
+                        <button
+                          className="add_node"
+                          type="submit"
+                          aria-label="SaveComplexDimensionLink"
+                          disabled={isSubmitting}
+                          style={{ marginTop: '1rem' }}
+                        >
+                          {isSubmitting ? (
+                            <LoadingIcon />
+                          ) : isEditMode ? (
+                            'Save Changes'
+                          ) : (
+                            'Add Link'
+                          )}
+                        </button>
+                      </Form>
+                    );
+                  }}
+                </Formik>
               </div>
             </div>
           </div>

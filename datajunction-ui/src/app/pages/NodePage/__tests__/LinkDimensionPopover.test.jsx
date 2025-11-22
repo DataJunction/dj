@@ -56,18 +56,18 @@ describe('<LinkDimensionPopover />', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Remove Dimension 1')).toBeInTheDocument();
     });
-    
+
     // Click on a dimension to add it
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getAllByText('Dimension 2')[0]);
-    
+
     // Click on the 'Remove' button for dimension1 (using the label)
     await waitFor(() => {
       const removeButton = screen.getByLabelText('Remove Dimension 1');
       fireEvent.click(removeButton);
     });
-    
+
     // Now save (this will link dimension2 and unlink dimension1)
     fireEvent.click(getByText('Save'));
 
@@ -133,13 +133,13 @@ describe('<LinkDimensionPopover />', () => {
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getAllByText('Dimension 2')[0]);
-    
+
     // Click on the 'Remove' button for dimension1 (using the label)
     await waitFor(() => {
       const removeButton = screen.getByLabelText('Remove Dimension 1');
       fireEvent.click(removeButton);
     });
-    
+
     // Now save (this will attempt to link dimension2 and unlink dimension1)
     fireEvent.click(getByText('Save'));
 
