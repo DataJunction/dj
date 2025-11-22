@@ -776,7 +776,7 @@ describe('DataJunctionAPI', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
+        dimension_node: dimensionNode,
         role: null,
       }),
       method: 'DELETE',
@@ -794,10 +794,10 @@ describe('DataJunctionAPI', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
-        joinType: null,
-        joinOn: joinOn,
-        joinCardinality: null,
+        dimension_node: dimensionNode,
+        join_type: null,
+        join_on: joinOn,
+        join_cardinality: null,
         role: null,
       }),
       method: 'POST',

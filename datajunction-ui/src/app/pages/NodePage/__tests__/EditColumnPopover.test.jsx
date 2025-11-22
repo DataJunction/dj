@@ -62,7 +62,6 @@ describe('<EditColumnPopover />', () => {
     fireEvent.keyDown(editAttributes.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('Dimension'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect setAttributes to be called
     await waitFor(() => {
@@ -70,19 +69,17 @@ describe('<EditColumnPopover />', () => {
       expect(getByText('Saved!')).toBeInTheDocument();
     });
 
-    // Click on two attributes in the select
+    // Add Primary Key to the existing Dimension selection (don't click Dimension again)
     fireEvent.keyDown(editAttributes.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Dimension'));
     fireEvent.click(screen.getByText('Primary Key'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
-    // Expect setAttributes to be called
+    // Expect setAttributes to be called with both attributes
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.setAttributes).toHaveBeenCalledWith(
         'default.node1',
         'column1',
-        ['primary_key', 'dimension'],
+        ['dimension', 'primary_key'],
       );
       expect(getByText('Saved!')).toBeInTheDocument();
     });
@@ -134,7 +131,6 @@ describe('<EditColumnPopover />', () => {
     fireEvent.keyDown(editAttributes.firstChild, { key: 'ArrowDown' });
     fireEvent.click(screen.getByText('Dimension'));
     fireEvent.click(getByText('Save'));
-    getByText('Save').click();
 
     // Expect setAttributes to be called and the failure message to show up
     await waitFor(() => {

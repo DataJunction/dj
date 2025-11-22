@@ -2,6 +2,7 @@
  * A React Select component for use in Formik forms.
  */
 import { useField } from 'formik';
+import { useMemo } from 'react';
 import Select from 'react-select';
 
 export const FormikSelect = ({
@@ -39,22 +40,26 @@ export const FormikSelect = ({
     }
   };
 
-  // Get the current value from field and find the matching option(s)
-  const getCurrentValue = () => {
+  // Derive the current value from field.value and selectOptions
+  const getCurrentValue = useMemo(() => {
+    if (!selectOptions || !field.value) {
+      return isMulti ? [] : null;
+    }
+
     if (isMulti) {
-      return selectOptions.filter(option =>
-        field.value?.includes(option.value),
-      );
+      // For multi-select, field.value is an array of values
+      const values = Array.isArray(field.value) ? field.value : [field.value];
+      return selectOptions.filter(option => values.includes(option.value));
     } else {
+      // For single-select, field.value is a single value
       return selectOptions.find(option => option.value === field.value) || null;
     }
-  };
+  }, [field.value, selectOptions, isMulti]);
 
   return (
     <Select
       className={className}
-      value={getCurrentValue()}
-      defaultValue={defaultValue}
+      value={getCurrentValue}
       options={selectOptions}
       name={field.name}
       placeholder={placeholder}
