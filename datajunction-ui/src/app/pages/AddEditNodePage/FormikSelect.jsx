@@ -14,6 +14,10 @@ export const FormikSelect = ({
   isMulti = false,
   isClearable = false,
   onFocus = event => {},
+  onChange: customOnChange,
+  menuPortalTarget,
+  styles,
+  ...rest
 }) => {
   // eslint-disable-next-line no-unused-vars
   const [field, _, helpers] = useField(formikFieldName);
@@ -28,20 +32,41 @@ export const FormikSelect = ({
     }
   };
 
+  const handleChange = selected => {
+    setValue(getValue(selected));
+    if (customOnChange) {
+      customOnChange(selected);
+    }
+  };
+
+  // Get the current value from field and find the matching option(s)
+  const getCurrentValue = () => {
+    if (isMulti) {
+      return selectOptions.filter(option =>
+        field.value?.includes(option.value),
+      );
+    } else {
+      return selectOptions.find(option => option.value === field.value) || null;
+    }
+  };
+
   return (
     <Select
       className={className}
+      value={getCurrentValue()}
       defaultValue={defaultValue}
       options={selectOptions}
       name={field.name}
       placeholder={placeholder}
       onBlur={field.onBlur}
-      onChange={selected => setValue(getValue(selected))}
-      styles={style}
+      onChange={handleChange}
+      styles={styles || style}
       isMulti={isMulti}
       isClearable={isClearable}
       onFocus={event => onFocus(event)}
       id={field.name}
+      menuPortalTarget={menuPortalTarget}
+      {...rest}
     />
   );
 };
