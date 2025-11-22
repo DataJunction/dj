@@ -238,24 +238,20 @@ async def update_hierarchy(
             for node in await Node.get_by_names(session, list(dimension_node_names))
         }
 
-        # Delete existing levels and create new ones
-        for level in hierarchy.levels:
-            session.delete(level)
+        # Delete existing levels by clearing the collection
+        hierarchy.levels.clear()
+        await session.flush()
 
         # Create new levels
-        levels = [
-            HierarchyLevel(
+        for level_input in update_data.levels:
+            level = HierarchyLevel(
                 hierarchy_id=hierarchy.id,
-                name=level.name,
-                dimension_node_id=dimension_nodes[level.dimension_node].id,
-                level_order=level.level_order,
-                grain_columns=level.grain_columns,
+                name=level_input.name,
+                dimension_node_id=dimension_nodes[level_input.dimension_node].id,
+                level_order=level_input.level_order,
+                grain_columns=level_input.grain_columns,
             )
-            for level in update_data.levels
-        ]
-        session.add_all(levels)
-        hierarchy.levels = levels
-        session.add(hierarchy)
+            hierarchy.levels.append(level)
 
     await session.commit()
 

@@ -8,6 +8,8 @@ across both model and API tests for hierarchies.
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
@@ -186,9 +188,29 @@ async def time_dimensions(
     dimensions = {}
     revisions = {}
 
-    primary_key = AttributeType(namespace="system", name="primary_key", description="")
-    session.merge(primary_key)
-    await session.flush()
+    # Get or create primary_key attribute type
+    result = await session.execute(
+        select(AttributeType).where(
+            AttributeType.namespace == "system",
+            AttributeType.name == "primary_key",
+        ),
+    )
+    primary_key = result.scalar_one_or_none()
+
+    if not primary_key:
+        primary_key = AttributeType(
+            namespace="system",
+            name="primary_key",
+            description="Points to a column which is part of the primary key of the node",
+            uniqueness_scope=[],
+            allowed_node_types=[
+                NodeType.SOURCE,
+                NodeType.TRANSFORM,
+                NodeType.DIMENSION,
+            ],
+        )
+        session.add(primary_key)
+        await session.flush()
 
     # Year dimension
     year_dim = Node(
@@ -207,7 +229,7 @@ async def time_dimensions(
             Column(
                 name="year_id",
                 type=IntegerType(),
-                order=0, 
+                order=0,
                 attributes=[ColumnAttribute(attribute_type=primary_key)],
             ),
             Column(name="year_name", type=StringType(), order=1),
@@ -234,7 +256,9 @@ async def time_dimensions(
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
             Column(
-                name="quarter_id", type=IntegerType(), order=1,
+                name="quarter_id",
+                type=IntegerType(),
+                order=1,
                 attributes=[ColumnAttribute(attribute_type=primary_key)],
             ),
             Column(name="quarter_name", type=StringType(), order=2),
@@ -261,8 +285,12 @@ async def time_dimensions(
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
             Column(name="quarter_id", type=IntegerType(), order=1),
-            Column(name="month_id", type=IntegerType(), order=2, 
-                attributes=[ColumnAttribute(attribute_type=primary_key)],),
+            Column(
+                name="month_id",
+                type=IntegerType(),
+                order=2,
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="month_name", type=StringType(), order=3),
         ],
         created_by_id=current_user.id,
@@ -287,7 +315,10 @@ async def time_dimensions(
         columns=[
             Column(name="year_id", type=IntegerType(), order=0),
             Column(name="month_id", type=IntegerType(), order=1),
-            Column(name="week_id", type=IntegerType(), order=2,
+            Column(
+                name="week_id",
+                type=IntegerType(),
+                order=2,
                 attributes=[ColumnAttribute(attribute_type=primary_key)],
             ),
             Column(name="week_name", type=StringType(), order=3),
@@ -316,8 +347,12 @@ async def time_dimensions(
             Column(name="quarter_id", type=IntegerType(), order=1),
             Column(name="month_id", type=IntegerType(), order=2),
             Column(name="week_id", type=IntegerType(), order=3),
-            Column(name="day_id", type=IntegerType(), order=4, 
-                attributes=[ColumnAttribute(attribute_type=primary_key)],),
+            Column(
+                name="day_id",
+                type=IntegerType(),
+                order=4,
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="day_date", type=DateType(), order=5),
         ],
         created_by_id=current_user.id,
@@ -407,6 +442,46 @@ async def time_dimension_links(
 
 
 @pytest_asyncio.fixture
+async def month_year_link(
+    session: AsyncSession,
+    time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+) -> DimensionLink:
+    """Create dimension links between time dimensions."""
+    dimensions, revisions = time_dimensions
+    year_dim = dimensions["year"]
+    month_dim_rev = revisions["month"]
+    year_month_link = DimensionLink(
+        node_revision=month_dim_rev,
+        dimension=year_dim,
+        join_sql="default.month_dim.year_id = default.year_dim.year_id",
+        join_type=JoinType.INNER,
+    )
+    session.add(year_month_link)
+    await session.commit()
+    return year_month_link
+
+
+@pytest_asyncio.fixture
+async def day_quarter_link(
+    session: AsyncSession,
+    time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+) -> DimensionLink:
+    """Create dimension links between time dimensions."""
+    dimensions, revisions = time_dimensions
+    quarter_dim = dimensions["quarter"]
+    day_dim_rev = revisions["day"]
+    day_quarter_link = DimensionLink(
+        node_revision=day_dim_rev,
+        dimension=quarter_dim,
+        join_sql="default.day_dim.year_id = default.quarter_dim.year_id AND default.day_dim.quarter_id = default.quarter_dim.quarter_id",
+        join_type=JoinType.INNER,
+    )
+    session.add(day_quarter_link)
+    await session.commit()
+    return day_quarter_link
+
+
+@pytest_asyncio.fixture
 async def calendar_hierarchy(
     session: AsyncSession,
     current_user: User,
@@ -486,4 +561,3 @@ async def fiscal_hierarchy(
     await session.commit()
     await session.refresh(hierarchy, ["levels"])
     return hierarchy
-

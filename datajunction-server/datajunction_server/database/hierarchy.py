@@ -257,7 +257,9 @@ class Hierarchy(Base):  # type: ignore
         messages = []
 
         if not links:
-            return False, ["No dimension link exists"]
+            return False, [
+                f"No dimension link exists between {child_node.name} and {parent_node.name}",
+            ]
 
         # Validate cardinality (hard requirement)
         valid_links = [link for link in links if link[0] == JoinCardinality.MANY_TO_ONE]
@@ -271,7 +273,15 @@ class Hierarchy(Base):  # type: ignore
 
             # Simple heuristic: check if PK columns are mentioned in join
             parent_pk_columns = [col.name for col in parent_node.current.primary_key()]
-            print("searching for pk cols", [f"{parent_name_lower}.{pk_col.lower()}" for pk_col in parent_pk_columns], "in", join_sql_lower)
+            print(
+                "searching for pk cols",
+                [
+                    f"{parent_name_lower}.{pk_col.lower()}"
+                    for pk_col in parent_pk_columns
+                ],
+                "in",
+                join_sql_lower,
+            )
             pk_referenced = any(
                 f"{parent_name_lower}.{pk_col.lower()}" in join_sql_lower
                 for pk_col in parent_pk_columns

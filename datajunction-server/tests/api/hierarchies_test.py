@@ -6,10 +6,14 @@ from http import HTTPStatus
 from unittest import mock
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.hierarchy import Hierarchy
+from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.internal.history import ActivityType, EntityType
 
 # Import shared fixtures
 from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
@@ -19,6 +23,8 @@ from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
     time_dimension_links,
     calendar_hierarchy,
     fiscal_hierarchy,
+    day_quarter_link,
+    month_year_link,
 )
 
 
@@ -200,7 +206,11 @@ class TestHierarchiesAPI:
             "/hierarchies/",
             json=hierarchy_data,
         )
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()["message"] == (
+            "Hierarchy validation failed: Level 'year': Dimension node 'nonexistent.dimension' "
+            "does not exist; Level 'month': Dimension node 'also.nonexistent' does not exist"
+        )
 
     async def test_create_hierarchy_validation_errors(
         self,
@@ -260,12 +270,13 @@ class TestHierarchiesAPI:
 
     async def test_update_hierarchy_levels(
         self,
+        session: AsyncSession,
         client_with_basic: AsyncClient,
         calendar_hierarchy: Hierarchy,
         time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
     ):
         """Test updating hierarchy levels."""
-        dimensions, _ = time_dimensions
+        dimensions, revisions = time_dimensions
 
         update_data = {
             "levels": [
@@ -287,6 +298,29 @@ class TestHierarchiesAPI:
             ],
         }
 
+        # First attempt should fail - no dimension link from day to quarter
+        response = await client_with_basic.put(
+            "/hierarchies/calendar_hierarchy",
+            json=update_data,
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "No dimension link exists" in data["message"]
+
+        # Now add the missing dimension link from day to quarter
+        from datajunction_server.database.dimensionlink import DimensionLink
+        from datajunction_server.models.dimensionlink import JoinType
+
+        day_quarter_link = DimensionLink(
+            node_revision=revisions["day"],
+            dimension=dimensions["quarter"],
+            join_sql="default.day_dim.year_id = default.quarter_dim.year_id AND default.day_dim.quarter_id = default.quarter_dim.quarter_id",
+            join_type=JoinType.INNER,
+        )
+        session.add(day_quarter_link)
+        await session.commit()
+
+        # Now the update should succeed with valid dimension links
         response = await client_with_basic.put(
             "/hierarchies/calendar_hierarchy",
             json=update_data,
@@ -352,6 +386,9 @@ class TestHierarchiesAPI:
         self,
         client_with_basic: AsyncClient,
         calendar_hierarchy: Hierarchy,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+        time_dimension_links: DimensionLink,
+        month_year_link,
     ):
         """Test hierarchy validation endpoint."""
         response = await client_with_basic.post(
@@ -360,8 +397,8 @@ class TestHierarchiesAPI:
         assert response.status_code == HTTPStatus.OK
         data = response.json()
 
+        assert data["errors"] == []
         assert data["is_valid"] is True
-        assert len(data["errors"]) == 0
 
     async def test_validate_nonexistent_hierarchy(
         self,
@@ -443,6 +480,7 @@ class TestHierarchiesAPI:
         session: AsyncSession,
         time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
         time_dimension_links,
+        month_year_link,
     ):
         """Test that hierarchy operations are tracked in history."""
         dimensions, _ = time_dimensions
@@ -486,6 +524,44 @@ class TestHierarchiesAPI:
         delete_response = await client_with_basic.delete("/hierarchies/history_test")
         assert delete_response.status_code == HTTPStatus.NO_CONTENT
 
-        # Note: To fully test history tracking, we'd need to query the History table
-        # This test verifies the operations complete successfully, which implies
-        # history tracking is working (as it would fail if history logging broke)
+        # Query the History table to verify all operations were tracked
+        history_entries = await session.execute(
+            select(History)
+            .where(
+                History.entity_type == EntityType.HIERARCHY,
+                History.entity_name == "history_test",
+            )
+            .order_by(History.created_at),
+        )
+        history = history_entries.scalars().all()
+
+        # Should have 3 history entries: CREATE, UPDATE, DELETE
+        assert len(history) == 3
+
+        # Verify CREATE entry
+        create_entry = history[0]
+        assert create_entry.activity_type == ActivityType.CREATE
+        assert create_entry.entity_name == "history_test"
+        assert create_entry.entity_type == EntityType.HIERARCHY
+        assert create_entry.user == "dj"
+        assert create_entry.post["name"] == "history_test"
+        assert create_entry.post["display_name"] == "History Test"
+        assert len(create_entry.post["levels"]) == 2
+        assert create_entry.pre == {}
+
+        # Verify UPDATE entry
+        update_entry = history[1]
+        assert update_entry.activity_type == ActivityType.UPDATE
+        assert update_entry.entity_name == "history_test"
+        assert update_entry.pre["description"] is None
+        assert (
+            update_entry.post["description"] == "Updated description for history test"
+        )
+
+        # Verify DELETE entry
+        delete_entry = history[2]
+        assert delete_entry.activity_type == ActivityType.DELETE
+        assert delete_entry.entity_name == "history_test"
+        assert delete_entry.pre["name"] == "history_test"
+        assert len(delete_entry.pre["levels"]) == 2
+        assert delete_entry.post == {}
