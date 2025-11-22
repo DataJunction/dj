@@ -130,7 +130,8 @@ export default function ManageDimensionLinksDialog({
       );
 
       if (response.status === 200 || response.status === 201) {
-        onSubmit();
+        alert('Reference dimension link removed successfully!');
+        window.location.reload();
       } else {
         alert(response.json?.message || 'Failed to remove link');
       }
