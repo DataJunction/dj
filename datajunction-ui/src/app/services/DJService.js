@@ -1090,10 +1090,10 @@ export const DataJunctionAPI = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
-        joinType: joinType,
-        joinOn: joinOn,
-        joinCardinality: joinCardinality,
+        dimension_node: dimensionNode,
+        join_type: joinType,
+        join_on: joinOn,
+        join_cardinality: joinCardinality,
         role: role,
       }),
       credentials: 'include',
@@ -1112,7 +1112,7 @@ export const DataJunctionAPI = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
+        dimension_node: dimensionNode,
         role: role,
       }),
       credentials: 'include',

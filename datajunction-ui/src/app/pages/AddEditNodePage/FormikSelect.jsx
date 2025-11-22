@@ -39,9 +39,21 @@ export const FormikSelect = ({
     }
   };
 
+  // Get the current value from field and find the matching option(s)
+  const getCurrentValue = () => {
+    if (isMulti) {
+      return selectOptions.filter(option =>
+        field.value?.includes(option.value),
+      );
+    } else {
+      return selectOptions.find(option => option.value === field.value) || null;
+    }
+  };
+
   return (
     <Select
       className={className}
+      value={getCurrentValue()}
       defaultValue={defaultValue}
       options={selectOptions}
       name={field.name}

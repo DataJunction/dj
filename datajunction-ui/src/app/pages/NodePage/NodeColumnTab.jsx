@@ -332,13 +332,13 @@ export default function NodeColumnTab({ node, djClient }) {
                       </a>
                     </td>
                     <td>{link.join_type.toUpperCase()}</td>
-                    <td style={{ width: '25rem', maxWidth: 'none' }}>
+                    <td style={{ maxWidth: '400px' }}>
                       <SyntaxHighlighter
                         language="sql"
                         style={foundation}
                         wrapLongLines={true}
                       >
-                        {link.join_sql}
+                        {link.join_sql?.trim()}
                       </SyntaxHighlighter>
                     </td>
                     <td>
@@ -348,45 +348,64 @@ export default function NodeColumnTab({ node, djClient }) {
                     </td>
                     <td>{link.role || '-'}</td>
                     <td>
-                      <button
-                        onClick={async () => {
-                          if (
-                            window.confirm(
-                              `Remove link to ${link.dimension.name}?`,
-                            )
-                          ) {
-                            const response =
-                              await djClient.removeComplexDimensionLink(
-                                node.name,
-                                link.dimension.name,
-                                link.role,
-                              );
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <AddComplexDimensionLinkPopover
+                          node={node}
+                          dimensions={dimensions}
+                          existingLink={link}
+                          isEditMode={true}
+                          onSubmit={async () => {
+                            const res = await djClient.node(node.name);
+                            setLinks(res.dimension_links);
+                          }}
+                        />
+                        <button
+                          onClick={async () => {
                             if (
-                              response.status === 200 ||
-                              response.status === 201
+                              window.confirm(
+                                `Remove link to ${link.dimension.name}?`,
+                              )
                             ) {
-                              const res = await djClient.node(node.name);
-                              setLinks(res.dimension_links);
-                            } else {
-                              alert(
-                                response.json?.message ||
-                                  'Failed to remove link',
-                              );
+                              try {
+                                const response =
+                                  await djClient.removeComplexDimensionLink(
+                                    node.name,
+                                    link.dimension.name,
+                                    link.role || null,
+                                  );
+                                if (
+                                  response.status === 200 ||
+                                  response.status === 201 ||
+                                  response.status === 204
+                                ) {
+                                  const res = await djClient.node(node.name);
+                                  setLinks(res.dimension_links);
+                                } else {
+                                  console.error('Remove link error:', response);
+                                  alert(
+                                    response.json?.message ||
+                                      `Failed to remove link (status: ${response.status})`,
+                                  );
+                                }
+                              } catch (error) {
+                                console.error('Remove link exception:', error);
+                                alert(`Error removing link: ${error.message}`);
+                              }
                             }
-                          }
-                        }}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          fontSize: '0.75rem',
-                          background: '#dc3545',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Remove
-                      </button>
+                          }}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            fontSize: '0.75rem',
+                            background: '#dc3545',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
