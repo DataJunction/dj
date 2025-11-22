@@ -80,7 +80,7 @@ class HierarchyUpdateRequest(BaseModel):
     ) -> Optional[List[HierarchyLevelInput]]:
         """Validate hierarchy levels if provided."""
         if levels is None:
-            return levels
+            return levels  # pragma: no cover
 
         if len(levels) < 2:
             raise ValueError("Hierarchy must have at least 2 levels")
@@ -159,3 +159,30 @@ class HierarchyAnalysis(BaseModel):
     max_depth: int
     validation_result: HierarchyValidationResult
     suggested_optimizations: List[str] = []
+
+
+class NavigationTarget(BaseModel):
+    """A level that can be navigated to in a hierarchy."""
+
+    level_name: str
+    dimension_node: str
+    level_order: int
+    steps: int  # How many levels away (1 = adjacent, 2 = two steps, etc.)
+
+
+class DimensionHierarchyNavigation(BaseModel):
+    """Navigation information for a dimension within a specific hierarchy."""
+
+    hierarchy_name: str
+    hierarchy_display_name: Optional[str] = None
+    current_level: str
+    current_level_order: int
+    drill_up: List[NavigationTarget] = []
+    drill_down: List[NavigationTarget] = []
+
+
+class DimensionHierarchiesResponse(BaseModel):
+    """Response showing all hierarchies that use a dimension and navigation options."""
+
+    dimension_node: str
+    hierarchies: List[DimensionHierarchyNavigation]

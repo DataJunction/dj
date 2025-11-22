@@ -162,15 +162,16 @@ class Hierarchy(Base):  # type: ignore
         cls,
         session: AsyncSession,
         levels: list[HierarchyLevelInput],
-    ) -> list[str]:
+    ) -> tuple[list[str], dict[str, Node]]:
         """
         Validate hierarchy level definitions and return any validation errors.
         """
         errors = []
+        existing_nodes: dict[str, Node] = {}
 
         if len(levels) < 2:
             errors.append("Hierarchy must have at least 2 levels")
-            return errors
+            return errors, existing_nodes
 
         # Check for unique level orders
         orders = [level.level_order for level in levels]
@@ -227,7 +228,7 @@ class Hierarchy(Base):  # type: ignore
                     parent_node=parent_node,
                 )
                 errors += link_errors
-        return errors
+        return errors, existing_nodes
 
     @classmethod
     async def has_valid_hierarchy_link_to(

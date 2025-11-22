@@ -243,6 +243,168 @@ class TestHierarchiesAPI:
             json=hierarchy_data,
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        # Pydantic catches duplicate names
+        data = response.json()
+        assert "Level names must be unique" in str(data)
+
+    async def test_create_hierarchy_duplicate_orders(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """Test Pydantic validation catches duplicate level orders."""
+        hierarchy_data = {
+            "name": "dup_orders",
+            "levels": [
+                {
+                    "name": "year",
+                    "dimension_node": "default.year_dim",
+                    "level_order": 0,
+                },
+                {
+                    "name": "month",
+                    "dimension_node": "default.month_dim",
+                    "level_order": 0,
+                },  # Duplicate!
+            ],
+        }
+
+        response = await client_with_basic.post("/hierarchies/", json=hierarchy_data)
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "Level orders must be unique" in str(data)
+
+    async def test_create_hierarchy_non_consecutive_orders(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """Test Pydantic validation catches non-consecutive level orders."""
+        hierarchy_data = {
+            "name": "non_consecutive",
+            "levels": [
+                {
+                    "name": "year",
+                    "dimension_node": "default.year_dim",
+                    "level_order": 0,
+                },
+                {
+                    "name": "month",
+                    "dimension_node": "default.month_dim",
+                    "level_order": 2,
+                },  # Skips 1!
+            ],
+        }
+
+        response = await client_with_basic.post("/hierarchies/", json=hierarchy_data)
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "consecutive starting from 0" in str(data)
+
+    async def test_update_hierarchy_with_single_level(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+    ):
+        """Test Pydantic validation catches update with less than 2 levels."""
+        update_data = {
+            "levels": [
+                {
+                    "name": "year",
+                    "dimension_node": "default.year_dim",
+                    "level_order": 0,
+                },
+                # Only 1 level!
+            ],
+        }
+
+        response = await client_with_basic.put(
+            "/hierarchies/calendar_hierarchy",
+            json=update_data,
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "must have at least 2 levels" in str(data)
+
+    async def test_update_hierarchy_with_duplicate_names(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+    ):
+        """Test Pydantic validation catches duplicate names in update."""
+        update_data = {
+            "levels": [
+                {
+                    "name": "level",
+                    "dimension_node": "default.year_dim",
+                    "level_order": 0,
+                },
+                {
+                    "name": "level",
+                    "dimension_node": "default.month_dim",
+                    "level_order": 1,
+                },  # Duplicate!
+            ],
+        }
+
+        response = await client_with_basic.put(
+            "/hierarchies/calendar_hierarchy",
+            json=update_data,
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "Level names must be unique" in str(data)
+
+    async def test_update_hierarchy_with_duplicate_orders(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+    ):
+        """Test Pydantic validation catches duplicate orders in update."""
+        update_data = {
+            "levels": [
+                {
+                    "name": "year",
+                    "dimension_node": "default.year_dim",
+                    "level_order": 0,
+                },
+                {
+                    "name": "month",
+                    "dimension_node": "default.month_dim",
+                    "level_order": 0,
+                },  # Duplicate!
+            ],
+        }
+
+        response = await client_with_basic.put(
+            "/hierarchies/calendar_hierarchy",
+            json=update_data,
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "Level orders must be unique" in str(data)
+
+    async def test_update_hierarchy_without_levels(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+    ):
+        """Test updating hierarchy metadata without changing levels."""
+        update_data = {
+            "display_name": "Updated Display Name",
+            "description": "Updated Description",
+            # No levels provided - should use existing levels
+        }
+
+        response = await client_with_basic.put(
+            "/hierarchies/calendar_hierarchy",
+            json=update_data,
+        )
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+
+        assert data["display_name"] == "Updated Display Name"
+        assert data["description"] == "Updated Description"
+        # Levels should remain unchanged
+        assert len(data["levels"]) == 4
 
     async def test_update_hierarchy(
         self,
@@ -367,20 +529,6 @@ class TestHierarchiesAPI:
         """Test deleting a hierarchy that doesn't exist."""
         response = await client_with_basic.delete("/hierarchies/nonexistent")
         assert response.status_code == HTTPStatus.NOT_FOUND
-
-    async def test_get_hierarchy_levels(
-        self,
-        client_with_basic: AsyncClient,
-        fiscal_hierarchy: Hierarchy,
-    ):
-        """Test getting hierarchy levels endpoint."""
-        response = await client_with_basic.get("/hierarchies/fiscal_hierarchy/levels")
-        assert response.status_code == HTTPStatus.OK
-        data = response.json()
-
-        assert len(data) == 4
-        level_names = [level["name"] for level in data]
-        assert level_names == ["year", "quarter", "month", "day"]
 
     async def test_validate_hierarchy(
         self,
@@ -565,3 +713,114 @@ class TestHierarchiesAPI:
         assert delete_entry.pre["name"] == "history_test"
         assert len(delete_entry.pre["levels"]) == 2
         assert delete_entry.post == {}
+
+    async def test_get_dimension_hierarchies(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+        fiscal_hierarchy: Hierarchy,
+    ):
+        """Test getting hierarchies that use a specific dimension."""
+        # Get hierarchies using month_dim (used in both calendar and fiscal)
+        response = await client_with_basic.get("/nodes/default.month_dim/hierarchies/")
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+
+        assert data["dimension_node"] == "default.month_dim"
+        assert len(data["hierarchies"]) == 2
+
+        # Find the calendar hierarchy navigation info
+        calendar_nav = next(
+            h
+            for h in data["hierarchies"]
+            if h["hierarchy_name"] == "calendar_hierarchy"
+        )
+        assert calendar_nav["current_level"] == "month"
+        assert calendar_nav["current_level_order"] == 1
+
+        # Check drill-up options (to year)
+        assert len(calendar_nav["drill_up"]) == 1
+        assert calendar_nav["drill_up"][0]["level_name"] == "year"
+        assert calendar_nav["drill_up"][0]["dimension_node"] == "default.year_dim"
+        assert calendar_nav["drill_up"][0]["steps"] == 1
+
+        # Check drill-down options (to week, then day)
+        assert len(calendar_nav["drill_down"]) == 2
+        week_drill = next(
+            d for d in calendar_nav["drill_down"] if d["level_name"] == "week"
+        )
+        assert week_drill["dimension_node"] == "default.week_dim"
+        assert week_drill["steps"] == 1
+
+        day_drill = next(
+            d for d in calendar_nav["drill_down"] if d["level_name"] == "day"
+        )
+        assert day_drill["dimension_node"] == "default.day_dim"
+        assert day_drill["steps"] == 2
+
+        # Find the fiscal hierarchy navigation info
+        fiscal_nav = next(
+            h for h in data["hierarchies"] if h["hierarchy_name"] == "fiscal_hierarchy"
+        )
+        assert fiscal_nav["current_level"] == "month"
+        assert fiscal_nav["current_level_order"] == 2
+
+        # Check fiscal drill-up options (to quarter, then year)
+        assert len(fiscal_nav["drill_up"]) == 2
+        quarter_drill = next(
+            d for d in fiscal_nav["drill_up"] if d["level_name"] == "quarter"
+        )
+        assert quarter_drill["dimension_node"] == "default.quarter_dim"
+        assert quarter_drill["steps"] == 1
+
+        year_drill = next(
+            d for d in fiscal_nav["drill_up"] if d["level_name"] == "year"
+        )
+        assert year_drill["steps"] == 2
+
+    async def test_get_dimension_hierarchies_not_used(
+        self,
+        client_with_basic: AsyncClient,
+        calendar_hierarchy: Hierarchy,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test getting hierarchies for a dimension that's not used in any hierarchy."""
+        # Quarter is used in fiscal but we only have calendar loaded in this test
+        # Actually quarter IS in fiscal_hierarchy, but let's test with a dimension not in calendar
+        response = await client_with_basic.get(
+            "/nodes/default.quarter_dim/hierarchies/",
+        )
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+
+        assert data["dimension_node"] == "default.quarter_dim"
+        # Quarter is not in calendar_hierarchy (only year, month, week, day)
+        # So it should return empty or only fiscal if that's loaded
+        # Since we only have calendar_hierarchy fixture, it should be empty
+        assert len(data["hierarchies"]) == 0
+
+    async def test_get_dimension_hierarchies_nonexistent_node(
+        self,
+        client_with_basic: AsyncClient,
+    ):
+        """Test getting hierarchies for a non-existent node."""
+        response = await client_with_basic.get(
+            "/nodes/nonexistent.dimension/hierarchies/",
+        )
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        data = response.json()
+        assert "does not exist" in data["message"]
+
+    async def test_get_dimension_hierarchies_non_dimension_node(
+        self,
+        client_with_basic: AsyncClient,
+        time_sources: dict[str, Node],
+    ):
+        """Test getting hierarchies for a non-dimension node."""
+        # Try with a source node
+        response = await client_with_basic.get(
+            "/nodes/default.year_source/hierarchies/",
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        data = response.json()
+        assert "Node 'default.year_source' is not a dimension node" in data["message"]

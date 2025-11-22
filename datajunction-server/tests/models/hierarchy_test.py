@@ -8,6 +8,7 @@ from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.models.hierarchy import HierarchyLevelInput
+from datajunction_server.models.node_type import NodeType
 
 # Import shared fixtures
 from tests.fixtures.hierarchy_fixtures import (  # noqa: F401
@@ -177,7 +178,7 @@ class TestHierarchy:
             ),
         ]
 
-        errors = await Hierarchy.validate_levels(session, valid_levels)
+        errors, _ = await Hierarchy.validate_levels(session, valid_levels)
         assert len(errors) == 1
         assert "No dimension link exists" in errors[0]
 
@@ -195,5 +196,236 @@ class TestHierarchy:
             ),
         ]
 
-        errors = await Hierarchy.validate_levels(session, invalid_levels)
+        errors, _ = await Hierarchy.validate_levels(session, invalid_levels)
         assert any("does not exist" in error for error in errors)
+
+    async def test_hierarchy_validation_less_than_two_levels(
+        self,
+        session: AsyncSession,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation fails with only one level."""
+        dimensions, _ = time_dimensions
+
+        single_level = [
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, single_level)
+        assert len(errors) == 1
+        assert "must have at least 2 levels" in errors[0]
+
+    async def test_hierarchy_validation_duplicate_level_orders(
+        self,
+        session: AsyncSession,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation fails with duplicate level orders."""
+        dimensions, _ = time_dimensions
+
+        duplicate_orders = [
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="month",
+                dimension_node=dimensions["month"].name,
+                level_order=0,  # Duplicate!
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, duplicate_orders)
+        assert any("Level orders must be unique" in error for error in errors)
+
+    async def test_hierarchy_validation_duplicate_level_names(
+        self,
+        session: AsyncSession,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation fails with duplicate level names."""
+        dimensions, _ = time_dimensions
+
+        duplicate_names = [
+            HierarchyLevelInput(
+                name="time",  # Same name
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="time",  # Same name
+                dimension_node=dimensions["month"].name,
+                level_order=1,
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, duplicate_names)
+        assert any("Level names must be unique" in error for error in errors)
+
+    async def test_hierarchy_validation_non_dimension_node(
+        self,
+        session: AsyncSession,
+        time_sources: dict[str, Node],
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation fails when using a non-dimension node."""
+        dimensions, _ = time_dimensions
+
+        with_source_node = [
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="source",
+                dimension_node=time_sources["month"].name,  # SOURCE node!
+                level_order=1,
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, with_source_node)
+        assert any("not a dimension node" in error for error in errors)
+
+    async def test_hierarchy_validation_single_dimension_hierarchy(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """Test validation of single-dimension hierarchy with grain_columns."""
+        from datajunction_server.database.catalog import Catalog
+        from datajunction_server.database.column import Column
+        from datajunction_server.sql.parsing.types import StringType
+
+        # Create a catalog
+        catalog = Catalog(name="test_catalog")
+        session.add(catalog)
+        await session.flush()
+
+        # Create a single dimension with multiple grain columns
+        location_dim = Node(
+            name="default.location_dim",
+            type=NodeType.DIMENSION,
+            current_version="v1",
+            created_by_id=current_user.id,
+        )
+        location_rev = NodeRevision(
+            node=location_dim,
+            name=location_dim.name,
+            type=location_dim.type,
+            version="v1",
+            catalog_id=catalog.id,
+            schema_="default",
+            table="locations",
+            query="SELECT country, state, city FROM locations",
+            columns=[
+                Column(name="country", type=StringType(), order=0),
+                Column(name="state", type=StringType(), order=1),
+                Column(name="city", type=StringType(), order=2),
+            ],
+            created_by_id=current_user.id,
+        )
+        session.add(location_rev)
+        await session.commit()
+
+        # Create hierarchy with same dimension at different grains
+        single_dim_levels = [
+            HierarchyLevelInput(
+                name="country",
+                dimension_node="default.location_dim",
+                level_order=0,
+                grain_columns=["country"],
+            ),
+            HierarchyLevelInput(
+                name="state",
+                dimension_node="default.location_dim",  # Same dimension!
+                level_order=1,
+                grain_columns=["country", "state"],
+            ),
+        ]
+
+        # Should validate successfully - skips dimension link check
+        errors, _ = await Hierarchy.validate_levels(session, single_dim_levels)
+        assert len(errors) == 0
+
+    async def test_hierarchy_validation_wrong_cardinality(
+        self,
+        session: AsyncSession,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation fails with wrong cardinality dimension link."""
+        from datajunction_server.database.dimensionlink import DimensionLink
+        from datajunction_server.models.dimensionlink import JoinType, JoinCardinality
+
+        dimensions, revisions = time_dimensions
+
+        # Add a dimension link with ONE_TO_ONE cardinality (wrong!)
+        bad_link = DimensionLink(
+            node_revision=revisions["month"],
+            dimension=dimensions["year"],
+            join_sql="default.month_dim.year_id = default.year_dim.year_id",
+            join_type=JoinType.INNER,
+            join_cardinality=JoinCardinality.ONE_TO_ONE,
+        )
+        session.add(bad_link)
+        await session.commit()
+
+        levels = [
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="month",
+                dimension_node=dimensions["month"].name,
+                level_order=1,
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, levels)
+        assert any("cardinality" in error.lower() for error in errors)
+
+    async def test_hierarchy_validation_pk_not_in_join(
+        self,
+        session: AsyncSession,
+        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
+    ):
+        """Test validation warning when join doesn't reference primary key."""
+        from datajunction_server.database.dimensionlink import DimensionLink
+        from datajunction_server.models.dimensionlink import JoinType
+
+        dimensions, revisions = time_dimensions
+
+        # Add a dimension link that doesn't use the PK in join SQL
+        weird_link = DimensionLink(
+            node_revision=revisions["month"],
+            dimension=dimensions["year"],
+            join_sql="default.month_dim.some_col = default.year_dim.other_col",  # Not PK!
+            join_type=JoinType.INNER,
+        )
+        session.add(weird_link)
+        await session.commit()
+
+        levels = [
+            HierarchyLevelInput(
+                name="year",
+                dimension_node=dimensions["year"].name,
+                level_order=0,
+            ),
+            HierarchyLevelInput(
+                name="month",
+                dimension_node=dimensions["month"].name,
+                level_order=1,
+            ),
+        ]
+
+        errors, _ = await Hierarchy.validate_levels(session, levels)
+        assert any(
+            "WARN" in error or "primary key" in error.lower() for error in errors
+        )

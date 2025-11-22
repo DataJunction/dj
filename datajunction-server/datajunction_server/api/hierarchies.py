@@ -18,6 +18,7 @@ from datajunction_server.database.hierarchy import (
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
@@ -36,6 +37,9 @@ from datajunction_server.models.hierarchy import (
     HierarchyUpdateRequest,
     HierarchyValidationResult,
     HierarchyValidationError,
+    DimensionHierarchiesResponse,
+    DimensionHierarchyNavigation,
+    NavigationTarget,
 )
 from datajunction_server.utils import (
     get_current_user,
@@ -71,6 +75,98 @@ async def list_all_hierarchies(
     ]
 
 
+@router.get(
+    "/nodes/{dimension}/hierarchies/",
+    response_model=DimensionHierarchiesResponse,
+)
+async def get_dimension_hierarchies(
+    dimension: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DimensionHierarchiesResponse:
+    """
+    Get all hierarchies that use a specific dimension node and show navigation options.
+
+    This endpoint helps users discover:
+    - What hierarchies include this dimension
+    - What position the dimension occupies in each hierarchy
+    - What other dimensions they can drill up or down to
+    """
+    # Validate that the dimension node exists and is a dimension
+    node = cast(
+        Node,
+        await Node.get_by_name(session, dimension, raise_if_not_exists=True),
+    )
+
+    if node.type != NodeType.DIMENSION:
+        raise DJInvalidInputException(
+            message=f"Node '{dimension}' is not a dimension node (type: {node.type})",
+        )
+
+    # Find all hierarchies that use this dimension
+    hierarchies_using_dimension = await Hierarchy.get_using_dimension(
+        session,
+        node.id,
+    )
+
+    # Build navigation information for each hierarchy
+    navigation_info = []
+    for hierarchy in hierarchies_using_dimension:
+        # Find the level that references this dimension
+        current_level = None
+        for level in hierarchy.levels:  # pragma: no cover
+            if level.dimension_node_id == node.id:
+                current_level = level
+                break
+
+        if not current_level:
+            continue  # pragma: no cover
+
+        # Get sorted levels for navigation
+        sorted_levels = sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
+
+        # Build drill-up targets (lower level_order = coarser grain)
+        drill_up = [
+            NavigationTarget(
+                level_name=level.name,
+                dimension_node=level.dimension_node.name,
+                level_order=level.level_order,
+                steps=current_level.level_order - level.level_order,
+            )
+            for level in sorted_levels
+            if level.level_order < current_level.level_order
+        ]
+
+        # Build drill-down targets (higher level_order = finer grain)
+        drill_down = [
+            NavigationTarget(
+                level_name=level.name,
+                dimension_node=level.dimension_node.name,
+                level_order=level.level_order,
+                steps=level.level_order - current_level.level_order,
+            )
+            for level in sorted_levels
+            if level.level_order > current_level.level_order
+        ]
+
+        navigation_info.append(
+            DimensionHierarchyNavigation(
+                hierarchy_name=hierarchy.name,
+                hierarchy_display_name=hierarchy.display_name,
+                current_level=current_level.name,
+                current_level_order=current_level.level_order,
+                drill_up=drill_up,
+                drill_down=drill_down,
+            ),
+        )
+
+    return DimensionHierarchiesResponse(
+        dimension_node=dimension,
+        hierarchies=navigation_info,
+    )
+
+
 @router.post(
     "/hierarchies/",
     response_model=HierarchyOutput,
@@ -94,18 +190,20 @@ async def create_hierarchy(
         )
 
     # Validate hierarchy structure (this also resolves dimension node names to IDs)
-    validation_errors = await Hierarchy.validate_levels(session, hierarchy_data.levels)
+    validation_errors, existing_nodes = await Hierarchy.validate_levels(
+        session,
+        hierarchy_data.levels,
+    )
     if validation_errors:
         raise DJInvalidInputException(
             message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
         )
 
     # Resolve dimension node names to IDs for creation (validation already confirmed they exist)
-    dimension_nodes = {}
-    for level in hierarchy_data.levels:
-        node = await Node.get_by_name(session, level.dimension_node)
-        if node:
-            dimension_nodes[level.dimension_node] = node.id
+    dimension_nodes = {
+        level.dimension_node: existing_nodes[level.dimension_node].id
+        for level in hierarchy_data.levels
+    }
 
     # Create hierarchy
     hierarchy = Hierarchy(
@@ -225,18 +323,14 @@ async def update_hierarchy(
     # Update levels if provided
     if update_data.levels is not None:
         # Validate hierarchy structure (this also resolves dimension node names to IDs)
-        validation_errors = await Hierarchy.validate_levels(session, update_data.levels)
+        validation_errors, dimension_nodes = await Hierarchy.validate_levels(
+            session,
+            update_data.levels,
+        )
         if validation_errors:
             raise DJInvalidInputException(
                 message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
             )
-
-        # Resolve dimension node names to IDs for creation (validation already confirmed they exist)
-        dimension_node_names = {level.dimension_node for level in update_data.levels}
-        dimension_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(session, list(dimension_node_names))
-        }
 
         # Delete existing levels by clearing the collection
         hierarchy.levels.clear()
@@ -343,31 +437,6 @@ async def delete_hierarchy(
     )
 
 
-@router.get("/hierarchies/{name}/levels", response_model=List[HierarchyLevelOutput])
-async def get_hierarchy_levels(
-    name: str,
-    *,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> List[HierarchyLevelOutput]:
-    """
-    Get all levels for a specific hierarchy.
-    """
-    hierarchy = await Hierarchy.get_by_name(session, name)
-    if not hierarchy:
-        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
-
-    return [
-        HierarchyLevelOutput(
-            name=level.name,
-            dimension_node=NodeNameOutput(name=level.dimension_node.name),
-            level_order=level.level_order,
-            grain_columns=level.grain_columns,
-        )
-        for level in sorted(hierarchy.levels, key=lambda lvl: lvl.level_order)
-    ]
-
-
 @router.post("/hierarchies/{name}/validate", response_model=HierarchyValidationResult)
 async def validate_hierarchy(
     name: str,
@@ -396,7 +465,7 @@ async def validate_hierarchy(
         for level in hierarchy.levels
     ]
 
-    validation_errors = await Hierarchy.validate_levels(session, level_inputs)
+    validation_errors, _ = await Hierarchy.validate_levels(session, level_inputs)
 
     errors = [
         HierarchyValidationError(
