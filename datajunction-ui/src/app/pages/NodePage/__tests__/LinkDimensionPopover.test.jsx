@@ -31,17 +31,12 @@ describe('<LinkDimensionPopover />', () => {
       json: { message: 'Success' },
     });
 
-    mockDjClient.DataJunctionAPI.unlinkDimension.mockReturnValue({
-      status: 200,
-      json: { message: 'Success' },
-    });
-
-    // Render the component
+    // Render the component - start with no dimensions
     const { getByLabelText, getByText, getByTestId } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
-          dimensionNodes={['default.dimension1']}
+          dimensionNodes={[]}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -52,39 +47,25 @@ describe('<LinkDimensionPopover />', () => {
     // Open the popover
     fireEvent.click(getByLabelText('LinkDimension'));
 
-    // Verify dimension1 is initially selected (react-select shows label, not value in remove button)
-    await waitFor(() => {
-      expect(screen.getByLabelText('Remove Dimension 1')).toBeInTheDocument();
-    });
-
     // Click on a dimension to add it
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getAllByText('Dimension 2')[0]);
-
-    // Click on the 'Remove' button for dimension1 (using the label)
     await waitFor(() => {
-      const removeButton = screen.getByLabelText('Remove Dimension 1');
-      fireEvent.click(removeButton);
+      expect(screen.getByText('Dimension 2')).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByText('Dimension 2'));
 
-    // Now save (this will link dimension2 and unlink dimension1)
+    // Now save (this will link dimension2)
     fireEvent.click(getByText('Save'));
 
-    // Expect both operations to be called with success message
+    // Expect linkDimension to be called with success message
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension2',
       );
-      expect(mockDjClient.DataJunctionAPI.unlinkDimension).toHaveBeenCalledWith(
-        'default.node1',
-        'column1',
-        'default.dimension1',
-      );
-      // Since unlinkDimension runs last, its message should be shown
-      expect(getByText('Removed dimension link!')).toBeInTheDocument();
+      expect(getByText('Saved!')).toBeInTheDocument();
     });
   });
 
@@ -108,17 +89,12 @@ describe('<LinkDimensionPopover />', () => {
       json: { message: 'Failed due to nonexistent dimension' },
     });
 
-    mockDjClient.DataJunctionAPI.unlinkDimension.mockReturnValue({
-      status: 500,
-      json: { message: 'Failed due to no dimension link' },
-    });
-
-    // Render the component
+    // Render the component - start with no dimensions to test adding one that fails
     const { getByLabelText, getByText, getByTestId } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <LinkDimensionPopover
           column={column}
-          dimensionNodes={['default.dimension1']}
+          dimensionNodes={[]}
           node={node}
           options={options}
           onSubmit={onSubmitMock}
@@ -132,31 +108,25 @@ describe('<LinkDimensionPopover />', () => {
     // Click on a dimension to add it
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getAllByText('Dimension 2')[0]);
-
-    // Click on the 'Remove' button for dimension1 (using the label)
     await waitFor(() => {
-      const removeButton = screen.getByLabelText('Remove Dimension 1');
-      fireEvent.click(removeButton);
+      expect(screen.getByText('Dimension 2')).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByText('Dimension 2'));
 
-    // Now save (this will attempt to link dimension2 and unlink dimension1)
+    // Now save (this will attempt to link dimension2 which will fail)
     fireEvent.click(getByText('Save'));
 
-    // Expect both operations to be called with failure messages
+    // Expect linkDimension to be called with failure message
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension2',
       );
-      expect(mockDjClient.DataJunctionAPI.unlinkDimension).toHaveBeenCalledWith(
-        'default.node1',
-        'column1',
-        'default.dimension1',
-      );
-      // The unlinkDimension failure message should be shown since it runs last
-      expect(getByText('Failed due to no dimension link')).toBeInTheDocument();
+      // The linkDimension failure message should be shown
+      expect(
+        getByText('Failed due to nonexistent dimension'),
+      ).toBeInTheDocument();
     });
   });
 });

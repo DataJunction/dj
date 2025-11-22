@@ -253,6 +253,13 @@ export default function AddComplexDimensionLinkPopover({
                               selectOptions={joinTypeOptions}
                               formikFieldName="joinType"
                               placeholder="Select join type"
+                              defaultValue={
+                                values.joinType
+                                  ? joinTypeOptions.find(
+                                      opt => opt.value === values.joinType,
+                                    )
+                                  : null
+                              }
                             />
                           </div>
                           <div style={{ flex: 1 }}>
@@ -263,6 +270,14 @@ export default function AddComplexDimensionLinkPopover({
                               selectOptions={joinCardinalityOptions}
                               formikFieldName="joinCardinality"
                               placeholder="Select join cardinality"
+                              defaultValue={
+                                values.joinCardinality
+                                  ? joinCardinalityOptions.find(
+                                      opt =>
+                                        opt.value === values.joinCardinality,
+                                    )
+                                  : null
+                              }
                             />
                           </div>
                         </div>
