@@ -69,7 +69,8 @@ describe('<RegisterTablePage />', () => {
     const catalog = getByTestId('choose-catalog');
     await waitFor(async () => {
       fireEvent.keyDown(catalog.firstChild, { key: 'ArrowDown' });
-      fireEvent.click(screen.getByText('warehouse'));
+      const warehouseOptions = screen.getAllByText('warehouse');
+      fireEvent.click(warehouseOptions[warehouseOptions.length - 1]);
     });
 
     await userEvent.type(screen.getByLabelText('Schema'), 'schema');
@@ -99,7 +100,8 @@ describe('<RegisterTablePage />', () => {
     const catalog = getByTestId('choose-catalog');
     await waitFor(async () => {
       fireEvent.keyDown(catalog.firstChild, { key: 'ArrowDown' });
-      fireEvent.click(screen.getByText('warehouse'));
+      const warehouseOptions = screen.getAllByText('warehouse');
+      fireEvent.click(warehouseOptions[warehouseOptions.length - 1]);
     });
 
     await userEvent.type(screen.getByLabelText('Schema'), 'schema');

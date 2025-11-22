@@ -106,7 +106,7 @@ export default function LinkDimensionPopover({
           initialValues={{
             column: column.name,
             node: node.name,
-            updatedDimensionNodes: '',
+            updatedDimensionNodes: dimensionNodes || [],
           }}
           onSubmit={handleSubmit}
         >

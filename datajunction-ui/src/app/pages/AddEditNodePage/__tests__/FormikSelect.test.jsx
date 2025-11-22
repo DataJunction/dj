@@ -14,16 +14,12 @@ describe('FormikSelect', () => {
 
   const singleSelect = () => {
     const utils = render(
-      <Formik initialValues={{ selectedOption: '' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ namespace: 'basic.one' }} onSubmit={jest.fn()}>
         <Form>
           <FormikSelect
             selectOptions={namespaces}
             formikFieldName="namespace"
             placeholder="Choose Namespace"
-            defaultValue={{
-              value: 'basic.one',
-              label: 'basic.one',
-            }}
           />
         </Form>
       </Formik>,
@@ -38,16 +34,12 @@ describe('FormikSelect', () => {
 
   const multiSelect = () => {
     const utils = render(
-      <Formik initialValues={{ selectedOption: '' }} onSubmit={jest.fn()}>
+      <Formik initialValues={{ namespace: ['basic.one'] }} onSubmit={jest.fn()}>
         <Form>
           <FormikSelect
             selectOptions={namespaces}
             formikFieldName="namespace"
             placeholder="Choose Namespace"
-            defaultValue={{
-              value: 'basic.one',
-              label: 'basic.one',
-            }}
             isMulti={true}
           />
         </Form>

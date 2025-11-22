@@ -52,34 +52,38 @@ describe('<LinkDimensionPopover />', () => {
     // Open the popover
     fireEvent.click(getByLabelText('LinkDimension'));
 
-    // Click on a dimension and save
+    // Verify dimension1 is initially selected (react-select shows label, not value in remove button)
+    await waitFor(() => {
+      expect(screen.getByLabelText('Remove Dimension 1')).toBeInTheDocument();
+    });
+    
+    // Click on a dimension to add it
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Dimension 2'));
+    fireEvent.click(screen.getAllByText('Dimension 2')[0]);
+    
+    // Click on the 'Remove' button for dimension1 (using the label)
+    await waitFor(() => {
+      const removeButton = screen.getByLabelText('Remove Dimension 1');
+      fireEvent.click(removeButton);
+    });
+    
+    // Now save (this will link dimension2 and unlink dimension1)
     fireEvent.click(getByText('Save'));
 
-    // Expect linkDimension to be called
+    // Expect both operations to be called with success message
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension2',
       );
-      expect(getByText('Saved!')).toBeInTheDocument();
-    });
-
-    // Click on the 'Remove' option and save
-    const removeButton = screen.getByLabelText('Remove default.dimension1');
-    fireEvent.click(removeButton);
-    fireEvent.click(getByText('Save'));
-
-    // Expect unlinkDimension to be called
-    await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.unlinkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension1',
       );
+      // Since unlinkDimension runs last, its message should be shown
       expect(getByText('Removed dimension link!')).toBeInTheDocument();
     });
   });
@@ -125,36 +129,33 @@ describe('<LinkDimensionPopover />', () => {
     // Open the popover
     fireEvent.click(getByLabelText('LinkDimension'));
 
-    // Click on a dimension and save
+    // Click on a dimension to add it
     const linkDimension = getByTestId('link-dimension');
     fireEvent.keyDown(linkDimension.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Dimension 2'));
+    fireEvent.click(screen.getAllByText('Dimension 2')[0]);
+    
+    // Click on the 'Remove' button for dimension1 (using the label)
+    await waitFor(() => {
+      const removeButton = screen.getByLabelText('Remove Dimension 1');
+      fireEvent.click(removeButton);
+    });
+    
+    // Now save (this will attempt to link dimension2 and unlink dimension1)
     fireEvent.click(getByText('Save'));
 
-    // Expect linkDimension to be called
+    // Expect both operations to be called with failure messages
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.linkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension2',
       );
-      expect(
-        getByText('Failed due to nonexistent dimension'),
-      ).toBeInTheDocument();
-    });
-
-    // Click on the 'Remove' option and save
-    const removeButton = screen.getByLabelText('Remove default.dimension1');
-    fireEvent.click(removeButton);
-    fireEvent.click(getByText('Save'));
-
-    // Expect unlinkDimension to be called
-    await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.unlinkDimension).toHaveBeenCalledWith(
         'default.node1',
         'column1',
         'default.dimension1',
       );
+      // The unlinkDimension failure message should be shown since it runs last
       expect(getByText('Failed due to no dimension link')).toBeInTheDocument();
     });
   });
