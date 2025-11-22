@@ -50,6 +50,17 @@ describe('<NodePage />', () => {
         unsubscribeFromNotifications: jest
           .fn()
           .mockResolvedValue({ status: 200 }),
+        setAttributes: jest.fn().mockResolvedValue({ status: 200 }),
+        linkDimension: jest.fn().mockResolvedValue({ status: 200 }),
+        unlinkDimension: jest.fn().mockResolvedValue({ status: 200 }),
+        addReferenceDimensionLink: jest.fn().mockResolvedValue({ status: 200 }),
+        removeReferenceDimensionLink: jest
+          .fn()
+          .mockResolvedValue({ status: 200 }),
+        addComplexDimensionLink: jest.fn().mockResolvedValue({ status: 200 }),
+        removeComplexDimensionLink: jest
+          .fn()
+          .mockResolvedValue({ status: 200 }),
       },
     };
   };
@@ -408,15 +419,15 @@ describe('<NodePage />', () => {
 
   it('renders the NodeColumns tab correctly', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.node.mockResolvedValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.getMetric.mockReturnValue(
       mocks.mockMetricNodeJson,
     );
-    djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
-    djClient.DataJunctionAPI.attributes.mockReturnValue(mocks.attributes);
-    djClient.DataJunctionAPI.dimensions.mockReturnValue(mocks.dimensions);
+    djClient.DataJunctionAPI.columns.mockResolvedValue(mocks.metricNodeColumns);
+    djClient.DataJunctionAPI.attributes.mockResolvedValue(mocks.attributes);
+    djClient.DataJunctionAPI.dimensions.mockResolvedValue(mocks.dimensions);
     djClient.DataJunctionAPI.engines.mockReturnValue([]);
-    djClient.DataJunctionAPI.setPartition.mockReturnValue({
+    djClient.DataJunctionAPI.setPartition.mockResolvedValue({
       status: 200,
       json: { message: '' },
     });
@@ -459,14 +470,14 @@ describe('<NodePage />', () => {
         screen.getByRole('button', { name: 'SaveEditColumn' }),
       ).toBeInTheDocument();
 
-      // check that the link dimension popover can be clicked
-      const linkDimensionPopover = screen.getByRole('button', {
-        name: 'LinkDimension',
+      // check that the manage dimension links dialog can be opened
+      const manageDimensionLinksButton = screen.getByRole('button', {
+        name: 'ManageDimensionLinksToggle',
       });
-      expect(linkDimensionPopover).toBeInTheDocument();
-      fireEvent.click(linkDimensionPopover);
+      expect(manageDimensionLinksButton).toBeInTheDocument();
+      fireEvent.click(manageDimensionLinksButton);
       expect(
-        screen.getByRole('button', { name: 'SaveLinkDimension' }),
+        screen.getByRole('dialog', { name: 'ManageDimensionLinksDialog' }),
       ).toBeInTheDocument();
 
       // check that the set column partition popover can be clicked
@@ -483,7 +494,6 @@ describe('<NodePage />', () => {
       expect(screen.getByText('Saved!'));
     });
   }, 60000);
-  // check compiled SQL on nodeInfo page
 
   it('renders the NodeHistory tab correctly', async () => {
     const djClient = mockDJClient();

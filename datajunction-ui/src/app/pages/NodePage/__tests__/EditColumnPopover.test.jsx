@@ -79,7 +79,7 @@ describe('<EditColumnPopover />', () => {
       expect(mockDjClient.DataJunctionAPI.setAttributes).toHaveBeenCalledWith(
         'default.node1',
         'column1',
-        ['dimension', 'primary_key'],
+        ['primary_key', 'dimension'],
       );
       expect(getByText('Saved!')).toBeInTheDocument();
     });

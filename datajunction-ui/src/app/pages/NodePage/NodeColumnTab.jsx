@@ -378,8 +378,10 @@ export default function NodeColumnTab({ node, djClient }) {
                                   response.status === 201 ||
                                   response.status === 204
                                 ) {
-                                  const res = await djClient.node(node.name);
-                                  setLinks(res.dimension_links);
+                                  alert(
+                                    'Complex dimension link removed successfully!',
+                                  );
+                                  window.location.reload();
                                 } else {
                                   console.error('Remove link error:', response);
                                   alert(

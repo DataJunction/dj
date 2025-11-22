@@ -502,6 +502,7 @@ export default function ManageDimensionLinksDialog({
                                     border: 'none',
                                     borderRadius: '4px',
                                     cursor: 'pointer',
+                                    textTransform: 'none',
                                   }}
                                 >
                                   Remove Link
