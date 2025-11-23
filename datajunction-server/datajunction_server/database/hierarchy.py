@@ -169,15 +169,6 @@ class Hierarchy(Base):  # type: ignore
         errors = []
         existing_nodes: dict[str, Node] = {}
 
-        if len(levels) < 2:
-            errors.append("Hierarchy must have at least 2 levels")
-            return errors, existing_nodes
-
-        # Check for unique level orders
-        orders = [level.level_order for level in levels]
-        if len(set(orders)) != len(orders):
-            errors.append("Level orders must be unique")
-
         # Check for unique level names
         names = [level.name for level in levels]
         if len(set(names)) != len(names):
@@ -206,13 +197,10 @@ class Hierarchy(Base):  # type: ignore
                 )
                 continue
 
-        # Sort levels by level_order to check consecutive relationships
-        sorted_levels = sorted(levels, key=lambda x: x.level_order)
-
         # For multi-dimension hierarchies, validate dimension FK relationships
-        for i in range(len(sorted_levels) - 1):
-            current_level = sorted_levels[i]
-            next_level = sorted_levels[i + 1]
+        for i in range(len(levels) - 1):
+            current_level = levels[i]
+            next_level = levels[i + 1]
 
             # Skip if nodes are the same (single-dimension hierarchy section)
             if current_level.dimension_node == next_level.dimension_node:

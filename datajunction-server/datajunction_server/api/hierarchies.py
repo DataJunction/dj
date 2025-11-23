@@ -216,12 +216,12 @@ async def create_hierarchy(
     await session.flush()  # Get the ID
 
     # Create levels
-    for level_input in hierarchy_data.levels:
+    for idx, level_input in enumerate(hierarchy_data.levels):
         level = HierarchyLevel(
             hierarchy_id=hierarchy.id,
             name=level_input.name,
             dimension_node_id=dimension_nodes[level_input.dimension_node],
-            level_order=level_input.level_order,
+            level_order=idx,
             grain_columns=level_input.grain_columns,
         )
         session.add(level)
@@ -245,10 +245,10 @@ async def create_hierarchy(
                         "dimension_node_id": dimension_nodes[
                             level_input.dimension_node
                         ],
-                        "level_order": level_input.level_order,
+                        "level_order": idx,
                         "grain_columns": level_input.grain_columns,
                     }
-                    for level_input in hierarchy_data.levels
+                    for idx, level_input in enumerate(hierarchy_data.levels)
                 ],
             },
         ),

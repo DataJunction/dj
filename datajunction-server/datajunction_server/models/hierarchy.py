@@ -14,9 +14,19 @@ class HierarchyLevelInput(BaseModel):
     """Input model for creating a hierarchy level."""
 
     name: str
-    dimension_node: str  # Node name, not ID
-    level_order: int
-    grain_columns: Optional[List[str]] = None
+    dimension_node: str  # Dimension node name
+    grain_columns: list[str] | None = None
+
+    @classmethod
+    def validate_list(
+        cls,
+        levels: list["HierarchyLevelInput"],
+    ) -> list["HierarchyLevelInput"]:
+        """Validate a list of hierarchy levels."""
+        names = [level.name for level in levels]
+        if len(set(names)) != len(names):
+            raise ValueError("Level names must be unique")
+        return levels
 
 
 class HierarchyLevelOutput(BaseModel):
@@ -25,7 +35,7 @@ class HierarchyLevelOutput(BaseModel):
     name: str
     dimension_node: NodeNameOutput
     level_order: int
-    grain_columns: Optional[List[str]] = None
+    grain_columns: list[str] | None = None
 
     class Config:
         from_attributes = True
@@ -35,34 +45,18 @@ class HierarchyCreateRequest(BaseModel):
     """Request model for creating a hierarchy."""
 
     name: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    levels: List[HierarchyLevelInput] = Field(min_length=2)
+    display_name: str | None = None
+    description: str | None = None
+    levels: list[HierarchyLevelInput] = Field(min_length=2)
 
     @field_validator("levels")
     @classmethod
     def validate_levels(
         cls,
-        levels: List[HierarchyLevelInput],
-    ) -> List[HierarchyLevelInput]:
-        """Validate hierarchy levels."""
-        # Check unique level names
-        names = [level.name for level in levels]
-        if len(set(names)) != len(names):
-            raise ValueError("Level names must be unique")
-
-        # Check unique level orders
-        orders = [level.level_order for level in levels]
-        if len(set(orders)) != len(orders):
-            raise ValueError("Level orders must be unique")
-
-        # Validate level order sequence starts at 0 and is consecutive
-        sorted_orders = sorted(orders)
-        expected_orders = list(range(len(orders)))
-        if sorted_orders != expected_orders:
-            raise ValueError("Level orders must be consecutive starting from 0")
-
-        return levels
+        levels: list[HierarchyLevelInput],
+    ) -> list[HierarchyLevelInput]:
+        """Validate hierarchy levels and auto-assign level_order from list position."""
+        return HierarchyLevelInput.validate_list(levels)
 
 
 class HierarchyUpdateRequest(BaseModel):
@@ -78,23 +72,9 @@ class HierarchyUpdateRequest(BaseModel):
         cls,
         levels: Optional[List[HierarchyLevelInput]],
     ) -> Optional[List[HierarchyLevelInput]]:
-        """Validate hierarchy levels if provided."""
-        if levels is None:
-            return levels  # pragma: no cover
-
-        if len(levels) < 2:
-            raise ValueError("Hierarchy must have at least 2 levels")
-
-        # Check unique level names
-        names = [level.name for level in levels]
-        if len(set(names)) != len(names):
-            raise ValueError("Level names must be unique")
-
-        # Check unique level orders
-        orders = [level.level_order for level in levels]
-        if len(set(orders)) != len(orders):
-            raise ValueError("Level orders must be unique")
-
+        """Validate hierarchy levels if provided and auto-assign level_order."""
+        if levels:
+            return HierarchyLevelInput.validate_list(levels)
         return levels
 
 
