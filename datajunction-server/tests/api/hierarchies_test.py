@@ -115,17 +115,14 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "quarter",
                     "dimension_node": "default.quarter_dim",
-                    "level_order": 1,
                 },
                 {
                     "name": "month",
                     "dimension_node": "default.month_dim",
-                    "level_order": 2,
                 },
             ],
         }
@@ -134,7 +131,6 @@ class TestHierarchiesAPI:
             "/hierarchies/",
             json=hierarchy_data,
         )
-        print("ress", response.json())
         assert response.status_code == HTTPStatus.CREATED
         data = response.json()
 
@@ -163,12 +159,10 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "month",
                     "dimension_node": "default.month_dim",
-                    "level_order": 1,
                 },
             ],
         }
@@ -192,12 +186,10 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "nonexistent.dimension",
-                    "level_order": 0,
                 },
                 {
                     "name": "month",
                     "dimension_node": "also.nonexistent",
-                    "level_order": 1,
                 },
             ],
         }
@@ -228,12 +220,10 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "year",  # Duplicate name
                     "dimension_node": "default.month_dim",
-                    "level_order": 1,
                 },
             ],
         }
@@ -247,58 +237,6 @@ class TestHierarchiesAPI:
         data = response.json()
         assert "Level names must be unique" in str(data)
 
-    async def test_create_hierarchy_duplicate_orders(
-        self,
-        client_with_basic: AsyncClient,
-    ):
-        """Test Pydantic validation catches duplicate level orders."""
-        hierarchy_data = {
-            "name": "dup_orders",
-            "levels": [
-                {
-                    "name": "year",
-                    "dimension_node": "default.year_dim",
-                    "level_order": 0,
-                },
-                {
-                    "name": "month",
-                    "dimension_node": "default.month_dim",
-                    "level_order": 0,
-                },  # Duplicate!
-            ],
-        }
-
-        response = await client_with_basic.post("/hierarchies/", json=hierarchy_data)
-        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        data = response.json()
-        assert "Level orders must be unique" in str(data)
-
-    async def test_create_hierarchy_non_consecutive_orders(
-        self,
-        client_with_basic: AsyncClient,
-    ):
-        """Test Pydantic validation catches non-consecutive level orders."""
-        hierarchy_data = {
-            "name": "non_consecutive",
-            "levels": [
-                {
-                    "name": "year",
-                    "dimension_node": "default.year_dim",
-                    "level_order": 0,
-                },
-                {
-                    "name": "month",
-                    "dimension_node": "default.month_dim",
-                    "level_order": 2,
-                },  # Skips 1!
-            ],
-        }
-
-        response = await client_with_basic.post("/hierarchies/", json=hierarchy_data)
-        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        data = response.json()
-        assert "consecutive starting from 0" in str(data)
-
     async def test_update_hierarchy_with_single_level(
         self,
         client_with_basic: AsyncClient,
@@ -310,9 +248,7 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
-                # Only 1 level!
             ],
         }
 
@@ -335,13 +271,11 @@ class TestHierarchiesAPI:
                 {
                     "name": "level",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "level",
                     "dimension_node": "default.month_dim",
-                    "level_order": 1,
-                },  # Duplicate!
+                },
             ],
         }
 
@@ -353,35 +287,6 @@ class TestHierarchiesAPI:
         data = response.json()
         assert "Level names must be unique" in str(data)
 
-    async def test_update_hierarchy_with_duplicate_orders(
-        self,
-        client_with_basic: AsyncClient,
-        calendar_hierarchy: Hierarchy,
-    ):
-        """Test Pydantic validation catches duplicate orders in update."""
-        update_data = {
-            "levels": [
-                {
-                    "name": "year",
-                    "dimension_node": "default.year_dim",
-                    "level_order": 0,
-                },
-                {
-                    "name": "month",
-                    "dimension_node": "default.month_dim",
-                    "level_order": 0,
-                },  # Duplicate!
-            ],
-        }
-
-        response = await client_with_basic.put(
-            "/hierarchies/calendar_hierarchy",
-            json=update_data,
-        )
-        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        data = response.json()
-        assert "Level orders must be unique" in str(data)
-
     async def test_update_hierarchy_without_levels(
         self,
         client_with_basic: AsyncClient,
@@ -391,7 +296,6 @@ class TestHierarchiesAPI:
         update_data = {
             "display_name": "Updated Display Name",
             "description": "Updated Description",
-            # No levels provided - should use existing levels
         }
 
         response = await client_with_basic.put(
@@ -445,17 +349,14 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "quarter",
                     "dimension_node": "default.quarter_dim",
-                    "level_order": 1,
                 },
                 {
                     "name": "day",
                     "dimension_node": "default.day_dim",
-                    "level_order": 2,
                 },
             ],
         }
@@ -641,12 +542,10 @@ class TestHierarchiesAPI:
                 {
                     "name": "year",
                     "dimension_node": "default.year_dim",
-                    "level_order": 0,
                 },
                 {
                     "name": "month",
                     "dimension_node": "default.month_dim",
-                    "level_order": 1,
                 },
             ],
         }

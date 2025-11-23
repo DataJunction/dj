@@ -4,10 +4,16 @@ Test hierarchy models and database operations using proper DJ patterns.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import pytest
+from pydantic import ValidationError
+
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.models.hierarchy import HierarchyLevelInput
+from datajunction_server.models.hierarchy import (
+    HierarchyCreateRequest,
+    HierarchyLevelInput,
+)
 from datajunction_server.models.node_type import NodeType
 
 # Import shared fixtures
@@ -120,14 +126,14 @@ class TestHierarchy:
         week_level = HierarchyLevel(
             hierarchy_id=weekly_hierarchy.id,
             name="week",
-            dimension_node_id=dimensions["week"].id,
             level_order=0,
+            dimension_node_id=dimensions["week"].id,
         )
         day_level = HierarchyLevel(
             hierarchy_id=weekly_hierarchy.id,
             name="day",
-            dimension_node_id=dimensions["day"].id,
             level_order=1,
+            dimension_node_id=dimensions["day"].id,
         )
         session.add_all([week_level, day_level])
         await session.commit()
@@ -169,12 +175,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="month",
                 dimension_node=dimensions["month"].name,
-                level_order=1,
             ),
         ]
 
@@ -187,12 +191,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node="non_existent",  # Non-existent ID
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="month",
                 dimension_node=dimensions["month"].name,
-                level_order=1,
             ),
         ]
 
@@ -211,37 +213,15 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
         ]
-
-        errors, _ = await Hierarchy.validate_levels(session, single_level)
-        assert len(errors) == 1
-        assert "must have at least 2 levels" in errors[0]
-
-    async def test_hierarchy_validation_duplicate_level_orders(
-        self,
-        session: AsyncSession,
-        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
-    ):
-        """Test validation fails with duplicate level orders."""
-        dimensions, _ = time_dimensions
-
-        duplicate_orders = [
-            HierarchyLevelInput(
-                name="year",
-                dimension_node=dimensions["year"].name,
-                level_order=0,
-            ),
-            HierarchyLevelInput(
-                name="month",
-                dimension_node=dimensions["month"].name,
-                level_order=0,  # Duplicate!
-            ),
-        ]
-
-        errors, _ = await Hierarchy.validate_levels(session, duplicate_orders)
-        assert any("Level orders must be unique" in error for error in errors)
+        with pytest.raises(ValidationError) as exc_info:
+            hierarchy = HierarchyCreateRequest(
+                name="single_level_hierarchy",
+                levels=single_level,
+            )
+            HierarchyCreateRequest.model_validate(hierarchy)
+        assert "should have at least 2 items" in str(exc_info.value)
 
     async def test_hierarchy_validation_duplicate_level_names(
         self,
@@ -255,12 +235,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="time",  # Same name
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="time",  # Same name
                 dimension_node=dimensions["month"].name,
-                level_order=1,
             ),
         ]
 
@@ -280,12 +258,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="source",
                 dimension_node=time_sources["month"].name,  # SOURCE node!
-                level_order=1,
             ),
         ]
 
@@ -338,13 +314,11 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="country",
                 dimension_node="default.location_dim",
-                level_order=0,
                 grain_columns=["country"],
             ),
             HierarchyLevelInput(
                 name="state",
                 dimension_node="default.location_dim",  # Same dimension!
-                level_order=1,
                 grain_columns=["country", "state"],
             ),
         ]
@@ -379,12 +353,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="month",
                 dimension_node=dimensions["month"].name,
-                level_order=1,
             ),
         ]
 
@@ -416,12 +388,10 @@ class TestHierarchy:
             HierarchyLevelInput(
                 name="year",
                 dimension_node=dimensions["year"].name,
-                level_order=0,
             ),
             HierarchyLevelInput(
                 name="month",
                 dimension_node=dimensions["month"].name,
-                level_order=1,
             ),
         ]
 
