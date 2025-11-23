@@ -14,20 +14,6 @@ include = ["alembic/**", "alembic.ini"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.pdm]
-[tool.pdm.build]
-includes = ["dj"]
-
-[[tool.pdm.autoexport]]
-filename = "requirements/docker.txt"
-groups = ["default", "uvicorn", "transpilation"]
-without-hashes = true
-
-[[tool.pdm.autoexport]]
-filename = "requirements/test.txt"
-groups = ["default", "test"]
-without-hashes = true
-
 [project]
 name = "datajunction-server"
 dynamic = ["version"]
@@ -129,7 +115,7 @@ testpaths = [
     "tests",
 ]
 
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
