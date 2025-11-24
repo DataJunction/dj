@@ -125,9 +125,6 @@ async def validate_node_data(
 
         if missing_columns:
             node_validator.status = NodeStatus.INVALID
-            upstream_node_names = [
-                node.name for node in node_validator.dependencies_map.keys()
-            ]
             node_validator.errors.append(
                 DJError(
                     code=ErrorCode.MISSING_COLUMNS,
