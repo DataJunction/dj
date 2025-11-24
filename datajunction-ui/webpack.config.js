@@ -18,6 +18,7 @@ module.exports = {
   },
   target: 'web',
   mode: 'development',
+  stats: 'minimal',
   output: {
     path: path.resolve(__dirname, './dist'),
     filename: 'static/[name].[fullhash].js',
