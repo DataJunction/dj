@@ -1,5 +1,11 @@
 import React from 'react';
-import { render, fireEvent, waitFor, screen, act } from '@testing-library/react';
+import {
+  render,
+  fireEvent,
+  waitFor,
+  screen,
+  act,
+} from '@testing-library/react';
 import ManageDimensionLinksDialog from '../ManageDimensionLinksDialog';
 import DJClientContext from '../../../providers/djclient';
 
@@ -47,7 +53,7 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     expect(getByLabelText('ManageDimensionLinksToggle')).toBeInTheDocument();
   });
 
@@ -57,11 +63,13 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
-      expect(getByRole('dialog', { name: 'ManageDimensionLinksDialog' })).toBeInTheDocument();
+      expect(
+        getByRole('dialog', { name: 'ManageDimensionLinksDialog' }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -77,9 +85,9 @@ describe('<ManageDimensionLinksDialog />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('test_column')).toBeInTheDocument();
       expect(getByText('varchar')).toBeInTheDocument();
@@ -92,9 +100,9 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('FK Links')).toBeInTheDocument();
       expect(getByText('Reference Links')).toBeInTheDocument();
@@ -107,21 +115,20 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('Reference Links')).toBeInTheDocument();
     });
 
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Dimension Node *')).toBeInTheDocument();
       expect(getByText('Dimension Column *')).toBeInTheDocument();
     });
   });
-
 
   it('displays FK links when provided', async () => {
     const propsWithFkLinks = {
@@ -134,9 +141,9 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...propsWithFkLinks} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       // The FK Links tab should be displayed by default
       expect(getByLabelText('ManageDimensionLinksToggle')).toBeInTheDocument();
@@ -149,9 +156,9 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('Select Dimensions')).toBeInTheDocument();
       expect(getByText('Save')).toBeInTheDocument();
@@ -164,28 +171,32 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('Reference Links')).toBeInTheDocument();
     });
 
     // Switch to reference link tab
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Dimension Node *')).toBeInTheDocument();
       expect(getByText('Dimension Column *')).toBeInTheDocument();
-      expect(getByPlaceholderText('e.g., birth_date, registration_date')).toBeInTheDocument();
+      expect(
+        getByPlaceholderText('e.g., birth_date, registration_date'),
+      ).toBeInTheDocument();
       expect(getByText('Add Link')).toBeInTheDocument();
     });
   });
 
   it('handles removing reference link', async () => {
-    mockDjClient.DataJunctionAPI.removeReferenceDimensionLink.mockResolvedValue({
-      status: 200,
-    });
+    mockDjClient.DataJunctionAPI.removeReferenceDimensionLink.mockResolvedValue(
+      {
+        status: 200,
+      },
+    );
 
     const propsWithReferenceLink = {
       ...defaultProps,
@@ -200,16 +211,16 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...propsWithReferenceLink} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByText('Reference Links')).toBeInTheDocument();
     });
 
     // Switch to reference link tab
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Remove Link')).toBeInTheDocument();
     });
@@ -221,11 +232,12 @@ describe('<ManageDimensionLinksDialog />', () => {
     });
 
     await waitFor(() => {
-      expect(window.confirm).toHaveBeenCalledWith('Are you sure you want to remove this reference link?');
-      expect(mockDjClient.DataJunctionAPI.removeReferenceDimensionLink).toHaveBeenCalledWith(
-        'default.node1',
-        'test_column'
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Are you sure you want to remove this reference link?',
       );
+      expect(
+        mockDjClient.DataJunctionAPI.removeReferenceDimensionLink,
+      ).toHaveBeenCalledWith('default.node1', 'test_column');
       expect(window.location.reload).toHaveBeenCalled();
     });
   });
@@ -246,10 +258,10 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...propsWithReferenceLink} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Remove Link')).toBeInTheDocument();
     });
@@ -259,14 +271,18 @@ describe('<ManageDimensionLinksDialog />', () => {
       fireEvent.click(removeButton);
     });
 
-    expect(mockDjClient.DataJunctionAPI.removeReferenceDimensionLink).not.toHaveBeenCalled();
+    expect(
+      mockDjClient.DataJunctionAPI.removeReferenceDimensionLink,
+    ).not.toHaveBeenCalled();
   });
 
   it('handles failed reference link removal', async () => {
-    mockDjClient.DataJunctionAPI.removeReferenceDimensionLink.mockResolvedValue({
-      status: 500,
-      json: { message: 'Server error' },
-    });
+    mockDjClient.DataJunctionAPI.removeReferenceDimensionLink.mockResolvedValue(
+      {
+        status: 500,
+        json: { message: 'Server error' },
+      },
+    );
 
     const propsWithReferenceLink = {
       ...defaultProps,
@@ -281,10 +297,10 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...propsWithReferenceLink} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Remove Link')).toBeInTheDocument();
     });
@@ -314,10 +330,10 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...propsWithReferenceLink} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Update Link')).toBeInTheDocument();
       expect(getByText('Remove Link')).toBeInTheDocument();
@@ -330,10 +346,10 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
     fireEvent.click(getByText('Reference Links'));
-    
+
     await waitFor(() => {
       expect(getByText('Add Link')).toBeInTheDocument();
     });
@@ -356,9 +372,9 @@ describe('<ManageDimensionLinksDialog />', () => {
         <ManageDimensionLinksDialog {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('ManageDimensionLinksToggle'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
@@ -366,10 +382,9 @@ describe('<ManageDimensionLinksDialog />', () => {
     // Click the backdrop
     const backdrop = getByRole('dialog').parentElement;
     fireEvent.click(backdrop);
-    
+
     await waitFor(() => {
       expect(queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
-
 });

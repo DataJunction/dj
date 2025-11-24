@@ -1571,506 +1571,548 @@ describe('DataJunctionAPI', () => {
   });
 
   // Reference dimension links
-it('calls addReferenceDimensionLink correctly', async () => {
-  const mockResponse = { message: 'Success' };
-  fetch.mockResponseOnce(JSON.stringify(mockResponse));
-  const result = await DataJunctionAPI.addReferenceDimensionLink(
-    'default.node1',
-    'column1',
-    'default.dimension1',
-    'dimension_col'
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    `${DJ_URL}/nodes/default.node1/columns/column1/link?dimension_node=default.dimension1&dimension_column=dimension_col`,
-    expect.objectContaining({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    })
-  );
-  expect(result).toEqual({ status: 200, json: mockResponse });
-});
-
-it('calls removeReferenceDimensionLink correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
-  const result = await DataJunctionAPI.removeReferenceDimensionLink(
-    'default.node1',
-    'column1'
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    `${DJ_URL}/nodes/default.node1/columns/column1/link`,
-    expect.objectContaining({
-      method: 'DELETE',
-    })
-  );
-});
-
-// Materialization
-it('calls deleteMaterialization with nodeVersion correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
-  await DataJunctionAPI.deleteMaterialization(
-    'default.node1',
-    'mat1',
-    'v1.0'
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.node1/materializations?materialization_name=mat1&node_version=v1.0',
-    expect.objectContaining({ method: 'DELETE' })
-  );
-});
-
-it('calls deleteMaterialization without nodeVersion correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
-  await DataJunctionAPI.deleteMaterialization('default.node1', 'mat1');
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.node1/materializations?materialization_name=mat1',
-    expect.objectContaining({ method: 'DELETE' })
-  );
-});
-
-// Notifications
-it('calls getNotificationPreferences correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([]));
-  await DataJunctionAPI.getNotificationPreferences({ entity_type: 'node' });
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/notifications/?entity_type=node',
-    expect.objectContaining({ credentials: 'include' })
-  );
-});
-
-it('calls subscribeToNotifications correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ status: 'subscribed' }));
-  await DataJunctionAPI.subscribeToNotifications({
-    entity_type: 'node',
-    entity_name: 'default.node1',
-    activity_types: ['create'],
-    alert_types: ['email'],
-  });
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/notifications/subscribe',
-    expect.objectContaining({
-      method: 'POST',
-      body: expect.any(String),
-    })
-  );
-});
-
-it('calls unsubscribeFromNotifications correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ status: 'unsubscribed' }));
-  await DataJunctionAPI.unsubscribeFromNotifications({
-    entity_type: 'node',
-    entity_name: 'default.node1',
-  });
-  expect(fetch).toHaveBeenCalledWith(
-    expect.stringContaining('/notifications/unsubscribe'),
-    expect.objectContaining({ method: 'DELETE' })
-  );
-});
-
-// materializeCube (lines 1323-1339)
-it('calls materializeCube correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
-  const result = await DataJunctionAPI.materializeCube(
-    'default.cube1',
-    'spark_sql',
-    'incremental_time',
-    '0 0 * * *',
-    '1 day'
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.cube1/materialization',
-    expect.objectContaining({
-      method: 'POST',
-      body: expect.stringContaining('lookback_window'),
-    })
-  );
-  expect(result).toEqual({ status: 200, json: { message: 'Success' } });
-});
-
-// runBackfill
-it('calls runBackfill correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
-  const result = await DataJunctionAPI.runBackfill(
-    'default.node1',
-    'mat1',
-    [{
-      columnName: 'date',
-      range: ['2023-01-01', '2023-12-31'],
-      values: []
-    }]
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.node1/materializations/mat1/backfill',
-    expect.objectContaining({ 
-      method: 'POST',
-      body: expect.stringContaining('column_name')
-    })
-  );
-  expect(result).toEqual({ status: 200, json: { message: 'Success' } });
-});
-
-// addReferenceDimensionLink with role parameter
-it('calls addReferenceDimensionLink with role correctly', async () => {
-  const mockResponse = { message: 'Success' };
-  fetch.mockResponseOnce(JSON.stringify(mockResponse));
-  const result = await DataJunctionAPI.addReferenceDimensionLink(
-    'default.node1',
-    'column1',
-    'default.dimension1',
-    'dimension_col',
-    'birth_date'
-  );
-  expect(fetch).toHaveBeenCalledWith(
-    expect.stringContaining('role=birth_date'),
-    expect.objectContaining({
-      method: 'POST',
-    })
-  );
-  expect(result).toEqual({ status: 200, json: mockResponse });
-});
-
-// Test getNotificationPreferences without params
-it('calls getNotificationPreferences without params correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([]));
-  await DataJunctionAPI.getNotificationPreferences();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/notifications/',
-    expect.objectContaining({ credentials: 'include' })
-  );
-});
-
-// Test listMetricMetadata
-it('calls listMetricMetadata correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([{ name: 'metric1' }]));
-  const result = await DataJunctionAPI.listMetricMetadata();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/metrics/metadata',
-    expect.objectContaining({
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-  );
-  expect(result).toEqual([{ name: 'metric1' }]);
-});
-
-// Test materializationInfo
-it('calls materializationInfo correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ info: 'test' }));
-  const result = await DataJunctionAPI.materializationInfo();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/materialization/info',
-    expect.objectContaining({ credentials: 'include' })
-  );
-  expect(result).toEqual({ info: 'test' });
-});
-
-// Test revalidate
-it('calls revalidate correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ status: 'valid' }));
-  const result = await DataJunctionAPI.revalidate('default.node1');
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.node1/validate',
-    expect.objectContaining({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-  );
-  expect(result).toEqual({ status: 'valid' });
-});
-
-// Test getMetric (lines 322-360) - this is a GraphQL query
-it('calls getMetric correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({
-    data: {
-      findNodes: [{
-        name: 'system.test.metric',
-        current: {
-          metricMetadata: { direction: 'higher_is_better' },
+  it('calls addReferenceDimensionLink correctly', async () => {
+    const mockResponse = { message: 'Success' };
+    fetch.mockResponseOnce(JSON.stringify(mockResponse));
+    const result = await DataJunctionAPI.addReferenceDimensionLink(
+      'default.node1',
+      'column1',
+      'default.dimension1',
+      'dimension_col',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.node1/columns/column1/link?dimension_node=default.dimension1&dimension_column=dimension_col`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }],
-    },
-  }));
-  
-  const result = await DataJunctionAPI.getMetric('system.test.metric');
-  expect(result).toHaveProperty('name');
-});
-
-// Test system metrics APIs
-it('calls system.node_counts_by_active correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([[
-    { col: 'system.dj.is_active.active_id', value: true },
-    { col: 'system.dj.number_of_nodes', value: 100 }
-  ]]));
-  
-  const result = await DataJunctionAPI.system.node_counts_by_active();
-  expect(result).toEqual([{ name: 'true', value: 100 }]);
-});
-
-it('calls system.node_counts_by_type correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([[
-    { col: 'system.dj.node_type.type', value: 'metric' },
-    { col: 'system.dj.number_of_nodes', value: 50 }
-  ]]));
-  
-  const result = await DataJunctionAPI.system.node_counts_by_type();
-  expect(result).toEqual([{ name: 'metric', value: 50 }]);
-});
-
-it('calls system.node_counts_by_status correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([[
-    { col: 'system.dj.nodes.status', value: 'valid' },
-    { col: 'system.dj.number_of_nodes', value: 80 }
-  ]]));
-  
-  const result = await DataJunctionAPI.system.node_counts_by_status();
-  expect(result).toEqual([{ name: 'valid', value: 80 }]);
-});
-
-it('calls system.nodes_without_description correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([[
-    { col: 'system.dj.node_type.type', value: 'transform' },
-    { col: 'system.dj.node_without_description', value: 10 }
-  ]]));
-  
-  const result = await DataJunctionAPI.system.nodes_without_description();
-  expect(result).toEqual([{ name: 'transform', value: 10 }]);
-});
-
-it('calls system.materialization_counts_by_type correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([[
-    { col: 'system.dj.node_type.type', value: 'cube' },
-    { col: 'system.dj.number_of_materializations', value: 5 }
-  ]]));
-  
-  const result = await DataJunctionAPI.system.materialization_counts_by_type();
-  expect(result).toEqual([{ name: 'cube', value: 5 }]);
-});
-
-it('calls system.dimensions correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify(['dim1', 'dim2']));
-  
-  const result = await DataJunctionAPI.system.dimensions();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/system/dimensions',
-    expect.objectContaining({ credentials: 'include' })
-  );
-  expect(result).toEqual(['dim1', 'dim2']);
-});
-
-it('calls system.node_trends correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([
-    [
-      { col: 'system.dj.nodes.created_at_week', value: 20240101 },
-      { col: 'system.dj.node_type.type', value: 'metric' },
-      { col: 'system.dj.number_of_nodes', value: 10 }
-    ]
-  ]));
-  
-  const result = await DataJunctionAPI.system.node_trends();
-  expect(result.length).toBeGreaterThan(0);
-  expect(result[0]).toHaveProperty('date');
-  expect(result[0]).toHaveProperty('metric');
-});
-
-// Test querySystemMetricSingleDimension edge cases
-it('handles missing values in querySystemMetricSingleDimension', async () => {
-  fetch.mockResponseOnce(JSON.stringify([
-    [
-      { col: 'some_dimension', value: null },
-      { col: 'some_metric', value: undefined }
-    ]
-  ]));
-  
-  const result = await DataJunctionAPI.querySystemMetricSingleDimension({
-    metric: 'some_metric',
-    dimension: 'some_dimension',
+        credentials: 'include',
+      }),
+    );
+    expect(result).toEqual({ status: 200, json: mockResponse });
   });
-  
-  expect(result[0].name).toBe('unknown');
-  expect(result[0].value).toBe(0);
-});
 
-// Test getNodeForEditing (lines 266-319)
-it('calls getNodeForEditing correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({
-    data: {
-      findNodes: [{
-        name: 'default.node1',
-        type: 'transform',
-        current: {
-          displayName: 'Node 1',
-          description: 'Test node',
-          query: 'SELECT * FROM table',
-        },
-      }],
-    },
-  }));
-  
-  const result = await DataJunctionAPI.getNodeForEditing('default.node1');
-  expect(result).toHaveProperty('name', 'default.node1');
-});
-
-it('returns null when getNodeForEditing finds no nodes', async () => {
-  fetch.mockResponseOnce(JSON.stringify({
-    data: {
-      findNodes: [],
-    },
-  }));
-  
-  const result = await DataJunctionAPI.getNodeForEditing('nonexistent');
-  expect(result).toBeNull();
-});
-
-// Test getCubeForEditing (lines 363-410)
-it('calls getCubeForEditing correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({
-    data: {
-      findNodes: [{
-        name: 'default.cube1',
-        type: 'cube',
-        current: {
-          displayName: 'Cube 1',
-          description: 'Test cube',
-          cubeMetrics: [{ name: 'metric1' }],
-          cubeDimensions: [{ name: 'dim1', attribute: 'attr1' }],
-        },
-      }],
-    },
-  }));
-  
-  const result = await DataJunctionAPI.getCubeForEditing('default.cube1');
-  expect(result).toHaveProperty('name', 'default.cube1');
-  expect(result.current.cubeMetrics).toHaveLength(1);
-});
-
-it('returns null when getCubeForEditing finds no nodes', async () => {
-  fetch.mockResponseOnce(JSON.stringify({
-    data: {
-      findNodes: [],
-    },
-  }));
-  
-  const result = await DataJunctionAPI.getCubeForEditing('nonexistent');
-  expect(result).toBeNull();
-});
-
-// Test logout (lines 225-230)
-it('calls logout correctly', async () => {
-  fetch.mockResponseOnce('', { status: 200 });
-  
-  await DataJunctionAPI.logout();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/logout/',
-    expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-    })
-  );
-});
-
-// Test catalogs (lines 232-238)
-it('calls catalogs correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([
-    { name: 'catalog1' },
-    { name: 'catalog2' },
-  ]));
-  
-  const result = await DataJunctionAPI.catalogs();
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/catalogs',
-    expect.objectContaining({ credentials: 'include' })
-  );
-  expect(result).toHaveLength(2);
-});
-
-// Test sql with array filters (lines 755-756)
-it('handles array filters in sql correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT * FROM table' }));
-  
-  await DataJunctionAPI.sql('default.metric1', {
-    dimensions: ['dim1', 'dim2'],
-    filters: ['filter1', 'filter2'],
+  it('calls removeReferenceDimensionLink correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    const result = await DataJunctionAPI.removeReferenceDimensionLink(
+      'default.node1',
+      'column1',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.node1/columns/column1/link`,
+      expect.objectContaining({
+        method: 'DELETE',
+      }),
+    );
   });
-  
-  const callUrl = fetch.mock.calls[0][0];
-  expect(callUrl).toContain('dimensions=dim1');
-  expect(callUrl).toContain('filters=filter1');
-});
 
-// Test nodeData with null selection (lines 831-835)
-it('handles null selection in nodeData', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ data: [] }));
-  
-  await DataJunctionAPI.nodeData('default.node1', null);
-  
-  const callUrl = fetch.mock.calls[0][0];
-  expect(callUrl).toContain('limit=1000');
-  expect(callUrl).toContain('async_=true');
-});
+  // Materialization
+  it('calls deleteMaterialization with nodeVersion correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    await DataJunctionAPI.deleteMaterialization(
+      'default.node1',
+      'mat1',
+      'v1.0',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.node1/materializations?materialization_name=mat1&node_version=v1.0',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
 
-// Test streamNodeData with null selection (lines 889-893) - just test it returns EventSource
-it('handles null selection in streamNodeData', async () => {
-  const eventSource = await DataJunctionAPI.streamNodeData('default.node1', null);
-  
-  expect(eventSource).toBeInstanceOf(EventSource);
-  
-  // EventSource mock might not have close method in test environment
-  if (typeof eventSource.close === 'function') {
-    eventSource.close();
-  }
-});
+  it('calls deleteMaterialization without nodeVersion correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    await DataJunctionAPI.deleteMaterialization('default.node1', 'mat1');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.node1/materializations?materialization_name=mat1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
 
-// Test setColumnDescription (lines 1027-1036)
-it('calls setColumnDescription correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify({ message: 'success' }));
-  
-  await DataJunctionAPI.setColumnDescription(
-    'default.node1',
-    'column1',
-    'New description'
-  );
-  
-  expect(fetch).toHaveBeenCalledWith(
-    expect.stringContaining('/nodes/default.node1/columns/column1/description'),
-    expect.objectContaining({
-      method: 'PATCH',
-      credentials: 'include',
-    })
-  );
-});
+  // Notifications
+  it('calls getNotificationPreferences correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify([]));
+    await DataJunctionAPI.getNotificationPreferences({ entity_type: 'node' });
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/notifications/?entity_type=node',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
 
-// Test nodeDimensions (lines 1046-1050)
-it('calls nodeDimensions correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify(['dim1', 'dim2']));
-  
-  const result = await DataJunctionAPI.nodeDimensions('default.node1');
-  
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/nodes/default.node1/dimensions',
-    expect.objectContaining({ credentials: 'include' })
-  );
-  expect(result).toEqual(['dim1', 'dim2']);
-});
+  it('calls subscribeToNotifications correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ status: 'subscribed' }));
+    await DataJunctionAPI.subscribeToNotifications({
+      entity_type: 'node',
+      entity_name: 'default.node1',
+      activity_types: ['create'],
+      alert_types: ['email'],
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/notifications/subscribe',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.any(String),
+      }),
+    );
+  });
 
-// Test users (lines 1194-1198)
-it('calls users correctly', async () => {
-  fetch.mockResponseOnce(JSON.stringify([
-    { username: 'user1' },
-    { username: 'user2' },
-  ]));
-  
-  const result = await DataJunctionAPI.users();
-  
-  expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:8000/users?with_activity=true',
-    expect.objectContaining({ credentials: 'include' })
-  );
-  expect(result).toHaveLength(2);
-});
+  it('calls unsubscribeFromNotifications correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ status: 'unsubscribed' }));
+    await DataJunctionAPI.unsubscribeFromNotifications({
+      entity_type: 'node',
+      entity_name: 'default.node1',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/notifications/unsubscribe'),
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  // materializeCube (lines 1323-1339)
+  it('calls materializeCube correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    const result = await DataJunctionAPI.materializeCube(
+      'default.cube1',
+      'spark_sql',
+      'incremental_time',
+      '0 0 * * *',
+      '1 day',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.cube1/materialization',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('lookback_window'),
+      }),
+    );
+    expect(result).toEqual({ status: 200, json: { message: 'Success' } });
+  });
+
+  // runBackfill
+  it('calls runBackfill correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    const result = await DataJunctionAPI.runBackfill('default.node1', 'mat1', [
+      {
+        columnName: 'date',
+        range: ['2023-01-01', '2023-12-31'],
+        values: [],
+      },
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.node1/materializations/mat1/backfill',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('column_name'),
+      }),
+    );
+    expect(result).toEqual({ status: 200, json: { message: 'Success' } });
+  });
+
+  // addReferenceDimensionLink with role parameter
+  it('calls addReferenceDimensionLink with role correctly', async () => {
+    const mockResponse = { message: 'Success' };
+    fetch.mockResponseOnce(JSON.stringify(mockResponse));
+    const result = await DataJunctionAPI.addReferenceDimensionLink(
+      'default.node1',
+      'column1',
+      'default.dimension1',
+      'dimension_col',
+      'birth_date',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('role=birth_date'),
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result).toEqual({ status: 200, json: mockResponse });
+  });
+
+  // Test getNotificationPreferences without params
+  it('calls getNotificationPreferences without params correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify([]));
+    await DataJunctionAPI.getNotificationPreferences();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/notifications/',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  // Test listMetricMetadata
+  it('calls listMetricMetadata correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify([{ name: 'metric1' }]));
+    const result = await DataJunctionAPI.listMetricMetadata();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/metrics/metadata',
+      expect.objectContaining({
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    expect(result).toEqual([{ name: 'metric1' }]);
+  });
+
+  // Test materializationInfo
+  it('calls materializationInfo correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ info: 'test' }));
+    const result = await DataJunctionAPI.materializationInfo();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/materialization/info',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toEqual({ info: 'test' });
+  });
+
+  // Test revalidate
+  it('calls revalidate correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ status: 'valid' }));
+    const result = await DataJunctionAPI.revalidate('default.node1');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.node1/validate',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    expect(result).toEqual({ status: 'valid' });
+  });
+
+  // Test getMetric (lines 322-360) - this is a GraphQL query
+  it('calls getMetric correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'system.test.metric',
+              current: {
+                metricMetadata: { direction: 'higher_is_better' },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getMetric('system.test.metric');
+    expect(result).toHaveProperty('name');
+  });
+
+  // Test system metrics APIs
+  it('calls system.node_counts_by_active correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.is_active.active_id', value: true },
+          { col: 'system.dj.number_of_nodes', value: 100 },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.system.node_counts_by_active();
+    expect(result).toEqual([{ name: 'true', value: 100 }]);
+  });
+
+  it('calls system.node_counts_by_type correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.node_type.type', value: 'metric' },
+          { col: 'system.dj.number_of_nodes', value: 50 },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.system.node_counts_by_type();
+    expect(result).toEqual([{ name: 'metric', value: 50 }]);
+  });
+
+  it('calls system.node_counts_by_status correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.nodes.status', value: 'valid' },
+          { col: 'system.dj.number_of_nodes', value: 80 },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.system.node_counts_by_status();
+    expect(result).toEqual([{ name: 'valid', value: 80 }]);
+  });
+
+  it('calls system.nodes_without_description correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.node_type.type', value: 'transform' },
+          { col: 'system.dj.node_without_description', value: 10 },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.system.nodes_without_description();
+    expect(result).toEqual([{ name: 'transform', value: 10 }]);
+  });
+
+  it('calls system.materialization_counts_by_type correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.node_type.type', value: 'cube' },
+          { col: 'system.dj.number_of_materializations', value: 5 },
+        ],
+      ]),
+    );
+
+    const result =
+      await DataJunctionAPI.system.materialization_counts_by_type();
+    expect(result).toEqual([{ name: 'cube', value: 5 }]);
+  });
+
+  it('calls system.dimensions correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(['dim1', 'dim2']));
+
+    const result = await DataJunctionAPI.system.dimensions();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/system/dimensions',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toEqual(['dim1', 'dim2']);
+  });
+
+  it('calls system.node_trends correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'system.dj.nodes.created_at_week', value: 20240101 },
+          { col: 'system.dj.node_type.type', value: 'metric' },
+          { col: 'system.dj.number_of_nodes', value: 10 },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.system.node_trends();
+    expect(result.length).toBeGreaterThan(0);
+    expect(result[0]).toHaveProperty('date');
+    expect(result[0]).toHaveProperty('metric');
+  });
+
+  // Test querySystemMetricSingleDimension edge cases
+  it('handles missing values in querySystemMetricSingleDimension', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([
+        [
+          { col: 'some_dimension', value: null },
+          { col: 'some_metric', value: undefined },
+        ],
+      ]),
+    );
+
+    const result = await DataJunctionAPI.querySystemMetricSingleDimension({
+      metric: 'some_metric',
+      dimension: 'some_dimension',
+    });
+
+    expect(result[0].name).toBe('unknown');
+    expect(result[0].value).toBe(0);
+  });
+
+  // Test getNodeForEditing (lines 266-319)
+  it('calls getNodeForEditing correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.node1',
+              type: 'transform',
+              current: {
+                displayName: 'Node 1',
+                description: 'Test node',
+                query: 'SELECT * FROM table',
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getNodeForEditing('default.node1');
+    expect(result).toHaveProperty('name', 'default.node1');
+  });
+
+  it('returns null when getNodeForEditing finds no nodes', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getNodeForEditing('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  // Test getCubeForEditing (lines 363-410)
+  it('calls getCubeForEditing correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.cube1',
+              type: 'cube',
+              current: {
+                displayName: 'Cube 1',
+                description: 'Test cube',
+                cubeMetrics: [{ name: 'metric1' }],
+                cubeDimensions: [{ name: 'dim1', attribute: 'attr1' }],
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getCubeForEditing('default.cube1');
+    expect(result).toHaveProperty('name', 'default.cube1');
+    expect(result.current.cubeMetrics).toHaveLength(1);
+  });
+
+  it('returns null when getCubeForEditing finds no nodes', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getCubeForEditing('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  // Test logout (lines 225-230)
+  it('calls logout correctly', async () => {
+    fetch.mockResponseOnce('', { status: 200 });
+
+    await DataJunctionAPI.logout();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/logout/',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+      }),
+    );
+  });
+
+  // Test catalogs (lines 232-238)
+  it('calls catalogs correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([{ name: 'catalog1' }, { name: 'catalog2' }]),
+    );
+
+    const result = await DataJunctionAPI.catalogs();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/catalogs',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toHaveLength(2);
+  });
+
+  // Test sql with array filters (lines 755-756)
+  it('handles array filters in sql correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT * FROM table' }));
+
+    await DataJunctionAPI.sql('default.metric1', {
+      dimensions: ['dim1', 'dim2'],
+      filters: ['filter1', 'filter2'],
+    });
+
+    const callUrl = fetch.mock.calls[0][0];
+    expect(callUrl).toContain('dimensions=dim1');
+    expect(callUrl).toContain('filters=filter1');
+  });
+
+  // Test nodeData with null selection (lines 831-835)
+  it('handles null selection in nodeData', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ data: [] }));
+
+    await DataJunctionAPI.nodeData('default.node1', null);
+
+    const callUrl = fetch.mock.calls[0][0];
+    expect(callUrl).toContain('limit=1000');
+    expect(callUrl).toContain('async_=true');
+  });
+
+  // Test streamNodeData with null selection (lines 889-893) - just test it returns EventSource
+  it('handles null selection in streamNodeData', async () => {
+    const eventSource = await DataJunctionAPI.streamNodeData(
+      'default.node1',
+      null,
+    );
+
+    expect(eventSource).toBeInstanceOf(EventSource);
+
+    // EventSource mock might not have close method in test environment
+    if (typeof eventSource.close === 'function') {
+      eventSource.close();
+    }
+  });
+
+  // Test setColumnDescription (lines 1027-1036)
+  it('calls setColumnDescription correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'success' }));
+
+    await DataJunctionAPI.setColumnDescription(
+      'default.node1',
+      'column1',
+      'New description',
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '/nodes/default.node1/columns/column1/description',
+      ),
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+      }),
+    );
+  });
+
+  // Test nodeDimensions (lines 1046-1050)
+  it('calls nodeDimensions correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(['dim1', 'dim2']));
+
+    const result = await DataJunctionAPI.nodeDimensions('default.node1');
+
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/nodes/default.node1/dimensions',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toEqual(['dim1', 'dim2']);
+  });
+
+  // Test users (lines 1194-1198)
+  it('calls users correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([{ username: 'user1' }, { username: 'user2' }]),
+    );
+
+    const result = await DataJunctionAPI.users();
+
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/users?with_activity=true',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toHaveLength(2);
+  });
 });

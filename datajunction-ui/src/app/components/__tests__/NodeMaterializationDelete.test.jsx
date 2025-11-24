@@ -62,19 +62,21 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     expect(window.confirm).toHaveBeenCalledWith(
-      expect.stringContaining('Deleting materialization job test_materialization')
+      expect.stringContaining(
+        'Deleting materialization job test_materialization',
+      ),
     );
   });
 
   it('does not call deleteMaterialization when user cancels confirm', async () => {
     window.confirm.mockReturnValueOnce(false);
-    
+
     const { container } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <NodeMaterializationDelete {...defaultProps} />
@@ -82,13 +84,15 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     expect(window.confirm).toHaveBeenCalled();
-    expect(mockDjClient.DataJunctionAPI.deleteMaterialization).not.toHaveBeenCalled();
+    expect(
+      mockDjClient.DataJunctionAPI.deleteMaterialization,
+    ).not.toHaveBeenCalled();
   });
 
   it('calls deleteMaterialization with correct params on success - status 200', async () => {
@@ -104,18 +108,22 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalledWith(
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalledWith(
         'default.test_node',
         'test_materialization',
-        'v1.0'
+        'v1.0',
       );
-      expect(getByText(/Successfully deleted materialization job/)).toBeInTheDocument();
+      expect(
+        getByText(/Successfully deleted materialization job/),
+      ).toBeInTheDocument();
       expect(window.location.reload).toHaveBeenCalled();
     });
   });
@@ -133,13 +141,15 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalled();
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalled();
       expect(window.location.reload).toHaveBeenCalled();
     });
   });
@@ -157,13 +167,15 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalled();
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalled();
       expect(window.location.reload).toHaveBeenCalled();
     });
   });
@@ -181,13 +193,15 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalled();
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalled();
       expect(getByText('Internal server error')).toBeInTheDocument();
       expect(window.location.reload).not.toHaveBeenCalled();
     });
@@ -207,13 +221,15 @@ describe('<NodeMaterializationDelete />', () => {
 
     const deleteButton = container.querySelector('button[type="submit"]');
     expect(deleteButton).toBeInTheDocument();
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalled();
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalled();
     });
   });
 
@@ -233,18 +249,15 @@ describe('<NodeMaterializationDelete />', () => {
     );
 
     const deleteButton = container.querySelector('button[type="submit"]');
-    
+
     await act(async () => {
       fireEvent.click(deleteButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.deleteMaterialization).toHaveBeenCalledWith(
-        'default.test_node',
-        'test_mat',
-        null
-      );
+      expect(
+        mockDjClient.DataJunctionAPI.deleteMaterialization,
+      ).toHaveBeenCalledWith('default.test_node', 'test_mat', null);
     });
   });
 });
-

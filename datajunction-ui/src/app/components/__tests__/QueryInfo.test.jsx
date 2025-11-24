@@ -20,7 +20,7 @@ describe('<QueryInfo />', () => {
 
   it('renders table view when isList is false', () => {
     const { getByText, container } = render(<QueryInfo {...defaultProps} />);
-    
+
     expect(getByText('Query ID')).toBeInTheDocument();
     expect(getByText('query-123')).toBeInTheDocument();
     expect(container.textContent).toContain('spark');
@@ -29,7 +29,7 @@ describe('<QueryInfo />', () => {
 
   it('renders list view when isList is true', () => {
     const { getByText } = render(<QueryInfo {...defaultProps} isList={true} />);
-    
+
     expect(getByText('Query ID')).toBeInTheDocument();
     expect(getByText('State')).toBeInTheDocument();
     expect(getByText('Engine')).toBeInTheDocument();
@@ -40,9 +40,9 @@ describe('<QueryInfo />', () => {
       ...defaultProps,
       errors: ['Error 1', 'Error 2'],
     };
-    
+
     const { getByText } = render(<QueryInfo {...propsWithErrors} />);
-    
+
     expect(getByText('Error 1')).toBeInTheDocument();
     expect(getByText('Error 2')).toBeInTheDocument();
   });
@@ -52,30 +52,30 @@ describe('<QueryInfo />', () => {
       ...defaultProps,
       links: ['https://example.com/query1', 'https://example.com/query2'],
     };
-    
+
     const { getByText } = render(<QueryInfo {...propsWithLinks} />);
-    
+
     expect(getByText('https://example.com/query1')).toBeInTheDocument();
     expect(getByText('https://example.com/query2')).toBeInTheDocument();
   });
 
   it('renders empty state when no errors', () => {
     const { container } = render(<QueryInfo {...defaultProps} />);
-    
+
     const errorCell = container.querySelector('td:nth-child(6)');
     expect(errorCell).toBeInTheDocument();
   });
 
   it('renders empty state when no links', () => {
     const { container } = render(<QueryInfo {...defaultProps} />);
-    
+
     const linksCell = container.querySelector('td:nth-child(7)');
     expect(linksCell).toBeInTheDocument();
   });
 
   it('displays all query information in table view', () => {
     const { getByText } = render(<QueryInfo {...defaultProps} />);
-    
+
     expect(getByText('output.table')).toBeInTheDocument();
     expect(getByText('1000')).toBeInTheDocument();
     expect(getByText('2024-01-01 10:00:00')).toBeInTheDocument();
@@ -88,9 +88,9 @@ describe('<QueryInfo />', () => {
       links: ['https://example.com/query'],
       isList: true,
     };
-    
+
     const { container } = render(<QueryInfo {...propsWithLinks} />);
-    
+
     const link = container.querySelector('a[href="https://example.com/query"]');
     expect(link).toBeInTheDocument();
     expect(link).toHaveTextContent('query-123');
@@ -102,9 +102,9 @@ describe('<QueryInfo />', () => {
       links: [],
       isList: true,
     };
-    
+
     const { getByText } = render(<QueryInfo {...propsNoLinks} />);
-    
+
     expect(getByText('query-123')).toBeInTheDocument();
   });
 
@@ -114,22 +114,22 @@ describe('<QueryInfo />', () => {
       errors: ['Syntax error on line 5', 'Connection timeout'],
       isList: true,
     };
-    
+
     const { getByText } = render(<QueryInfo {...propsWithErrors} />);
-    
+
     expect(getByText('Logs')).toBeInTheDocument();
   });
 
   it('displays finished timestamp in list view', () => {
     const { getByText } = render(<QueryInfo {...defaultProps} isList={true} />);
-    
+
     expect(getByText('Finished')).toBeInTheDocument();
     expect(getByText('2024-01-01 10:15:00')).toBeInTheDocument();
   });
 
   it('displays output table and row count in list view', () => {
     const { getByText } = render(<QueryInfo {...defaultProps} isList={true} />);
-    
+
     expect(getByText('Output Table:')).toBeInTheDocument();
     expect(getByText('output.table')).toBeInTheDocument();
     expect(getByText('Rows:')).toBeInTheDocument();
@@ -142,9 +142,9 @@ describe('<QueryInfo />', () => {
       links: ['https://link1.com', 'https://link2.com', 'https://link3.com'],
       isList: true,
     };
-    
+
     const { getByText } = render(<QueryInfo {...propsWithLinks} />);
-    
+
     expect(getByText('https://link1.com')).toBeInTheDocument();
     expect(getByText('https://link2.com')).toBeInTheDocument();
     expect(getByText('https://link3.com')).toBeInTheDocument();
@@ -152,15 +152,17 @@ describe('<QueryInfo />', () => {
 
   it('renders empty logs section when no errors in list view', () => {
     const { getByText } = render(<QueryInfo {...defaultProps} isList={true} />);
-    
+
     expect(getByText('Logs')).toBeInTheDocument();
   });
 
   it('displays engine name and version correctly', () => {
     const { container } = render(<QueryInfo {...defaultProps} />);
-    
+
     const badges = container.querySelectorAll('.badge');
-    const engineBadge = Array.from(badges).find(b => b.textContent.includes('spark'));
+    const engineBadge = Array.from(badges).find(b =>
+      b.textContent.includes('spark'),
+    );
     expect(engineBadge).toBeTruthy();
     expect(engineBadge.textContent).toContain('3.2.0');
   });
@@ -172,9 +174,9 @@ describe('<QueryInfo />', () => {
       engine_name: 'trino',
       engine_version: '1.0',
     };
-    
+
     const { getByText } = render(<QueryInfo {...minimalProps} />);
-    
+
     expect(getByText('query-456')).toBeInTheDocument();
     expect(getByText('running')).toBeInTheDocument();
   });

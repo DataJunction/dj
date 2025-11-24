@@ -1,5 +1,11 @@
 import React from 'react';
-import { render, fireEvent, waitFor, screen, act } from '@testing-library/react';
+import {
+  render,
+  fireEvent,
+  waitFor,
+  screen,
+  act,
+} from '@testing-library/react';
 import AddComplexDimensionLinkPopover from '../AddComplexDimensionLinkPopover';
 import DJClientContext from '../../../providers/djclient';
 
@@ -35,8 +41,10 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
-    expect(getByLabelText('AddComplexDimensionLinkTogglePopover')).toBeInTheDocument();
+
+    expect(
+      getByLabelText('AddComplexDimensionLinkTogglePopover'),
+    ).toBeInTheDocument();
   });
 
   it('renders edit button in edit mode', () => {
@@ -55,7 +63,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     expect(getByText('Edit')).toBeInTheDocument();
   });
 
@@ -65,11 +73,13 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
-      expect(getByRole('dialog', { name: 'AddComplexDimensionLinkPopover' })).toBeInTheDocument();
+      expect(
+        getByRole('dialog', { name: 'AddComplexDimensionLinkPopover' }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -79,9 +89,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
@@ -89,7 +99,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     // Click the backdrop
     const backdrop = getByRole('dialog').parentElement;
     fireEvent.click(backdrop);
-    
+
     await waitFor(() => {
       expect(queryByRole('dialog')).not.toBeInTheDocument();
     });
@@ -101,9 +111,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByText('Add Complex Dimension Link')).toBeInTheDocument();
       expect(getByText('Dimension Node *')).toBeInTheDocument();
@@ -129,9 +139,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByText('Edit'));
-    
+
     await waitFor(() => {
       expect(getByText('Edit Complex Dimension Link')).toBeInTheDocument();
     });
@@ -153,9 +163,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByText('Edit'));
-    
+
     await waitFor(() => {
       expect(getByText('default.dim1')).toBeInTheDocument();
       expect(getByDisplayValue('test_role')).toBeInTheDocument();
@@ -177,11 +187,15 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByText('Edit'));
-    
+
     await waitFor(() => {
-      expect(getByText('To link a different dimension node, remove this link and create a new one')).toBeInTheDocument();
+      expect(
+        getByText(
+          'To link a different dimension node, remove this link and create a new one',
+        ),
+      ).toBeInTheDocument();
     });
   });
 
@@ -189,22 +203,22 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     mockDjClient.DataJunctionAPI.addComplexDimensionLink.mockResolvedValue({
       status: 200,
     });
-    
+
     const { getByLabelText, getByText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
 
     // Note: We can't easily interact with CodeMirror in tests, so we'll just verify the API is called
     // In a real scenario, the form would need to be filled programmatically or with user interaction
-    
+
     // For now, just verify the component renders and can be submitted
     // The actual API call will happen when validation passes
     await waitFor(() => {
@@ -217,15 +231,15 @@ describe('<AddComplexDimensionLinkPopover />', () => {
       status: 500,
       json: { message: 'Server error' },
     });
-    
+
     const { getByLabelText, getByText, getByRole, getAllByText } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
@@ -250,7 +264,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     mockDjClient.DataJunctionAPI.addComplexDimensionLink.mockResolvedValue({
       status: 200,
     });
-    
+
     const existingLink = {
       dimension: { name: 'default.dim1' },
       join_type: 'left',
@@ -268,9 +282,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByText('Edit'));
-    
+
     await waitFor(() => {
       expect(getByDisplayValue('old_role')).toBeInTheDocument();
       expect(getByText('Save Changes')).toBeInTheDocument();
@@ -283,12 +297,14 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
-      expect(getByPlaceholderText('e.g., birth_date, registration_date')).toBeInTheDocument();
+      expect(
+        getByPlaceholderText('e.g., birth_date, registration_date'),
+      ).toBeInTheDocument();
     });
   });
 
@@ -299,22 +315,22 @@ describe('<AddComplexDimensionLinkPopover />', () => {
 
     // Use fake timers to control setTimeout
     jest.useFakeTimers();
-    
+
     const { getByLabelText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
 
     // Trigger validation by clicking submit without filling fields
     // This will at least exercise the validation code paths
-    
+
     jest.useRealTimers();
   });
 
@@ -329,9 +345,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
@@ -341,7 +357,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
 
   it('handles exception during submission', async () => {
     mockDjClient.DataJunctionAPI.addComplexDimensionLink.mockRejectedValue(
-      new Error('Network error')
+      new Error('Network error'),
     );
 
     const { getByLabelText, getByRole } = render(
@@ -349,9 +365,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
@@ -384,7 +400,7 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     await waitFor(() => {
       expect(getByText('Edit')).toBeInTheDocument();
     });
@@ -409,9 +425,9 @@ describe('<AddComplexDimensionLinkPopover />', () => {
         />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByText('Edit'));
-    
+
     await waitFor(() => {
       expect(getByText('Save Changes')).toBeInTheDocument();
     });
@@ -423,21 +439,21 @@ describe('<AddComplexDimensionLinkPopover />', () => {
     });
 
     jest.useFakeTimers();
-    
+
     const { getByLabelText, getByRole } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <AddComplexDimensionLinkPopover {...defaultProps} />
       </DJClientContext.Provider>,
     );
-    
+
     fireEvent.click(getByLabelText('AddComplexDimensionLinkTogglePopover'));
-    
+
     await waitFor(() => {
       expect(getByRole('dialog')).toBeInTheDocument();
     });
 
     // Test that setTimeout would call window.location.reload (line 79)
-    
+
     jest.useRealTimers();
   });
 });
