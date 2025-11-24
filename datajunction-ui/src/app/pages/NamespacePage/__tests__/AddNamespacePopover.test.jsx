@@ -42,7 +42,9 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     await waitFor(() => {
-      expect(getByRole('dialog', { name: 'AddNamespacePopover' })).toBeVisible();
+      expect(
+        getByRole('dialog', { name: 'AddNamespacePopover' }),
+      ).toBeVisible();
     });
   });
 
@@ -86,9 +88,11 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     const namespaceInput = getByPlaceholderText('New namespace');
-    
+
     await act(async () => {
-      fireEvent.change(namespaceInput, { target: { value: 'default.new_namespace' } });
+      fireEvent.change(namespaceInput, {
+        target: { value: 'default.new_namespace' },
+      });
     });
 
     expect(namespaceInput.value).toBe('default.new_namespace');
@@ -109,19 +113,21 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     const namespaceInput = getByPlaceholderText('New namespace');
-    
+
     await act(async () => {
       fireEvent.change(namespaceInput, { target: { value: 'default.child' } });
     });
 
     const saveButton = getByLabelText('SaveNamespace');
-    
+
     await act(async () => {
       fireEvent.click(saveButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith('default.child');
+      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith(
+        'default.child',
+      );
       expect(getByText('Saved')).toBeInTheDocument();
     });
 
@@ -144,19 +150,23 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     const namespaceInput = getByPlaceholderText('New namespace');
-    
+
     await act(async () => {
-      fireEvent.change(namespaceInput, { target: { value: 'default.another' } });
+      fireEvent.change(namespaceInput, {
+        target: { value: 'default.another' },
+      });
     });
 
     const saveButton = getByLabelText('SaveNamespace');
-    
+
     await act(async () => {
       fireEvent.click(saveButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith('default.another');
+      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith(
+        'default.another',
+      );
       expect(getByText('Saved')).toBeInTheDocument();
     });
 
@@ -178,19 +188,23 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     const namespaceInput = getByPlaceholderText('New namespace');
-    
+
     await act(async () => {
-      fireEvent.change(namespaceInput, { target: { value: 'default.duplicate' } });
+      fireEvent.change(namespaceInput, {
+        target: { value: 'default.duplicate' },
+      });
     });
 
     const saveButton = getByLabelText('SaveNamespace');
-    
+
     await act(async () => {
       fireEvent.click(saveButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith('default.duplicate');
+      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith(
+        'default.duplicate',
+      );
       expect(getByText('Namespace already exists')).toBeInTheDocument();
     });
 
@@ -254,15 +268,16 @@ describe('<AddNamespacePopover />', () => {
     fireEvent.click(getByLabelText('AddNamespaceTogglePopover'));
 
     const saveButton = getByLabelText('SaveNamespace');
-    
+
     await act(async () => {
       fireEvent.click(saveButton);
     });
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith('test.');
+      expect(mockDjClient.DataJunctionAPI.addNamespace).toHaveBeenCalledWith(
+        'test.',
+      );
       expect(getByText('Saved')).toBeInTheDocument();
     });
   });
 });
-

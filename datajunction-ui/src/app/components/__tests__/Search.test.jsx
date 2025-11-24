@@ -220,7 +220,7 @@ describe('<Search />', () => {
   it('handles error when fetching nodes', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
     mockDjClient.DataJunctionAPI.nodeDetails.mockRejectedValue(
-      new Error('Network error')
+      new Error('Network error'),
     );
     mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
 
@@ -233,7 +233,7 @@ describe('<Search />', () => {
     await waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Error fetching nodes or tags:',
-        expect.any(Error)
+        expect.any(Error),
       );
     });
 
@@ -251,10 +251,13 @@ describe('<Search />', () => {
     );
 
     const form = container.querySelector('form');
-    
-    const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+
+    const submitEvent = new Event('submit', {
+      bubbles: true,
+      cancelable: true,
+    });
     const preventDefaultSpy = jest.spyOn(submitEvent, 'preventDefault');
-    
+
     form.dispatchEvent(submitEvent);
 
     expect(preventDefaultSpy).toHaveBeenCalled();
