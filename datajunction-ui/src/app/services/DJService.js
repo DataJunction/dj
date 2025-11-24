@@ -1136,7 +1136,7 @@ export const DataJunctionAPI = {
       url.searchParams.append('role', role);
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1449,7 +1449,7 @@ export const DataJunctionAPI = {
     url.searchParams.append('entity_type', entity_type);
     url.searchParams.append('entity_name', entity_name);
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       method: 'DELETE',
       credentials: 'include',
     });
