@@ -1090,10 +1090,10 @@ export const DataJunctionAPI = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
-        joinType: joinType,
-        joinOn: joinOn,
-        joinCardinality: joinCardinality,
+        dimension_node: dimensionNode,
+        join_type: joinType,
+        join_on: joinOn,
+        join_cardinality: joinCardinality,
         role: role,
       }),
       credentials: 'include',
@@ -1112,11 +1112,51 @@ export const DataJunctionAPI = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        dimensionNode: dimensionNode,
+        dimension_node: dimensionNode,
         role: role,
       }),
       credentials: 'include',
     });
+    return { status: response.status, json: await response.json() };
+  },
+
+  addReferenceDimensionLink: async function (
+    nodeName,
+    nodeColumn,
+    dimensionNode,
+    dimensionColumn,
+    role = null,
+  ) {
+    const url = new URL(
+      `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
+    );
+    url.searchParams.append('dimension_node', dimensionNode);
+    url.searchParams.append('dimension_column', dimensionColumn);
+    if (role) {
+      url.searchParams.append('role', role);
+    }
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
+  removeReferenceDimensionLink: async function (nodeName, nodeColumn) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
     return { status: response.status, json: await response.json() };
   },
 
@@ -1409,7 +1449,7 @@ export const DataJunctionAPI = {
     url.searchParams.append('entity_type', entity_type);
     url.searchParams.append('entity_name', entity_name);
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       method: 'DELETE',
       credentials: 'include',
     });
