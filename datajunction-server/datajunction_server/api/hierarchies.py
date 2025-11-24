@@ -7,7 +7,7 @@ Handles creation, retrieval, updating, deletion, and validation of hierarchies.
 from http import HTTPStatus
 from typing import Callable, List, cast
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_save_history
@@ -30,13 +30,10 @@ from datajunction_server.models.user import UserNameOnly
 from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.models.hierarchy import (
     HierarchyCreateRequest,
-    HierarchyLevelInput,
     HierarchyOutput,
     HierarchyInfo,
     HierarchyLevelOutput,
     HierarchyUpdateRequest,
-    HierarchyValidationResult,
-    HierarchyValidationError,
     DimensionHierarchiesResponse,
     DimensionHierarchyNavigation,
     NavigationTarget,
@@ -293,10 +290,7 @@ async def update_hierarchy(
     """
     hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
+        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
 
     # Capture pre-state for history
     pre_state = {
@@ -337,12 +331,12 @@ async def update_hierarchy(
         await session.flush()
 
         # Create new levels
-        for level_input in update_data.levels:
+        for idx, level_input in enumerate(update_data.levels):
             level = HierarchyLevel(
                 hierarchy_id=hierarchy.id,
                 name=level_input.name,
                 dimension_node_id=dimension_nodes[level_input.dimension_node].id,
-                level_order=level_input.level_order,
+                level_order=idx,
                 grain_columns=level_input.grain_columns,
             )
             hierarchy.levels.append(level)
@@ -400,10 +394,7 @@ async def delete_hierarchy(
     """
     hierarchy = await Hierarchy.get_by_name(session, name)
     if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
+        raise DJDoesNotExistException(message=f"Hierarchy '{name}' not found")
 
     # Capture pre-state for history before deletion
     pre_state = {
@@ -434,50 +425,6 @@ async def delete_hierarchy(
             pre=pre_state,
         ),
         session=session,
-    )
-
-
-@router.post("/hierarchies/{name}/validate", response_model=HierarchyValidationResult)
-async def validate_hierarchy(
-    name: str,
-    *,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> HierarchyValidationResult:
-    """
-    Validate a hierarchy's structure and relationships.
-    """
-    hierarchy = await Hierarchy.get_by_name(session, name)
-    if not hierarchy:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Hierarchy '{name}' not found",
-        )
-
-    # Convert database objects to input objects for validation
-    level_inputs = [
-        HierarchyLevelInput(
-            name=level.name,
-            dimension_node=level.dimension_node.name,
-            level_order=level.level_order,
-            grain_columns=level.grain_columns,
-        )
-        for level in hierarchy.levels
-    ]
-
-    validation_errors, _ = await Hierarchy.validate_levels(session, level_inputs)
-
-    errors = [
-        HierarchyValidationError(
-            error_type="validation_error",
-            message=error,
-        )
-        for error in validation_errors
-    ]
-
-    return HierarchyValidationResult(
-        is_valid=len(errors) == 0,
-        errors=errors,
     )
 
 

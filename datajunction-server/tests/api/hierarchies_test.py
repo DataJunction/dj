@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.hierarchy import Hierarchy
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.internal.history import ActivityType, EntityType
 
 # Import shared fixtures
@@ -258,7 +257,7 @@ class TestHierarchiesAPI:
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         data = response.json()
-        assert "must have at least 2 levels" in str(data)
+        assert "List should have at least 2 items" in str(data)
 
     async def test_update_hierarchy_with_duplicate_names(
         self,
@@ -429,34 +428,6 @@ class TestHierarchiesAPI:
     ):
         """Test deleting a hierarchy that doesn't exist."""
         response = await client_with_basic.delete("/hierarchies/nonexistent")
-        assert response.status_code == HTTPStatus.NOT_FOUND
-
-    async def test_validate_hierarchy(
-        self,
-        client_with_basic: AsyncClient,
-        calendar_hierarchy: Hierarchy,
-        time_dimensions: tuple[dict[str, Node], dict[str, NodeRevision]],
-        time_dimension_links: DimensionLink,
-        month_year_link,
-    ):
-        """Test hierarchy validation endpoint."""
-        response = await client_with_basic.post(
-            "/hierarchies/calendar_hierarchy/validate",
-        )
-        assert response.status_code == HTTPStatus.OK
-        data = response.json()
-
-        assert data["errors"] == []
-        assert data["is_valid"] is True
-
-    async def test_validate_nonexistent_hierarchy(
-        self,
-        client_with_basic: AsyncClient,
-    ):
-        """Test validating a hierarchy that doesn't exist."""
-        response = await client_with_basic.post(
-            "/hierarchies/nonexistent_hierarchy/validate",
-        )
         assert response.status_code == HTTPStatus.NOT_FOUND
 
     async def test_api_hierarchy_permissions(

@@ -64,7 +64,7 @@ class HierarchyUpdateRequest(BaseModel):
 
     display_name: Optional[str] = None
     description: Optional[str] = None
-    levels: Optional[List[HierarchyLevelInput]] = None
+    levels: Optional[List[HierarchyLevelInput]] = Field(None, min_length=2)
 
     @field_validator("levels")
     @classmethod
@@ -75,7 +75,7 @@ class HierarchyUpdateRequest(BaseModel):
         """Validate hierarchy levels if provided and auto-assign level_order."""
         if levels:
             return HierarchyLevelInput.validate_list(levels)
-        return levels
+        return levels  # pragma: no cover
 
 
 class HierarchyOutput(BaseModel):
@@ -106,39 +106,12 @@ class HierarchyInfo(BaseModel):
         from_attributes = True
 
 
-class HierarchyValidationError(BaseModel):
-    """Model for hierarchy validation errors."""
-
-    level_name: Optional[str] = None
-    error_type: str
-    message: str
-
-
-class HierarchyValidationResult(BaseModel):
-    """Result of hierarchy validation."""
-
-    is_valid: bool
-    errors: List[HierarchyValidationError] = []
-    warnings: List[str] = []
-
-
 class HierarchyType(BaseModel):
     """Information about the type of hierarchy (single vs multi-dimension)."""
 
     type: str  # "single_dimension" | "multi_dimension"
     dimension_nodes: List[str]  # List of dimension node names used
     description: str
-
-
-class HierarchyAnalysis(BaseModel):
-    """Analysis of a hierarchy's structure and characteristics."""
-
-    name: str
-    hierarchy_type: HierarchyType
-    level_count: int
-    max_depth: int
-    validation_result: HierarchyValidationResult
-    suggested_optimizations: List[str] = []
 
 
 class NavigationTarget(BaseModel):
