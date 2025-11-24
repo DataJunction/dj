@@ -158,7 +158,7 @@ async def validate_node_data(
         column_mapping = {}  # pragma: no cover
     node_validator.columns = []
     type_inference_failures = {}
-    for idx, col in enumerate(query_ast.select.projection):
+    for idx, col in enumerate(query_ast.select.projection):  # type: ignore
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
