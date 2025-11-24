@@ -109,10 +109,11 @@ async def validate_node_data(
     query_ast.select.add_aliases_to_unnamed_columns()
 
     if validated_node.type == NodeType.METRIC and node_validator.dependencies_map:
-        all_available_columns = set()
-        for upstream_node in node_validator.dependencies_map.keys():
-            for col in upstream_node.columns:
-                all_available_columns.add(col.name)
+        all_available_columns = {
+            col.name
+            for upstream_node in node_validator.dependencies_map.keys()
+            for col in upstream_node.columns
+        }
 
         metric_expression = query_ast.select.projection[0]
         referenced_columns = metric_expression.find_all(ast.Column)
@@ -120,7 +121,9 @@ async def validate_node_data(
         missing_columns = []
         for col in referenced_columns:
             column_name = col.alias_or_name.name
-            if column_name not in all_available_columns:
+            # Skip columns with namespaces, those are from dimension links and will
+            # be validated when the metric node is compiled
+            if not col.namespace and column_name not in all_available_columns:
                 missing_columns.append(column_name)
 
         if missing_columns:
