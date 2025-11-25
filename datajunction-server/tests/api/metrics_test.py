@@ -1401,6 +1401,24 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
         "Metric has an invalid query. The following are not allowed: GROUP BY, HAVING, ORDER BY"
     )
 
+    response = await module__client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "query": (
+                "SELECT sum(non_existent_column) FROM default.repair_orders_fact"
+            ),
+            "description": "Metric with non-existent column",
+            "mode": "published",
+            "name": "default.invalid_metric_missing_column",
+        },
+    )
+    data = response.json()
+    assert response.status_code == 400
+    assert (
+        "Metric definition references missing columns: non_existent_column"
+        in data["message"]
+    )
+
 
 @pytest.mark.asyncio
 async def test_read_metrics_when_cached(
