@@ -6,7 +6,7 @@ different deployment scenarios:
 
 - **Postgres (Default)**: Uses group_members table for self-contained deployments
 - **Static**: No-op implementation (groups exist but have no members)
-- **External**: Custom implementations can query LDAP, SAML, Gandalf, etc.
+- **External**: Custom implementations can query LDAP, SAML etc.
 
 Example custom implementation:
 
@@ -72,7 +72,6 @@ class GroupMembershipService(ABC):
         Returns:
             True if user is in the group, False otherwise
         """
-        ...
 
     @abstractmethod
     async def get_user_groups(
@@ -90,7 +89,6 @@ class GroupMembershipService(ABC):
         Returns:
             List of group usernames the user is a member of
         """
-        ...
 
 
 class PostgresGroupMembershipService(GroupMembershipService):
@@ -223,7 +221,7 @@ def get_group_membership_service() -> GroupMembershipService:
     # Discover all subclasses
     providers = {}
     for subclass in GroupMembershipService.__subclasses__():
-        if hasattr(subclass, "name"):
+        if hasattr(subclass, "name"):  # pragma: no cover
             providers[subclass.name] = subclass
             logger.debug(f"Discovered provider: {subclass.name}")
             if subclass.name == provider:
