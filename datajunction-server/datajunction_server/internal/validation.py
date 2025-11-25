@@ -108,6 +108,33 @@ async def validate_node_data(
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
+    if validated_node.type == NodeType.METRIC and node_validator.dependencies_map:
+        all_available_columns = {
+            col.name
+            for upstream_node in node_validator.dependencies_map.keys()
+            for col in upstream_node.columns
+        }
+
+        metric_expression = query_ast.select.projection[0]
+        referenced_columns = metric_expression.find_all(ast.Column)
+
+        missing_columns = []
+        for col in referenced_columns:
+            column_name = col.alias_or_name.name
+            # Skip columns with namespaces, those are from dimension links and will
+            # be validated when the metric node is compiled
+            if not col.namespace and column_name not in all_available_columns:
+                missing_columns.append(column_name)
+
+        if missing_columns:
+            node_validator.status = NodeStatus.INVALID
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.MISSING_COLUMNS,
+                    message=f"Metric definition references missing columns: {', '.join(missing_columns)}",
+                ),
+            )
+
     # Invalid parents will invalidate this node
     # Note: we include source nodes here because they sometimes appear to be invalid, but
     # this is a bug that needs to be fixed
@@ -131,7 +158,7 @@ async def validate_node_data(
         column_mapping = {}  # pragma: no cover
     node_validator.columns = []
     type_inference_failures = {}
-    for idx, col in enumerate(query_ast.select.projection):
+    for idx, col in enumerate(query_ast.select.projection):  # type: ignore
         column = None
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
