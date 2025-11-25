@@ -20,7 +20,7 @@ class GroupMember(Base):
     Join table for groups and their members (users or service accounts).
 
     Note: This table is used by the Postgres group membership provider.
-    Deployments using external identity systems (LDAP, SAML, Gandalf, etc.)
+    Deployments using external identity systems (LDAP, SAML etc.)
     may leave this table empty and resolve membership externally.
     """
 
