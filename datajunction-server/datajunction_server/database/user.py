@@ -139,14 +139,12 @@ class User(Base):
     group_members: Mapped[list["GroupMember"]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.group_id",
-        cascade="all, delete-orphan",
         viewonly=True,
     )
     # Memberships where this user is a member of groups (for kind=USER or SERVICE_ACCOUNT)
     member_of: Mapped[list["GroupMember"]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.member_id",
-        cascade="all, delete-orphan",
         viewonly=True,
     )
 
