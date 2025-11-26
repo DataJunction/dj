@@ -25,7 +25,12 @@ def upgrade():
     # Define enums for use in table definitions
     # Note: The enums will be created automatically by SQLAlchemy when used in columns
     action_enum = sa.Enum(
-        "read", "write", "execute", "delete", "manage", name="resourceaction",
+        "read",
+        "write",
+        "execute",
+        "delete",
+        "manage",
+        name="resourceaction",
     )
     resource_type_enum = sa.Enum("node", "namespace", name="resourcetype")
 
@@ -40,15 +45,31 @@ def upgrade():
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column(
+            "created_by_id",
+            sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
+            nullable=False,
+        ),
+        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
+        sa.Column(
+            "deleted_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["created_by_id"],
+            ["users.id"],
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
     op.create_index("idx_roles_name", "roles", ["name"])
+    op.create_index("idx_roles_created_by", "roles", ["created_by_id"])
+    op.create_index("idx_roles_deleted_at", "roles", ["deleted_at"])
 
     # Create role_scopes table
     op.create_table(
@@ -156,6 +177,8 @@ def downgrade():
     op.drop_index("idx_role_scopes_role_id", table_name="role_scopes")
     op.drop_table("role_scopes")
 
+    op.drop_index("idx_roles_deleted_at", table_name="roles")
+    op.drop_index("idx_roles_created_by", table_name="roles")
     op.drop_index("idx_roles_name", table_name="roles")
     op.drop_table("roles")
 
@@ -164,6 +187,11 @@ def downgrade():
     resource_type_enum.drop(op.get_bind(), checkfirst=True)
 
     action_enum = sa.Enum(
-        "read", "write", "execute", "delete", "manage", name="resourceaction",
+        "read",
+        "write",
+        "execute",
+        "delete",
+        "manage",
+        name="resourceaction",
     )
     action_enum.drop(op.get_bind(), checkfirst=True)
