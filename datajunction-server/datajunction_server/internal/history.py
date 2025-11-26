@@ -30,6 +30,7 @@ class EntityType(StrEnum):
     COLUMN_ATTRIBUTE = "column_attribute"
     DEPENDENCY = "dependency"
     ENGINE = "engine"
+    HIERARCHY = "hierarchy"
     LINK = "link"
     MATERIALIZATION = "materialization"
     NAMESPACE = "namespace"

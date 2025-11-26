@@ -29,6 +29,7 @@ from datajunction_server.api import (
     djsql,
     engines,
     health,
+    hierarchies,
     history,
     materializations,
     measures,
@@ -116,6 +117,7 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(sql.router)
     app.include_router(client.router)
     app.include_router(dimensions.router)
+    app.include_router(hierarchies.router)
     app.include_router(graphql_app, prefix="/graphql")
     app.include_router(whoami.router)
     app.include_router(users.router)
