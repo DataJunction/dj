@@ -347,7 +347,7 @@ async def get_measures_query(
         access.AccessControlStore(
             validate_access=validate_access,
             user=current_user,
-            base_verb=access.ResourceRequestVerb.READ,
+            base_verb=access.ResourceAction.READ,
         )
         if validate_access
         else None
