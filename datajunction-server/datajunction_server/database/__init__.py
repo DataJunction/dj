@@ -17,6 +17,9 @@ __all__ = [
     "NotificationPreference",
     "Partition",
     "QueryRequest",
+    "Role",
+    "RoleAssignment",
+    "RoleScope",
     "Table",
     "Tag",
     "User",
@@ -27,6 +30,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.collection import Collection
 from datajunction_server.database.database import Database, Table
+from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.group_member import GroupMember
@@ -36,7 +40,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.queryrequest import QueryRequest
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.models.history import History
-from datajunction_server.database.deployment import Deployment

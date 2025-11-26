@@ -4,6 +4,7 @@ Models for authorization
 
 from copy import deepcopy
 from enum import Enum
+from datajunction_server.typing import StrEnum
 from typing import TYPE_CHECKING, Callable, Iterable, Optional, Set, Union
 
 from pydantic import BaseModel, Field
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
 
 
-class ResourceType(Enum):
+class ResourceType(StrEnum):
     """
     Types of resources
     """
@@ -27,17 +28,16 @@ class ResourceType(Enum):
     NAMESPACE = "namespace"
 
 
-class ResourceRequestVerb(Enum):
+class ResourceAction(StrEnum):
     """
-    Types of actions for a request
+    Actions that can be performed on resources
     """
 
-    BROWSE = "browse"
-    READ = "read"
-    WRITE = "write"
-    USE = "use"
-    EXECUTE = "execute"
-    DELETE = "delete"
+    READ = "read"  # View details + list/browse (merge BROWSE into READ)
+    WRITE = "write"  # Create/update resources
+    EXECUTE = "execute"  # Run queries against nodes
+    DELETE = "delete"  # Delete resources (keep for safety/auditability)
+    MANAGE = "manage"  # Grant/revoke permissions (RBAC-specific)
 
 
 class Resource(BaseModel):
@@ -78,7 +78,7 @@ class ResourceRequest(BaseModel):
     that is available to grant access to a resource
     """
 
-    verb: ResourceRequestVerb
+    verb: ResourceAction
     access_object: Resource
     approved: Optional[bool] = None
 
@@ -161,7 +161,7 @@ class AccessControlStore(BaseModel):
 
     validate_access: Callable[["AccessControl"], bool]
     user: Optional[UserOutput]
-    base_verb: Optional[ResourceRequestVerb] = None
+    base_verb: Optional[ResourceAction] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)
     indirect_requests: Set[ResourceRequest] = Field(default_factory=set)
@@ -181,7 +181,7 @@ class AccessControlStore(BaseModel):
         self,
         session: AsyncSession,
         node_name: Union[str, "Column"],
-        verb: Optional[ResourceRequestVerb] = None,
+        verb: Optional[ResourceAction] = None,
     ):
         """
         Add a request using a node's name
@@ -194,7 +194,7 @@ class AccessControlStore(BaseModel):
     def add_request_by_node(
         self,
         node: Union[NodeRevision, Node],
-        verb: Optional[ResourceRequestVerb] = None,
+        verb: Optional[ResourceAction] = None,
     ):
         """
         Add a request using a node
@@ -209,7 +209,7 @@ class AccessControlStore(BaseModel):
     def add_request_by_nodes(
         self,
         nodes: Iterable[Union[NodeRevision, Node]],
-        verb: Optional[ResourceRequestVerb] = None,
+        verb: Optional[ResourceAction] = None,
     ):
         """
         Add a request using a node
