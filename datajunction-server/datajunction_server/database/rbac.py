@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -13,9 +13,12 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    select,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 
+from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.access import ResourceType, ResourceAction
 from datajunction_server.database.base import Base
 from datajunction_server.typing import UTCDatetime
@@ -46,12 +49,27 @@ class Role(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    created_by_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+    )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
         insert_default=partial(datetime.now, timezone.utc),
     )
 
+    # Soft delete for audit trail (who deleted is in History table)
+    deleted_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Relationships
+    created_by: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[created_by_id],
+        lazy="selectin",
+    )
     scopes: Mapped[list["RoleScope"]] = relationship(
         "RoleScope",
         back_populates="role",
@@ -63,7 +81,156 @@ class Role(Base):
         cascade="all, delete-orphan",
     )
 
-    __table_args__ = (Index("idx_roles_name", "name"),)
+    __table_args__ = (
+        Index("idx_roles_name", "name"),
+        Index("idx_roles_created_by", "created_by_id"),
+        Index("idx_roles_deleted_at", "deleted_at"),
+    )
+
+    @classmethod
+    async def get_by_id(
+        cls,
+        session: AsyncSession,
+        role_id: int,
+        include_deleted: bool = False,
+        options: Optional[List] = None,
+    ) -> Optional["Role"]:
+        """
+        Get a role by ID.
+
+        Args:
+            session: Database session
+            role_id: Role ID
+            include_deleted: Whether to include soft-deleted roles
+            options: Additional query options
+
+        Returns:
+            Role if found, None otherwise
+        """
+        statement = select(Role).where(Role.id == role_id)
+
+        if not include_deleted:
+            statement = statement.where(Role.deleted_at.is_(None))
+
+        if options:
+            statement = statement.options(*options)
+        else:
+            statement = statement.options(
+                selectinload(Role.scopes),
+                selectinload(Role.created_by),
+            )
+
+        result = await session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def get_by_name(
+        cls,
+        session: AsyncSession,
+        name: str,
+        include_deleted: bool = False,
+        options: Optional[List] = None,
+    ) -> Optional["Role"]:
+        """
+        Get a role by name.
+
+        Args:
+            session: Database session
+            name: Role name
+            include_deleted: Whether to include soft-deleted roles
+            options: Additional query options
+
+        Returns:
+            Role if found, None otherwise
+        """
+        statement = select(Role).where(Role.name == name)
+
+        if not include_deleted:
+            statement = statement.where(Role.deleted_at.is_(None))
+
+        if options:
+            statement = statement.options(*options)
+        else:
+            statement = statement.options(
+                selectinload(Role.scopes),
+                selectinload(Role.created_by),
+            )
+
+        result = await session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def get_by_name_or_raise(
+        cls,
+        session: AsyncSession,
+        name: str,
+        include_deleted: bool = False,
+        options: Optional[List] = None,
+    ) -> "Role":
+        """
+        Get a role by name, raising an exception if not found.
+
+        Args:
+            session: Database session
+            name: Role name
+            include_deleted: Whether to include soft-deleted roles
+            options: Additional query options
+
+        Returns:
+            Role (never None)
+
+        Raises:
+            DJDoesNotExistException: If role not found
+        """
+        role = await cls.get_by_name(session, name, include_deleted, options)
+        if not role:
+            raise DJDoesNotExistException(
+                message=f"A role with name `{name}` does not exist.",
+            )
+        return role
+
+    @classmethod
+    async def find(
+        cls,
+        session: AsyncSession,
+        include_deleted: bool = False,
+        created_by_id: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List["Role"]:
+        """
+        Find roles with optional filters.
+
+        Args:
+            session: Database session
+            include_deleted: Whether to include soft-deleted roles
+            created_by_id: Filter by creator
+            limit: Maximum number of results
+            offset: Number of results to skip
+
+        Returns:
+            List of roles
+        """
+        statement = select(Role)
+
+        if not include_deleted:
+            statement = statement.where(Role.deleted_at.is_(None))
+
+        if created_by_id is not None:
+            statement = statement.where(Role.created_by_id == created_by_id)
+
+        statement = (
+            statement.options(
+                selectinload(Role.scopes),
+                selectinload(Role.created_by),
+            )
+            .order_by(Role.name)
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await session.execute(statement)
+        return list(result.scalars().all())
 
 
 class RoleScope(Base):

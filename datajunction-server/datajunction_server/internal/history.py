@@ -37,4 +37,7 @@ class EntityType(StrEnum):
     NODE = "node"
     PARTITION = "partition"
     QUERY = "query"
+    ROLE = "role"
+    ROLE_ASSIGNMENT = "role_assignment"
+    ROLE_SCOPE = "role_scope"
     TAG = "tag"
