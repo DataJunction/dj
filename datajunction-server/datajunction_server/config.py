@@ -133,6 +133,11 @@ class Settings(BaseSettings):  # pragma: no cover
     # Interval in seconds for which to expire service account tokens
     service_account_token_expire: int = 3600 * 24 * 30
 
+    # Group membership provider
+    # Options: "postgres" (uses group_members table), "static" (no membership),
+    # or a custom implementation of the GroupMembershipProvider interface
+    group_membership_provider: str = "postgres"
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 

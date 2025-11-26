@@ -29,6 +29,7 @@ from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.collection import Collection
+    from datajunction_server.database.group_member import GroupMember
     from datajunction_server.database.node import Node, NodeRevision
     from datajunction_server.database.notification_preference import (
         NotificationPreference,
@@ -50,11 +51,12 @@ class OAuthProvider(StrEnum):
 
 class PrincipalKind(StrEnum):
     """
-    Principal kinds
+    Principal kinds: users, service accounts, and groups
     """
 
     USER = "user"
     SERVICE_ACCOUNT = "service_account"
+    GROUP = "group"
 
 
 class User(Base):
@@ -130,6 +132,19 @@ class User(Base):
         back_populates="owners",
         overlaps="owned_associations,user",
         lazy="selectin",
+        viewonly=True,
+    )
+
+    # Group membership relationships (for kind=GROUP)
+    group_members: Mapped[list["GroupMember"]] = relationship(
+        "GroupMember",
+        foreign_keys="GroupMember.group_id",
+        viewonly=True,
+    )
+    # Memberships where this user is a member of groups (for kind=USER or SERVICE_ACCOUNT)
+    member_of: Mapped[list["GroupMember"]] = relationship(
+        "GroupMember",
+        foreign_keys="GroupMember.member_id",
         viewonly=True,
     )
 
