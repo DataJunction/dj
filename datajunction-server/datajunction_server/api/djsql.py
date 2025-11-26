@@ -48,7 +48,7 @@ async def get_data_for_djsql(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
-        base_verb=access.ResourceRequestVerb.EXECUTE,
+        base_verb=access.ResourceAction.EXECUTE,
     )
     translated_sql, engine, catalog = await build_sql_for_dj_query(
         session,
@@ -98,7 +98,7 @@ async def get_data_stream_for_djsql(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
-        base_verb=access.ResourceRequestVerb.EXECUTE,
+        base_verb=access.ResourceAction.EXECUTE,
     )
     translated_sql, engine, catalog = await build_sql_for_dj_query(
         session,
