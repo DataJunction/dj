@@ -14,8 +14,9 @@ from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
+    AccessDenialMode,
     validate_access,
-    validate_access_requests,
+    authorize,
 )
 from datajunction_server.models import access
 from datajunction_server.models.node import NodeIndegreeOutput
@@ -80,29 +81,39 @@ async def find_nodes_with_dimension(
     List all nodes that have the specified dimension
     """
     dimension_node = await get_node_by_name(session, name)
+
+    # Ensure the user has access to the dimension node first
+    await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(dimension_node),
+            )
+        ],
+        raise_on_denied=True,
+    )
+
     nodes = await get_nodes_with_common_dimensions(
         session,
         [dimension_node],
         node_type if node_type else None,
     )
-    approvals = [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource(
-                        name=node.name,
-                        resource_type=access.ResourceType.NODE,
-                        owner="",
-                    ),
-                )
-                for node in nodes
-            ],
-        )
-    ]
+
+    # Only return nodes the user has access to
+    approvals = await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(node),
+            )
+            for node in nodes
+        ],
+        on_denied=AccessDenialMode.FILTER,
+    )
     return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]
 
 
@@ -125,22 +136,19 @@ async def find_nodes_with_common_dimensions(
         [await get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    approvals = [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource(
-                        name=node.name,
-                        resource_type=access.ResourceType.NODE,
-                        owner="",
-                    ),
-                )
-                for node in nodes
-            ],
-        )
+    resource_requests = await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(node),
+            )
+            for node in nodes
+        ],
+        on_denied=AccessDenialMode.FILTER,
+    )
+    approved_resource_names = [
+        request.access_object.name for request in resource_requests
     ]
-    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]
+    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approved_resource_names]
