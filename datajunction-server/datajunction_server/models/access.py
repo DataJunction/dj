@@ -16,6 +16,7 @@ from datajunction_server.errors import DJAuthorizationException, DJError, ErrorC
 from datajunction_server.models.user import UserOutput
 
 if TYPE_CHECKING:
+    from datajunction_server.database.user import User
     from datajunction_server.sql.parsing.ast import Column
 
 
@@ -123,11 +124,18 @@ class AccessControl(BaseModel):
     necessary to deny or approve a request
     """
 
+    model_config = {"arbitrary_types_allowed": True}
+
     user: str
     state: AccessControlState
     direct_requests: Set[ResourceRequest]
     indirect_requests: Set[ResourceRequest]
     validation_request_count: int
+    session: Optional[AsyncSession] = None  # For RBAC permission checks (deprecated)
+    user_id: Optional[int] = None  # User ID for RBAC lookups (deprecated)
+    user_object: Optional["User"] = (
+        None  # Full User object with role_assignments loaded
+    )
 
     @property
     def requests(self) -> Set[ResourceRequest]:
@@ -159,6 +167,8 @@ class AccessControlStore(BaseModel):
     An access control store tracks all ResourceRequests
     """
 
+    model_config = {"arbitrary_types_allowed": True}
+
     validate_access: Callable[["AccessControl"], bool]
     user: Optional[UserOutput]
     base_verb: Optional[ResourceAction] = None
@@ -167,6 +177,10 @@ class AccessControlStore(BaseModel):
     indirect_requests: Set[ResourceRequest] = Field(default_factory=set)
     validation_request_count: int = 0
     validation_results: Set[ResourceRequest] = Field(default_factory=set)
+    session: Optional[AsyncSession] = None  # For RBAC permission checks (deprecated)
+    user_object: Optional["User"] = (
+        None  # Full User object with role_assignments loaded
+    )
 
     def add_request(self, request: ResourceRequest):
         """
@@ -252,7 +266,9 @@ class AccessControlStore(BaseModel):
 
     def validate(self) -> Set[ResourceRequest]:
         """
-        Checks with ACS and stores any returned invalid requests
+        Checks with ACS and stores any returned invalid requests.
+
+        Now synchronous - authorization works on pre-loaded user data.
         """
         self.validation_request_count += 1
 
@@ -262,8 +278,12 @@ class AccessControlStore(BaseModel):
             direct_requests=deepcopy(self.direct_requests),
             indirect_requests=deepcopy(self.indirect_requests),
             validation_request_count=self.validation_request_count,
+            session=self.session,  # Deprecated - kept for backward compat
+            user_id=self.user.id if self.user is not None else None,  # Deprecated
+            user_object=self.user_object,  # Pass full User object
         )
 
+        # Call validate_access (now sync!)
         self.validate_access(access_control)  # type: ignore
 
         self.validation_results = access_control.requests

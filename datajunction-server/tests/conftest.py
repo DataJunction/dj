@@ -944,6 +944,15 @@ async def create_default_user(session: AsyncSession) -> User:
     return user
 
 
+@pytest_asyncio.fixture
+async def default_user(session: AsyncSession):
+    """
+    Create a default user for testing.
+    """
+    user = await create_default_user(session)
+    yield user
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__client(
     request,

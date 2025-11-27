@@ -29,8 +29,9 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
+    AccessDenialMode,
+    authorize,
     validate_access,
-    validate_access_requests,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
@@ -90,16 +91,16 @@ async def add_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current  # type: ignore
-    validate_access_requests(
-        validate_access,
-        current_user,
-        [
+    await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
             access.ResourceRequest(
                 verb=access.ResourceAction.WRITE,
                 access_object=access.Resource.from_node(node_revision),
             ),
         ],
-        True,
+        on_denied=AccessDenialMode.RAISE,
     )
 
     if node.current.type == NodeType.SOURCE:  # type: ignore
@@ -215,16 +216,16 @@ async def remove_availability_state(
         ),
     )
 
-    validate_access_requests(
-        validate_access,
-        current_user,
-        [
+    await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
             access.ResourceRequest(
                 verb=access.ResourceAction.WRITE,
-                access_object=access.Resource.from_node(node),
+                access_object=access.Resource.from_node(node.current),  # type: ignore
             ),
         ],
-        True,
+        on_denied=AccessDenialMode.RAISE,
     )
 
     # Save the old availability state for history record
