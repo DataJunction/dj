@@ -6,9 +6,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy import delete as sql_delete
 
 from datajunction_server.database.history import History
-from datajunction_server.database.rbac import Role, RoleScope
+from datajunction_server.database.rbac import Role, RoleScope, RoleAssignment
+from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJDoesNotExistException,
@@ -18,6 +20,8 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.rbac import (
+    RoleAssignmentCreate,
+    RoleAssignmentOutput,
     RoleCreate,
     RoleOutput,
     RoleScopeInput,
@@ -389,7 +393,7 @@ async def list_role_scopes(
 
 
 @router.delete(
-    "/roles/{role_name}/scopes/{action}/{scope_type}/{scope_value:path}",
+    "/roles/{role_name}/scopes/{action}/{scope_type}/{scope_value}",
     status_code=204,
 )
 async def delete_scope_from_role(
@@ -414,8 +418,6 @@ async def delete_scope_from_role(
     )
 
     # Find the scope by composite key
-    from sqlalchemy import delete as sql_delete
-
     delete_stmt = (
         sql_delete(RoleScope)
         .where(RoleScope.role_id == role.id)
@@ -448,6 +450,195 @@ async def delete_scope_from_role(
         activity_type=ActivityType.DELETE,
         user=current_user.username,
         pre=pre_state,
+    )
+
+    await session.commit()
+
+
+# ============================================================================
+# Role Assignment Endpoints
+# ============================================================================
+
+
+@router.post(
+    "/roles/{role_name}/assign",
+    response_model=RoleAssignmentOutput,
+    status_code=201,
+)
+async def assign_role_to_principal(
+    role_name: str,
+    assignment_data: RoleAssignmentCreate,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserOutput = Depends(get_current_user),
+) -> RoleAssignment:
+    """
+    Assign a role to a principal (user, service account, or group).
+
+    Example: POST /roles/finance-editor/assign
+             Body: {"principal_username": "alice"}
+    """
+    # Get the role
+    role = await Role.get_by_name_or_raise(
+        session=session,
+        name=role_name,
+        include_deleted=False,
+    )
+
+    # Check if principal exists
+    principal = await User.get_by_username(
+        session=session,
+        username=assignment_data.principal_username,
+        options=[],
+    )
+    if not principal:
+        raise DJDoesNotExistException(
+            message=f"Principal '{assignment_data.principal_username}' not found",
+        )
+
+    # Check if assignment already exists
+    assignments = await RoleAssignment.find(
+        session,
+        principal_id=principal.id,
+        role_id=role.id,
+    )
+    if assignments:
+        raise DJAlreadyExistsException(
+            message=f"Principal '{assignment_data.principal_username}' already has role '{role_name}'",
+        )
+
+    # Create assignment
+    assignment = RoleAssignment(
+        principal_id=principal.id,
+        role_id=role.id,
+        granted_by_id=current_user.id,
+        expires_at=assignment_data.expires_at,
+    )
+    session.add(assignment)
+    await session.commit()
+    await session.refresh(assignment)
+
+    # Log activity for audit trail
+    await log_activity(
+        session=session,
+        entity_type=EntityType.ROLE_ASSIGNMENT,
+        entity_name=f"{principal.username}:{role.name}",
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "principal_id": assignment.principal_id,
+            "principal_username": principal.username,
+            "role_id": role.id,
+            "role_name": role.name,
+            "granted_by_id": current_user.id,
+            "expires_at": assignment.expires_at.isoformat()
+            if assignment.expires_at
+            else None,
+        },
+    )
+    await session.commit()
+
+    return assignment
+
+
+@router.get("/roles/{role_name}/assignments", response_model=List[RoleAssignmentOutput])
+async def list_role_assignments(
+    role_name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserOutput = Depends(get_current_user),
+    limit: int = Query(default=100, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> List[RoleAssignment]:
+    """
+    List all principals who have this role.
+
+    Example: GET /roles/finance-editor/assignments
+    """
+    role = await Role.get_by_name_or_raise(
+        session=session,
+        name=role_name,
+        include_deleted=False,
+    )
+
+    return await RoleAssignment.find(
+        session=session,
+        role_id=role.id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.delete("/roles/{role_name}/assignments/{principal_username}", status_code=204)
+async def revoke_role_from_principal(
+    role_name: str,
+    principal_username: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserOutput = Depends(get_current_user),
+) -> None:
+    """
+    Revoke a role from a principal.
+
+    Example: DELETE /roles/finance-editor/assignments/alice
+
+    This removes the role from the principal but preserves the audit trail in History.
+    """
+    # Get the role
+    role = await Role.get_by_name_or_raise(
+        session=session,
+        name=role_name,
+        include_deleted=False,
+    )
+
+    # Get the principal
+    principal = await User.get_by_username(
+        session=session,
+        username=principal_username,
+        options=[],
+    )
+    if not principal:
+        raise DJDoesNotExistException(
+            message=f"Principal '{principal_username}' not found",
+        )
+
+    # Find the assignment
+    assignments = await RoleAssignment.find(
+        session=session,
+        principal_id=principal.id,
+        role_id=role.id,
+    )
+    if not assignments:
+        raise DJDoesNotExistException(
+            message=f"Principal '{principal_username}' does not have role '{role_name}'",
+        )
+
+    # Capture pre-state for audit
+    assignment = assignments[0]
+    pre_state = {
+        "principal_id": assignment.principal_id,
+        "principal_username": assignment.principal.username,
+        "role_id": assignment.role_id,
+        "role_name": assignment.role.name,
+        "granted_by_id": assignment.granted_by_id,
+        "granted_at": assignment.granted_at.isoformat(),
+    }
+
+    delete_stmt = sql_delete(RoleAssignment).where(
+        RoleAssignment.principal_id == principal.id,
+        RoleAssignment.role_id == role.id,
+    )
+    await session.execute(delete_stmt)
+
+    # Log activity for audit trail
+    await log_activity(
+        session=session,
+        entity_type=EntityType.ROLE_ASSIGNMENT,
+        entity_name=f"{assignment.principal.username}:{assignment.role.name}",
+        activity_type=ActivityType.DELETE,
+        user=current_user.username,
+        pre=pre_state,
+        details={"revoked_by_id": current_user.id},
     )
 
     await session.commit()

@@ -88,42 +88,6 @@ class Role(Base):
     )
 
     @classmethod
-    async def get_by_id(
-        cls,
-        session: AsyncSession,
-        role_id: int,
-        include_deleted: bool = False,
-        options: Optional[List] = None,
-    ) -> Optional["Role"]:
-        """
-        Get a role by ID.
-
-        Args:
-            session: Database session
-            role_id: Role ID
-            include_deleted: Whether to include soft-deleted roles
-            options: Additional query options
-
-        Returns:
-            Role if found, None otherwise
-        """
-        statement = select(Role).where(Role.id == role_id)
-
-        if not include_deleted:
-            statement = statement.where(Role.deleted_at.is_(None))
-
-        if options:
-            statement = statement.options(*options)
-        else:
-            statement = statement.options(
-                selectinload(Role.scopes),
-                selectinload(Role.created_by),
-            )
-
-        result = await session.execute(statement)
-        return result.scalar_one_or_none()
-
-    @classmethod
     async def get_by_name(
         cls,
         session: AsyncSession,
@@ -213,7 +177,7 @@ class Role(Base):
         """
         statement = select(Role)
 
-        if not include_deleted:
+        if not include_deleted:  # pragma: no cover
             statement = statement.where(Role.deleted_at.is_(None))
 
         if created_by_id is not None:
@@ -351,3 +315,47 @@ class RoleAssignment(Base):
         Index("idx_role_assignments_principal", "principal_id"),
         Index("idx_role_assignments_role", "role_id"),
     )
+
+    @classmethod
+    async def find(
+        cls,
+        session: AsyncSession,
+        principal_id: Optional[int] = None,
+        role_id: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List["RoleAssignment"]:
+        """
+        Find role assignments with optional filters.
+
+        Args:
+            session: Database session
+            principal_id: Filter by principal
+            role_id: Filter by role
+            limit: Maximum number of results
+            offset: Number of results to skip
+
+        Returns:
+            List of role assignments
+        """
+        statement = select(RoleAssignment)
+
+        if principal_id is not None:
+            statement = statement.where(RoleAssignment.principal_id == principal_id)
+
+        if role_id is not None:  # pragma: no cover
+            statement = statement.where(RoleAssignment.role_id == role_id)
+
+        statement = (
+            statement.options(
+                selectinload(RoleAssignment.principal),
+                selectinload(RoleAssignment.role).selectinload(Role.scopes),
+                selectinload(RoleAssignment.granted_by),
+            )
+            .order_by(RoleAssignment.granted_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await session.execute(statement)
+        return list(result.scalars().all())

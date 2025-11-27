@@ -1,11 +1,18 @@
 """Pydantic models for RBAC."""
 
-from typing import Optional
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.typing import UTCDatetime
+
+
+class PrincipalOutput(BaseModel):
+    """Output for a principal (user, service account, or group)."""
+
+    username: str
+    email: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RoleScopeInput(BaseModel):
@@ -19,8 +26,6 @@ class RoleScopeInput(BaseModel):
 class RoleScopeOutput(BaseModel):
     """Output for role scope."""
 
-    id: int
-    role_id: int
     action: ResourceAction
     scope_type: ResourceType
     scope_value: str
@@ -32,15 +37,15 @@ class RoleCreate(BaseModel):
     """Input for creating a role."""
 
     name: str = Field(..., max_length=255, min_length=1)
-    description: Optional[str] = None
+    description: str | None = None
     scopes: list[RoleScopeInput] = Field(default_factory=list)
 
 
 class RoleUpdate(BaseModel):
     """Input for updating a role."""
 
-    name: Optional[str] = Field(None, max_length=255, min_length=1)
-    description: Optional[str] = None
+    name: str | None = Field(None, max_length=255, min_length=1)
+    description: str | None = None
 
 
 class RoleOutput(BaseModel):
@@ -48,31 +53,29 @@ class RoleOutput(BaseModel):
 
     id: int
     name: str
-    description: Optional[str]
-    created_by_id: int
+    description: str | None
+    created_by: PrincipalOutput
     created_at: UTCDatetime
-    deleted_at: Optional[UTCDatetime] = None
+    deleted_at: UTCDatetime | None = None
     scopes: list[RoleScopeOutput] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class RoleAssignmentCreate(BaseModel):
-    """Input for creating a role assignment."""
+    """Input for assigning a role to a principal."""
 
-    principal_id: int
-    role_id: int
-    expires_at: Optional[UTCDatetime] = None
+    principal_username: str
+    expires_at: UTCDatetime | None = None
 
 
 class RoleAssignmentOutput(BaseModel):
     """Output for role assignment."""
 
-    id: int
-    principal_id: int
-    role_id: int
-    granted_by_id: int
+    principal: PrincipalOutput
+    role: RoleOutput
+    granted_by: PrincipalOutput
     granted_at: UTCDatetime
-    expires_at: Optional[UTCDatetime]
+    expires_at: UTCDatetime | None
 
     model_config = ConfigDict(from_attributes=True)
