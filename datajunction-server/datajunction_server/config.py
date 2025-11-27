@@ -157,6 +157,18 @@ class Settings(BaseSettings):  # pragma: no cover
     # or a custom implementation of the GroupMembershipProvider interface
     group_membership_provider: str = "postgres"
 
+    # Authorization configuration
+    # Provider for authorization checks:
+    # - "rbac": Role-based access control (default)
+    # - "passthrough": Always approve (testing/development)
+    # - Custom implementations can be plugged in
+    authorization_provider: str = "rbac"
+
+    # Default access policy when no explicit RBAC rule exists:
+    # - "permissive": Allow by default (OSS-friendly, lock down as needed)
+    # - "restrictive": Deny by default (Enterprise, explicitly grant access)
+    default_access_policy: str = "permissive"  # or "restrictive"
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 

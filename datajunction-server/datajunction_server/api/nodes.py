@@ -16,6 +16,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
 
+
 from datajunction_server.api.helpers import (
     get_catalog_by_name,
     get_column,
@@ -42,8 +43,9 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
+    AccessDenialMode,
+    authorize,
     validate_access,
-    validate_access_requests,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
@@ -238,28 +240,24 @@ async def list_nodes(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
 ) -> List[str]:
     """
     List the available nodes.
     """
     nodes = await Node.find(session, prefix, node_type)  # type: ignore
-    return [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource.from_node(node),
-                )
-                for node in nodes
-            ],
-        )
-    ]
+    approved_requests = await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(node),
+            )
+            for node in nodes
+        ],
+        on_denied=AccessDenialMode.FILTER,
+    )
+    return [req.access_object.name for req in approved_requests]
 
 
 @router.get("/nodes/details/", response_model=List[NodeIndexItem])
@@ -269,9 +267,6 @@ async def list_all_nodes_with_details(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
 ) -> List[NodeIndexItem]:
     """
     List the available nodes.
@@ -302,11 +297,11 @@ async def list_all_nodes_with_details(
             settings.node_list_max,
         )
     approvals = [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
+        request.access_object.name
+        for request in await authorize(
+            session=session,
+            user=current_user,
+            resource_requests=[
                 access.ResourceRequest(
                     verb=access.ResourceAction.READ,
                     access_object=access.Resource(

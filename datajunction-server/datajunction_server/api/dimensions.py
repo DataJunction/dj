@@ -15,8 +15,9 @@ from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
+    AccessDenialMode,
     validate_access,
-    validate_access_requests,
+    authorize,
 )
 from datajunction_server.models import access
 from datajunction_server.models.node import NodeIndegreeOutput, NodeRevisionOutput
@@ -83,19 +84,18 @@ async def find_nodes_with_dimension(
     """
     dimension_node = await Node.get_by_name(session, name)
     nodes = await get_nodes_with_dimension(session, dimension_node, node_type)  # type: ignore
-    resource_requests = [
-        access.ResourceRequest(
-            verb=access.ResourceAction.READ,
-            access_object=access.Resource.from_node(node),
-        )
-        for node in nodes
-    ]
-    approvals = validate_access_requests(
-        validate_access=validate_access,
+    approvals = await authorize(
+        session=session,
         user=current_user,
-        resource_requests=resource_requests,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(node),
+            )
+            for node in nodes
+        ],
+        on_denied=AccessDenialMode.FILTER,
     )
-
     approved_nodes: List[str] = [request.access_object.name for request in approvals]
     return [node for node in nodes if node.name in approved_nodes]
 
@@ -119,18 +119,19 @@ async def find_nodes_with_common_dimensions(
         [await get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    approvals = [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource.from_node(node),
-                )
-                for node in nodes
-            ],
-        )
+    resource_requests = await authorize(
+        session=session,
+        user=current_user,
+        resource_requests=[
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource.from_node(node),
+            )
+            for node in nodes
+        ],
+        on_denied=AccessDenialMode.FILTER,
+    )
+    approved_resource_names = [
+        request.access_object.name for request in resource_requests
     ]
-    return [node for node in nodes if node.name in approvals]
+    return [node for node in nodes if node.name in approved_resource_names]
