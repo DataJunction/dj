@@ -30,7 +30,7 @@ from sqlalchemy.sql import Select
 from starlette.requests import Request
 from yarl import URL
 
-from datajunction_server.config import DatabaseConfig, Settings
+from datajunction_server.config import DatabaseConfig, QueryClientConfig, Settings
 from datajunction_server.database.user import User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
@@ -40,6 +40,8 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJUninitializedResourceException,
 )
+
+# Query clients imported locally to avoid circular imports
 from datajunction_server.service_clients import QueryServiceClient
 
 logger = logging.getLogger(__name__)
@@ -290,14 +292,91 @@ async def execute_with_retry(
 
 
 def get_query_service_client(
+    settings: Settings = Depends(get_settings),
+    request: Request = None,
+):
+    """
+    Return query service client based on configuration.
+
+    This function supports both HTTP query service configuration (for production scale)
+    and direct client configurations for various data warehouse vendors (for smaller scale/demo).
+    """
+    # Check for new query client configuration first
+    if settings.query_client.type != "http" or settings.query_client.connection:
+        return _create_configured_query_client(settings.query_client)
+
+    # Fall back to HTTP query service configuration
+    if settings.query_service:
+        from datajunction_server.query_clients import HttpQueryServiceClient
+
+        return HttpQueryServiceClient(
+            uri=settings.query_service,
+            retries=settings.query_client.retries,
+        )
+
+    return None
+
+
+def _create_configured_query_client(
+    config: QueryClientConfig,
+):
+    """
+    Create a query client based on configuration.
+
+    Args:
+        config: QueryClientConfig instance
+
+    Returns:
+        Configured query service client
+
+    Raises:
+        ValueError: If client type is not supported
+    """
+    client_type = config.type.lower()
+    connection_params = config.connection
+
+    if client_type == "http":
+        if "uri" not in connection_params:
+            raise ValueError("HTTP client requires 'uri' in connection parameters")
+        from datajunction_server.query_clients import HttpQueryServiceClient
+
+        return HttpQueryServiceClient(
+            uri=connection_params["uri"],
+            retries=config.retries,
+        )
+
+    elif client_type == "snowflake":
+        required_params = ["account", "user"]
+        for param in required_params:
+            if param not in connection_params:
+                raise ValueError(
+                    f"Snowflake client requires '{param}' in connection parameters",
+                )
+        try:
+            from datajunction_server.query_clients import SnowflakeClient
+
+            return SnowflakeClient(**connection_params)
+        except ImportError as e:
+            raise ValueError(
+                "Snowflake client dependencies not installed. "
+                "Install with: pip install 'datajunction-server[snowflake]'",
+            ) from e
+
+    else:
+        raise ValueError(f"Unsupported query client type: {client_type}")
+
+
+def get_legacy_query_service_client(
+    settings: Settings = Depends(get_settings),
     request: Request = None,
 ) -> Optional[QueryServiceClient]:
     """
-    Return query service client
+    Return HTTP query service client for backward compatibility.
+
+    This function preserves the original behavior and return type.
     """
     from datajunction_server.service_clients import QueryServiceClient
 
-    settings = get_settings()
     if not settings.query_service:  # pragma: no cover
         return None
     return QueryServiceClient(settings.query_service)

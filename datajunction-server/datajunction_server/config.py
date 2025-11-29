@@ -5,13 +5,13 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
@@ -37,8 +37,23 @@ class DatabaseConfig(BaseModel):
     keepalives_count: int = 5
 
 
+class QueryClientConfig(BaseModel):
+    """
+    Configuration for query service clients.
+    """
+
+    # Type of query client: 'http', 'snowflake', 'bigquery', 'databricks', 'trino', etc.
+    type: str = "http"
+
+    # Connection parameters (varies by client type)
+    connection: Dict[str, Any] = Field(default_factory=dict)
+
+    # Number of retries for failed requests (mainly for HTTP client)
+    retries: int = 0
+
+
 class SeedSetup(BaseModel):
-    # An "default" catalog for nodes that are pure SQL and don't belong in any
+    # A "default" catalog for nodes that are pure SQL and don't belong in any
     # particular catalog. This typically applies to on-the-fly user-defined dimensions.
     virtual_catalog_name: str = "default"
 
@@ -93,8 +108,12 @@ class Settings(BaseSettings):  # pragma: no cover
     # How long to wait when pinging databases to find out the fastest online database.
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
-    # Query service
+    # Query service url (only used with "http" query client config)
+    # TODO: once the `QueryClientConfig` is proven out, this can be removed.
     query_service: Optional[str] = None
+
+    # Query client configuration
+    query_client: QueryClientConfig = Field(default_factory=QueryClientConfig)
 
     # The namespace where source nodes for registered tables should exist
     source_node_namespace: Optional[str] = "source"
