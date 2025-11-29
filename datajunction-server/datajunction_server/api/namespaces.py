@@ -121,7 +121,7 @@ async def list_namespaces(
     results = await NodeNamespace.get_all_with_node_count(session)
     resource_requests = [
         access.ResourceRequest(
-            verb=access.ResourceRequestVerb.BROWSE,
+            verb=access.ResourceAction.READ,
             access_object=access.Resource.from_namespace(record.namespace),
         )
         for record in results

@@ -254,7 +254,7 @@ async def list_nodes(
             current_user,
             [
                 access.ResourceRequest(
-                    verb=access.ResourceRequestVerb.BROWSE,
+                    verb=access.ResourceAction.READ,
                     access_object=access.Resource.from_node(node),
                 )
                 for node in nodes
@@ -309,7 +309,7 @@ async def list_all_nodes_with_details(
             current_user,
             [
                 access.ResourceRequest(
-                    verb=access.ResourceRequestVerb.BROWSE,
+                    verb=access.ResourceAction.READ,
                     access_object=access.Resource(
                         name=row.name,
                         resource_type=access.ResourceType.NODE,
