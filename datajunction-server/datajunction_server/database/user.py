@@ -158,12 +158,16 @@ class User(Base):
         """
         Find a user by username
         """
-        options = options or [
-            selectinload(User.created_nodes),
-            selectinload(User.created_collections),
-            selectinload(User.created_tags),
-            selectinload(User.owned_nodes),
-        ]
+        options = (
+            options
+            if options is not None
+            else [
+                selectinload(User.created_nodes),
+                selectinload(User.created_collections),
+                selectinload(User.created_tags),
+                selectinload(User.owned_nodes),
+            ]
+        )
         statement = select(User).where(User.username == username).options(*options)
         result = await session.execute(statement)
         return result.unique().scalar_one_or_none()
