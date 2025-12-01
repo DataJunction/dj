@@ -903,7 +903,7 @@ async def update_any_node(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
-        base_verb=access.ResourceRequestVerb.WRITE,
+        base_verb=access.ResourceAction.WRITE,
     )
     access_control.add_request_by_node(node)
     access_control.validate_and_raise()

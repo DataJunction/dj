@@ -96,7 +96,7 @@ async def add_availability_state(
         current_user,
         [
             access.ResourceRequest(
-                verb=access.ResourceRequestVerb.WRITE,
+                verb=access.ResourceAction.WRITE,
                 access_object=access.Resource.from_node(node_revision),
             ),
         ],
@@ -221,7 +221,7 @@ async def remove_availability_state(
         current_user,
         [
             access.ResourceRequest(
-                verb=access.ResourceRequestVerb.WRITE,
+                verb=access.ResourceAction.WRITE,
                 access_object=access.Resource.from_node(node),
             ),
         ],
@@ -556,7 +556,7 @@ async def get_data_stream_for_metrics(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
-        base_verb=access.ResourceRequestVerb.READ,
+        base_verb=access.ResourceAction.READ,
     )
 
     translated_sql, engine, catalog = await build_sql_for_multiple_metrics(

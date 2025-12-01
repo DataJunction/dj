@@ -93,7 +93,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 access.AccessControlStore(
                     validate_access=params.validate_access,
                     user=params.current_user,
-                    base_verb=access.ResourceRequestVerb.READ,
+                    base_verb=access.ResourceAction.READ,
                 )
                 if params.validate_access
                 else None

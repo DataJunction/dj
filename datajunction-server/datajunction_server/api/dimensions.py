@@ -84,7 +84,7 @@ async def find_nodes_with_dimension(
     nodes = await get_nodes_with_dimension(session, dimension_node, node_type)  # type: ignore
     resource_requests = [
         access.ResourceRequest(
-            verb=access.ResourceRequestVerb.READ,
+            verb=access.ResourceAction.READ,
             access_object=access.Resource.from_node(node),
         )
         for node in nodes
@@ -125,7 +125,7 @@ async def find_nodes_with_common_dimensions(
             current_user,
             [
                 access.ResourceRequest(
-                    verb=access.ResourceRequestVerb.READ,
+                    verb=access.ResourceAction.READ,
                     access_object=access.Resource.from_node(node),
                 )
                 for node in nodes
