@@ -13,13 +13,14 @@ from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models import access
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    get_access_checker,
+)
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
@@ -30,7 +31,6 @@ from datajunction_server.models.node import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_dimensions, get_shared_dimensions
 from datajunction_server.utils import (
-    get_current_user,
     get_session,
     get_settings,
 )
@@ -67,10 +67,7 @@ async def list_metrics(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
 ) -> List[str]:
@@ -83,8 +80,7 @@ async def list_metrics(
             node_type=NodeType.METRIC,
             prefix=prefix,
             session=session,
-            current_user=current_user,
-            validate_access=validate_access,
+            access_checker=access_checker,
         )
         background_tasks.add_task(cache.set, "metrics", metrics)
     return metrics

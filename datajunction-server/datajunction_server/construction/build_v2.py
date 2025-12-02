@@ -16,6 +16,10 @@ from typing import (
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -266,7 +270,7 @@ class QueryBuilder:
         self._orderby: list[str] = []
         self._limit: Optional[int] = None
         self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
-        self._access_control: Optional[access.AccessControlStore] = None
+        self._access_checker: Optional[AccessChecker] = None
         self._ignore_errors: bool = False
 
         # The following attributes will be modified as the query gets built.
@@ -370,14 +374,14 @@ class QueryBuilder:
 
     def with_access_control(
         self,
-        access_control: Optional[access.AccessControlStore] = None,
+        access_checker: AccessChecker,
     ):
         """
         Set access control for the query builder.
         """
-        if access_control:  # pragma: no cover
-            access_control.add_request_by_node(self.node_revision)
-            self._access_control = access_control
+        if access_checker:  # pragma: no cover
+            access_checker.add_node(self.node_revision, access.ResourceAction.READ)
+            self._access_checker = access_checker
         return self
 
     @property
@@ -538,7 +542,7 @@ class QueryBuilder:
                 )
 
         # Error validation
-        self.validate_access()
+        await self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)
         return self.final_ast  # type: ignore
@@ -795,18 +799,18 @@ class QueryBuilder:
                 node_col.set_semantic_entity(dim_name)
                 node_col.set_semantic_type(SemanticType.DIMENSION)
 
-    async def add_request_by_node_name(self, node_name):
+    def add_request_by_node_name(self, node_name: str):
         """Add a node request to the access control validator."""
-        if self._access_control:  # pragma: no cover
-            await self._access_control.add_request_by_node_name(  # pragma: no cover
-                self.session,
+        if self._access_checker:  # pragma: no cover
+            self._access_checker.add_request_by_node_name(
                 node_name,
+                access.ResourceAction.READ,
             )
 
-    def validate_access(self):
+    async def validate_access(self):
         """Validates access"""
-        if self._access_control:
-            self._access_control.validate_and_raise()
+        if self._access_checker:
+            await self._access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def find_dimension_node_joins(
         self,
@@ -822,7 +826,7 @@ class QueryBuilder:
             if attr.node_name == self.node_revision.name:
                 continue
 
-            await self.add_request_by_node_name(attr.node_name)
+            self.add_request_by_node_name(attr.node_name)
             if attr.join_key not in dimension_node_joins:
                 dimension_join = await self._build_dimension_join_metadata(attr)
                 if dimension_join:
@@ -929,8 +933,8 @@ class CubeQueryBuilder:
         self._orderby: list[str] = []
         self._limit: Optional[int] = None
         self._parameters: dict[str, ast.Value] = {}
-        self._build_criteria: Optional[BuildCriteria] = self.get_default_criteria()
-        self._access_control: Optional[access.AccessControlStore] = None
+        self._build_criteria: BuildCriteria | None = self.get_default_criteria()
+        self._access_checker: AccessChecker | None = None
         self._ignore_errors: bool = False
 
         # The following attributes will be modified as the query gets built.
@@ -1043,14 +1047,13 @@ class CubeQueryBuilder:
 
     def with_access_control(
         self,
-        access_control: Optional[access.AccessControlStore] = None,
+        access_checker: AccessChecker,
     ):
         """
         Set access control for the query builder.
         """
-        if access_control:  # pragma: no cover
-            access_control.add_request_by_nodes(self.metric_nodes)
-            self._access_control = access_control
+        access_checker.add_nodes(self.metric_nodes, access.ResourceAction.READ)
+        self._access_checker = access_checker
         return self
 
     @property
@@ -1148,15 +1151,15 @@ class CubeQueryBuilder:
             self.final_ast.select.limit = ast.Number(value=self._limit)
 
         # Error validation
-        self.validate_access()
+        await self.validate_access()
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)  # pragma: no cover
         return self.final_ast
 
-    def validate_access(self):
+    async def validate_access(self):
         """Validates access"""
-        if self._access_control:
-            self._access_control.validate_and_raise()
+        if self._access_checker:
+            await self._access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def build_measures_queries(self):
         """
@@ -1174,7 +1177,7 @@ class CubeQueryBuilder:
             if self._ignore_errors:
                 query_builder = query_builder.ignore_errors()
             parent_ast = await (
-                query_builder.with_access_control(self._access_control)
+                query_builder.with_access_control(self._access_checker)
                 .with_build_criteria(self._build_criteria)
                 .add_dimensions(self.dimensions)
                 .add_filters(self.filters)
@@ -1229,18 +1232,20 @@ class CubeQueryBuilder:
         """
         Build the metric's aggregate expression.
         """
-        if self._access_control:
-            self._access_control.add_request_by_node(metric_node)  # type: ignore
+        if self._access_checker:
+            self._access_checker.add_node(metric_node, access.ResourceAction.READ)  # type: ignore
         metric_query_builder = await QueryBuilder.create(self.session, metric_node)
         if self._ignore_errors:
             metric_query_builder = (  # pragma: no cover
                 metric_query_builder.ignore_errors()
             )
-        metric_query = await (
-            metric_query_builder.with_access_control(self._access_control)
-            .with_build_criteria(self._build_criteria)
-            .build()
-        )
+        if self._access_checker:
+            metric_query_builder = metric_query_builder.with_access_control(
+                self._access_checker,
+            )
+        metric_query = await metric_query_builder.with_build_criteria(
+            self._build_criteria,
+        ).build()
         self.errors.extend(metric_query_builder.errors)
         metric_query.ctes[-1].select.projection[0].set_semantic_entity(  # type: ignore
             f"{metric_node.name}.{amenable_name(metric_node.name)}",

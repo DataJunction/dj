@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.database.user import User
-from datajunction_server.models import access
 from datajunction_server.models.deployment import (
     NodeSpec,
     CubeSpec,
@@ -116,6 +115,5 @@ class DeploymentContext:
     request: Request
     query_service_client: QueryServiceClient
     save_history: Callable
-    validate_access: access.ValidateAccessFn
     background_tasks: BackgroundTasks
     cache: Cache

@@ -29,9 +29,9 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
+    AccessChecker,
     AccessDenialMode,
-    authorize,
-    validate_access,
+    get_access_checker,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
@@ -67,9 +67,7 @@ async def add_availability_state(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -91,17 +89,13 @@ async def add_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current  # type: ignore
-    await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.WRITE,
-                access_object=access.Resource.from_node(node_revision),
-            ),
-        ],
-        on_denied=AccessDenialMode.RAISE,
+    access_checker.add_request(
+        access.ResourceRequest(
+            verb=access.ResourceAction.WRITE,
+            access_object=access.Resource.from_node(node_revision),
+        ),
     )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if node.current.type == NodeType.SOURCE:  # type: ignore
         if (
@@ -191,9 +185,7 @@ async def remove_availability_state(
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -216,17 +208,13 @@ async def remove_availability_state(
         ),
     )
 
-    await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.WRITE,
-                access_object=access.Resource.from_node(node.current),  # type: ignore
-            ),
-        ],
-        on_denied=AccessDenialMode.RAISE,
+    access_checker.add_request(
+        access.ResourceRequest(
+            verb=access.ResourceAction.WRITE,
+            access_object=access.Resource.from_node(node.current),  # type: ignore
+        ),
     )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Save the old availability state for history record
     old_availability = (
@@ -282,10 +270,6 @@ async def get_data(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
 ) -> QueryWithResults:
@@ -311,8 +295,6 @@ async def get_data(
             engine_version=engine_version,
             use_materialized=use_materialized,
             ignore_errors=ignore_errors,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
 
@@ -363,10 +345,6 @@ async def get_data_stream_for_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     background_tasks: BackgroundTasks,
     cache: Cache = Depends(get_cache),
 ) -> QueryWithResults:
@@ -402,8 +380,6 @@ async def get_data_stream_for_node(
             engine_version=engine_version,
             use_materialized=True,
             ignore_errors=False,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
     query_create = QueryCreate(
@@ -469,10 +445,6 @@ async def get_data_for_metrics(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
 ) -> QueryWithResults:
@@ -498,8 +470,6 @@ async def get_data_for_metrics(
             engine_version=engine_version,
             use_materialized=True,
             ignore_errors=False,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
     node = cast(
@@ -545,20 +515,12 @@ async def get_data_stream_for_metrics(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Return data for a set of metrics with dimensions and filters using server sent events
     """
     request_headers = dict(request.headers)
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceAction.READ,
-    )
-
     translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -568,7 +530,7 @@ async def get_data_stream_for_metrics(
         limit,
         engine_name,
         engine_version,
-        access_control,
+        access_checker,
     )
 
     query_create = QueryCreate(

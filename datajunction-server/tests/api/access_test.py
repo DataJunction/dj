@@ -2,12 +2,26 @@
 Tests for the data API.
 """
 
+from http import HTTPStatus
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.api.main import app
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import AuthorizationService
 from datajunction_server.models import access
+
+
+class DenyAllAuthorizationService(AuthorizationService):
+    """
+    Custom authorization service that denies all access.
+    """
+
+    name = "deny_all"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(request=request, approved=False)
+            for request in requests
+        ]
 
 
 class TestDataAccessControl:
@@ -19,43 +33,43 @@ class TestDataAccessControl:
     async def test_get_metric_data_unauthorized(
         self,
         module__client_with_examples: AsyncClient,
+        mocker,
     ) -> None:
         """
         Test retrieving data for a metric
         """
 
-        def validate_access_override():
-            def _validate_access(access_control: access.AccessControl):
-                access_control.deny_all()
+        def get_deny_all_service():
+            return DenyAllAuthorizationService()
 
-            return _validate_access
-
-        app.dependency_overrides[validate_access] = validate_access_override
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.get_authorization_service",
+            get_deny_all_service,
+        )
         response = await module__client_with_examples.get("/data/basic.num_comments/")
         data = response.json()
-        assert "Authorization of User `dj` for this request failed" in data["message"]
-        assert "read:node/basic.num_comments" in data["message"]
-        assert "read:node/basic.source.comments" in data["message"]
-        assert response.status_code == 403
-        app.dependency_overrides.clear()
+        assert "Access denied to" in data["message"]
+        assert "basic.num_comments" in data["message"]
+        assert response.status_code == HTTPStatus.FORBIDDEN
 
     @pytest.mark.asyncio
     async def test_sql_with_filters_orderby_no_access(
         self,
         module__client_with_examples: AsyncClient,
+        mocker,
     ):
         """
         Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
         version of the DJ roads database with namespaces.
         """
 
-        def validate_access_override():
-            def _validate_access(access_control: access.AccessControl):
-                access_control.deny_all()
+        def get_deny_all_service():
+            return DenyAllAuthorizationService()
 
-            return _validate_access
-
-        app.dependency_overrides[validate_access] = validate_access_override
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.get_authorization_service",
+            get_deny_all_service,
+        )
 
         node_name = "foo.bar.num_repair_orders"
         dimensions = [
@@ -76,13 +90,6 @@ class TestDataAccessControl:
             params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
         )
         data = response.json()
-        assert sorted(list(data["message"])) == sorted(
-            list(
-                "Authorization of User `dj` for this request failed."
-                "\nThe following requests were denied:\nread:node/foo.bar.dispatcher, "
-                "read:node/foo.bar.repair_orders, read:node/foo.bar.municipality_dim, "
-                "read:node/foo.bar.num_repair_orders, read:node/foo.bar.hard_hat.",
-            ),
-        )
-        assert data["errors"][0]["code"] == 500
-        app.dependency_overrides.clear()
+        assert "Access denied to" in data["message"]
+        assert "foo.bar" in data["message"]
+        assert response.status_code == HTTPStatus.FORBIDDEN
