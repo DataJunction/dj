@@ -55,8 +55,10 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientEntityNotFound
-from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models.access import AccessControl, ValidateAccessFn
+from datajunction_server.internal.access.authorization import (
+    get_authorization_service,
+    PassthroughAuthorizationService,
+)
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider
@@ -523,16 +525,14 @@ async def client(
     def get_settings_override() -> Settings:
         return settings_no_qs
 
-    def default_validate_access() -> ValidateAccessFn:
-        def _(access_control: AccessControl):
-            access_control.approve_all()
-
-        return _
+    def get_passthrough_auth_service():
+        """Override to approve all requests in tests."""
+        return PassthroughAuthorizationService()
 
     if use_patch:
         app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[validate_access] = default_validate_access
+    app.dependency_overrides[get_authorization_service] = get_passthrough_auth_service
 
     async with AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -805,18 +805,16 @@ async def client_qs(
     def get_settings_override() -> Settings:
         return settings
 
-    def default_validate_access() -> ValidateAccessFn:
-        def _(access_control: AccessControl):
-            access_control.approve_all()
-
-        return _
+    def get_passthrough_auth_service():
+        """Override to approve all requests in tests."""
+        return PassthroughAuthorizationService()
 
     def get_session_override() -> AsyncSession:
         return session
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[validate_access] = default_validate_access
+    app.dependency_overrides[get_authorization_service] = get_passthrough_auth_service
     app.dependency_overrides[get_query_service_client] = (
         get_query_service_client_override
     )
@@ -984,11 +982,9 @@ async def module__client(
     def get_settings_override() -> Settings:
         return module__settings
 
-    def default_validate_access() -> ValidateAccessFn:
-        def _(access_control: AccessControl):
-            access_control.approve_all()
-
-        return _
+    def get_passthrough_auth_service():
+        """Override to approve all requests in tests."""
+        return PassthroughAuthorizationService()
 
     module_mocker.patch(
         "datajunction_server.api.materializations.get_query_service_client",
@@ -997,7 +993,7 @@ async def module__client(
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    app.dependency_overrides[validate_access] = default_validate_access
+    app.dependency_overrides[get_authorization_service] = get_passthrough_auth_service
     app.dependency_overrides[get_query_service_client] = (
         get_query_service_client_override
     )

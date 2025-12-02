@@ -1,13 +1,10 @@
 """
 Authorization related functionality using pluggable services.
 
-This module provides a pluggable authorization system that works with pre-loaded
-user data (no async DB queries needed during authorization):
-
-- User's roles/assignments are eagerly loaded when fetching the user
-- AuthorizationService performs sync in-memory checks
-- No changes needed to existing API endpoints
-- Keeps the existing validate_access() pattern
+This module defines an abstract base class `AuthorizationService` for implementing different
+authorization strategies. It includes built-in implementations such as
+`RBACAuthorizationService` for role-based access control and `PassthroughAuthorizationService`
+for permissive access.
 
 Example custom implementation:
 ```python
@@ -20,6 +17,7 @@ class CustomAuthService(AuthorizationService):
 ```
 """
 
+from fastapi import Depends
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,16 +33,22 @@ from datajunction_server.internal.access.group_membership import (
     GroupMembershipService,
     get_group_membership_service,
 )
+from datajunction_server.database.node import Node
 from datajunction_server.database.rbac import RoleAssignment
 from datajunction_server.database.user import User
 from datajunction_server.models.access import (
-    AccessControl,
+    AccessDecision,
+    Resource,
     ResourceAction,
     ResourceRequest,
     ResourceType,
-    ValidateAccessFn,
 )
-from datajunction_server.utils import SEPARATOR, get_settings
+from datajunction_server.utils import (
+    SEPARATOR,
+    get_current_user,
+    get_session,
+    get_settings,
+)
 
 settings = get_settings()
 
@@ -59,11 +63,9 @@ class AccessDenialMode(Enum):
     How to handle denied access requests.
     """
 
-    FILTER = "filter"  # Return only approved requests (default for list operations)
-    RAISE = "raise"  # Raise exception if any denied (for single resource operations)
-    RETURN = (
-        "return"  # Return all requests with approved field set (for custom handling)
-    )
+    FILTER = "filter"  # Return only approved requests
+    RAISE = "raise"  # Raise exception if any denied
+    RETURN = "return"  # Return all requests with approved field set
 
 
 # ============================================================================
@@ -184,92 +186,6 @@ class AuthContext:
         return assignments
 
 
-async def authorize(
-    session: AsyncSession,
-    user: User,
-    resource_requests: List[ResourceRequest],
-    *,
-    on_denied: AccessDenialMode = AccessDenialMode.FILTER,
-) -> List[ResourceRequest]:
-    """
-    Check access to resources with flexible denial handling.
-
-    Args:
-        session: Database session
-        user: User requesting access
-        resource_requests: Resources to check access for
-        on_denied: How to handle denied requests:
-            - FILTER (default): Return only approved requests (for list operations)
-            - RAISE: Raise DJAuthorizationException if any denied (for single resource)
-            - RETURN: Return with approved field set (for custom handling)
-
-    Returns:
-        List of resource requests (filtered or all, depending on on_denied mode)
-
-    Raises:
-        DJAuthorizationException: If on_denied=RAISE and any requests are denied
-    """
-    auth_context = await AuthContext.from_user(session, user)
-    auth_service = get_authorization_service()
-    all_requests = auth_service.authorize(auth_context, resource_requests)
-
-    # Handle based on mode
-    if on_denied == AccessDenialMode.RETURN:
-        return all_requests
-    elif on_denied == AccessDenialMode.RAISE:
-        denied = [r for r in all_requests if not r.approved]
-        if denied:
-            from datajunction_server.errors import (
-                DJAuthorizationException,
-                DJError,
-                ErrorCode,
-            )
-
-            raise DJAuthorizationException(
-                message=f"Access denied to {len(denied)} resource(s)",
-                errors=[
-                    DJError(
-                        code=ErrorCode.UNAUTHORIZED_ACCESS,
-                        message=(
-                            f"{r.verb.value.upper()} access denied to "
-                            f"{r.access_object.resource_type.value}: "
-                            f"{r.access_object.name}"
-                        ),
-                    )
-                    for r in denied
-                ],
-            )
-        return all_requests
-    # Default: FILTER
-    return [r for r in all_requests if r.approved]
-
-
-def validate_access() -> ValidateAccessFn:
-    """
-    Default validate access function that uses the configured authorization service.
-
-    This delegates to the pluggable service (RBAC, passthrough, custom, etc.)
-    using the AuthContext attached to the AccessControl object.
-    """
-    auth_service = get_authorization_service()
-
-    def _(access_control: AccessControl):
-        """
-        Authorizes requests using the configured service.
-        """
-        auth_context = getattr(access_control, "auth_context", None)
-        if not auth_context:
-            # No auth context - approve all (backward compat)
-            access_control.approve_all()
-            return
-
-        # Use authorization service
-        requests_list = list(access_control.requests)
-        auth_service.authorize(auth_context, requests_list)
-
-    return _
-
-
 # ============================================================================
 # New FastAPI-style Authorization Service
 # ============================================================================
@@ -295,8 +211,8 @@ class AuthorizationService(ABC):
     def authorize(
         self,
         auth_context: AuthContext,
-        requests: List[ResourceRequest],
-    ) -> List[ResourceRequest]:
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
         """
         Authorize resource requests for a user.
 
@@ -359,8 +275,8 @@ class RBACAuthorizationService(AuthorizationService):
     def authorize(
         self,
         auth_context: AuthContext,
-        requests: List[ResourceRequest],
-    ) -> List[ResourceRequest]:
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
         """
         Authorize using pre-loaded RBAC roles and scopes (sync).
 
@@ -371,17 +287,26 @@ class RBACAuthorizationService(AuthorizationService):
         Returns:
             Same list of requests with approved=True/False set
         """
-        for request in requests:
-            has_grant = self.has_permission(
-                assignments=auth_context.role_assignments,
-                action=request.verb,
-                resource_type=request.access_object.resource_type,
-                resource_name=request.access_object.name,
-            )
-            request.approved = (
-                has_grant or settings.default_access_policy == "permissive"
-            )
-        return requests
+        return [self._make_decision(auth_context, request) for request in requests]
+
+    def _make_decision(
+        self,
+        auth_context: AuthContext,
+        request: ResourceRequest,
+    ) -> AccessDecision:
+        """
+        Convert ResourceRequest to AccessDecision.
+        """
+        has_grant = self.has_permission(
+            assignments=auth_context.role_assignments,
+            action=request.verb,
+            resource_type=request.access_object.resource_type,
+            resource_name=request.access_object.name,
+        )
+        return AccessDecision(
+            request=request,
+            approved=(has_grant or settings.default_access_policy == "permissive"),
+        )
 
     @classmethod
     def resource_matches_pattern(cls, resource_name: str, pattern: str) -> bool:
@@ -516,12 +441,10 @@ class PassthroughAuthorizationService(AuthorizationService):
     def authorize(
         self,
         auth_context: AuthContext,
-        requests: List[ResourceRequest],
-    ) -> List[ResourceRequest]:
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
         """Approve all requests without checks (sync)."""
-        for request in requests:
-            request.approved = True
-        return requests
+        return [AccessDecision(request=request, approved=True) for request in requests]
 
 
 @lru_cache(maxsize=None)
@@ -577,3 +500,137 @@ def get_authorization_service() -> AuthorizationService:
         f"Unknown authorization_provider: '{provider}'. "
         f"Available providers: {available}",
     )
+
+
+async def get_auth_context(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> AuthContext:
+    """Build authorization context with user + group assignments."""
+    return await AuthContext.from_user(session, current_user)
+
+
+class AccessChecker:
+    """Collects authorization requests and validates them."""
+
+    def __init__(self, auth_context: AuthContext):
+        self.auth_context = auth_context
+        self.requests: list[ResourceRequest] = []
+
+    def add_request(self, request: ResourceRequest):
+        """Add a request to check."""
+        self.requests.append(request)
+
+    def add_requests(self, requests: list[ResourceRequest]):
+        """Add requests to check."""
+        self.requests.extend(requests)
+
+    @classmethod
+    def resource_request_from_node(
+        cls,
+        node: Node,
+        action: ResourceAction,
+    ) -> ResourceRequest:
+        """Create ResourceRequest from a Node."""
+        return ResourceRequest(
+            verb=action,
+            access_object=Resource.from_node(node),
+        )
+
+    def add_request_by_node_name(self, node_name: str, action: ResourceAction):
+        """Add request by node name."""
+        self.requests.append(
+            ResourceRequest(
+                verb=action,
+                access_object=Resource(name=node_name, resource_type=ResourceType.NODE),
+            ),
+        )
+
+    def add_node(self, node: Node, action: ResourceAction):
+        """Add request for a node."""
+        node_request = self.resource_request_from_node(node, action)
+        self.add_request(node_request)
+
+    def add_nodes(self, nodes: list[Node], action: ResourceAction):
+        """Add requests for multiple nodes."""
+        self.requests.extend(
+            self.resource_request_from_node(node, action) for node in nodes
+        )
+
+    @classmethod
+    def resource_request_from_namespace(
+        cls,
+        namespace: str,
+        action: ResourceAction,
+    ) -> ResourceRequest:
+        """Create ResourceRequest from a namespace."""
+        return ResourceRequest(
+            verb=action,
+            access_object=Resource.from_namespace(namespace),
+        )
+
+    def add_namespace(self, namespace: str, action: ResourceAction):
+        """Add request for a namespace."""
+        namespace_request = self.resource_request_from_namespace(namespace, action)
+        self.add_request(namespace_request)
+
+    def add_namespaces(self, namespaces: list[str], action: ResourceAction):
+        """Add requests for multiple namespaces."""
+        self.requests.extend(
+            self.resource_request_from_namespace(namespace, action)
+            for namespace in namespaces
+        )
+
+    async def check(
+        self,
+        on_denied: AccessDenialMode = AccessDenialMode.FILTER,
+    ) -> list[AccessDecision]:
+        """
+        Validate all requests using AuthorizationService.
+
+        Args:
+            on_denied: How to handle denied requests
+                - FILTER: Return only approved (default)
+                - RAISE: Raise exception if any denied
+                - RETURN_ALL: Return all with approved field set
+        """
+        auth_service = get_authorization_service()
+        access_decisions = auth_service.authorize(self.auth_context, self.requests)
+
+        if on_denied == AccessDenialMode.RETURN:
+            return access_decisions
+        elif on_denied == AccessDenialMode.RAISE:
+            denied: list[AccessDecision] = [
+                decision for decision in access_decisions if not decision.approved
+            ]
+            if denied:
+                from datajunction_server.errors import DJAuthorizationException
+
+                # Show first 5 denied resources
+                denied_names = [d.request.access_object.name for d in denied[:5]]
+                more_count = max(0, len(denied) - 5)
+
+                raise DJAuthorizationException(
+                    message=(
+                        f"Access denied to {len(denied)} resource(s): "
+                        f"{', '.join(denied_names)}"
+                        + (f" and {more_count} more" if more_count else "")
+                    ),
+                )
+            return access_decisions
+        # Default: FILTER
+        return [decision for decision in access_decisions if decision.approved]
+
+    async def approved_resource_names(self) -> list[str]:
+        """Get approved resource names."""
+        return [
+            decision.request.access_object.name
+            for decision in await self.check(on_denied=AccessDenialMode.FILTER)
+        ]
+
+
+def get_access_checker(
+    auth_context: AuthContext = Depends(get_auth_context),
+) -> AccessChecker:
+    """Provide AccessChecker with pre-loaded context."""
+    return AccessChecker(auth_context)

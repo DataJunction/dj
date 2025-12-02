@@ -9,11 +9,11 @@ from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.internal.access.authorization import (
+    AccessChecker,
     AccessDenialMode,
     AuthContext,
     PassthroughAuthorizationService,
     RBACAuthorizationService,
-    authorize,
     get_authorization_service,
 )
 from datajunction_server.errors import DJAuthorizationException
@@ -426,7 +426,6 @@ class TestAuthorizationService:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NAMESPACE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -434,7 +433,6 @@ class TestAuthorizationService:
                 access_object=Resource(
                     name="secret.data",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
         ]
@@ -484,7 +482,6 @@ class TestAuthorizationService:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NAMESPACE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -492,17 +489,15 @@ class TestAuthorizationService:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NAMESPACE,
-                    owner="",
                 ),
             ),
         ]
 
-        result = await authorize(
-            session,
-            user,
-            requests,
-            on_denied=AccessDenialMode.RETURN,
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
         )
+        access_checker.add_requests(requests)
+        result = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert len(result) == 2
         assert result[0].approved is True  # READ granted
         assert result[1].approved is False  # WRITE not granted
@@ -601,16 +596,16 @@ class TestGroupBasedPermissions:
         mock_settings.default_access_policy = "restrictive"
 
         # Check permission - should be granted via group
-        results = await authorize(
-            session=session,
-            user=user,
-            resource_requests=[
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
                 ResourceRequest(
                     verb=ResourceAction.READ,
                     access_object=Resource(
                         name="finance.revenue.something",
                         resource_type=ResourceType.NODE,
-                        owner="",
                     ),
                 ),
                 ResourceRequest(
@@ -618,11 +613,11 @@ class TestGroupBasedPermissions:
                     access_object=Resource(
                         resource_type=ResourceType.NAMESPACE,
                         name="finance.revenue",
-                        owner="",
                     ),
                 ),
             ],
         )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert results[0].approved is True
         assert results[1].approved is True
 
@@ -674,21 +669,21 @@ class TestGroupBasedPermissions:
         mock_settings.default_access_policy = "restrictive"
 
         # Check permission - should NOT be granted (user not in group)
-        results = await authorize(
-            session=session,
-            user=user,
-            resource_requests=[
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_requests(
+            [
                 ResourceRequest(
                     verb=ResourceAction.READ,
                     access_object=Resource(
                         name="marketing.revenue",
                         resource_type=ResourceType.NAMESPACE,
-                        owner="",
                     ),
                 ),
             ],
-            on_denied=AccessDenialMode.RETURN,
         )
+        results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert results[0].approved is False
 
 
@@ -1459,7 +1454,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -1467,7 +1461,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="finance.cost",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -1475,7 +1468,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="marketing.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
         ]
@@ -1487,18 +1479,15 @@ class TestCheckAccess:
         mock_settings.default_access_policy = "restrictive"
 
         # Check access (default FILTER mode)
-        approved = await authorize(
-            session,
-            user,
-            requests,
-            on_denied=AccessDenialMode.FILTER,
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
         )
+        access_checker.add_requests(requests)
+        approved = await access_checker.approved_resource_names()
 
         # Should only return the 2 approved (finance.* nodes)
         assert len(approved) == 2
-        assert all(req.approved for req in approved)
-        approved_names = {req.access_object.name for req in approved}
-        assert approved_names == {"finance.revenue", "finance.cost"}
+        assert approved == {"finance.revenue", "finance.cost"}
 
     async def test_check_access_raise_mode_throws_on_denial(
         self,
@@ -1517,7 +1506,6 @@ class TestCheckAccess:
             access_object=Resource(
                 name="finance.revenue",
                 resource_type=ResourceType.NODE,
-                owner="",
             ),
         )
 
@@ -1528,12 +1516,11 @@ class TestCheckAccess:
         mock_settings.default_access_policy = "restrictive"
 
         with pytest.raises(DJAuthorizationException) as exc_info:
-            await authorize(
-                session,
-                user,
-                [request],
-                on_denied=AccessDenialMode.RAISE,
+            access_checker = AccessChecker(
+                auth_context=await AuthContext.from_user(user=user, session=session),
             )
+            access_checker.add_request(request)
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
         # Check exception message
         assert "Access denied" in str(exc_info.value)
@@ -1574,18 +1561,15 @@ class TestCheckAccess:
             access_object=Resource(
                 name="finance.revenue",
                 resource_type=ResourceType.NODE,
-                owner="",
             ),
         )
 
         # Should NOT raise
-        result = await authorize(
-            session,
-            user,
-            [request],
-            on_denied=AccessDenialMode.RAISE,
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
         )
-
+        access_checker.add_request(request)
+        result = await access_checker.check(on_denied=AccessDenialMode.RAISE)
         assert len(result) == 1
         assert result[0].approved is True
 
@@ -1626,7 +1610,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -1634,7 +1617,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="finance.cost",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -1642,7 +1624,6 @@ class TestCheckAccess:
                 access_object=Resource(
                     name="marketing.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
         ]
@@ -1654,12 +1635,12 @@ class TestCheckAccess:
         mock_settings.default_access_policy = "restrictive"
 
         # Check access with RETURN_ALL
-        all_requests = await authorize(
-            session,
-            user,
-            requests,
-            on_denied=AccessDenialMode.RETURN,
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
         )
+        access_checker.add_requests(requests)
+
+        all_requests = await access_checker.check(on_denied=AccessDenialMode.RETURN)
 
         # Should return all 3 requests
         assert len(all_requests) == 3
@@ -1670,7 +1651,7 @@ class TestCheckAccess:
 
         assert len(approved) == 2
         assert len(denied) == 1
-        assert denied[0].access_object.name == "marketing.revenue"
+        assert denied[0].request.access_object.name == "marketing.revenue"
 
 
 @pytest.mark.asyncio
@@ -1889,12 +1870,15 @@ class TestCheckAccessIntegration:
             access_object=Resource(
                 name="data.user_events",
                 resource_type=ResourceType.NODE,
-                owner="",
             ),
         )
 
         # Should be approved via group
-        approved = await authorize(session, user, [request])
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
+        )
+        access_checker.add_request(request)
+        approved = await access_checker.check(on_denied=AccessDenialMode.RETURN)
 
         assert len(approved) == 1
         assert approved[0].approved is True
@@ -1936,7 +1920,6 @@ class TestCheckAccessIntegration:
                 access_object=Resource(
                     name="finance.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
             ResourceRequest(
@@ -1944,7 +1927,6 @@ class TestCheckAccessIntegration:
                 access_object=Resource(
                     name="marketing.revenue",
                     resource_type=ResourceType.NODE,
-                    owner="",
                 ),
             ),
         ]
@@ -1955,31 +1937,20 @@ class TestCheckAccessIntegration:
         mock_settings.default_access_policy = "restrictive"
 
         # FILTER mode - returns only approved
-        filtered = await authorize(
-            session,
-            user,
-            requests,
-            on_denied=AccessDenialMode.FILTER,
+        access_checker = AccessChecker(
+            auth_context=await AuthContext.from_user(user=user, session=session),
         )
+        access_checker.add_requests(requests)
+        filtered = await access_checker.check(on_denied=AccessDenialMode.FILTER)
         assert len(filtered) == 1
-        assert filtered[0].access_object.name == "finance.revenue"
+        assert filtered[0].request.access_object.name == "finance.revenue"
 
         # RETURN_ALL mode - returns both
-        all_results = await authorize(
-            session,
-            user,
-            requests,
-            on_denied=AccessDenialMode.RETURN,
-        )
+        all_results = await access_checker.check(on_denied=AccessDenialMode.RETURN)
         assert len(all_results) == 2
         assert all_results[0].approved is True
         assert all_results[1].approved is False
 
         # RAISE mode - should raise
         with pytest.raises(DJAuthorizationException):
-            await authorize(
-                session,
-                user,
-                requests,
-                on_denied=AccessDenialMode.RAISE,
-            )
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)

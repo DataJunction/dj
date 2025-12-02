@@ -19,8 +19,8 @@ from datajunction_server.models.deployment import CubeSpec, DeploymentSpec
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    AccessDenialMode,
-    authorize,
+    AccessChecker,
+    get_access_checker,
 )
 from datajunction_server.internal.namespaces import (
     create_namespace,
@@ -109,28 +109,17 @@ async def create_node_namespace(
 )
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NamespaceOutput]:
     """
     List namespaces with the number of nodes contained in them
     """
     results = await NodeNamespace.get_all_with_node_count(session)
-    resource_requests = [
-        access.ResourceRequest(
-            verb=access.ResourceAction.READ,
-            access_object=access.Resource.from_namespace(record.namespace),
-        )
-        for record in results
-    ]
-    approved_namespaces = [
-        request.access_object.name
-        for request in await authorize(
-            session=session,
-            user=current_user,
-            resource_requests=resource_requests,
-            on_denied=AccessDenialMode.FILTER,
-        )
-    ]
+    access_checker.add_namespaces(
+        [record.namespace for record in results],
+        access.ResourceAction.READ,
+    )
+    approved_namespaces = await access_checker.approved_resource_names()
     return [
         NamespaceOutput(namespace=record.namespace, num_nodes=record.num_nodes)
         for record in results

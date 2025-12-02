@@ -43,9 +43,8 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    AccessDenialMode,
-    authorize,
-    validate_access,
+    AccessChecker,
+    get_access_checker,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
@@ -239,25 +238,14 @@ async def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[str]:
     """
     List the available nodes.
     """
     nodes = await Node.find(session, prefix, node_type)  # type: ignore
-    approved_requests = await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.READ,
-                access_object=access.Resource.from_node(node),
-            )
-            for node in nodes
-        ],
-        on_denied=AccessDenialMode.FILTER,
-    )
-    return [req.access_object.name for req in approved_requests]
+    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    return await access_checker.approved_resource_names()
 
 
 @router.get("/nodes/details/", response_model=List[NodeIndexItem])
@@ -266,7 +254,7 @@ async def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeIndexItem]:
     """
     List the available nodes.
@@ -296,24 +284,17 @@ async def list_all_nodes_with_details(
             "%s limit reached when returning all nodes, all nodes may not be captured in results",
             settings.node_list_max,
         )
-    approvals = [
-        request.access_object.name
-        for request in await authorize(
-            session=session,
-            user=current_user,
-            resource_requests=[
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource(
-                        name=row.name,
-                        resource_type=access.ResourceType.NODE,
-                        owner="",
-                    ),
-                )
-                for row in results
-            ],
+    for row in results:
+        access_checker.add_request(
+            access.ResourceRequest(
+                verb=access.ResourceAction.READ,
+                access_object=access.Resource(
+                    name=row.name,
+                    resource_type=access.ResourceType.NODE,
+                ),
+            ),
         )
-    ]
+    approvals = await access_checker.approved_resource_names()
     return [row for row in results if row.name in approvals]
 
 
@@ -441,9 +422,7 @@ async def create_source(
     current_user: User = Depends(get_current_user),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     background_tasks: BackgroundTasks,
     save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
@@ -457,7 +436,7 @@ async def create_source(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
-        validate_access=validate_access,
+        access_checker=access_checker,
         background_tasks=background_tasks,
         save_history=save_history,
     )
@@ -489,9 +468,7 @@ async def create_node(
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
     cache: Cache = Depends(get_cache),
 ) -> NodeOutput:
@@ -507,7 +484,7 @@ async def create_node(
         current_user=current_user,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
-        validate_access=validate_access,
+        access_checker=access_checker,
         save_history=save_history,
         cache=cache,
     )
@@ -527,9 +504,7 @@ async def create_cube(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
@@ -542,7 +517,7 @@ async def create_cube(
         current_user=current_user,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
-        validate_access=validate_access,
+        access_checker=access_checker,
         save_history=save_history,
     )
 
@@ -1010,9 +985,7 @@ async def update_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
     cache: Cache = Depends(get_cache),
 ) -> NodeOutput:
@@ -1027,7 +1000,7 @@ async def update_node(
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
-        validate_access=validate_access,
+        access_checker=access_checker,
         request_headers=request_headers,
         save_history=save_history,
         refresh_materialization=refresh_materialization,

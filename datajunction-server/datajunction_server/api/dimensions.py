@@ -11,12 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
-from datajunction_server.database.user import User
+from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    AccessDenialMode,
-    validate_access,
-    authorize,
+    AccessChecker,
+    get_access_checker,
 )
 from datajunction_server.models import access
 from datajunction_server.models.node import NodeIndegreeOutput
@@ -26,7 +25,6 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
 )
 from datajunction_server.utils import (
-    get_current_user,
     get_session,
     get_settings,
 )
@@ -41,10 +39,7 @@ async def list_dimensions(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeIndegreeOutput]:
     """
     List all available dimensions.
@@ -53,8 +48,7 @@ async def list_dimensions(
         node_type=NodeType.DIMENSION,
         prefix=prefix,
         session=session,
-        current_user=current_user,
-        validate_access=validate_access,
+        access_checker=access_checker,
     )
     node_indegrees = await get_dimension_dag_indegree(session, node_names)
     return sorted(
@@ -72,49 +66,22 @@ async def find_nodes_with_dimension(
     *,
     node_type: List[NodeType] = Query([]),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeNameOutput]:
     """
     List all nodes that have the specified dimension
     """
-    dimension_node = await get_node_by_name(session, name)
-
-    # Ensure the user has access to the dimension node first
-    await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.READ,
-                access_object=access.Resource.from_node(dimension_node),
-            )
-        ],
-        raise_on_denied=True,
-    )
+    dimension_node = await Node.get_by_name(session, name)
+    access_checker.add_node(dimension_node, access.ResourceAction.READ)
 
     nodes = await get_nodes_with_common_dimensions(
         session,
         [dimension_node],
         node_type if node_type else None,
     )
-
-    # Only return nodes the user has access to
-    approvals = await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.READ,
-                access_object=access.Resource.from_node(node),
-            )
-            for node in nodes
-        ],
-        on_denied=AccessDenialMode.FILTER,
-    )
-    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]
+    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    approved_nodes = await access_checker.approved_resource_names()
+    return [node for node in nodes if node.name in approved_nodes]
 
 
 @router.get("/dimensions/common/", response_model=List[NodeNameOutput])
@@ -123,10 +90,7 @@ async def find_nodes_with_common_dimensions(
     node_type: List[NodeType] = Query([]),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeNameOutput]:
     """
     Find all nodes that have the list of common dimensions
@@ -136,19 +100,6 @@ async def find_nodes_with_common_dimensions(
         [await get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    resource_requests = await authorize(
-        session=session,
-        user=current_user,
-        resource_requests=[
-            access.ResourceRequest(
-                verb=access.ResourceAction.READ,
-                access_object=access.Resource.from_node(node),
-            )
-            for node in nodes
-        ],
-        on_denied=AccessDenialMode.FILTER,
-    )
-    approved_resource_names = [
-        request.access_object.name for request in resource_requests
-    ]
-    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approved_resource_names]
+    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    approved_resource_names = await access_checker.approved_resource_names()
+    return [node for node in nodes if node.name in approved_resource_names]
