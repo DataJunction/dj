@@ -64,7 +64,6 @@ async def build_access_checker_from_request(
     session: AsyncSession,
 ) -> AccessChecker:
     """Helper to build checker from request + session."""
-    print("Building access checker from request")
     current_user = await get_current_user(request)
     auth_context = await AuthContext.from_user(session, current_user)
     return get_access_checker(auth_context)

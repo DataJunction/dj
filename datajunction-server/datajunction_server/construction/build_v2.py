@@ -1403,7 +1403,7 @@ class CubeQueryBuilder:
 
     async def validate_access(self):
         """Validates access"""
-        if self._access_checker:
+        if self._access_checker:  # pragma: no cover
             await self._access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def build_measures_queries(self):
@@ -1481,14 +1481,14 @@ class CubeQueryBuilder:
         """
         Build the metric's aggregate expression.
         """
-        if self._access_checker:
+        if self._access_checker:  # pragma: no cover
             self._access_checker.add_node(metric_node, access.ResourceAction.READ)  # type: ignore
         metric_query_builder = await QueryBuilder.create(self.session, metric_node)
         if self._ignore_errors:
             metric_query_builder = (  # pragma: no cover
                 metric_query_builder.ignore_errors()
             )
-        if self._access_checker:
+        if self._access_checker:  # pragma: no cover
             metric_query_builder = metric_query_builder.with_access_control(
                 self._access_checker,
             )

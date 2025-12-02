@@ -165,8 +165,8 @@ class Settings(BaseSettings):  # pragma: no cover
     authorization_provider: str = "rbac"
 
     # Default access policy when no explicit RBAC rule exists:
-    # - "permissive": Allow by default (OSS-friendly, lock down as needed)
-    # - "restrictive": Deny by default (Enterprise, explicitly grant access)
+    # - "permissive": Allow by default
+    # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
     # Interval in seconds with which to expire caching of any indexes

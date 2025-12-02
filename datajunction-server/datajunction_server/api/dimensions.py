@@ -3,7 +3,7 @@ Dimensions related APIs.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,7 +71,10 @@ async def find_nodes_with_dimension(
     """
     List all nodes that have the specified dimension
     """
-    dimension_node = await Node.get_by_name(session, name)
+    dimension_node = cast(
+        Node,
+        await Node.get_by_name(session, name, raise_if_not_exists=True),
+    )
     access_checker.add_node(dimension_node, access.ResourceAction.READ)
 
     nodes = await get_nodes_with_common_dimensions(

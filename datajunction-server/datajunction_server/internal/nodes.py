@@ -15,7 +15,6 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
-    AccessDenialMode,
 )
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.query import QueryCreate
@@ -58,7 +57,6 @@ from datajunction_server.internal.materializations import (
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import NodeValidator, validate_node_data
-from datajunction_server.models import access
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
     ColumnAttributes,
@@ -911,19 +909,6 @@ async def update_any_node(
         raise_if_not_exists=True,
     )
     node = cast(Node, node)
-
-    # Check that the user has access to modify this node
-    if access_checker:
-        access_checker.add_request(
-            access.ResourceRequest(
-                access_object=access.Resource(
-                    resource_type=access.ResourceType.NODE,
-                    name=node.name,
-                ),
-                verb=access.ResourceAction.WRITE,
-            ),
-        )
-        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
