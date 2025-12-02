@@ -2748,7 +2748,7 @@ async def test_get_sql_for_metrics_no_access(
         return DenyAllAuthorizationService()
 
     mocker.patch(
-        "datajunction_server.internal.access.authorization.get_authorization_service",
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         get_deny_all_service,
     )
     response = await module__client_with_examples.get(
@@ -3397,7 +3397,7 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
         return SelectiveDenialAuthorizationService()
 
     mocker.patch(
-        "datajunction_server.internal.access.authorization.get_authorization_service",
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         return_value=SelectiveDenialAuthorizationService(),
     )
 
