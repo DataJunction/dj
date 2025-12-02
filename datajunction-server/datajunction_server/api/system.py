@@ -7,10 +7,6 @@ from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.internal.access.authorization import (
-    validate_access,
-)
-from datajunction_server.models import access
 from datajunction_server.models.system import DimensionStats, RowOutput
 from datajunction_server.sql.dag import (
     get_cubes_using_dimensions,
@@ -18,12 +14,10 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.database.user import User
 from datajunction_server.database.node import Node
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
-    get_current_user,
     get_session,
     get_settings,
 )
@@ -63,11 +57,7 @@ async def get_data_for_system_metric(
     limit: int | None = None,
     session: AsyncSession = Depends(get_session),
     *,
-    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     cache: Cache = Depends(get_cache),
     request: Request,
 ) -> list[list[RowOutput]]:
@@ -94,8 +84,6 @@ async def get_data_for_system_metric(
             filters=filters,
             orderby=orderby,
             limit=limit,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
     results = await session.execute(text(translated_sql.sql))

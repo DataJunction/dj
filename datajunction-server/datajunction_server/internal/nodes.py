@@ -12,6 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
@@ -118,7 +123,7 @@ async def create_a_source_node(
     current_user: User,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     save_history: Callable,
 ):
     request_headers = dict(request.headers)
@@ -132,7 +137,7 @@ async def create_a_source_node(
         current_user=current_user,
         request_headers=request_headers,
         query_service_client=query_service_client,
-        validate_access=validate_access,
+        access_checker=access_checker,
         background_tasks=background_tasks,
         save_history=save_history,
     ):
@@ -212,7 +217,7 @@ async def create_a_node(
     current_user: User,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     save_history: Callable,
     cache: Cache,
 ) -> Node:
@@ -231,7 +236,7 @@ async def create_a_node(
         request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
-        validate_access=validate_access,
+        access_checker=access_checker,
         save_history=save_history,
         cache=cache,
     ):
@@ -303,7 +308,7 @@ async def create_a_cube(
     current_user: User,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     save_history: Callable,
 ) -> Node:
     request_headers = dict(request.headers)
@@ -318,7 +323,7 @@ async def create_a_cube(
         request_headers=request_headers,
         query_service_client=query_service_client,
         background_tasks=background_tasks,
-        validate_access=validate_access,
+        access_checker=access_checker,
         save_history=save_history,
     ):
         return recreated_node  # pragma: no cover
@@ -887,7 +892,7 @@ async def update_any_node(
     current_user: User,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    validate_access: access.ValidateAccessFn = None,
+    access_checker: AccessChecker = None,
     refresh_materialization: bool = False,
     cache: Cache | None = None,
 ) -> Node:
@@ -908,13 +913,17 @@ async def update_any_node(
     node = cast(Node, node)
 
     # Check that the user has access to modify this node
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceAction.WRITE,
-    )
-    access_control.add_request_by_node(node)
-    access_control.validate_and_raise()
+    if access_checker:
+        access_checker.add_request(
+            access.ResourceRequest(
+                access_object=access.Resource(
+                    resource_type=access.ResourceType.NODE,
+                    name=node.name,
+                ),
+                verb=access.ResourceAction.WRITE,
+            ),
+        )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
@@ -929,7 +938,7 @@ async def update_any_node(
             query_service_client=query_service_client,
             current_user=current_user,
             background_tasks=background_tasks,
-            validate_access=validate_access,  # type: ignore
+            access_checker=access_checker,  # type: ignore
             save_history=save_history,
             refresh_materialization=refresh_materialization,
         )
@@ -942,7 +951,7 @@ async def update_any_node(
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
-        validate_access=validate_access,  # type: ignore
+        access_checker=access_checker,  # type: ignore
         save_history=save_history,
         cache=cache,
     )
@@ -957,7 +966,7 @@ async def update_node_with_query(
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     save_history: Callable,
     cache: Cache,
 ) -> Node:
@@ -1049,7 +1058,7 @@ async def update_node_with_query(
                             lookback_window=old.lookback_window,
                         )
                     ),
-                    validate_access,
+                    access_checker,
                     current_user=current_user,
                 ),
             )
@@ -1193,7 +1202,7 @@ async def update_cube_node(
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks = None,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     save_history: Callable,
     refresh_materialization: bool = False,
 ) -> Optional[NodeRevision]:
@@ -1296,7 +1305,7 @@ async def update_cube_node(
                         ),
                         job=MaterializationJobTypeEnum.find_match(old.job).value.name,
                     ),
-                    validate_access,
+                    access_checker,
                     current_user=current_user,
                 ),
             )
@@ -1509,7 +1518,7 @@ async def create_node_from_inactive(
     query_service_client: QueryServiceClient,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    validate_access: access.ValidateAccessFn = None,
+    access_checker: AccessChecker = None,
     cache: Cache | None = None,
 ) -> Optional[Node]:
     """
@@ -1559,7 +1568,7 @@ async def create_node_from_inactive(
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
-                validate_access=validate_access,  # type: ignore
+                access_checker=access_checker,  # type: ignore
                 save_history=save_history,
                 cache=cache,
             )
@@ -1572,7 +1581,7 @@ async def create_node_from_inactive(
                 query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
-                validate_access=validate_access,  # type: ignore
+                access_checker=access_checker,  # type: ignore
                 save_history=save_history,
             )
         try:

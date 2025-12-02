@@ -18,6 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
 from datajunction_server.api.notifications import get_notifier
 from datajunction_server.construction.build import (
     get_default_criteria,
@@ -207,7 +211,8 @@ async def get_query(
     orderby: List[str],
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
-    access_control: Optional[access.AccessControlStore] = None,
+    *,
+    access_checker: AccessChecker,
     use_materialized: bool = True,
     query_parameters: Optional[Dict[str, str]] = None,
     ignore_errors: bool = True,
@@ -227,7 +232,7 @@ async def get_query(
     if ignore_errors:
         query_builder.ignore_errors()
     query_ast = await (
-        query_builder.with_access_control(access_control)
+        query_builder.with_access_control(access_checker)
         .with_build_criteria(build_criteria)
         .add_dimensions(dimensions)
         .add_filters(filters)
@@ -776,7 +781,7 @@ async def query_event_stream(
 async def build_sql_for_dj_query(  # pragma: no cover
     session: AsyncSession,
     query: str,
-    access_control: access.AccessControl,
+    access_checker: AccessChecker,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
@@ -787,11 +792,12 @@ async def build_sql_for_dj_query(  # pragma: no cover
     query_ast, dj_nodes = await build_dj_query(session, query)
 
     for node in dj_nodes:  # pragma: no cover
-        access_control.add_request_by_node(  # pragma: no cover
+        access_checker.add_node(  # pragma: no cover
             node.current,
+            access.ResourceAction.READ,
         )
 
-    access_control.validate_and_raise()  # pragma: no cover
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)  # pragma: no cover
 
     leading_metric_node = dj_nodes[0]  # pragma: no cover
     available_engines = (  # pragma: no cover

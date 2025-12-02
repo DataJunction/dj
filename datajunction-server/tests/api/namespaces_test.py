@@ -8,8 +8,9 @@ from unittest import mock
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.api.main import app
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+)
 from datajunction_server.models import access
 
 
@@ -831,28 +832,42 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
     ]
 
 
+class DbtOnlyAuthorizationService(AuthorizationService):
+    """
+    Authorization service that only approves namespaces containing 'dbt'.
+    """
+
+    name = "dbt_only"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=(
+                    request.access_object.resource_type == access.ResourceType.NAMESPACE
+                    and "dbt" in request.access_object.name
+                ),
+            )
+            for request in requests
+        ]
+
+
 @pytest.mark.asyncio
 async def test_list_all_namespaces_access_limited(
     client_with_dbt: AsyncClient,
+    mocker,
 ) -> None:
     """
     Test ``GET /namespaces/``.
     """
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for request in access_control.requests:
-                if (
-                    request.access_object.resource_type == access.ResourceType.NAMESPACE
-                    and "dbt" in request.access_object.name
-                ):
-                    request.approve()
-                else:
-                    request.deny()
+    def get_dbt_only_service():
+        return DbtOnlyAuthorizationService()
 
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.get_authorization_service",
+        get_dbt_only_service,
+    )
 
     response = await client_with_dbt.get("/namespaces/")
 
@@ -864,63 +879,42 @@ async def test_list_all_namespaces_access_limited(
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
     ]
-    app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
-async def test_list_all_namespaces_access_bad_injection(
-    client_with_service_setup: AsyncClient,
-) -> None:
+class DenyAllAuthorizationService(AuthorizationService):
     """
-    Test ``GET /namespaces/``.
+    Authorization service that denies all access requests.
     """
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for i, request in enumerate(access_control.requests):
-                if i != 0:
-                    request.approve()
+    name = "deny_all"
 
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
-
-    response = await client_with_service_setup.get("/namespaces/")
-
-    assert response.status_code == 403
-    assert response.json() == {
-        "message": "Injected `validate_access` must approve or deny all requests.",
-        "errors": [
-            {
-                "code": 501,
-                "message": "Injected `validate_access` must approve or deny all requests.",
-                "debug": None,
-                "context": "",
-            },
-        ],
-        "warnings": [],
-    }
-    app.dependency_overrides.clear()
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=False,
+            )
+            for request in requests
+        ]
 
 
 @pytest.mark.asyncio
 async def test_list_all_namespaces_deny_all(
     client_with_service_setup: AsyncClient,
+    mocker,
 ) -> None:
     """
     Test ``GET /namespaces/``.
     """
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            access_control.deny_all()
+    def get_deny_all_service():
+        return DenyAllAuthorizationService()
 
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
-
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.get_authorization_service",
+        get_deny_all_service,
+    )
     response = await client_with_service_setup.get("/namespaces/")
 
     assert response.status_code in (200, 201)
     assert response.json() == []
-    app.dependency_overrides.clear()
