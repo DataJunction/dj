@@ -98,6 +98,55 @@ class TestResourceMatching:
             "users.alice.*",
         )
 
+    def test_edge_case_patterns(self):
+        """Test edge case patterns that reach the fallback logic (line 167-168).
+
+        These patterns are unusual but should be handled gracefully:
+        - ".*" -> strips to empty string
+        - "**" -> strips to empty string
+        These are treated as global wildcards (match everything).
+        """
+        # ".*" pattern - after stripping "*" and ".", becomes empty
+        assert RBACAuthorizationService.resource_matches_pattern(
+            "anything",
+            ".*",
+        )
+        assert RBACAuthorizationService.resource_matches_pattern(
+            "finance.revenue",
+            ".*",
+        )
+        assert RBACAuthorizationService.resource_matches_pattern(
+            "",
+            ".*",
+        )
+
+        # "**" pattern - after stripping "*", becomes empty
+        assert RBACAuthorizationService.resource_matches_pattern(
+            "anything",
+            "**",
+        )
+        assert RBACAuthorizationService.resource_matches_pattern(
+            "deeply.nested.resource.name",
+            "**",
+        )
+
+    def test_wildcard_in_middle_not_supported(self):
+        """Test that wildcards in the middle of patterns don't work as expected.
+
+        Note: The current implementation only supports trailing wildcards.
+        Patterns like "finance.*.revenue" are NOT supported as glob patterns.
+        """
+        # "finance.*.revenue" - contains * but not at end
+        # This will strip trailing * (none) and compare as prefix
+        # So it won't match "finance.quarterly.revenue"
+        assert not RBACAuthorizationService.resource_matches_pattern(
+            "finance.quarterly.revenue",
+            "finance.*.revenue",
+        )
+
+        # It would only match if resource literally starts with "finance.*.revenue."
+        # which is unlikely in practice
+
 
 @pytest.mark.asyncio
 class TestRBACPermissionChecks:
@@ -450,7 +499,7 @@ class TestAuthorizationService:
     ):
         """Test RBACAuthorizationService with granted permissions."""
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -505,7 +554,7 @@ class TestAuthorizationService:
     async def test_get_authorization_service_factory(self, mocker):
         """Test the factory function returns correct service."""
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -590,7 +639,7 @@ class TestGroupBasedPermissions:
         user = await get_user(username=default_user.username, session=session)
 
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -663,7 +712,7 @@ class TestGroupBasedPermissions:
         user = await get_user(username=default_user.username, session=session)
 
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -1473,7 +1522,7 @@ class TestCheckAccess:
         ]
 
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -1487,7 +1536,7 @@ class TestCheckAccess:
 
         # Should only return the 2 approved (finance.* nodes)
         assert len(approved) == 2
-        assert approved == {"finance.revenue", "finance.cost"}
+        assert approved == ["finance.revenue", "finance.cost"]
 
     async def test_check_access_raise_mode_throws_on_denial(
         self,
@@ -1510,7 +1559,7 @@ class TestCheckAccess:
         )
 
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -1523,9 +1572,7 @@ class TestCheckAccess:
             await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
         # Check exception message
-        assert "Access denied" in str(exc_info.value)
-        assert "WRITE" in str(exc_info.value)
-        assert "finance.revenue" in str(exc_info.value)
+        assert "Access denied to 1 resource(s): finance.revenue" in str(exc_info.value)
 
     async def test_check_access_raise_mode_succeeds_when_approved(
         self,
@@ -1629,7 +1676,7 @@ class TestCheckAccess:
         ]
 
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
@@ -1804,10 +1851,13 @@ class TestGetEffectiveAssignments:
 
         # Use custom service
         mock_service = MockGroupService()
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.context.get_group_membership_service",
+            lambda: mock_service,
+        )
         assignments = await AuthContext.get_effective_assignments(
             session,
             user,
-            mock_service,
         )
 
         # Should include mock group's assignment
@@ -1931,7 +1981,7 @@ class TestCheckAccessIntegration:
             ),
         ]
         mock_settings = mocker.patch(
-            "datajunction_server.internal.access.authorization.settings",
+            "datajunction_server.internal.access.authorization.service.settings",
         )
         mock_settings.authorization_provider = "rbac"
         mock_settings.default_access_policy = "restrictive"
