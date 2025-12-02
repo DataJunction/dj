@@ -866,7 +866,7 @@ async def test_list_all_namespaces_access_limited(
         return DbtOnlyAuthorizationService()
 
     mocker.patch(
-        "datajunction_server.internal.access.authorization.get_authorization_service",
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         get_dbt_only_service,
     )
 
@@ -912,7 +912,7 @@ async def test_list_all_namespaces_deny_all(
         return DenyAllAuthorizationService()
 
     mocker.patch(
-        "datajunction_server.internal.access.authorization.get_authorization_service",
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         get_deny_all_service,
     )
     response = await client_with_service_setup.get("/namespaces/")

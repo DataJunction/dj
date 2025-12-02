@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import pytest_asyncio
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build import (
     build_materialized_cube_node,
@@ -23,10 +23,54 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.internal.access.authorization.service import (
+    AuthorizationService,
+)
+from datajunction_server.internal.access.authorization.validator import AccessChecker
+from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.access.authentication.basic import get_user
+from datajunction_server.models.access import AccessDecision
+
+
+class AllowAllAuthorizationService(AuthorizationService):
+    """
+    Custom authorization service that allows all access.
+    """
+
+    name = "allow_all"
+
+    def authorize(self, auth_context, requests):
+        return [AccessDecision(request=request, approved=True) for request in requests]
+
+
+@pytest_asyncio.fixture
+async def access_checker(
+    construction_session: AsyncSession,
+    default_user: User,
+    mocker,
+) -> AccessChecker:
+    """
+    Fixture to mock access checker to allow all access.
+    """
+    user = await get_user(default_user.username, construction_session)
+
+    def mock_get_allow_all_service():
+        return AllowAllAuthorizationService()
+
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+        mock_get_allow_all_service,
+    )
+    return AccessChecker(
+        await AuthContext.from_user(construction_session, user),
+    )
 
 
 @pytest.mark.asyncio
-async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSession):
+async def test_build_metric_with_dimensions_aggs(
+    construction_session: AsyncSession,
+    access_checker: AccessChecker,
+):
     """
     Test building metric with dimensions
     """
@@ -40,6 +84,7 @@ async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSess
         filters=[],
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
         orderby=[],
+        access_checker=access_checker,
     )
     expected = """
     WITH basic_DOT_source_DOT_comments AS (
@@ -84,6 +129,7 @@ async def test_build_metric_with_dimensions_aggs(construction_session: AsyncSess
 @pytest.mark.asyncio
 async def test_build_metric_with_required_dimensions(
     construction_session: AsyncSession,
+    access_checker: AccessChecker,
 ):
     """
     Test building metric with bound dimensions
@@ -99,6 +145,7 @@ async def test_build_metric_with_required_dimensions(
         filters=[],
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
         orderby=[],
+        access_checker=access_checker,
     )
     expected = """
     WITH basic_DOT_source_DOT_comments AS (
@@ -247,7 +294,10 @@ async def test_raise_on_build_without_required_dimension_column(
 
 
 @pytest.mark.asyncio
-async def test_build_metric_with_dimensions_filters(construction_session: AsyncSession):
+async def test_build_metric_with_dimensions_filters(
+    construction_session: AsyncSession,
+    access_checker: AccessChecker,
+):
     """
     Test building metric with dimension filters
     """
@@ -264,6 +314,7 @@ async def test_build_metric_with_dimensions_filters(construction_session: AsyncS
         ],
         dimensions=[],
         orderby=[],
+        access_checker=access_checker,
     )
     expected = """
     WITH basic_DOT_source_DOT_comments AS (
