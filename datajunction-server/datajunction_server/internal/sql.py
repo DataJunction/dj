@@ -293,7 +293,7 @@ async def build_sql_for_multiple_metrics(
     )
 
     # Check authorization for all discovered nodes
-    if access_checker:
+    if access_checker:  # pragma: no cover
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     columns = [

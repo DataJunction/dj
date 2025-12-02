@@ -39,7 +39,7 @@ async def test_list_nodes_with_dimension_access_limited(
         return RepairOnlyAuthorizationService()
 
     mocker.patch(
-        "datajunction_server.internal.access.authorization.get_authorization_service",
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         get_repair_only_service,
     )
 

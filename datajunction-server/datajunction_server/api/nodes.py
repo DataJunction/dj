@@ -45,7 +45,9 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     get_access_checker,
+    AccessDenialMode,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     activate_node,
@@ -160,10 +162,14 @@ async def revalidate(
     save_history: Callable = Depends(get_save_history),
     *,
     background_tasks: BackgroundTasks,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeStatusDetails:
     """
     Revalidate a single existing node and update its status appropriately
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node_validator = await revalidate_node(
         name=name,
         session=session,
@@ -210,10 +216,14 @@ async def set_column_attributes(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         node_name,
@@ -284,16 +294,18 @@ async def list_all_nodes_with_details(
             "%s limit reached when returning all nodes, all nodes may not be captured in results",
             settings.node_list_max,
         )
-    for row in results:
-        access_checker.add_request(
+    access_checker.add_requests(
+        [
             access.ResourceRequest(
                 verb=access.ResourceAction.READ,
                 access_object=access.Resource(
                     name=row.name,
                     resource_type=access.ResourceType.NODE,
                 ),
-            ),
-        )
+            )
+            for row in results
+        ],
+    )
     approvals = await access_checker.approved_resource_names()
     return [row for row in results if row.name in approvals]
 
@@ -303,10 +315,14 @@ async def get_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         name,
@@ -326,10 +342,14 @@ async def delete_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
     request: Request,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ):
     """
     Delete (aka deactivate) the specified node.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.DELETE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     await deactivate_node(
         session=session,
         name=name,
@@ -351,11 +371,15 @@ async def hard_delete(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.DELETE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     impact = await hard_delete_node(
         name=name,
         session=session,
@@ -378,10 +402,14 @@ async def restore_node(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ):
     """
     Restore (aka re-activate) the specified node.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     await activate_node(
         session=session,
         name=name,
@@ -399,10 +427,14 @@ async def list_node_revisions(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         name,
@@ -430,6 +462,10 @@ async def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
+    namespace = data.namespace or data.name.rsplit(".", 1)[0]
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     return await create_a_source_node(
         data=data,
         request=request,
@@ -476,6 +512,11 @@ async def create_node(
     Create a node.
     """
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
+
+    namespace = data.namespace or data.name.rsplit(".", 1)[0]
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     return await create_a_node(
         data=data,
         request=request,
@@ -510,6 +551,22 @@ async def create_cube(
     """
     Create a cube node.
     """
+    # Check WRITE access on the namespace for creating the cube
+    namespace = data.namespace or data.name.rsplit(".", 1)[0]
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+
+    # Check READ access on all metrics and dimensions being included in the cube
+    if data.metrics:
+        for metric_name in data.metrics:
+            access_checker.add_request_by_node_name(metric_name, ResourceAction.READ)
+    if data.dimensions:
+        for dim_attr in data.dimensions:
+            # Dimension attributes are in format "node_name.column_name"
+            dim_node_name = dim_attr.rsplit(".", 1)[0]
+            access_checker.add_request_by_node_name(dim_node_name, ResourceAction.READ)
+
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await create_a_cube(
         data=data,
         request=request,
@@ -545,6 +602,7 @@ async def register_table(
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -572,6 +630,8 @@ async def register_table(
         current_user=current_user,
         save_history=save_history,
     )
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Use reflection to get column names and types
     _catalog = await get_catalog_by_name(session=session, name=catalog)
@@ -598,6 +658,7 @@ async def register_table(
         background_tasks=background_tasks,
         save_history=save_history,
         request=request,
+        access_checker=access_checker,
     )
 
 
@@ -619,6 +680,7 @@ async def register_view(
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeOutput:
     """
     Register a view by creating the view in the database and adding a source node for it.
@@ -635,6 +697,9 @@ async def register_view(
     node_name = f"{namespace}.{view}"
     view_name = f"{schema_}.{view}"
     await raise_if_node_exists(session, node_name)
+
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Re-create the view in the database
     _catalog = await get_catalog_by_name(session=session, name=catalog)
@@ -687,6 +752,7 @@ async def register_view(
         background_tasks=background_tasks,
         save_history=save_history,
         request=request,
+        access_checker=access_checker,
     )
 
 
@@ -699,6 +765,7 @@ async def link_dimension(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Add a simple dimension link from a node column to a dimension node.
@@ -706,6 +773,10 @@ async def link_dimension(
     2. If no `dimension_column` is provided, the primary key column of the dimension node will
        be used as the join column for the link.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    access_checker.add_request_by_node_name(dimension, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     activity_type = await upsert_simple_dimension_link(
         session,
         name,
@@ -741,10 +812,15 @@ async def add_reference_dimension_link(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Add reference dimension link to a node column
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    access_checker.add_request_by_node_name(dimension_node, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     await upsert_reference_dimension_link(
         session=session,
         node_name=node_name,
@@ -773,10 +849,14 @@ async def remove_reference_dimension_link(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Remove reference dimension link from a node column
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.DELETE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     target_column = await get_column(session, node.current, node_column)  # type: ignore
     if target_column.dimension_id or target_column.dimension_column:
@@ -823,11 +903,19 @@ async def add_complex_dimension_link(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Links a source, dimension, or transform node to a dimension with a custom join query.
     If a link already exists, updates the link definition.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    access_checker.add_request_by_node_name(
+        link_input.dimension_node,
+        ResourceAction.READ,
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     activity_type = await upsert_complex_dimension_link(
         session,
         node_name,
@@ -858,10 +946,16 @@ async def remove_complex_dimension_link(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Removes a complex dimension link based on the dimension node and its role (if any).
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    access_checker.add_request_by_node_name(
+        link_identifier.dimension_node,
+        ResourceAction.READ,
+    )
     return await remove_dimension_link(
         session,
         node_name,
@@ -880,10 +974,15 @@ async def delete_dimension_link(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    access_checker.add_request_by_node_name(dimension, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     return await remove_dimension_link(
         session,
         name,
@@ -906,10 +1005,14 @@ async def tags_node(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Add a tag to a node
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(session=session, name=name)
     existing_tags = {tag.name for tag in node.tags}  # type: ignore
     if not tag_names:
@@ -960,10 +1063,14 @@ async def refresh_source_node(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     return await refresh_source(  # type: ignore
         name=name,
         session=session,
@@ -992,6 +1099,22 @@ async def update_node(
     """
     Update a node.
     """
+    # Check WRITE access on the node being updated
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+
+    # For cube updates: check READ access on any metrics/dimensions being added
+    # (user must have access to read nodes they're including in the cube)
+    if data.metrics:
+        for metric_name in data.metrics:
+            access_checker.add_request_by_node_name(metric_name, ResourceAction.READ)
+    if data.dimensions:
+        for dim_attr in data.dimensions:
+            # Dimension attributes are in format "node_name.column_name"
+            dim_node_name = dim_attr.rsplit(".", 1)[0]
+            access_checker.add_request_by_node_name(dim_node_name, ResourceAction.READ)
+
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     request_headers = dict(request.headers)
     await update_any_node(
         name,
@@ -1021,10 +1144,15 @@ async def calculate_node_similarity(
     node2_name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
     """
+    access_checker.add_request_by_node_name(node1_name, ResourceAction.READ)
+    access_checker.add_request_by_node_name(node2_name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node1 = await Node.get_by_name(
         session,
         node1_name,
@@ -1059,18 +1187,27 @@ async def list_downstream_nodes(
     node_type: NodeType = None,
     depth: int = -1,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type and max depth.
     Setting a max depth of -1 will include all downstream nodes.
     """
-    return await get_downstream_nodes(
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    downstreams = await get_downstream_nodes(
         session=session,
         node_name=name,
         node_type=node_type,
         include_deactivated=False,
         depth=depth,
     )
+
+    for node in downstreams:
+        access_checker.add_request_by_node_name(node.name, ResourceAction.READ)
+    accessible = await access_checker.approved_resource_names()
+    return [node for node in downstreams if node.name in accessible]
 
 
 @router.get(
@@ -1085,10 +1222,14 @@ async def list_upstream_nodes(
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = cast(Node, await Node.get_by_name(session, name, raise_if_not_exists=True))
     upstream_cache_key = node.upstream_cache_key()
     results = cache.get(upstream_cache_key)
@@ -1100,7 +1241,11 @@ async def list_upstream_nodes(
             results,
             timeout=settings.query_cache_timeout,
         )
-    return results
+
+    for node in results:
+        access_checker.add_request_by_node_name(node.name, ResourceAction.READ)
+    accessible = await access_checker.approved_resource_names()
+    return [node for node in results if node.name in accessible]
 
 
 @router.get(
@@ -1111,11 +1256,15 @@ async def list_node_dag(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
     downstreams, and linked dimension nodes.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         name,
@@ -1151,10 +1300,14 @@ async def list_all_dimension_attributes(
     *,
     depth: int = 30,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[DimensionAttributeOutput]:
     """
     List all available dimension attributes for the given node.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     dimensions = await get_dimension_attributes(session, name)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
@@ -1169,10 +1322,13 @@ async def column_lineage(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node = await Node.get_by_name(
         session,
@@ -1207,10 +1363,14 @@ async def set_column_display_name(
     save_history: Callable = Depends(get_save_history),
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ColumnOutput:
     """
     Set column name for the node
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         node_name,
@@ -1249,10 +1409,14 @@ async def set_column_description(
     save_history: Callable = Depends(get_save_history),
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ColumnOutput:
     """
     Set column description for the node
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         node_name,
@@ -1292,10 +1456,14 @@ async def set_column_partition(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node = await Node.get_by_name(
         session,
         node_name,
@@ -1362,6 +1530,7 @@ async def copy_node(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DAGNodeOutput:
     """
     Copy this node to a new name.
@@ -1369,6 +1538,11 @@ async def copy_node(
     # Check to make sure that the new node's namespace exists
     new_node_namespace = ".".join(new_name.split(".")[:-1])
     await get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
+
+    # Check that the user has access to read the existing node and write to the new namespace
+    access_checker.add_request_by_node_name(node_name, ResourceAction.READ)
+    access_checker.add_namespace(new_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Check if there is already a node with the new name
     existing_new_node = await get_node_by_name(

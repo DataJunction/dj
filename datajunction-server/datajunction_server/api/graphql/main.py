@@ -9,6 +9,7 @@ from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 
 from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.dag import (
     common_dimensions,
@@ -82,6 +83,7 @@ async def get_context(
     background_tasks: BackgroundTasks,
     db_session=Depends(get_session),
     cache=Depends(get_cache),
+    _auth=Depends(DJHTTPBearer(auto_error=False)),
 ):
     """
     Provides the context for graphql requests
