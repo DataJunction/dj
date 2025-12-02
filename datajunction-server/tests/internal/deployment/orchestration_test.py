@@ -42,7 +42,6 @@ def mock_deployment_context(current_user: User):
     context.current_user = current_user
     context.request = Mock()
     context.query_service_client = Mock()
-    context.validate_access = AsyncMock(return_value=True)
     context.background_tasks = Mock()
     context.save_history = AsyncMock()
     context.cache = Mock()

@@ -20,7 +20,7 @@ from datajunction_server.internal.cube_materializations import (
     build_cube_materialization,
 )
 from datajunction_server.materialization.jobs import MaterializationJob
-from datajunction_server.models import access
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.materialization import (
@@ -104,7 +104,7 @@ async def build_cube_materialization_config(
     session: AsyncSession,
     current_revision: NodeRevision,
     upsert_input: UpsertMaterialization,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     current_user: User,
 ) -> DruidMeasuresCubeConfig:
     """
@@ -129,6 +129,7 @@ async def build_cube_materialization_config(
                 metrics=[node.name for node in current_revision.cube_metrics()],
                 dimensions=current_revision.cube_dimensions(),
                 use_materialized=False,
+                access_checker=access_checker,
             )
             generic_config = DruidMetricsCubeConfig(
                 lookback_window=upsert_input.config.lookback_window,
@@ -156,8 +157,7 @@ async def build_cube_materialization_config(
             metrics=[node.name for node in current_revision.cube_metrics()],
             dimensions=current_revision.cube_dimensions(),
             filters=[],
-            current_user=current_user,
-            validate_access=validate_access,
+            access_checker=access_checker,
         )
         for measures_query in measures_queries:
             metrics_expressions = await rewrite_metrics_expressions(
@@ -238,7 +238,7 @@ async def create_new_materialization(
     session: AsyncSession,
     current_revision: NodeRevision,
     upsert: UpsertCubeMaterialization | UpsertMaterialization,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     current_user: User,
 ) -> Materialization:
     """
@@ -284,7 +284,7 @@ async def create_new_materialization(
                 session,
                 current_revision,
                 upsert,
-                validate_access,
+                access_checker,
                 current_user=current_user,
             )
     materialization_name = (
