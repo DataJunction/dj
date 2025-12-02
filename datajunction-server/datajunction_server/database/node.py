@@ -598,6 +598,7 @@ class Node(Base):
         order_by: MappedColumn | None = None,
         ascending: bool = False,
         options: list[ExecutableOption] = None,
+        mode: NodeMode | None = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -622,11 +623,11 @@ class Node(Base):
 
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
-        # Join NodeRevision if needed for order_by or fragment filtering
+        # Join NodeRevision if needed for order_by, fragment filtering, or mode filtering
         order_by_node_revision = (
             order_by and getattr(order_by, "class_", None) is NodeRevision
         )
-        join_revision = True if fragment or order_by_node_revision else False
+        join_revision = True if fragment or order_by_node_revision or mode else False
         if join_revision:
             statement = statement.join(NodeRevisionAlias, Node.current)
             if order_by_node_revision:
@@ -654,6 +655,8 @@ class Node(Base):
 
         if node_types:
             statement = statement.where(Node.type.in_(node_types))
+        if mode:
+            statement = statement.where(NodeRevisionAlias.mode == mode)
         if edited_by:
             edited_node_subquery = (
                 select(History.entity_name)

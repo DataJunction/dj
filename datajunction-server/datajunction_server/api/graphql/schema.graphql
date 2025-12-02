@@ -425,6 +425,9 @@ type Query {
 
     """Filter to nodes in this namespace"""
     namespace: String = null
+
+    """Filter to nodes with this mode (published or draft)"""
+    mode: NodeMode = null
     after: String = null
     before: String = null
 
