@@ -11,7 +11,7 @@ from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models import access
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
@@ -27,7 +27,7 @@ async def build_dimensions_from_cube_query(
     cube: NodeRevision,
     dimensions: List[str],
     current_user: User,
-    validate_access: access.ValidateAccessFn,
+    access_checker: AccessChecker,
     filters: Optional[str] = None,
     limit: Optional[int] = 50000,
     include_counts: bool = False,
@@ -101,8 +101,7 @@ async def build_dimensions_from_cube_query(
             metrics=[metric.name for metric in cube.cube_metrics()],
             dimensions=dimensions,
             filters=[filters] if filters else [],
-            current_user=current_user,
-            validate_access=validate_access,
+            access_checker=access_checker,
         )
         measures_query_ast = parse(measures_query[0].sql)
         measures_query_ast.bake_ctes()

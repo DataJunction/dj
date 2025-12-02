@@ -26,7 +26,9 @@ from datajunction_server.internal.deployment.deployment import deploy
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access,
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
 )
 from datajunction_server.models import access
 from datajunction_server.models.deployment import DeploymentStatus
@@ -161,15 +163,24 @@ async def create_deployment(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     save_history: Callable = Depends(get_save_history),
     cache: Cache = Depends(get_cache),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DeploymentInfo:
     """
     This endpoint takes a deployment specification (namespace, nodes, tags), topologically
     sorts and validates the deployable objects, and deploys the nodes in parallel where
     possible. It returns a summary of the deployment.
     """
+    access_checker.add_request(
+        access.ResourceRequest(
+            verb=access.ResourceAction.WRITE,
+            access_object=access.Resource(
+                resource_type=access.ResourceType.NAMESPACE,
+                name=deployment_spec.namespace,
+            ),
+        ),
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     deployment_id = await executor.submit(
         spec=deployment_spec,
         context=DeploymentContext(
@@ -177,7 +188,6 @@ async def create_deployment(
             request=request,
             query_service_client=query_service_client,
             save_history=save_history,
-            validate_access=validate_access,
             background_tasks=background_tasks,
             cache=cache,
         ),
