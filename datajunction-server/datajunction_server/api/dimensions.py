@@ -8,6 +8,7 @@ from typing import List, Optional
 from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node
@@ -99,7 +100,7 @@ async def find_nodes_with_dimension(
     return [node for node in nodes if node.name in approved_nodes]
 
 
-@router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
+@router.get("/dimensions/common/", response_model=List[NodeNameOutput])
 async def find_nodes_with_common_dimensions(
     dimension: List[str] = Query([]),
     node_type: List[NodeType] = Query([]),
@@ -109,7 +110,7 @@ async def find_nodes_with_common_dimensions(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
-) -> List[NodeRevisionOutput]:
+) -> List[NodeNameOutput]:
     """
     Find all nodes that have the list of common dimensions
     """
