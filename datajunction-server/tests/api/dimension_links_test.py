@@ -99,6 +99,19 @@ async def test_link_dimension_with_errors(
         == "Join query default.events.order_year = default.users.year is not valid"
     )
 
+    # Test linking a non-dimension node as the dimension_node (source node instead of dimension)
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.events_table",
+            "join_on": ("default.events.user_id = default.events_table.user_id"),
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert response.json()["message"] == (
+        "Cannot link dimension to a node of type source. Must be a dimension node."
+    )
+
 
 @pytest.fixture
 def link_events_to_users_without_role(
