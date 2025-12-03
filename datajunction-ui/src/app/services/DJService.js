@@ -18,14 +18,16 @@ export const DataJunctionAPI = {
     after,
     limit,
     sortConfig,
+    mode,
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
           tags: $tags
           editedBy: $editedBy
+          mode: $mode
           limit: $limit
           before: $before
           after: $after
@@ -51,6 +53,7 @@ export const DataJunctionAPI = {
               current {
                 displayName
                 status
+                mode
                 updatedAt
               }
               createdBy {
@@ -83,6 +86,7 @@ export const DataJunctionAPI = {
             nodeTypes: nodeTypes,
             tags: tags,
             editedBy: editedBy,
+            mode: mode || null,
             before: before,
             after: after,
             limit: limit,

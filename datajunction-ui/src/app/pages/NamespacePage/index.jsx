@@ -11,6 +11,7 @@ import FilterIcon from '../../icons/FilterIcon';
 import LoadingIcon from '../../icons/LoadingIcon';
 import UserSelect from './UserSelect';
 import NodeTypeSelect from './NodeTypeSelect';
+import NodeModeSelect from './NodeModeSelect';
 import TagSelect from './TagSelect';
 
 import 'styles/node-list.css';
@@ -20,7 +21,7 @@ export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
 
-  const fields = ['name', 'displayName', 'type', 'status', 'updatedAt'];
+  const fields = ['name', 'displayName', 'type', 'status', 'mode', 'updatedAt'];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   var { namespace } = useParams();
@@ -36,6 +37,7 @@ export function NamespacePage() {
     tags: [],
     node_type: '',
     edited_by: '',
+    mode: '',
   });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
@@ -122,6 +124,7 @@ export function NamespacePage() {
         after,
         50,
         sortConfig,
+        filters.mode ? filters.mode.toUpperCase() : null,
       );
 
       setState({
@@ -199,6 +202,29 @@ export function NamespacePage() {
             <NodeStatus node={node} revalidate={false} />
           </td>
           <td>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                border: `2px solid ${
+                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#ffc107'
+                }`,
+                backgroundColor: 'transparent',
+                color:
+                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#d39e00',
+                fontWeight: '600',
+                fontSize: '12px',
+              }}
+              title={node.current.mode === 'PUBLISHED' ? 'Published' : 'Draft'}
+            >
+              {node.current.mode === 'PUBLISHED' ? 'P' : 'D'}
+            </span>
+          </td>
+          <td>
             <span className="status">
               {new Date(node.current.updatedAt).toLocaleString('en-us')}
             </span>
@@ -265,7 +291,7 @@ export function NamespacePage() {
                 marginRight: '10px',
               }}
             >
-              Filter By
+              Filter
             </div>
             <NodeTypeSelect
               onChange={entry =>
@@ -285,6 +311,11 @@ export function NamespacePage() {
                 setFilters({ ...filters, edited_by: entry ? entry.value : '' })
               }
               currentUser={currentUser?.username}
+            />
+            <NodeModeSelect
+              onChange={entry =>
+                setFilters({ ...filters, mode: entry ? entry.value : '' })
+              }
             />
             <AddNodeDropdown namespace={namespace} />
           </div>
