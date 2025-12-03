@@ -2043,6 +2043,11 @@ async def validate_complex_dimension_link(
             message=f"Cannot link dimension to a node of type {node.type}. "  # type: ignore
             "Must be a source, dimension, or transform node.",
         )
+    if dimension_node.type != NodeType.DIMENSION:
+        raise DJInvalidInputException(
+            message=f"Cannot link dimension to a node of type {dimension_node.type}. "
+            "Must be a dimension node.",
+        )
 
     if (
         dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
