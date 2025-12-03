@@ -11,7 +11,7 @@ export default function NodeTypeSelect({ onChange }) {
       <Select
         name="node_type"
         isClearable
-        label="Node Type"
+        label="Type"
         components={{ Control }}
         onChange={e => onChange(e)}
         styles={{
