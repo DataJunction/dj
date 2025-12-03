@@ -21,7 +21,7 @@ export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
 
-  const fields = ['name', 'displayName', 'type', 'status', 'updatedAt'];
+  const fields = ['name', 'displayName', 'type', 'status', 'mode', 'updatedAt'];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   var { namespace } = useParams();
@@ -202,6 +202,29 @@ export function NamespacePage() {
             <NodeStatus node={node} revalidate={false} />
           </td>
           <td>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                border: `2px solid ${
+                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#ffc107'
+                }`,
+                backgroundColor: 'transparent',
+                color:
+                  node.current.mode === 'PUBLISHED' ? '#28a745' : '#d39e00',
+                fontWeight: '600',
+                fontSize: '12px',
+              }}
+              title={node.current.mode === 'PUBLISHED' ? 'Published' : 'Draft'}
+            >
+              {node.current.mode === 'PUBLISHED' ? 'P' : 'D'}
+            </span>
+          </td>
+          <td>
             <span className="status">
               {new Date(node.current.updatedAt).toLocaleString('en-us')}
             </span>
@@ -268,7 +291,7 @@ export function NamespacePage() {
                 marginRight: '10px',
               }}
             >
-              Filter By
+              Filter
             </div>
             <NodeTypeSelect
               onChange={entry =>

@@ -53,6 +53,7 @@ export const DataJunctionAPI = {
               current {
                 displayName
                 status
+                mode
                 updatedAt
               }
               createdBy {
