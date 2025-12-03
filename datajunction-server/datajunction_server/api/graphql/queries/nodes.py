@@ -11,7 +11,7 @@ from strawberry.types import Info
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import Node, NodeSortField
-from datajunction_server.models.node import NodeCursor, NodeType
+from datajunction_server.models.node import NodeCursor, NodeMode, NodeType
 
 DEFAULT_LIMIT = 1000
 UPPER_LIMIT = 10000
@@ -117,6 +117,12 @@ async def find_nodes_paginated(
             description="Filter to nodes in this namespace",
         ),
     ] = None,
+    mode: Annotated[
+        NodeMode | None,
+        strawberry.argument(
+            description="Filter to nodes with this mode (published or draft)",
+        ),
+    ] = None,
     after: str | None = None,
     before: str | None = None,
     limit: Annotated[
@@ -146,6 +152,7 @@ async def find_nodes_paginated(
         after,
         order_by,
         ascending,
+        mode,
     )
     return Connection.from_list(
         items=nodes_list,

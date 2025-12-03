@@ -17,7 +17,7 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, ColumnAttribute
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node import NodeMode, NodeType
 
 
 async def find_nodes_by(
@@ -33,6 +33,7 @@ async def find_nodes_by(
     after: Optional[str] = None,
     order_by: NodeSortField = NodeSortField.CREATED_AT,
     ascending: bool = False,
+    mode: Optional[NodeMode] = None,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -61,6 +62,7 @@ async def find_nodes_by(
         order_by=order_by.column,
         ascending=ascending,
         options=options,
+        mode=mode,
     )
 
 
