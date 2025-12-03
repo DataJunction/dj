@@ -1249,3 +1249,139 @@ async def test_find_by_with_ordering(
         "default.dispatchers",
         "default.hard_hats",
     ]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_mode(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes returns mode field
+    """
+    query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            current {
+                mode
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == [
+        {
+            "name": "default.repair_orders_fact",
+            "current": {
+                "mode": "PUBLISHED",
+            },
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_by_mode(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by mode (published vs draft)
+    """
+    # First, create a draft node
+    response = await module__client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.draft_test_node",
+            "description": "A draft test node",
+            "query": "SELECT 1 as id",
+            "mode": "draft",
+        },
+    )
+    assert response.status_code == 201
+
+    # Query for published nodes only (should not include the draft node)
+    query = """
+    {
+        findNodesPaginated(mode: PUBLISHED, namespace: "default", limit: 100) {
+            edges {
+                node {
+                    name
+                    current {
+                        mode
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should be published
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        assert edge["node"]["current"]["mode"] == "PUBLISHED"
+
+    # Draft node should not be in the results
+    node_names = [
+        edge["node"]["name"] for edge in data["data"]["findNodesPaginated"]["edges"]
+    ]
+    assert "default.draft_test_node" not in node_names
+
+    # Query for draft nodes only
+    query = """
+    {
+        findNodesPaginated(mode: DRAFT, namespace: "default", limit: 100) {
+            edges {
+                node {
+                    name
+                    current {
+                        mode
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should be draft
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        assert edge["node"]["current"]["mode"] == "DRAFT"
+
+    # Draft node should be in the results
+    node_names = [
+        edge["node"]["name"] for edge in data["data"]["findNodesPaginated"]["edges"]
+    ]
+    assert "default.draft_test_node" in node_names
+
+    # Query without mode filter should return both
+    query = """
+    {
+        findNodesPaginated(namespace: "default", limit: 100) {
+            edges {
+                node {
+                    name
+                    current {
+                        mode
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    node_names = [
+        edge["node"]["name"] for edge in data["data"]["findNodesPaginated"]["edges"]
+    ]
+    assert "default.draft_test_node" in node_names
