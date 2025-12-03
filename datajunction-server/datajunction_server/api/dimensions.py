@@ -11,11 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node
-from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access,
-    validate_access_requests,
+    AccessChecker,
+    get_access_checker,
 )
 from datajunction_server.models import access
 from datajunction_server.models.node import NodeIndegreeOutput, NodeRevisionOutput
@@ -26,7 +25,6 @@ from datajunction_server.sql.dag import (
     get_nodes_with_dimension,
 )
 from datajunction_server.utils import (
-    get_current_user,
     get_session,
     get_settings,
 )
@@ -41,10 +39,7 @@ async def list_dimensions(
     prefix: Optional[str] = None,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeIndegreeOutput]:
     """
     List all available dimensions.
@@ -53,8 +48,7 @@ async def list_dimensions(
         node_type=NodeType.DIMENSION,
         prefix=prefix,
         session=session,
-        current_user=current_user,
-        validate_access=validate_access,
+        access_checker=access_checker,
     )
     node_indegrees = await get_dimension_dag_indegree(session, node_names)
     return sorted(
@@ -72,30 +66,16 @@ async def find_nodes_with_dimension(
     *,
     node_type: List[NodeType] = Query([]),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeRevisionOutput]:
     """
     List all nodes that have the specified dimension
     """
     dimension_node = await Node.get_by_name(session, name)
     nodes = await get_nodes_with_dimension(session, dimension_node, node_type)  # type: ignore
-    resource_requests = [
-        access.ResourceRequest(
-            verb=access.ResourceAction.READ,
-            access_object=access.Resource.from_node(node),
-        )
-        for node in nodes
-    ]
-    approvals = validate_access_requests(
-        validate_access=validate_access,
-        user=current_user,
-        resource_requests=resource_requests,
-    )
 
-    approved_nodes: List[str] = [request.access_object.name for request in approvals]
+    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    approved_nodes = await access_checker.approved_resource_names()
     return [node for node in nodes if node.name in approved_nodes]
 
 
@@ -105,10 +85,7 @@ async def find_nodes_with_common_dimensions(
     node_type: List[NodeType] = Query([]),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeRevisionOutput]:
     """
     Find all nodes that have the list of common dimensions
@@ -118,18 +95,6 @@ async def find_nodes_with_common_dimensions(
         [await get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    approvals = [
-        approval.access_object.name
-        for approval in validate_access_requests(
-            validate_access,
-            current_user,
-            [
-                access.ResourceRequest(
-                    verb=access.ResourceAction.READ,
-                    access_object=access.Resource.from_node(node),
-                )
-                for node in nodes
-            ],
-        )
-    ]
-    return [node for node in nodes if node.name in approvals]
+    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    approved_resource_names = await access_checker.approved_resource_names()
+    return [node for node in nodes if node.name in approved_resource_names]
