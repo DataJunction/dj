@@ -114,6 +114,7 @@ describe('NamespacePage', () => {
                 current: {
                   displayName: 'Test Node',
                   status: 'VALID',
+                  mode: 'PUBLISHED',
                   updatedAt: '2024-10-18T15:15:33.532949+00:00',
                 },
                 createdBy: {
