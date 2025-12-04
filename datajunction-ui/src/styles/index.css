@@ -701,7 +701,7 @@ pre {
 }
 
 .container {
-  max-width: 1320px;
+  max-width: --webkit-size-available;
   width: 100%;
   padding-left: 30px !important;
   padding-right: 30px !important;

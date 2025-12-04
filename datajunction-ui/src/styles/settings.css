@@ -1,0 +1,337 @@
+/* Settings Page Styles */
+
+.settings-page {
+  min-height: calc(100vh - 80px);
+  background-color: #f8f9fa;
+  padding: 1.5rem 2rem;
+}
+
+.settings-container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.settings-title {
+  font-family: 'Raleway', system-ui;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 2rem;
+}
+
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section-title {
+  font-family: 'Jost', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.settings-card {
+  background: white;
+  border-radius: 8px;
+  padding: 0.4rem 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Profile Section */
+.profile-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-details {
+  flex: 1;
+}
+
+.profile-field {
+  margin-bottom: 1rem;
+}
+
+.profile-field:last-child {
+  margin-bottom: 0;
+}
+
+.profile-field label {
+  display: block;
+  font-family: 'Jost', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.25rem;
+}
+
+.profile-field span {
+  font-size: 1rem;
+  color: #333;
+}
+
+/* Subscriptions List */
+.subscriptions-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.subscription-item {
+  padding: 1rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.subscription-item:last-child {
+  border-bottom: none;
+}
+
+.subscription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.subscription-entity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.subscription-entity a {
+  color: #333;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.subscription-entity a:hover {
+  color: #667eea;
+}
+
+.entity-type-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #e8e8e8;
+  color: #666;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.subscription-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.subscription-activity-types {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.activity-types-label {
+  font-family: 'Jost', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  min-width: 100px;
+}
+
+.activity-types-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.activity-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid #ccc;
+  color: #666;
+  border-radius: 3px;
+}
+
+/* Color-coded activity types */
+.activity-badge-create {
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.activity-badge-update {
+  border-color: #0088fe;
+  color: #0088fe;
+}
+
+.activity-badge-delete {
+  border-color: #dc3545;
+  color: #dc3545;
+}
+
+.activity-badge-status_change {
+  border-color: #fd7e14;
+  color: #fd7e14;
+}
+
+.activity-badge-refresh {
+  border-color: #6f42c1;
+  color: #6f42c1;
+}
+
+.activity-badge-tag {
+  border-color: #6c757d;
+  color: #6c757d;
+}
+
+.activity-types-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #444;
+  cursor: pointer;
+}
+
+.checkbox-label input[type='checkbox'] {
+  cursor: pointer;
+}
+
+/* Buttons */
+/* Icon buttons */
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.btn-edit {
+  color: #aaa;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.btn-edit:hover {
+  color: #28a745;
+  background-color: #e8f5e9;
+}
+
+.btn-save {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  color: white;
+  background: #28a745;
+  border: 1px solid #28a745;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-save:hover {
+  background: #218838;
+  border-color: #218838;
+}
+
+.btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  color: #666;
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-cancel:hover {
+  background: #f5f5f5;
+}
+
+.btn-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-unsubscribe {
+  color: #aaa;
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 1;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.btn-unsubscribe:hover {
+  color: #dc3545;
+  background-color: #ffeaea;
+}
+
+.text-muted {
+  color: #999;
+  font-style: italic;
+}
+
+/* Status badges */
+.status-badge {
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-invalid {
+  background-color: #ffeaea;
+  color: #dc3545;
+}
+
+/* Empty State */
+.empty-state {
+  color: #888;
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 1rem 0;
+}

@@ -1,9 +1,11 @@
-import { useContext } from 'react';
+import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import DJLogo from '../../icons/DJLogo';
 import { Helmet } from 'react-helmet-async';
-import DJClientContext from '../../providers/djclient';
 import Search from '../../components/Search';
+import NotificationBell from '../../components/NotificationBell';
+import UserMenu from '../../components/UserMenu';
+import '../../../styles/nav-bar.css';
 
 // Define the type for the docs sites
 type DocsSites = {
@@ -21,21 +23,16 @@ const docsSites: DocsSites = process.env.REACT_APP_DOCS_SITES
   : defaultDocsSites;
 
 export function Root() {
-  const djClient = useContext(DJClientContext).DataJunctionAPI;
-
-  const handleLogout = async () => {
-    await djClient.logout();
-    window.location.reload();
-  };
+  // Track which dropdown is open to close others
+  const [openDropdown, setOpenDropdown] = useState<
+    'notifications' | 'user' | null
+  >(null);
 
   return (
     <>
       <Helmet>
         <title>DataJunction</title>
-        <meta
-          name="description"
-          content="DataJunction Metrics Platform Webapp"
-        />
+        <meta name="description" content="DataJunction UI" />
       </Helmet>
       <div className="container d-flex align-items-center justify-content-between">
         <div className="header">
@@ -105,13 +102,20 @@ export function Root() {
         {process.env.REACT_DISABLE_AUTH === 'true' ? (
           ''
         ) : (
-          <span className="menu-link">
-            <span className="menu-title">
-              <a href={'/'} onClick={handleLogout}>
-                Logout
-              </a>
-            </span>
-          </span>
+          <div className="nav-right">
+            <NotificationBell
+              onDropdownToggle={isOpen => {
+                setOpenDropdown(isOpen ? 'notifications' : null);
+              }}
+              forceClose={openDropdown === 'user'}
+            />
+            <UserMenu
+              onDropdownToggle={isOpen => {
+                setOpenDropdown(isOpen ? 'user' : null);
+              }}
+              forceClose={openDropdown === 'notifications'}
+            />
+          </div>
         )}
       </div>
       <Outlet />

@@ -174,8 +174,10 @@ async def test_whoami(client: AsyncClient):
         "name": "DJ",
         "oauth_provider": "basic",
         "is_admin": False,
+        "last_viewed_notifications_at": None,
         "created_collections": [],
         "created_nodes": [],
         "created_tags": [],
         "owned_nodes": [],
+        "notification_preferences": [],
     }

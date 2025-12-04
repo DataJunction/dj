@@ -92,6 +92,13 @@ class User(Base):
         nullable=True,
     )
 
+    # Timestamp when user last viewed notifications (for unread badge)
+    last_viewed_notifications_at: Mapped[UTCDatetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+    )
+
     created_by: Mapped["User"] = relationship("User")
     created_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
@@ -119,6 +126,7 @@ class User(Base):
     notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         "NotificationPreference",
         back_populates="user",
+        lazy="selectin",
     )
     owned_associations: Mapped[list[NodeOwner]] = relationship(
         "NodeOwner",
@@ -166,6 +174,7 @@ class User(Base):
                 selectinload(User.created_collections),
                 selectinload(User.created_tags),
                 selectinload(User.owned_nodes),
+                selectinload(User.notification_preferences),
             ]
         )
         statement = select(User).where(User.username == username).options(*options)

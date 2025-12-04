@@ -201,3 +201,34 @@ async def test_notification_list_users(
     assert response.status_code == 200
     assert len(response.json()) > 0
     assert response.json()[0] == "dj"
+
+
+@pytest.mark.asyncio
+async def test_mark_notifications_read(
+    module__client: AsyncClient,
+) -> None:
+    """
+    Test marking notifications as read updates the user's
+    last_viewed_notifications_at timestamp.
+    """
+    # Mark notifications as read
+    response = await module__client.post("/notifications/mark-read")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["message"] == "Notifications marked as read"
+    assert "last_viewed_at" in data
+
+    # Verify the timestamp is a valid ISO format string
+    from datetime import datetime
+
+    last_viewed_at = datetime.fromisoformat(
+        data["last_viewed_at"].replace("Z", "+00:00"),
+    )
+    assert last_viewed_at is not None
+
+    # Verify the user's last_viewed_notifications_at is updated via whoami
+    whoami_response = await module__client.get("/whoami/")
+    assert whoami_response.status_code == 200
+    whoami_data = whoami_response.json()
+    assert whoami_data.get("last_viewed_notifications_at") is not None
