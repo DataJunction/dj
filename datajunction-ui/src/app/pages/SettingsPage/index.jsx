@@ -23,6 +23,13 @@ export function SettingsPage() {
   const [editedActivityTypes, setEditedActivityTypes] = useState([]);
   const [saving, setSaving] = useState(false);
 
+  // Service accounts state
+  const [serviceAccounts, setServiceAccounts] = useState([]);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [newAccountCredentials, setNewAccountCredentials] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
   useEffect(() => {
     async function fetchData() {
       try {
@@ -60,6 +67,15 @@ export function SettingsPage() {
         }));
 
         setSubscriptions(enrichedPrefs);
+
+        // Fetch service accounts
+        try {
+          const accounts = await djClient.listServiceAccounts();
+          setServiceAccounts(accounts || []);
+        } catch (err) {
+          // Service accounts may not be available, ignore error
+          console.log('Service accounts not available:', err);
+        }
       } catch (error) {
         console.error('Error fetching settings data:', error);
       } finally {
@@ -136,6 +152,67 @@ export function SettingsPage() {
     } catch (error) {
       console.error('Error unsubscribing:', error);
     }
+  };
+
+  // Service account handlers
+  const openCreateModal = () => {
+    setNewAccountName('');
+    setNewAccountCredentials(null);
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setNewAccountName('');
+    // Keep credentials visible if they exist so user can still copy them
+  };
+
+  const handleCreateServiceAccount = async e => {
+    e.preventDefault();
+    if (!newAccountName.trim()) return;
+
+    setCreatingAccount(true);
+    try {
+      const result = await djClient.createServiceAccount(newAccountName.trim());
+      if (result.client_id) {
+        setNewAccountCredentials(result);
+        setServiceAccounts([...serviceAccounts, result]);
+        setNewAccountName('');
+      } else if (result.message) {
+        alert(result.message);
+      }
+    } catch (error) {
+      console.error('Error creating service account:', error);
+      alert('Failed to create service account');
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
+
+  const dismissCredentialsAndClose = () => {
+    setNewAccountCredentials(null);
+    setShowCreateModal(false);
+  };
+
+  const handleDeleteServiceAccount = async account => {
+    const confirmed = window.confirm(
+      `Delete service account "${account.name}"?\n\nThis will revoke all access for this account and cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await djClient.deleteServiceAccount(account.client_id);
+      setServiceAccounts(
+        serviceAccounts.filter(a => a.client_id !== account.client_id),
+      );
+    } catch (error) {
+      console.error('Error deleting service account:', error);
+      alert('Failed to delete service account');
+    }
+  };
+
+  const copyToClipboard = text => {
+    navigator.clipboard.writeText(text);
   };
 
   if (loading) {
@@ -294,7 +371,180 @@ export function SettingsPage() {
             )}
           </div>
         </section>
+
+        {/* Service Accounts Section */}
+        <section className="settings-section" id="service-accounts">
+          <div className="section-title-row">
+            <h2 className="settings-section-title">Service Accounts</h2>
+            <button className="btn-create" onClick={openCreateModal}>
+              + Create
+            </button>
+          </div>
+          <div className="settings-card">
+            <p className="section-description">
+              Service accounts allow programmatic access to the DJ API. Create
+              accounts for your applications, scripts, or CI/CD pipelines.
+            </p>
+
+            {/* List of existing service accounts */}
+            {serviceAccounts.length > 0 ? (
+              <div className="service-accounts-list">
+                <table className="service-accounts-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Client ID</th>
+                      <th>Created</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serviceAccounts.map(account => (
+                      <tr key={account.id}>
+                        <td>{account.name}</td>
+                        <td>
+                          <code className="client-id">{account.client_id}</code>
+                        </td>
+                        <td className="created-date">
+                          {new Date(account.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="actions-cell">
+                          <button
+                            className="btn-icon btn-delete-account"
+                            onClick={() => handleDeleteServiceAccount(account)}
+                            title="Delete service account"
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="empty-state">
+                No service accounts yet. Create one to enable programmatic API
+                access.
+              </p>
+            )}
+          </div>
+        </section>
       </div>
+
+      {/* Create Service Account Modal */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={closeCreateModal}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Create Service Account</h3>
+              <button
+                className="btn-close-modal"
+                onClick={closeCreateModal}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {newAccountCredentials ? (
+              /* Show credentials after creation */
+              <div className="modal-body">
+                <div className="credentials-success">
+                  <span className="success-icon">✓</span>
+                  <h4>Service Account Created!</h4>
+                </div>
+                <p className="credentials-warning">
+                  Save these credentials now. The client secret will not be
+                  shown again.
+                </p>
+                <div className="credentials-grid">
+                  <div className="credential-item">
+                    <label>Name</label>
+                    <code>{newAccountCredentials.name}</code>
+                  </div>
+                  <div className="credential-item">
+                    <label>Client ID</label>
+                    <div className="credential-value">
+                      <code>{newAccountCredentials.client_id}</code>
+                      <button
+                        className="btn-copy"
+                        onClick={() =>
+                          copyToClipboard(newAccountCredentials.client_id)
+                        }
+                        title="Copy"
+                      >
+                        📋
+                      </button>
+                    </div>
+                  </div>
+                  <div className="credential-item">
+                    <label>Client Secret</label>
+                    <div className="credential-value">
+                      <code>{newAccountCredentials.client_secret}</code>
+                      <button
+                        className="btn-copy"
+                        onClick={() =>
+                          copyToClipboard(newAccountCredentials.client_secret)
+                        }
+                        title="Copy"
+                      >
+                        📋
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-actions">
+                  <button
+                    className="btn-primary"
+                    onClick={dismissCredentialsAndClose}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Show creation form */
+              <form onSubmit={handleCreateServiceAccount}>
+                <div className="modal-body">
+                  <div className="form-group">
+                    <label htmlFor="service-account-name">Name</label>
+                    <input
+                      id="service-account-name"
+                      type="text"
+                      placeholder="e.g., my-pipeline, etl-job, ci-cd"
+                      value={newAccountName}
+                      onChange={e => setNewAccountName(e.target.value)}
+                      disabled={creatingAccount}
+                      autoFocus
+                    />
+                    <span className="form-hint">
+                      A descriptive name to identify this service account
+                    </span>
+                  </div>
+                </div>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={closeCreateModal}
+                    disabled={creatingAccount}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={creatingAccount || !newAccountName.trim()}
+                  >
+                    {creatingAccount ? 'Creating...' : 'Create'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
