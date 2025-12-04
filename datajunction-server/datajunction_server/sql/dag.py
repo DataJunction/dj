@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -1125,26 +1126,182 @@ async def get_nodes_with_dimension(
 
 async def get_nodes_with_common_dimensions(
     session: AsyncSession,
-    common_dimensions: List[Node],
-    node_types: Optional[List[NodeType]] = None,
-) -> List[NodeRevision]:
+    common_dimensions: list[Node],
+    node_types: list[NodeType] | None = None,
+    options: list[ExecutableOption] | None = None,
+) -> list[NodeRevision]:
     """
-    Find all nodes that share a list of common dimensions
+    Find all nodes that share a list of common dimensions.
+
+    This traverses the dimension graph recursively to find:
+    1. Nodes directly linked to any dimension in the graph that leads to the target dimensions
+    2. Metrics that inherit those dimensions from their parent nodes
+
+    For example, if dim A -> dim B -> dim C, searching for dim C will find nodes
+    linked to dim C, dim B, or dim A (since they all lead to dim C).
     """
-    nodes_that_share_dimensions = set()
-    first = True
-    for dimension in common_dimensions:
-        new_nodes = await get_nodes_with_dimension(session, dimension, node_types)
-        if first:
-            nodes_that_share_dimensions = set(new_nodes)
-            first = False
-        else:
-            nodes_that_share_dimensions = nodes_that_share_dimensions.intersection(
-                set(new_nodes),
-            )
-            if not nodes_that_share_dimensions:
-                break
-    return list(nodes_that_share_dimensions)
+    if not common_dimensions:
+        return []
+
+    dimension_ids = [d.id for d in common_dimensions]
+    num_dimensions = len(dimension_ids)
+
+    # Build a CTE that merges column -> dimension and dimension link -> dimension relationships
+    # These are the "branches" of the dimensions graph
+    graph_branches = (
+        select(
+            Column.node_revision_id.label("node_revision_id"),
+            Column.dimension_id.label("dimension_id"),
+        )
+        .where(Column.dimension_id.isnot(None))
+        .union_all(
+            select(
+                DimensionLink.node_revision_id.label("node_revision_id"),
+                DimensionLink.dimension_id.label("dimension_id"),
+            ),
+        )
+    ).cte("graph_branches")
+
+    # For each target dimension, build a recursive CTE to find all dimensions
+    # that transitively link to it (reverse traversal of the dimensions graph).
+    # A node linked to any dimension in this expanded set has access to the
+    # target dimension.
+    #
+    # Example: dim A -> dim B -> dim C
+    # When searching for dim C, we find: {dim C, dim B, dim A}
+    # Any node linked to dim A, dim B, or dim C has access to dim C
+
+    # Recursive CTE: find all dimensions that lead to each target dimension
+    # Base case: the target dimensions themselves
+    dimension_graph = (
+        select(
+            Node.id.label("target_dim_id"),  # The original target dimension
+            Node.id.label("reachable_dim_id"),  # Dimensions that can reach the target
+        )
+        .where(Node.id.in_(dimension_ids))
+        .where(Node.deactivated_at.is_(None))
+    ).cte("dimension_graph", recursive=True)
+
+    # Add cycle detection for PostgreSQL
+    dimension_graph = dimension_graph.suffix_with(
+        "CYCLE reachable_dim_id SET is_cycle USING path",
+    )
+
+    # Recursive case: find dimensions that link to dimensions already in our set
+    # If dim A links to dim B, and dim B is in our set, add dim A
+    dimension_graph = dimension_graph.union_all(
+        select(
+            dimension_graph.c.target_dim_id,
+            Node.id.label("reachable_dim_id"),
+        )
+        .select_from(graph_branches)
+        .join(
+            NodeRevision,
+            graph_branches.c.node_revision_id == NodeRevision.id,
+        )
+        .join(
+            Node,
+            (NodeRevision.node_id == Node.id)
+            & (Node.current_version == NodeRevision.version),
+        )
+        .join(
+            dimension_graph,
+            graph_branches.c.dimension_id == dimension_graph.c.reachable_dim_id,
+        )
+        .where(Node.type == NodeType.DIMENSION)
+        .where(Node.deactivated_at.is_(None)),
+    )
+
+    # Now find all node revisions that link to any dimension in the expanded graph
+    # For each target dimension, then intersect to find nodes with all target dimensions
+    nodes_linked_to_expanded_dims = (
+        select(
+            graph_branches.c.node_revision_id,
+            dimension_graph.c.target_dim_id,
+        )
+        .select_from(graph_branches)
+        .join(
+            dimension_graph,
+            graph_branches.c.dimension_id == dimension_graph.c.reachable_dim_id,
+        )
+    ).subquery()
+
+    # Find node_revisions linked to all target dimensions
+    nodes_with_all_dims = (
+        select(nodes_linked_to_expanded_dims.c.node_revision_id)
+        .group_by(nodes_linked_to_expanded_dims.c.node_revision_id)
+        .having(
+            func.count(func.distinct(nodes_linked_to_expanded_dims.c.target_dim_id))
+            >= num_dimensions,
+        )
+    ).subquery()
+
+    # Find parent node IDs that have all dimensions
+    parents_with_all_dims = (
+        select(Node.id.label("parent_node_id"))
+        .select_from(nodes_with_all_dims)
+        .join(
+            NodeRevision,
+            nodes_with_all_dims.c.node_revision_id == NodeRevision.id,
+        )
+        .join(
+            Node,
+            (NodeRevision.node_id == Node.id)
+            & (Node.current_version == NodeRevision.version),
+        )
+        .where(Node.deactivated_at.is_(None))
+    ).subquery()
+
+    # Find metrics whose parents have all dimensions
+    metrics_via_parents = (
+        select(NodeRevision.id.label("node_revision_id"))
+        .select_from(NodeRelationship)
+        .join(
+            NodeRevision,
+            NodeRelationship.child_id == NodeRevision.id,
+        )
+        .join(
+            Node,
+            (NodeRevision.node_id == Node.id)
+            & (Node.current_version == NodeRevision.version),
+        )
+        .join(
+            parents_with_all_dims,
+            NodeRelationship.parent_id == parents_with_all_dims.c.parent_node_id,
+        )
+        .where(NodeRevision.type == NodeType.METRIC)
+        .where(Node.deactivated_at.is_(None))
+    )
+
+    # Combine: nodes directly linked + metrics via parents
+    all_matching_nodes = (
+        select(nodes_with_all_dims.c.node_revision_id)
+        .union(metrics_via_parents)
+        .subquery()
+    )
+
+    # Final query to get NodeRevision objects with eager loading
+    statement = (
+        select(NodeRevision)
+        .join(
+            all_matching_nodes,
+            NodeRevision.id == all_matching_nodes.c.node_revision_id,
+        )
+        .join(
+            Node,
+            (NodeRevision.node_id == Node.id)
+            & (Node.current_version == NodeRevision.version),
+        )
+        .where(Node.deactivated_at.is_(None))
+    )
+
+    if node_types:
+        statement = statement.where(NodeRevision.type.in_(node_types))
+
+    if options:  # pragma: no cover
+        statement = statement.options(*options)
+
+    return list((await session.execute(statement)).unique().scalars().all())
 
 
 def topological_sort(nodes: List[Node]) -> List[Node]:
