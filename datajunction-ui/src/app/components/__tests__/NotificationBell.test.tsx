@@ -215,7 +215,9 @@ describe('<NotificationBell />', () => {
     const onDropdownToggle = jest.fn();
 
     render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <NotificationBell onDropdownToggle={onDropdownToggle} />
       </DJClientContext.Provider>,
     );
@@ -234,7 +236,9 @@ describe('<NotificationBell />', () => {
     const mockDjClient = createMockDjClient();
 
     const { rerender } = render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <NotificationBell forceClose={false} />
       </DJClientContext.Provider>,
     );
@@ -252,7 +256,9 @@ describe('<NotificationBell />', () => {
 
     // Rerender with forceClose=true
     rerender(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <NotificationBell forceClose={true} />
       </DJClientContext.Provider>,
     );
@@ -266,7 +272,9 @@ describe('<NotificationBell />', () => {
     const onDropdownToggle = jest.fn();
 
     render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <NotificationBell onDropdownToggle={onDropdownToggle} />
       </DJClientContext.Provider>,
     );

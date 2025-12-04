@@ -28,11 +28,11 @@ describe('<UserMenu />', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete (window as any).location;
-    window.location = { ...originalLocation, reload: jest.fn() };
+    (window as any).location = { ...originalLocation, reload: jest.fn() };
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    (window as any).location = originalLocation;
   });
 
   it('renders the avatar button', async () => {
@@ -161,7 +161,9 @@ describe('<UserMenu />', () => {
     const mockDjClient = createMockDjClient();
 
     const { rerender } = render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <UserMenu forceClose={false} />
       </DJClientContext.Provider>,
     );
@@ -179,7 +181,9 @@ describe('<UserMenu />', () => {
 
     // Rerender with forceClose=true
     rerender(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+      <DJClientContext.Provider
+        value={{ DataJunctionAPI: mockDjClient as any }}
+      >
         <UserMenu forceClose={true} />
       </DJClientContext.Provider>,
     );
