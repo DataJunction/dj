@@ -17,6 +17,7 @@ from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     get_dimensions,
     get_downstream_nodes,
+    get_nodes_with_common_dimensions,
     topological_sort,
     get_dimension_dag_indegree,
 )
@@ -483,3 +484,695 @@ class TestGetDimensionDagIndegree:
                 "default.total_repair_cost",
                 "default.total_repair_order_discounts",
             }
+
+
+@pytest.mark.asyncio
+class TestGetNodesWithCommonDimensions:
+    """
+    Tests for ``get_nodes_with_common_dimensions``.
+    """
+
+    @pytest.fixture
+    async def common_dimensions_test_graph(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        Creates a test graph with dimensions and nodes linked via reference links
+        and join dimension links.
+        """
+        # Create dimensions
+        dim1 = Node(
+            name="default.dim1",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim1_rev = NodeRevision(
+            node=dim1,
+            type=dim1.type,
+            name=dim1.name,
+            version="1",
+            display_name="Dimension 1",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="attribute1", type=StringType(), order=1),
+            ],
+        )
+        dim1.current = dim1_rev
+
+        dim2 = Node(
+            name="default.dim2",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim2_rev = NodeRevision(
+            node=dim2,
+            type=dim2.type,
+            name=dim2.name,
+            version="1",
+            display_name="Dimension 2",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="attribute2", type=StringType(), order=1),
+            ],
+        )
+        dim2.current = dim2_rev
+
+        dim3 = Node(
+            name="default.dim3",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim3_rev = NodeRevision(
+            node=dim3,
+            type=dim3.type,
+            name=dim3.name,
+            version="1",
+            display_name="Dimension 3",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+            ],
+        )
+        dim3.current = dim3_rev
+
+        session.add_all([dim1, dim1_rev, dim2, dim2_rev, dim3, dim3_rev])
+        await session.flush()
+
+        # Create source node linked to dim1 and dim2 via reference links
+        source1 = Node(
+            name="default.source1",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source1_rev = NodeRevision(
+            node=source1,
+            type=source1.type,
+            name=source1.name,
+            version="1",
+            display_name="Source 1",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(
+                    name="dim1_id",
+                    type=IntegerType(),
+                    dimension=dim1,
+                    dimension_column="id",
+                    order=1,
+                ),
+                Column(
+                    name="dim2_id",
+                    type=IntegerType(),
+                    dimension=dim2,
+                    dimension_column="id",
+                    order=2,
+                ),
+            ],
+        )
+        source1.current = source1_rev
+
+        # Create source node linked to only dim1 via reference link
+        source2 = Node(
+            name="default.source2",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source2_rev = NodeRevision(
+            node=source2,
+            type=source2.type,
+            name=source2.name,
+            version="1",
+            display_name="Source 2",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(
+                    name="dim1_id",
+                    type=IntegerType(),
+                    dimension=dim1,
+                    dimension_column="id",
+                    order=1,
+                ),
+            ],
+        )
+        source2.current = source2_rev
+
+        # Create transform node linked to dim1 and dim2 via join dimension link
+        transform1 = Node(
+            name="default.transform1",
+            type=NodeType.TRANSFORM,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        transform1_rev = NodeRevision(
+            node=transform1,
+            type=transform1.type,
+            name=transform1.name,
+            version="1",
+            display_name="Transform 1",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="value", type=IntegerType(), order=1),
+            ],
+        )
+        transform1.current = transform1_rev
+
+        # Create a source node linked to dim2 and dim3 (will be parent of metric1)
+        source3 = Node(
+            name="default.source3",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source3_rev = NodeRevision(
+            node=source3,
+            type=source3.type,
+            name=source3.name,
+            version="1",
+            display_name="Source 3",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(
+                    name="dim2_id",
+                    type=IntegerType(),
+                    dimension=dim2,
+                    dimension_column="id",
+                    order=1,
+                ),
+                Column(
+                    name="dim3_id",
+                    type=IntegerType(),
+                    dimension=dim3,
+                    dimension_column="id",
+                    order=2,
+                ),
+                Column(name="amount", type=IntegerType(), order=3),
+            ],
+        )
+        source3.current = source3_rev
+
+        session.add_all(
+            [
+                source1,
+                source1_rev,
+                source2,
+                source2_rev,
+                transform1,
+                transform1_rev,
+                source3,
+                source3_rev,
+            ],
+        )
+        await session.flush()
+
+        # Create metric node - metrics don't have direct dimension links,
+        # they inherit dimensions from their parent nodes
+        metric1 = Node(
+            name="default.metric1",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        metric1_rev = NodeRevision(
+            node=metric1,
+            type=metric1.type,
+            name=metric1.name,
+            version="1",
+            display_name="Metric 1",
+            query="SELECT SUM(amount) FROM default.source3",
+            parents=[source3],  # Metric inherits dim2 and dim3 from source3
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="value", type=IntegerType(), order=0),
+            ],
+        )
+        metric1.current = metric1_rev
+
+        session.add_all([metric1, metric1_rev])
+        await session.flush()
+
+        # Create dimension links for transform1 (links to dim1 and dim2)
+        link1 = DimensionLink(
+            dimension_id=dim1.id,
+            node_revision_id=transform1_rev.id,
+            join_sql="default.transform1.id = default.dim1.id",
+        )
+        link2 = DimensionLink(
+            dimension_id=dim2.id,
+            node_revision_id=transform1_rev.id,
+            join_sql="default.transform1.id = default.dim2.id",
+        )
+
+        session.add_all([link1, link2])
+        await session.commit()
+
+        return {
+            "dim1": dim1,
+            "dim2": dim2,
+            "dim3": dim3,
+            "source1": source1,
+            "source2": source2,
+            "source3": source3,
+            "transform1": transform1,
+            "metric1": metric1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_dimensions_list(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that an empty dimensions list returns an empty result.
+        """
+        result = await get_nodes_with_common_dimensions(session, [])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_single_dimension_via_column(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test finding nodes linked to a single dimension via reference link.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(session, [graph["dim1"]])
+        result_names = {node.name for node in result}
+
+        # source1 and source2 are linked to dim1 via reference links
+        # transform1 is linked to dim1 via join link
+        assert "default.source1" in result_names
+        assert "default.source2" in result_names
+        assert "default.transform1" in result_names
+
+    @pytest.mark.asyncio
+    async def test_single_dimension_via_dimension_link(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test finding nodes linked to a single dimension via join link.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(session, [graph["dim3"]])
+        result_names = {node.name for node in result}
+        assert result_names == {"default.metric1", "default.source3"}
+
+    @pytest.mark.asyncio
+    async def test_multiple_dimensions_intersection(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test finding nodes linked to multiple dimensions (intersection).
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim1"], graph["dim2"]],
+        )
+        result_names = {node.name for node in result}
+
+        # source1 is linked to both dim1 and dim2 via reference links
+        # transform1 is linked to both dim1 and dim2 via join links
+        # source2 is only linked to dim1, so should not be included
+        assert "default.source1" in result_names
+        assert "default.transform1" in result_names
+        assert "default.source2" not in result_names
+
+    @pytest.mark.asyncio
+    async def test_no_common_dimensions(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that no nodes are returned when no nodes share all dimensions.
+        """
+        graph = common_dimensions_test_graph
+        # dim1 and dim3 have no nodes in common
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim1"], graph["dim3"]],
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_filter_by_node_type(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test filtering results by node type.
+        """
+        graph = common_dimensions_test_graph
+        # Get only source nodes linked to dim1
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim1"]],
+            node_types=[NodeType.SOURCE],
+        )
+        result_names = {node.name for node in result}
+
+        assert "default.source1" in result_names
+        assert "default.source2" in result_names
+        assert "default.transform1" not in result_names
+
+    @pytest.mark.asyncio
+    async def test_filter_by_multiple_node_types(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test filtering results by multiple node types.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim2"]],
+            node_types=[NodeType.TRANSFORM, NodeType.SOURCE],
+        )
+        result_names = {node.name for node in result}
+        assert result_names == {
+            # transform1 is linked to dim2 via join link
+            "default.transform1",
+            # source1 and source3 are linked to dim2 via reference links
+            "default.source1",
+            "default.source3",
+        }
+
+    @pytest.mark.asyncio
+    async def test_mixed_column_and_dimension_link(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that nodes linked via both Column and DimensionLink are found,
+        including metrics that inherit dimensions from their parents.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(session, [graph["dim2"]])
+        result_names = {node.name for node in result}
+
+        # source1 linked via reference link
+        # source3 linked via reference link
+        # transform1 linked via join link
+        # metric1 inherits dim2 from source3 (its parent)
+        assert result_names == {
+            "default.source1",
+            "default.source3",
+            "default.transform1",
+            "default.metric1",
+        }
+
+    @pytest.mark.asyncio
+    async def test_metrics_inherit_dimensions_from_parents(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that metrics inherit dimensions from their parent nodes.
+        Metrics don't have direct dimension links, but they should be included
+        in results when their parents have all the required dimensions.
+        """
+        graph = common_dimensions_test_graph
+        # dim2 and dim3 are the dimensions that source3 (metric1's parent) has
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim2"], graph["dim3"]],
+        )
+        result_names = {node.name for node in result}
+        assert result_names == {"default.source3", "default.metric1"}
+
+    @pytest.mark.asyncio
+    async def test_filter_metrics_by_node_type(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that metrics can be filtered by node type even when they
+        inherit dimensions from parents.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim2"], graph["dim3"]],
+            node_types=[NodeType.METRIC],
+        )
+        result_names = {node.name for node in result}
+        assert result_names == {"default.metric1"}
+
+    @pytest.mark.asyncio
+    async def test_metric_parent_missing_dimension(
+        self,
+        session: AsyncSession,
+        common_dimensions_test_graph,
+    ):
+        """
+        Test that metrics are not included if their parent doesn't have
+        all required dimensions.
+        """
+        graph = common_dimensions_test_graph
+        result = await get_nodes_with_common_dimensions(
+            session,
+            [graph["dim1"], graph["dim2"], graph["dim3"]],
+        )
+        result_names = {node.name for node in result}
+        assert result_names == set()
+
+    @pytest.fixture
+    async def dimension_hierarchy_graph(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        Creates a test graph with a dimension hierarchy:
+        transform1 -> dim_a -> dim_b -> dim_c
+
+        When searching for nodes with dim_c, the transform should be found
+        because it transitively links to dim_c through the hierarchy.
+        """
+        # Create dimension C (leaf)
+        dim_c = Node(
+            name="default.dim_c",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_c_rev = NodeRevision(
+            node=dim_c,
+            type=dim_c.type,
+            name=dim_c.name,
+            version="1",
+            display_name="Dimension C",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="attr_c", type=StringType(), order=1),
+            ],
+        )
+        dim_c.current = dim_c_rev
+
+        session.add_all([dim_c, dim_c_rev])
+        await session.flush()
+
+        # Create dimension B (links to C)
+        dim_b = Node(
+            name="default.dim_b",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_b_rev = NodeRevision(
+            node=dim_b,
+            type=dim_b.type,
+            name=dim_b.name,
+            version="1",
+            display_name="Dimension B",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="attr_b", type=StringType(), order=1),
+            ],
+        )
+        dim_b.current = dim_b_rev
+
+        session.add_all([dim_b, dim_b_rev])
+        await session.flush()
+
+        # Create dimension A (links to B)
+        dim_a = Node(
+            name="default.dim_a",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_a_rev = NodeRevision(
+            node=dim_a,
+            type=dim_a.type,
+            name=dim_a.name,
+            version="1",
+            display_name="Dimension A",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="attr_a", type=StringType(), order=1),
+            ],
+        )
+        dim_a.current = dim_a_rev
+
+        session.add_all([dim_a, dim_a_rev])
+        await session.flush()
+
+        # Create transform that links to dim_a
+        transform1 = Node(
+            name="default.transform_hier",
+            type=NodeType.TRANSFORM,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        transform1_rev = NodeRevision(
+            node=transform1,
+            type=transform1.type,
+            name=transform1.name,
+            version="1",
+            display_name="Transform Hierarchy",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="value", type=IntegerType(), order=1),
+            ],
+        )
+        transform1.current = transform1_rev
+
+        session.add_all([transform1, transform1_rev])
+        await session.flush()
+
+        # Create metric that has transform1 as parent
+        metric1 = Node(
+            name="default.metric_hier",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        metric1_rev = NodeRevision(
+            node=metric1,
+            type=metric1.type,
+            name=metric1.name,
+            version="1",
+            display_name="Metric Hierarchy",
+            query="SELECT SUM(value) FROM default.transform_hier",
+            parents=[transform1],
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="total", type=IntegerType(), order=0),
+            ],
+        )
+        metric1.current = metric1_rev
+
+        session.add_all([metric1, metric1_rev])
+        await session.flush()
+
+        # Create dimension links to form the hierarchy:
+        # transform1 -> dim_a -> dim_b -> dim_c
+        link_transform_to_a = DimensionLink(
+            dimension_id=dim_a.id,
+            node_revision_id=transform1_rev.id,
+            join_sql="default.transform_hier.id = default.dim_a.id",
+        )
+        link_a_to_b = DimensionLink(
+            dimension_id=dim_b.id,
+            node_revision_id=dim_a_rev.id,
+            join_sql="default.dim_a.id = default.dim_b.id",
+        )
+        link_b_to_c = DimensionLink(
+            dimension_id=dim_c.id,
+            node_revision_id=dim_b_rev.id,
+            join_sql="default.dim_b.id = default.dim_c.id",
+        )
+
+        session.add_all([link_transform_to_a, link_a_to_b, link_b_to_c])
+        await session.commit()
+
+        return {
+            "dim_a": dim_a,
+            "dim_b": dim_b,
+            "dim_c": dim_c,
+            "transform1": transform1,
+            "metric1": metric1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_dimension_hierarchy_traversal(
+        self,
+        session: AsyncSession,
+        dimension_hierarchy_graph,
+    ):
+        """
+        Test that searching for a dimension at the end of a hierarchy
+        finds nodes that link to dimensions earlier in the chain.
+
+        Hierarchy: transform1 -> dim_a -> dim_b -> dim_c
+        Searching for dim_c should find transform1 (and metric1 via parent).
+        """
+        graph = dimension_hierarchy_graph
+
+        # Search for dim_c - should find transform1 through the hierarchy
+        result = await get_nodes_with_common_dimensions(session, [graph["dim_c"]])
+        result_names = {node.name for node in result}
+
+        # transform1 links to dim_a, dim_a links to dim_b, dim_b links to dim_c
+        # So transform1 transitively "has" dim_c
+        assert "default.transform_hier" in result_names
+        # metric1 inherits from transform1
+        assert "default.metric_hier" in result_names
+        # dim_a and dim_b are also in the path
+        assert "default.dim_a" in result_names
+        assert "default.dim_b" in result_names
+
+    @pytest.mark.asyncio
+    async def test_dimension_hierarchy_middle(
+        self,
+        session: AsyncSession,
+        dimension_hierarchy_graph,
+    ):
+        """
+        Test searching for a dimension in the middle of a hierarchy.
+
+        Hierarchy: transform1 -> dim_a -> dim_b -> dim_c
+        Searching for dim_b should find transform1 and dim_a.
+        """
+        graph = dimension_hierarchy_graph
+
+        result = await get_nodes_with_common_dimensions(session, [graph["dim_b"]])
+        result_names = {node.name for node in result}
+
+        # transform1 links to dim_a, dim_a links to dim_b
+        assert "default.transform_hier" in result_names
+        assert "default.metric_hier" in result_names
+        assert "default.dim_a" in result_names
+
+        # dim_c is after dim_b in the chain, so shouldn't be found
+        assert "default.dim_c" not in result_names
