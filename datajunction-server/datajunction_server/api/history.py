@@ -6,10 +6,9 @@ import logging
 from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlalchemy import select
+from sqlalchemy import select, and_, cast, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import and_, cast, func, String
 
 from datajunction_server.api.helpers import get_history
 from datajunction_server.database.history import History

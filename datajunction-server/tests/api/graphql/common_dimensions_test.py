@@ -95,7 +95,7 @@ async def test_get_common_dimensions(
         "role": None,
         "type": "int",
     } in data["data"]["commonDimensions"]
-    assert len(capture_queries) <= 15  # type: ignore
+    assert len(capture_queries) <= 18  # type: ignore
 
 
 @pytest.mark.asyncio

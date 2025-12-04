@@ -124,6 +124,8 @@ async def test_service_account_token_success(
         "oauth_provider": "basic",
         "owned_nodes": [],
         "username": sa_data["client_id"],
+        "last_viewed_notifications_at": None,
+        "notification_preferences": [],
     }
 
 
