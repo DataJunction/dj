@@ -203,3 +203,121 @@ async def test_service_account_login_invalid_secret(module__client: AsyncClient)
         "debug": None,
         "message": "Invalid service account credentials",
     }
+
+
+@pytest.mark.asyncio
+async def test_delete_service_account_success(
+    module__client: AsyncClient,
+    module__session: AsyncSession,
+):
+    """
+    Test successfully deleting a service account
+    """
+    # Create a service account
+    payload = {"name": "SA To Delete"}
+    create_resp = await module__client.post("/service-accounts", json=payload)
+    assert create_resp.status_code == 200
+    sa_data = create_resp.json()
+
+    # Verify it exists
+    sa = await User.get_by_username(module__session, sa_data["client_id"])
+    assert sa is not None
+
+    # Delete it
+    delete_resp = await module__client.delete(
+        f"/service-accounts/{sa_data['client_id']}",
+    )
+    assert delete_resp.status_code == 200
+    assert delete_resp.json() == {
+        "message": f"Service account `{sa_data['client_id']}` deleted",
+    }
+
+    # Verify it's gone from the database
+    await module__session.expire_all()
+    sa_after = await User.get_by_username(module__session, sa_data["client_id"])
+    assert sa_after is None
+
+    # Verify it's gone from the list
+    list_resp = await module__client.get("/service-accounts")
+    assert list_resp.status_code == 200
+    sa_list = list_resp.json()
+    assert all(sa["client_id"] != sa_data["client_id"] for sa in sa_list)
+
+
+@pytest.mark.asyncio
+async def test_delete_service_account_not_found(module__client: AsyncClient):
+    """
+    Test deleting a service account that doesn't exist
+    """
+    resp = await module__client.delete("/service-accounts/non-existent-id")
+    assert resp.status_code == 401
+    error = resp.json()
+    assert (
+        error["errors"][0]["message"] == "Service account `non-existent-id` not found"
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_service_account_wrong_kind(
+    module__client: AsyncClient,
+    module__session: AsyncSession,
+):
+    """
+    Test deleting something that is not a service account (e.g., a regular user)
+    """
+    # Create a regular user
+    user = User(
+        username="regular-user-to-delete",
+        password=get_password_hash("secret"),
+        kind=PrincipalKind.USER,
+        oauth_provider=OAuthProvider.BASIC,
+    )
+    module__session.add(user)
+    await module__session.commit()
+
+    # Try to delete it via service account endpoint
+    resp = await module__client.delete(f"/service-accounts/{user.username}")
+    assert resp.status_code == 401
+    error = resp.json()
+    assert error["errors"][0]["message"] == "Not a service account"
+
+
+@pytest.mark.asyncio
+async def test_delete_service_account_not_owner(
+    module__client: AsyncClient,
+    module__session: AsyncSession,
+):
+    """
+    Test that a user cannot delete a service account they didn't create
+    """
+    # Create a service account owned by a different user
+    other_user = User(
+        username="other-user",
+        password=get_password_hash("secret"),
+        kind=PrincipalKind.USER,
+        oauth_provider=OAuthProvider.BASIC,
+    )
+    module__session.add(other_user)
+    await module__session.commit()
+    await module__session.refresh(other_user)
+
+    # Create a service account owned by the other user
+    sa = User(
+        name="Other User's SA",
+        username="other-users-sa-id",
+        password=get_password_hash("secret"),
+        kind=PrincipalKind.SERVICE_ACCOUNT,
+        oauth_provider=OAuthProvider.BASIC,
+        created_by_id=other_user.id,
+    )
+    module__session.add(sa)
+    await module__session.commit()
+
+    # Try to delete it as the current user (dj)
+    resp = await module__client.delete(f"/service-accounts/{sa.username}")
+    assert resp.status_code == 401
+    error = resp.json()
+    assert (
+        error["errors"][0]["message"]
+        == "You can only delete service accounts you created"
+    )
