@@ -2,6 +2,7 @@
 Tests for ``datajunction_server.utils``.
 """
 
+from typing import cast
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
@@ -39,8 +40,10 @@ from datajunction_server.utils import (
     get_settings,
     setup_logging,
     is_graphql_query,
+    sync_user_groups,
     _create_configured_query_client,
 )
+from datajunction_server.database.user import PrincipalKind
 
 
 def test_setup_logging() -> None:
@@ -720,3 +723,190 @@ def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> Non
     assert client._map_snowflake_type_to_dj("DECIMAL(20,5)")
     assert client._map_snowflake_type_to_dj("NUMERIC(15)")  # No scale parameter
     assert client._map_snowflake_type_to_dj("NUMBER(invalid)")  # Invalid params
+
+
+@pytest.mark.asyncio
+async def test_sync_user_groups_no_groups(session: AsyncSession, mocker: MockerFixture):
+    """
+    Test sync_user_groups when user has no groups.
+    """
+    # Mock the group membership service to return no groups
+    mock_service = mocker.MagicMock()
+    mock_service.get_user_groups = mocker.AsyncMock(return_value=[])
+    mocker.patch(
+        "datajunction_server.utils.get_group_membership_service",
+        return_value=mock_service,
+    )
+
+    result = await sync_user_groups(session, "testuser")
+
+    assert result == []
+    mock_service.get_user_groups.assert_called_once_with(session, "testuser")
+
+
+@pytest.mark.asyncio
+async def test_sync_user_groups_creates_new_groups(
+    session: AsyncSession,
+    mocker: MockerFixture,
+):
+    """
+    Test sync_user_groups creates group principals that don't exist.
+    """
+    # Mock the group membership service to return groups
+    mock_service = mocker.MagicMock()
+    mock_service.get_user_groups = mocker.AsyncMock(
+        return_value=["eng-team", "data-team"],
+    )
+    mocker.patch(
+        "datajunction_server.utils.get_group_membership_service",
+        return_value=mock_service,
+    )
+
+    result = await sync_user_groups(session, "testuser")
+
+    assert result == ["eng-team", "data-team"]
+
+    # Verify groups were created
+    eng_group = await User.get_by_username(session, "eng-team", options=[])
+    data_group = await User.get_by_username(session, "data-team", options=[])
+
+    assert eng_group is not None
+    assert eng_group.kind == PrincipalKind.GROUP
+    assert eng_group.name == "eng-team"
+
+    assert data_group is not None
+    assert data_group.kind == PrincipalKind.GROUP
+    assert data_group.name == "data-team"
+
+
+@pytest.mark.asyncio
+async def test_sync_user_groups_skips_existing_groups(
+    session: AsyncSession,
+    mocker: MockerFixture,
+):
+    """
+    Test sync_user_groups skips groups that already exist.
+    """
+    # Create an existing group
+    existing_group = User(
+        username="existing-group",
+        password=None,
+        email="existing@group.com",
+        name="Existing Group",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(existing_group)
+    await session.commit()
+    original_id = existing_group.id
+
+    # Mock the group membership service to return the existing group
+    mock_service = mocker.MagicMock()
+    mock_service.get_user_groups = mocker.AsyncMock(return_value=["existing-group"])
+    mocker.patch(
+        "datajunction_server.utils.get_group_membership_service",
+        return_value=mock_service,
+    )
+
+    result = await sync_user_groups(session, "testuser")
+
+    assert result == ["existing-group"]
+
+    # Verify the group still exists with same ID (wasn't recreated)
+    group = cast(
+        User,
+        await User.get_by_username(
+            session,
+            "existing-group",
+            options=[],
+        ),
+    )
+    assert group.id == original_id
+    assert group.email == "existing@group.com"  # Original email preserved
+
+
+@pytest.mark.asyncio
+async def test_sync_user_groups_warns_on_non_group_principal(
+    session: AsyncSession,
+    mocker: MockerFixture,
+    caplog,
+):
+    """
+    Test sync_user_groups logs warning when a principal exists but is not a group.
+    """
+    # Create an existing user (not a group) with a name that matches a group
+    existing_user = User(
+        username="alice",
+        password=None,
+        email="alice@example.com",
+        name="Alice",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+        kind=PrincipalKind.USER,
+    )
+    session.add(existing_user)
+    await session.commit()
+
+    # Mock the group membership service to return "alice" as a group
+    mock_service = mocker.MagicMock()
+    mock_service.get_user_groups = mocker.AsyncMock(return_value=["alice"])
+    mocker.patch(
+        "datajunction_server.utils.get_group_membership_service",
+        return_value=mock_service,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await sync_user_groups(session, "testuser")
+
+    assert result == ["alice"]
+    assert "Principal alice exists but is not a group (kind=user), skipping" in (
+        caplog.text
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_user_groups_mixed_existing_and_new(
+    session: AsyncSession,
+    mocker: MockerFixture,
+):
+    """
+    Test sync_user_groups handles mix of existing and new groups.
+    """
+    # Create one existing group
+    existing_group = User(
+        username="existing-team",
+        password=None,
+        email=None,
+        name="Existing Team",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(existing_group)
+    await session.commit()
+
+    # Mock the group membership service to return both existing and new groups
+    mock_service = mocker.MagicMock()
+    mock_service.get_user_groups = mocker.AsyncMock(
+        return_value=["existing-team", "new-team"],
+    )
+    mocker.patch(
+        "datajunction_server.utils.get_group_membership_service",
+        return_value=mock_service,
+    )
+
+    result = await sync_user_groups(session, "testuser")
+
+    assert result == ["existing-team", "new-team"]
+
+    # Verify both groups exist
+    existing = await User.get_by_username(session, "existing-team", options=[])
+    new = await User.get_by_username(session, "new-team", options=[])
+
+    assert existing is not None
+    assert existing.kind == PrincipalKind.GROUP
+
+    assert new is not None
+    assert new.kind == PrincipalKind.GROUP
+    assert new.name == "new-team"
