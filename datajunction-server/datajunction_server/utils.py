@@ -11,7 +11,7 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -31,7 +31,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, QueryClientConfig, Settings
-from datajunction_server.database.user import User
+from datajunction_server.database.user import User, PrincipalKind, OAuthProvider
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
     DJAuthenticationException,
@@ -40,8 +40,9 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJUninitializedResourceException,
 )
-
-# Query clients imported locally to avoid circular imports
+from datajunction_server.internal.access.group_membership import (
+    get_group_membership_service,
+)
 from datajunction_server.service_clients import QueryServiceClient
 
 logger = logging.getLogger(__name__)
@@ -474,6 +475,57 @@ async def get_current_user(request: Request) -> User:
     return request.state.user
 
 
+async def sync_user_groups(
+    session: AsyncSession,
+    username: str,
+) -> list[str]:
+    """
+    Sync a user's groups from the configured membership provider.
+
+    This fetches the user's groups and ensures they exist as principals
+    (kind=GROUP) in the users table so that roles can be assigned to them.
+    """
+    service = get_group_membership_service()
+    group_names = await service.get_user_groups(session, username)
+
+    if not group_names:
+        return group_names
+
+    # Fetch all existing groups in a single query
+    existing_users = await User.get_by_usernames(
+        session,
+        group_names,
+        raise_if_not_exists=False,
+    )
+    existing_groups = {u.username: u for u in existing_users}
+
+    for group_name in group_names:
+        existing = existing_groups.get(group_name)
+        if existing:
+            if existing.kind != PrincipalKind.GROUP:
+                logger.warning(
+                    "Principal %s exists but is not a group (kind=%s), skipping",
+                    group_name,
+                    existing.kind,
+                )
+            continue
+
+        # Create the group principal
+        new_group = User(
+            username=group_name,
+            password=None,
+            email=None,
+            name=group_name,
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+            kind=PrincipalKind.GROUP,
+        )
+        session.add(new_group)
+
+    await session.commit()
+    return group_names
+
+
 async def get_and_update_current_user(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -498,7 +550,13 @@ async def get_and_update_current_user(
     )
     await session.execute(statement)
     await session.commit()
-    refreshed_user = await User.get_by_username(session, current_user.username)
+    refreshed_user = cast(
+        User,
+        await User.get_by_username(session, current_user.username),
+    )
+
+    await sync_user_groups(session, refreshed_user.username)
+
     return refreshed_user  # type: ignore
 
 
