@@ -5,7 +5,10 @@ Tests for cache manager
 from fastapi import BackgroundTasks
 import pytest
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
-from datajunction_server.internal.caching.cache_manager import RefreshAheadCacheManager
+from datajunction_server.internal.caching.cache_manager import (
+    FunctionalRefreshAheadCache,
+    RefreshAheadCacheManager,
+)
 from starlette.datastructures import Headers
 
 
@@ -183,3 +186,162 @@ async def test_background_refresh_updates_cache():
     # After refresh, the cache should be updated with fresh value
     stored = cache.get(key)
     assert stored["fresh"] is True
+
+
+# =============================================================================
+# Tests for FunctionalRefreshAheadCache
+# =============================================================================
+
+
+async def example_fallback_fn(request, params):
+    """Example fallback function for testing."""
+    return {"fresh": True, "params": params}
+
+
+@pytest.mark.asyncio
+async def test_functional_cache_basic_usage():
+    """
+    FunctionalRefreshAheadCache should work with a simple fallback function.
+    """
+    cache = CachelibCache()
+    cm = FunctionalRefreshAheadCache(
+        cache=cache,
+        fallback_fn=example_fallback_fn,
+        cache_key_prefix="test_functional",
+        timeout=3600,
+    )
+
+    request = DummyRequest()
+    background = BackgroundTasks()
+    params = {"dimension_name": "test_dim", "node_types": ["metric"]}
+
+    # First call - cache miss, should call fallback
+    result = await cm.get_or_load(background, request, params)
+    assert result["fresh"] is True
+    assert result["params"] == params
+
+    # Run background tasks to store
+    for task in background.tasks:
+        await task()
+
+    # Now cache should be populated
+    key = await cm.build_cache_key(request, params)
+    stored = cache.get(key)
+    assert stored["fresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_functional_cache_custom_prefix():
+    """
+    FunctionalRefreshAheadCache should use the provided cache key prefix.
+    """
+    cache = CachelibCache()
+    cm = FunctionalRefreshAheadCache(
+        cache=cache,
+        fallback_fn=example_fallback_fn,
+        cache_key_prefix="dimension_nodes",
+        timeout=3600,
+    )
+
+    request = DummyRequest()
+    key = await cm.build_cache_key(request, {"foo": "bar"})
+    assert key.startswith("dimension_nodes:")
+
+
+@pytest.mark.asyncio
+async def test_functional_cache_custom_timeout():
+    """
+    FunctionalRefreshAheadCache should use the provided timeout.
+    """
+    cache = CachelibCache()
+    cm = FunctionalRefreshAheadCache(
+        cache=cache,
+        fallback_fn=example_fallback_fn,
+        cache_key_prefix="test",
+        timeout=7200,
+    )
+    assert cm.default_timeout == 7200
+
+
+@pytest.mark.asyncio
+async def test_functional_cache_refresh_ahead():
+    """
+    FunctionalRefreshAheadCache should refresh stale values in the background.
+    """
+    call_count = 0
+
+    async def counting_fallback(request, params):
+        nonlocal call_count
+        call_count += 1
+        return {"call_count": call_count, "params": params}
+
+    cache = CachelibCache()
+    cm = FunctionalRefreshAheadCache(
+        cache=cache,
+        fallback_fn=counting_fallback,
+        cache_key_prefix="test_refresh",
+        timeout=3600,
+    )
+
+    request = DummyRequest()
+    params = {"key": "value"}
+
+    # Pre-populate with stale value
+    key = await cm.build_cache_key(request, params)
+    cache.set(key, {"stale": True})
+
+    background = BackgroundTasks()
+    result = await cm.get_or_load(background, request, params)
+
+    # Should return stale value immediately
+    assert result == {"stale": True}
+
+    # Fallback should not have been called yet (background task pending)
+    assert call_count == 0
+
+    # Run background refresh
+    for task in background.tasks:
+        await task()
+
+    # Now fallback should have been called
+    assert call_count == 1
+
+    # Cache should now have fresh value
+    stored = cache.get(key)
+    assert stored["call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_functional_cache_respects_cache_control():
+    """
+    FunctionalRefreshAheadCache should respect Cache-Control headers.
+    """
+    cache = CachelibCache()
+    cm = FunctionalRefreshAheadCache(
+        cache=cache,
+        fallback_fn=example_fallback_fn,
+        cache_key_prefix="test_headers",
+        timeout=3600,
+    )
+
+    params = {"test": "params"}
+    request = DummyRequest()
+
+    # Pre-populate cache
+    key = await cm.build_cache_key(request, params)
+    cache.set(key, {"cached": True})
+
+    # With no-cache, should bypass cached value
+    no_cache_request = DummyRequest(cache_control="no-cache")
+    background = BackgroundTasks()
+    result = await cm.get_or_load(background, no_cache_request, params)
+    assert result["fresh"] is True  # Got fresh value, not cached
+
+    # With no-store, should return cached but not update
+    cache.set(key, {"cached": True})
+    no_store_request = DummyRequest(cache_control="no-store")
+    background = BackgroundTasks()
+    result = await cm.get_or_load(background, no_store_request, params)
+    assert result == {"cached": True}  # Returns cached
+    # Background tasks should be empty (no refresh scheduled)
+    assert len(background.tasks) == 0

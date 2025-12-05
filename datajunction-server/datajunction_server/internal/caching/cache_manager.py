@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import hashlib
 import json
 import logging
-from typing import Generic, Protocol, TypeVar
+from typing import Awaitable, Callable, Generic, Protocol, TypeVar
 from fastapi import BackgroundTasks, Request
 
 from datajunction_server.internal.caching.interface import Cache
@@ -14,6 +14,9 @@ class DataClassLike(Protocol):
 
 ResultType = TypeVar("ResultType")
 ParamsType = TypeVar("ParamsType", dict, DataClassLike)
+
+# Type alias for fallback functions
+FallbackFn = Callable[[Request, dict], Awaitable]
 
 
 class CacheManager(ABC, Generic[ParamsType, ResultType]):
@@ -133,3 +136,35 @@ class RefreshAheadCacheManager(CacheManager):
         result = await self.fallback(request, params)
         self.cache.set(key, result, timeout=self.default_timeout)
         self.logger.info("Successfully refreshed cache for key=%s", key)
+
+
+class FunctionalRefreshAheadCache(RefreshAheadCacheManager):
+    """
+    A concrete RefreshAheadCacheManager that accepts a fallback function directly,
+    avoiding the need to create a subclass for simple use cases.
+
+    Example usage:
+        cache_manager = FunctionalRefreshAheadCache(
+            cache=cache,
+            fallback_fn=my_async_function,
+            cache_key_prefix="my_cache",
+            timeout=3600,
+        )
+        result = await cache_manager.get_or_load(background_tasks, request, params)
+    """
+
+    def __init__(
+        self,
+        cache: Cache,
+        fallback_fn: FallbackFn,
+        cache_key_prefix: str,
+        timeout: int = 3600,
+    ):
+        super().__init__(cache)
+        self._fallback_fn = fallback_fn
+        self._cache_key_prefix = cache_key_prefix
+        self.default_timeout = timeout
+
+    async def fallback(self, request: Request, params: dict) -> ResultType:
+        """Delegates to the provided fallback function."""
+        return await self._fallback_fn(request, params)
