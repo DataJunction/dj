@@ -1516,4 +1516,32 @@ export const DataJunctionAPI = {
     });
     return await response.json();
   },
+
+  // Service Account APIs
+  listServiceAccounts: async function () {
+    const response = await fetch(`${DJ_URL}/service-accounts`, {
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+
+  createServiceAccount: async function (name) {
+    const response = await fetch(`${DJ_URL}/service-accounts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ name }),
+    });
+    return await response.json();
+  },
+
+  deleteServiceAccount: async function (clientId) {
+    const response = await fetch(`${DJ_URL}/service-accounts/${clientId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    return await response.json();
+  },
 };
