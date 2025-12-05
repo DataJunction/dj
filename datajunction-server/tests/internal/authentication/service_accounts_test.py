@@ -233,7 +233,6 @@ async def test_delete_service_account_success(
     }
 
     # Verify it's gone from the database
-    await module__session.expire_all()
     sa_after = await User.get_by_username(module__session, sa_data["client_id"])
     assert sa_after is None
 
