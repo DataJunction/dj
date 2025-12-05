@@ -8,6 +8,7 @@ __all__ = [
     "Database",
     "Deployment",
     "DimensionLink",
+    "DimensionReachability",
     "Engine",
     "GroupMember",
     "History",
@@ -32,6 +33,7 @@ from datajunction_server.database.collection import Collection
 from datajunction_server.database.database import Database, Table
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.dimensionreachability import DimensionReachability
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.measure import Measure

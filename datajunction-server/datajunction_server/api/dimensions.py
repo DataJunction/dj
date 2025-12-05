@@ -24,6 +24,14 @@ from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
     get_nodes_with_common_dimensions,
 )
+from datajunction_server.internal.dimension_reachability import (
+    rebuild_dimension_reachability,
+    get_reachability_stats,
+)
+from datajunction_server.internal.dimension_reachability import (
+    rebuild_dimension_reachability,
+    get_reachability_stats,
+)
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -120,10 +128,12 @@ async def find_nodes_with_common_dimensions(
     """
     Find all nodes that have the list of common dimensions
     """
+    # Use names_only=True for faster query (no ORM object loading)
     nodes = await get_nodes_with_common_dimensions(
         session,
         [await get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
+        names_only=True,
     )
     approvals = [
         approval.access_object.name
@@ -144,3 +154,42 @@ async def find_nodes_with_common_dimensions(
         )
     ]
     return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]
+
+
+@router.post("/dimensions/reachability/rebuild")
+async def rebuild_reachability(
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Rebuild the dimension reachability table.
+
+    This recomputes the transitive closure of all dimension relationships,
+    allowing efficient lookups of which dimensions can reach other dimensions.
+
+    This is an expensive operation and should be called sparingly
+    (e.g., after bulk schema changes or on a schedule).
+    """
+    _logger.info(
+        "User %s triggered dimension reachability rebuild",
+        current_user.username,
+    )
+    rows_inserted = await rebuild_dimension_reachability(session)
+    return {
+        "message": "Dimension reachability rebuilt successfully",
+        "rows_inserted": rows_inserted,
+    }
+
+
+@router.get("/dimensions/reachability/stats")
+async def reachability_stats(
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """
+    Get statistics about the dimension reachability table.
+
+    Useful for monitoring and debugging.
+    """
+    return await get_reachability_stats(session)
