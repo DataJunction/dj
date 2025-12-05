@@ -107,6 +107,58 @@ async def list_service_accounts(
     ]
 
 
+@secure_router.delete("/service-accounts/{client_id}")
+async def delete_service_account(
+    client_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a service account
+    """
+    service_account = await User.get_by_username(session, client_id)
+    if not service_account:
+        raise DJAuthenticationException(
+            errors=[
+                DJError(
+                    message=f"Service account `{client_id}` not found",
+                    code=ErrorCode.USER_NOT_FOUND,
+                ),
+            ],
+        )
+
+    if service_account.kind != PrincipalKind.SERVICE_ACCOUNT:
+        raise DJAuthenticationException(
+            errors=[
+                DJError(
+                    message="Not a service account",
+                    code=ErrorCode.AUTHENTICATION_ERROR,
+                ),
+            ],
+        )
+
+    if service_account.created_by_id != current_user.id:
+        raise DJAuthenticationException(
+            errors=[
+                DJError(
+                    message="You can only delete service accounts you created",
+                    code=ErrorCode.AUTHENTICATION_ERROR,
+                ),
+            ],
+        )
+
+    logger.info(
+        "User %s is deleting service account %s",
+        current_user.username,
+        service_account.username,
+    )
+
+    await session.delete(service_account)
+    await session.commit()
+
+    return {"message": f"Service account `{client_id}` deleted"}
+
+
 @router.post("/service-accounts/token", response_model=TokenResponse)
 async def service_account_token(
     client_id: str = Form(...),
