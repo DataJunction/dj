@@ -136,7 +136,7 @@ describe('SettingsPage', () => {
     });
 
     // Page should still render without service accounts
-    expect(screen.getByText('No service accounts yet')).toBeInTheDocument();
+    expect(screen.getByText(/No service accounts yet/i)).toBeInTheDocument();
 
     consoleSpy.mockRestore();
   });
