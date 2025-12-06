@@ -25,7 +25,7 @@ from datajunction_server.database.node import (
 from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node_type import NodeType, NodeNameVersion
 from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
@@ -1123,23 +1123,11 @@ async def get_nodes_with_dimension(
     return list(final_set)
 
 
-class NodeNameVersionResult:
-    """
-    Lightweight result class for node name and version queries.
-    """
-
-    __slots__ = ("name", "version")
-
-    def __init__(self, name: str, version: str):
-        self.name = name
-        self.version = version
-
-
 async def get_nodes_with_common_dimensions(
     session: AsyncSession,
     common_dimensions: list[Node],
     node_types: list[NodeType] | None = None,
-) -> list[NodeNameVersionResult]:
+) -> list[NodeNameVersion]:
     """
     Find all nodes that share a list of common dimensions.
 
@@ -1155,7 +1143,7 @@ async def get_nodes_with_common_dimensions(
         node_types: Optional list of node types to filter by
 
     Returns:
-        List of NodeNameVersionResult objects containing node name and version
+        List of NodeNameVersion objects containing node name and version
     """
     if not common_dimensions:
         return []
@@ -1306,7 +1294,7 @@ async def get_nodes_with_common_dimensions(
         statement = statement.where(NodeRevision.type.in_(node_types))
 
     results = await session.execute(statement)
-    return [NodeNameVersionResult(name=row[0], version=row[1]) for row in results.all()]
+    return [NodeNameVersion(name=row[0], version=row[1]) for row in results.all()]
 
 
 def topological_sort(nodes: List[Node]) -> List[Node]:
