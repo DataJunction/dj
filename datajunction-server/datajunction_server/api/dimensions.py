@@ -127,10 +127,14 @@ async def find_nodes_with_common_dimensions(
             [
                 access.ResourceRequest(
                     verb=access.ResourceAction.READ,
-                    access_object=access.Resource.from_node(node),
+                    access_object=access.Resource(
+                        name=node.name,
+                        resource_type=access.ResourceType.NODE,
+                        owner="",
+                    ),
                 )
                 for node in nodes
             ],
         )
     ]
-    return [node for node in nodes if node.name in approvals]
+    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]

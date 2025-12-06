@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from sqlalchemy.dialects.postgresql import array
-from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -1124,12 +1123,23 @@ async def get_nodes_with_dimension(
     return list(final_set)
 
 
+class NodeNameVersionResult:
+    """
+    Lightweight result class for node name and version queries.
+    """
+
+    __slots__ = ("name", "version")
+
+    def __init__(self, name: str, version: str):
+        self.name = name
+        self.version = version
+
+
 async def get_nodes_with_common_dimensions(
     session: AsyncSession,
     common_dimensions: list[Node],
     node_types: list[NodeType] | None = None,
-    options: list[ExecutableOption] | None = None,
-) -> list[NodeRevision]:
+) -> list[NodeNameVersionResult]:
     """
     Find all nodes that share a list of common dimensions.
 
@@ -1139,6 +1149,13 @@ async def get_nodes_with_common_dimensions(
 
     For example, if dim A -> dim B -> dim C, searching for dim C will find nodes
     linked to dim C, dim B, or dim A (since they all lead to dim C).
+
+    Args:
+        common_dimensions: List of dimension nodes to find common nodes for
+        node_types: Optional list of node types to filter by
+
+    Returns:
+        List of NodeNameVersionResult objects containing node name and version
     """
     if not common_dimensions:
         return []
@@ -1162,15 +1179,6 @@ async def get_nodes_with_common_dimensions(
         )
     ).cte("graph_branches")
 
-    # For each target dimension, build a recursive CTE to find all dimensions
-    # that transitively link to it (reverse traversal of the dimensions graph).
-    # A node linked to any dimension in this expanded set has access to the
-    # target dimension.
-    #
-    # Example: dim A -> dim B -> dim C
-    # When searching for dim C, we find: {dim C, dim B, dim A}
-    # Any node linked to dim A, dim B, or dim C has access to dim C
-
     # Recursive CTE: find all dimensions that lead to each target dimension
     # Base case: the target dimensions themselves
     dimension_graph = (
@@ -1188,7 +1196,6 @@ async def get_nodes_with_common_dimensions(
     )
 
     # Recursive case: find dimensions that link to dimensions already in our set
-    # If dim A links to dim B, and dim B is in our set, add dim A
     dimension_graph = dimension_graph.union_all(
         select(
             dimension_graph.c.target_dim_id,
@@ -1212,8 +1219,7 @@ async def get_nodes_with_common_dimensions(
         .where(Node.deactivated_at.is_(None)),
     )
 
-    # Now find all node revisions that link to any dimension in the expanded graph
-    # For each target dimension, then intersect to find nodes with all target dimensions
+    # Find all node revisions that link to any dimension in the expanded graph
     nodes_linked_to_expanded_dims = (
         select(
             graph_branches.c.node_revision_id,
@@ -1280,12 +1286,13 @@ async def get_nodes_with_common_dimensions(
         .subquery()
     )
 
-    # Final query to get NodeRevision objects with eager loading
+    # Final query to get only node name and version (lightweight)
     statement = (
-        select(NodeRevision)
+        select(Node.name, Node.current_version)
+        .select_from(all_matching_nodes)
         .join(
-            all_matching_nodes,
-            NodeRevision.id == all_matching_nodes.c.node_revision_id,
+            NodeRevision,
+            all_matching_nodes.c.node_revision_id == NodeRevision.id,
         )
         .join(
             Node,
@@ -1298,10 +1305,8 @@ async def get_nodes_with_common_dimensions(
     if node_types:
         statement = statement.where(NodeRevision.type.in_(node_types))
 
-    if options:  # pragma: no cover
-        statement = statement.options(*options)
-
-    return list((await session.execute(statement)).unique().scalars().all())
+    results = await session.execute(statement)
+    return [NodeNameVersionResult(name=row[0], version=row[1]) for row in results.all()]
 
 
 def topological_sort(nodes: List[Node]) -> List[Node]:
