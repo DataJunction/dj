@@ -26,7 +26,6 @@ from datajunction_server.models.service_account import (
 )
 from datajunction_server.utils import (
     Settings,
-    get_and_update_current_user,
     get_current_user,
     get_session,
     get_settings,
@@ -41,7 +40,7 @@ logger = logging.getLogger(__name__)
 async def create_service_account(
     payload: ServiceAccountCreate,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Create a new service account

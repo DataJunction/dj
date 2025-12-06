@@ -46,7 +46,7 @@ from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -95,7 +95,7 @@ async def upsert_materialization(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
@@ -335,7 +335,7 @@ async def deactivate_node_materializations(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -438,7 +438,7 @@ async def run_materialization_backfill(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> MaterializationInfo:
     """

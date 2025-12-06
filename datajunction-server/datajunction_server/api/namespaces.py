@@ -37,7 +37,6 @@ from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     SEPARATOR,
-    get_and_update_current_user,
     get_current_user,
     get_query_service_client,
     get_session,
@@ -54,7 +53,7 @@ async def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     *,
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
@@ -178,7 +177,7 @@ async def deactivate_a_namespace(
     ),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
@@ -265,7 +264,7 @@ async def restore_a_namespace(
         description="Cascade the restore down to the nodes in the namespace",
     ),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -339,7 +338,7 @@ async def hard_delete_node_namespace(
     *,
     cascade: bool = False,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """

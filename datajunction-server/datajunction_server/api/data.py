@@ -39,7 +39,6 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
-    get_and_update_current_user,
     get_current_user,
     get_query_service_client,
     get_session,
@@ -66,7 +65,7 @@ async def add_availability_state(
     data: AvailabilityStateBase,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
@@ -190,7 +189,7 @@ async def remove_availability_state(
     node_name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
