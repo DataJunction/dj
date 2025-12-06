@@ -111,7 +111,6 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
-    get_and_update_current_user,
     get_current_user,
     get_query_service_client,
     get_session,
@@ -156,7 +155,7 @@ async def validate_node(
 async def revalidate(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     *,
     background_tasks: BackgroundTasks,
@@ -208,7 +207,7 @@ async def set_column_attributes(
     attributes: List[AttributeTypeIdentifier],
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> List[ColumnOutput]:
     """
@@ -346,7 +345,7 @@ async def delete_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
@@ -374,7 +373,7 @@ async def delete_node(
 async def hard_delete(
     name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -401,7 +400,7 @@ async def restore_node(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ):
     """
@@ -444,7 +443,7 @@ async def create_source(
     data: CreateSourceNode,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     validate_access: access.ValidateAccessFn = Depends(
@@ -492,7 +491,7 @@ async def create_node(
     request: Request,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(
@@ -531,7 +530,7 @@ async def create_cube(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
@@ -573,7 +572,7 @@ async def register_table(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
@@ -647,7 +646,7 @@ async def register_view(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
@@ -728,7 +727,7 @@ async def link_dimension(
     dimension: str,
     dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -770,7 +769,7 @@ async def add_reference_dimension_link(
     dimension_column: str,
     role: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -802,7 +801,7 @@ async def remove_reference_dimension_link(
     node_name: str,
     node_column: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -852,7 +851,7 @@ async def add_complex_dimension_link(
     node_name: str,
     link_input: JoinLinkInput,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -887,7 +886,7 @@ async def remove_complex_dimension_link(
     node_name: str,
     link_identifier: LinkDimensionIdentifier,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -909,7 +908,7 @@ async def delete_dimension_link(
     dimension: str,
     dimension_column: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -935,7 +934,7 @@ async def tags_node(
     tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> JSONResponse:
     """
@@ -988,7 +987,7 @@ async def refresh_source_node(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> NodeOutput:
     """
@@ -1013,7 +1012,7 @@ async def update_node(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks,
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
@@ -1235,7 +1234,7 @@ async def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     *,
     session: AsyncSession = Depends(get_session),
@@ -1277,7 +1276,7 @@ async def set_column_description(
     node_name: str,
     column_name: str,
     description: str,
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     *,
     session: AsyncSession = Depends(get_session),
@@ -1322,7 +1321,7 @@ async def set_column_partition(
     input_partition: PartitionInput,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> ColumnOutput:
     """
@@ -1392,7 +1391,7 @@ async def copy_node(
     *,
     new_name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> DAGNodeOutput:
     """

@@ -23,7 +23,6 @@ from datajunction_server.internal.notifications import (
 )
 from datajunction_server.models.notifications import NotificationPreferenceModel
 from datajunction_server.utils import (
-    get_and_update_current_user,
     get_current_user,
     get_session,
 )
@@ -49,7 +48,7 @@ async def subscribe(
     activity_types: list[ActivityType],
     alert_types: list[str],
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Subscribes to notifications by upserting a notification preference.
@@ -91,7 +90,7 @@ async def unsubscribe(
     entity_type: EntityType,
     entity_name: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Unsubscribes from notifications by deleting a notification preference"""
     result = await session.execute(
@@ -167,7 +166,7 @@ async def get_users_for_notification(
 @router.post("/notifications/mark-read")
 async def mark_notifications_read(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Mark all notifications as read by updating the user's

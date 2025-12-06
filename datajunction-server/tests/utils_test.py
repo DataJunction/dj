@@ -13,7 +13,6 @@ from starlette.types import Scope
 
 import pytest
 from pytest_mock import MockerFixture
-from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.background import BackgroundTasks
@@ -31,7 +30,6 @@ from datajunction_server.utils import (
     DatabaseSessionManager,
     Version,
     execute_with_retry,
-    get_and_update_current_user,
     get_issue_url,
     get_query_service_client,
     get_legacy_query_service_client,
@@ -211,40 +209,6 @@ def test_version_parse() -> None:
     with pytest.raises(DJException) as excinfo:
         Version.parse("0")
     assert str(excinfo.value) == "Unparseable version 0!"
-
-
-@pytest.mark.asyncio
-async def test_get_and_update_current_user(session: AsyncSession):
-    """
-    Test upserting the current user
-    """
-    example_user = User(
-        username="userfoo",
-        password="passwordfoo",
-        name="djuser",
-        email="userfoo@datajunction.io",
-        oauth_provider=OAuthProvider.BASIC,
-    )
-
-    # Confirm that the current user is returned after upserting
-    current_user = await get_and_update_current_user(
-        session=session,
-        current_user=example_user,
-    )
-    assert current_user.id == 1
-    assert current_user.username == example_user.username
-
-    # Confirm that the user was upserted
-    result = await session.execute(select(User).where(User.username == "userfoo"))
-    found_user = result.unique().scalar_one_or_none()
-    assert found_user.id == current_user.id
-    assert found_user.username == "userfoo"  # type: ignore
-    assert (
-        found_user.password is None  # type: ignore
-    )  # If the user is added via upsert, auth is externally managed
-    assert found_user.name == "djuser"  # type: ignore
-    assert found_user.email == "userfoo@datajunction.io"  # type: ignore
-    assert found_user.oauth_provider == "basic"  # type: ignore
 
 
 @pytest.mark.asyncio
