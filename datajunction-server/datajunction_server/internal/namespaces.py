@@ -36,7 +36,7 @@ from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
-    get_nodes_with_dimension,
+    get_nodes_with_common_dimensions,
     topological_sort,
 )
 from datajunction_server.typing import UTCDatetime
@@ -295,10 +295,9 @@ async def hard_delete_namespace(
     for node in nodes:
         # Downstream links
         if node.type == NodeType.DIMENSION:
-            for downstream_link in await get_nodes_with_dimension(
+            for downstream_link in await get_nodes_with_common_dimensions(
                 session,
-                node,
-                level=2,
+                [node],
             ):
                 if downstream_link.name not in node_names:
                     impacted_links[downstream_link.name].append(node.name)

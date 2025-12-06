@@ -5,11 +5,11 @@ DAG related functions.
 import asyncio
 import itertools
 import logging
-from typing import Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Dict, List, Tuple, Union, cast
 
 from sqlalchemy import and_, func, join, literal, or_, select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from sqlalchemy.dialects.postgresql import array
 
@@ -1014,113 +1014,6 @@ async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),
     )
-
-
-async def get_nodes_with_dimension(
-    session: AsyncSession,
-    dimension_node: Node,
-    node_types: Optional[List[NodeType]] = None,
-    level: int = -1,
-) -> List[NodeRevision]:
-    """
-    Find all nodes that can be joined to a given dimension
-    """
-    to_process: list[tuple[Node, int]] = [(dimension_node, 0)]  # (node, depth)
-    processed: Set[str] = set()
-    final_set: Set[NodeRevision] = set()
-    while to_process:
-        current_node, depth = to_process.pop()
-        if current_node.name in processed:
-            continue
-        processed.add(current_node.name)
-
-        # If we're past the allowed depth, stop traversing further
-        if level >= 0 and depth > level:
-            continue
-
-        # Dimension nodes are used to expand the searchable graph by finding
-        # the next layer of nodes that are linked to this dimension
-        if current_node.type == NodeType.DIMENSION:
-            statement = (
-                select(NodeRevision)
-                .join(
-                    Node,
-                    onclause=(
-                        (NodeRevision.node_id == Node.id)
-                        & (Node.current_version == NodeRevision.version)
-                    ),
-                )
-                .join(
-                    Column,
-                    onclause=(NodeRevision.id == Column.node_revision_id),
-                )
-                .where(
-                    Column.dimension_id.in_(  # type: ignore
-                        [current_node.id],
-                    ),
-                )
-            )
-            node_revisions = (
-                (
-                    await session.execute(
-                        statement.options(contains_eager(NodeRevision.node)),
-                    )
-                )
-                .unique()
-                .scalars()
-                .all()
-            )
-
-            dim_link_statement = (
-                select(NodeRevision)
-                .select_from(DimensionLink)
-                .join(
-                    NodeRevision,
-                    onclause=(DimensionLink.node_revision_id == NodeRevision.id),
-                )
-                .join(
-                    Node,
-                    onclause=(
-                        (NodeRevision.node_id == Node.id)
-                        & (Node.current_version == NodeRevision.version)
-                    ),
-                )
-                .where(DimensionLink.dimension_id.in_([current_node.id]))
-            )
-            nodes_via_dimension_link = (
-                (
-                    await session.execute(
-                        dim_link_statement.options(contains_eager(NodeRevision.node)),
-                    )
-                )
-                .unique()
-                .scalars()
-                .all()
-            )
-            for node_rev in node_revisions + nodes_via_dimension_link:
-                if node_rev.name not in processed:  # pragma: no cover
-                    to_process.append((node_rev.node, depth + 1))
-        else:
-            # All other nodes are added to the result set
-            current_node = await Node.get_by_name(  # type: ignore
-                session,
-                current_node.name,
-                options=[
-                    joinedload(Node.current).options(
-                        *NodeRevision.default_load_options(),
-                    ),
-                    selectinload(Node.children).options(
-                        selectinload(NodeRevision.node),
-                    ),
-                ],
-            )
-            if current_node:  # pragma: no cover
-                if not node_types or current_node.type in node_types:
-                    final_set.add(current_node.current)
-                for child in current_node.children:
-                    if child.name not in processed:
-                        to_process.append((child.node, depth + 1))
-    return list(final_set)
 
 
 async def get_nodes_with_common_dimensions(
