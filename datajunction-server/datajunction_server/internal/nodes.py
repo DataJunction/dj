@@ -90,7 +90,7 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
-    get_nodes_with_dimension,
+    get_nodes_with_common_dimensions,
     topological_sort,
 )
 from datajunction_server.sql.parsing import ast
@@ -2811,9 +2811,9 @@ async def hard_delete_node(
 
     linked_nodes = []
     if node.type == NodeType.DIMENSION:  # type: ignore
-        linked_nodes = await get_nodes_with_dimension(
+        linked_nodes = await get_nodes_with_common_dimensions(
             session=session,
-            dimension_node=node,  # type: ignore
+            common_dimensions=[node],  # type: ignore
         )
 
     await session.delete(node)
