@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.models.node import NodeNameOutput
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
-from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -19,12 +18,11 @@ from datajunction_server.internal.access.authorization import (
     validate_access_requests,
 )
 from datajunction_server.models import access
-from datajunction_server.models.node import NodeIndegreeOutput, NodeRevisionOutput
+from datajunction_server.models.node import NodeIndegreeOutput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
     get_nodes_with_common_dimensions,
-    get_nodes_with_dimension,
 )
 from datajunction_server.utils import (
     get_current_user,
@@ -67,7 +65,7 @@ async def list_dimensions(
     )
 
 
-@router.get("/dimensions/{name}/nodes/", response_model=List[NodeRevisionOutput])
+@router.get("/dimensions/{name}/nodes/", response_model=List[NodeNameOutput])
 async def find_nodes_with_dimension(
     name: str,
     *,
@@ -77,27 +75,35 @@ async def find_nodes_with_dimension(
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
     ),
-) -> List[NodeRevisionOutput]:
+) -> List[NodeNameOutput]:
     """
     List all nodes that have the specified dimension
     """
-    dimension_node = await Node.get_by_name(session, name)
-    nodes = await get_nodes_with_dimension(session, dimension_node, node_type)  # type: ignore
-    resource_requests = [
-        access.ResourceRequest(
-            verb=access.ResourceAction.READ,
-            access_object=access.Resource.from_node(node),
-        )
-        for node in nodes
-    ]
-    approvals = validate_access_requests(
-        validate_access=validate_access,
-        user=current_user,
-        resource_requests=resource_requests,
+    dimension_node = await get_node_by_name(session, name)
+    nodes = await get_nodes_with_common_dimensions(
+        session,
+        [dimension_node],
+        node_type if node_type else None,
     )
-
-    approved_nodes: List[str] = [request.access_object.name for request in approvals]
-    return [node for node in nodes if node.name in approved_nodes]
+    approvals = [
+        approval.access_object.name
+        for approval in validate_access_requests(
+            validate_access,
+            current_user,
+            [
+                access.ResourceRequest(
+                    verb=access.ResourceAction.READ,
+                    access_object=access.Resource(
+                        name=node.name,
+                        resource_type=access.ResourceType.NODE,
+                        owner="",
+                    ),
+                )
+                for node in nodes
+            ],
+        )
+    ]
+    return [NodeNameOutput(name=node.name) for node in nodes if node.name in approvals]
 
 
 @router.get("/dimensions/common/", response_model=List[NodeNameOutput])
