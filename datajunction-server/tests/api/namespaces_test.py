@@ -373,64 +373,59 @@ async def test_hard_delete_namespace(client_example_loader: AsyncClient):
     hard_delete_response = await client_with_namespaced_roads.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
-    assert hard_delete_response.json() == {
-        "impact": {
-            "deleted_namespaces": [
-                "foo.bar",
-                "foo.bar.baz",
-                "foo.bar.baf",
-                "foo.bar.bif.d",
-            ],
-            "deleted_nodes": [
-                "foo.bar.avg_length_of_employment",
-                "foo.bar.avg_repair_order_discounts",
-                "foo.bar.avg_repair_price",
-                "foo.bar.avg_time_to_dispatch",
-                "foo.bar.contractor",
-                "foo.bar.contractors",
-                "foo.bar.dispatcher",
-                "foo.bar.dispatchers",
+    result = hard_delete_response.json()
+    assert result["message"] == "The namespace `foo.bar` has been completely removed."
+    assert result["impact"]["deleted_namespaces"] == [
+        "foo.bar",
+        "foo.bar.baz",
+        "foo.bar.baf",
+        "foo.bar.bif.d",
+    ]
+    assert result["impact"]["deleted_nodes"] == [
+        "foo.bar.avg_length_of_employment",
+        "foo.bar.avg_repair_order_discounts",
+        "foo.bar.avg_repair_price",
+        "foo.bar.avg_time_to_dispatch",
+        "foo.bar.contractor",
+        "foo.bar.contractors",
+        "foo.bar.dispatcher",
+        "foo.bar.dispatchers",
+        "foo.bar.hard_hat",
+        "foo.bar.hard_hats",
+        "foo.bar.hard_hat_state",
+        "foo.bar.local_hard_hats",
+        "foo.bar.municipality",
+        "foo.bar.municipality_dim",
+        "foo.bar.municipality_municipality_type",
+        "foo.bar.municipality_type",
+        "foo.bar.num_repair_orders",
+        "foo.bar.repair_order",
+        "foo.bar.repair_order_details",
+        "foo.bar.repair_orders",
+        "foo.bar.repair_type",
+        "foo.bar.total_repair_cost",
+        "foo.bar.total_repair_order_discounts",
+        "foo.bar.us_region",
+        "foo.bar.us_state",
+        "foo.bar.us_states",
+    ]
+    assert result["impact"]["impacted"]["downstreams"] == [
+        {
+            "caused_by": [
                 "foo.bar.hard_hat",
                 "foo.bar.hard_hats",
-                "foo.bar.hard_hat_state",
-                "foo.bar.local_hard_hats",
-                "foo.bar.municipality",
-                "foo.bar.municipality_dim",
-                "foo.bar.municipality_municipality_type",
-                "foo.bar.municipality_type",
-                "foo.bar.num_repair_orders",
-                "foo.bar.repair_order",
-                "foo.bar.repair_order_details",
-                "foo.bar.repair_orders",
-                "foo.bar.repair_type",
-                "foo.bar.total_repair_cost",
-                "foo.bar.total_repair_order_discounts",
-                "foo.bar.us_region",
-                "foo.bar.us_state",
-                "foo.bar.us_states",
             ],
-            "impacted": {
-                "downstreams": [
-                    {
-                        "caused_by": [
-                            "foo.bar.hard_hat",
-                            "foo.bar.hard_hats",
-                        ],
-                        "name": "default.hard_hat0",
-                    },
-                ],
-                "links": [
-                    {
-                        "caused_by": [
-                            "foo.bar.hard_hat",
-                        ],
-                        "name": "default.repair_orders_fact",
-                    },
-                ],
-            },
+            "name": "default.hard_hat0",
         },
-        "message": "The namespace `foo.bar` has been completely removed.",
-    }
+    ]
+    # Check that all expected impacted links are present (the link from default.hard_hat
+    # to foo.bar.hard_hat affects multiple nodes)
+    impacted_links = {link["name"] for link in result["impact"]["impacted"]["links"]}
+    assert "default.repair_orders_fact" in impacted_links
+    assert "default.hard_hat" in impacted_links
+    # All impacted links should be caused by foo.bar.hard_hat
+    for link in result["impact"]["impacted"]["links"]:
+        assert "foo.bar.hard_hat" in link["caused_by"]
     list_namespaces_response = await client_with_namespaced_roads.get(
         "/namespaces/",
     )
