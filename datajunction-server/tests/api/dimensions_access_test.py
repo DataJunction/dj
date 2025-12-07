@@ -38,7 +38,7 @@ async def test_list_nodes_with_dimension_access_limited(
     roads_repair_nodes = {
         "default.repair_orders",
         "default.repair_order_details",
-        "default.regional_repair_efficiency",
+        "default.repair_order",
         "default.num_repair_orders",
         "default.avg_repair_price",
         "default.repair_orders_fact",
