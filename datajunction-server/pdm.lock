@@ -5,7 +5,7 @@
 groups = ["default", "test", "transpilation", "uvicorn"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:1baf871e25f3d791478f4a847c7353b4fef15aa620144893c9d43b51069af187"
+content_hash = "sha256:6d120b9c7fcf6efbe0165a6d8d073df531dd599af1160ae3f4fd3281ea2b290d"
 
 [[metadata.targets]]
 requires_python = "~=3.10"
