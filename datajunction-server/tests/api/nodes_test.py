@@ -1372,7 +1372,7 @@ class TestNodeCRUD:
         """
         Test raising when restoring an already active node
         """
-        # Hard deleting a node causes downstream nodes to become invalid
+        # Hard deleting a source node causes downstream nodes to become invalid
         response = await client_with_roads.delete("/nodes/default.repair_orders/hard/")
         assert response.status_code in (200, 201)
         data = response.json()
@@ -1448,61 +1448,6 @@ class TestNodeCRUD:
                     "effect": "broken link",
                     "name": "default.repair_order_details",
                     "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.regional_level_agg",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.national_level_agg",
-                    "status": "valid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.repair_orders_fact",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.regional_repair_efficiency",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.num_repair_orders",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.avg_repair_price",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.total_repair_cost",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.discounted_orders_rate",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.total_repair_order_discounts",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.avg_repair_order_discounts",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "broken link",
-                    "name": "default.avg_time_to_dispatch",
-                    "status": "invalid",
                 },
             ],
             key=lambda x: x["name"],

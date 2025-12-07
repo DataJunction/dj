@@ -5,14 +5,13 @@ DAG related functions.
 import asyncio
 import itertools
 import logging
-from typing import Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Dict, List, Tuple, Union, cast
 
 from sqlalchemy import and_, func, join, literal, or_, select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from sqlalchemy.dialects.postgresql import array
-from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.column import Column
@@ -26,7 +25,7 @@ from datajunction_server.database.node import (
 from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node_type import NodeType, NodeNameVersion
 from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
@@ -1017,119 +1016,11 @@ async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
     )
 
 
-async def get_nodes_with_dimension(
-    session: AsyncSession,
-    dimension_node: Node,
-    node_types: Optional[List[NodeType]] = None,
-    level: int = -1,
-) -> List[NodeRevision]:
-    """
-    Find all nodes that can be joined to a given dimension
-    """
-    to_process: list[tuple[Node, int]] = [(dimension_node, 0)]  # (node, depth)
-    processed: Set[str] = set()
-    final_set: Set[NodeRevision] = set()
-    while to_process:
-        current_node, depth = to_process.pop()
-        if current_node.name in processed:
-            continue
-        processed.add(current_node.name)
-
-        # If we're past the allowed depth, stop traversing further
-        if level >= 0 and depth > level:
-            continue
-
-        # Dimension nodes are used to expand the searchable graph by finding
-        # the next layer of nodes that are linked to this dimension
-        if current_node.type == NodeType.DIMENSION:
-            statement = (
-                select(NodeRevision)
-                .join(
-                    Node,
-                    onclause=(
-                        (NodeRevision.node_id == Node.id)
-                        & (Node.current_version == NodeRevision.version)
-                    ),
-                )
-                .join(
-                    Column,
-                    onclause=(NodeRevision.id == Column.node_revision_id),
-                )
-                .where(
-                    Column.dimension_id.in_(  # type: ignore
-                        [current_node.id],
-                    ),
-                )
-            )
-            node_revisions = (
-                (
-                    await session.execute(
-                        statement.options(contains_eager(NodeRevision.node)),
-                    )
-                )
-                .unique()
-                .scalars()
-                .all()
-            )
-
-            dim_link_statement = (
-                select(NodeRevision)
-                .select_from(DimensionLink)
-                .join(
-                    NodeRevision,
-                    onclause=(DimensionLink.node_revision_id == NodeRevision.id),
-                )
-                .join(
-                    Node,
-                    onclause=(
-                        (NodeRevision.node_id == Node.id)
-                        & (Node.current_version == NodeRevision.version)
-                    ),
-                )
-                .where(DimensionLink.dimension_id.in_([current_node.id]))
-            )
-            nodes_via_dimension_link = (
-                (
-                    await session.execute(
-                        dim_link_statement.options(contains_eager(NodeRevision.node)),
-                    )
-                )
-                .unique()
-                .scalars()
-                .all()
-            )
-            for node_rev in node_revisions + nodes_via_dimension_link:
-                if node_rev.name not in processed:  # pragma: no cover
-                    to_process.append((node_rev.node, depth + 1))
-        else:
-            # All other nodes are added to the result set
-            current_node = await Node.get_by_name(  # type: ignore
-                session,
-                current_node.name,
-                options=[
-                    joinedload(Node.current).options(
-                        *NodeRevision.default_load_options(),
-                    ),
-                    selectinload(Node.children).options(
-                        selectinload(NodeRevision.node),
-                    ),
-                ],
-            )
-            if current_node:  # pragma: no cover
-                if not node_types or current_node.type in node_types:
-                    final_set.add(current_node.current)
-                for child in current_node.children:
-                    if child.name not in processed:
-                        to_process.append((child.node, depth + 1))
-    return list(final_set)
-
-
 async def get_nodes_with_common_dimensions(
     session: AsyncSession,
     common_dimensions: list[Node],
     node_types: list[NodeType] | None = None,
-    options: list[ExecutableOption] | None = None,
-) -> list[NodeRevision]:
+) -> list[NodeNameVersion]:
     """
     Find all nodes that share a list of common dimensions.
 
@@ -1139,6 +1030,13 @@ async def get_nodes_with_common_dimensions(
 
     For example, if dim A -> dim B -> dim C, searching for dim C will find nodes
     linked to dim C, dim B, or dim A (since they all lead to dim C).
+
+    Args:
+        common_dimensions: List of dimension nodes to find common nodes for
+        node_types: Optional list of node types to filter by
+
+    Returns:
+        List of NodeNameVersion objects containing node name and version
     """
     if not common_dimensions:
         return []
@@ -1162,15 +1060,6 @@ async def get_nodes_with_common_dimensions(
         )
     ).cte("graph_branches")
 
-    # For each target dimension, build a recursive CTE to find all dimensions
-    # that transitively link to it (reverse traversal of the dimensions graph).
-    # A node linked to any dimension in this expanded set has access to the
-    # target dimension.
-    #
-    # Example: dim A -> dim B -> dim C
-    # When searching for dim C, we find: {dim C, dim B, dim A}
-    # Any node linked to dim A, dim B, or dim C has access to dim C
-
     # Recursive CTE: find all dimensions that lead to each target dimension
     # Base case: the target dimensions themselves
     dimension_graph = (
@@ -1188,7 +1077,6 @@ async def get_nodes_with_common_dimensions(
     )
 
     # Recursive case: find dimensions that link to dimensions already in our set
-    # If dim A links to dim B, and dim B is in our set, add dim A
     dimension_graph = dimension_graph.union_all(
         select(
             dimension_graph.c.target_dim_id,
@@ -1212,8 +1100,7 @@ async def get_nodes_with_common_dimensions(
         .where(Node.deactivated_at.is_(None)),
     )
 
-    # Now find all node revisions that link to any dimension in the expanded graph
-    # For each target dimension, then intersect to find nodes with all target dimensions
+    # Find all node revisions that link to any dimension in the expanded graph
     nodes_linked_to_expanded_dims = (
         select(
             graph_branches.c.node_revision_id,
@@ -1280,12 +1167,13 @@ async def get_nodes_with_common_dimensions(
         .subquery()
     )
 
-    # Final query to get NodeRevision objects with eager loading
+    # Final query to get only node name and version (lightweight)
     statement = (
-        select(NodeRevision)
+        select(Node.name, Node.current_version)
+        .select_from(all_matching_nodes)
         .join(
-            all_matching_nodes,
-            NodeRevision.id == all_matching_nodes.c.node_revision_id,
+            NodeRevision,
+            all_matching_nodes.c.node_revision_id == NodeRevision.id,
         )
         .join(
             Node,
@@ -1298,10 +1186,8 @@ async def get_nodes_with_common_dimensions(
     if node_types:
         statement = statement.where(NodeRevision.type.in_(node_types))
 
-    if options:  # pragma: no cover
-        statement = statement.options(*options)
-
-    return list((await session.execute(statement)).unique().scalars().all())
+    results = await session.execute(statement)
+    return [NodeNameVersion(name=row[0], version=row[1]) for row in results.all()]
 
 
 def topological_sort(nodes: List[Node]) -> List[Node]:
