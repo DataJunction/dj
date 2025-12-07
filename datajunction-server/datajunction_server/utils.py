@@ -11,13 +11,12 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 
-from typing import AsyncIterator, List, Optional, cast
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import MissingGreenlet, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -524,40 +523,6 @@ async def sync_user_groups(
 
     await session.commit()
     return group_names
-
-
-async def get_and_update_current_user(
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """
-    Wrapper for the get_current_user dependency that creates a DJ user object if required
-    """
-    statement = insert(User).values(
-        username=current_user.username,
-        email=current_user.email,
-        name=current_user.name,
-        oauth_provider=current_user.oauth_provider,
-    )
-    update_dict = {
-        "email": current_user.email,
-        "name": current_user.name,
-        "oauth_provider": current_user.oauth_provider,
-    }
-    statement = statement.on_conflict_do_update(
-        index_elements=["username"],
-        set_=update_dict,
-    )
-    await session.execute(statement)
-    await session.commit()
-    refreshed_user = cast(
-        User,
-        await User.get_by_username(session, current_user.username),
-    )
-
-    await sync_user_groups(session, refreshed_user.username)
-
-    return refreshed_user  # type: ignore
 
 
 SEPARATOR = "."

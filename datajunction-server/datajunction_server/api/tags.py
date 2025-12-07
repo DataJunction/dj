@@ -21,7 +21,7 @@ from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, TagOutput, UpdateTag
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -103,7 +103,7 @@ async def get_a_tag(
 async def create_a_tag(
     data: CreateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> TagOutput:
     """
@@ -143,7 +143,7 @@ async def update_a_tag(
     name: str,
     data: UpdateTag,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
 ) -> TagOutput:
     """

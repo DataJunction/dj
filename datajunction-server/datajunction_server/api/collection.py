@@ -18,7 +18,7 @@ from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.collection import CollectionDetails, CollectionInfo
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_session,
     get_settings,
 )
@@ -37,7 +37,7 @@ async def create_a_collection(
     data: CollectionInfo,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> CollectionInfo:
     """
     Create a Collection

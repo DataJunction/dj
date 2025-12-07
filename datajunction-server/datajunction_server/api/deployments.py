@@ -31,7 +31,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.models import access
 from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.utils import (
-    get_and_update_current_user,
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -157,7 +157,7 @@ async def create_deployment(
     request: Request,
     *,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_and_update_current_user),
+    current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     save_history: Callable = Depends(get_save_history),
     cache: Cache = Depends(get_cache),
