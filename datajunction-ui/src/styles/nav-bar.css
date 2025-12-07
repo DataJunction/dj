@@ -135,7 +135,7 @@
 
 /* Notifications menu */
 .notifications-menu {
-  min-width: 240px;
+  min-width: 340px;
   max-width: 600px;
   padding: 0;
 }
@@ -221,7 +221,7 @@
 }
 
 .notification-title {
-  font-size: 13px;
+  font-size: 15px;
   color: #333;
   font-weight: 500;
   display: flex;
@@ -230,7 +230,7 @@
 }
 
 .notification-entity {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .notification-title .badge.version {
@@ -243,7 +243,7 @@
 }
 
 .notification-meta {
-  font-size: 11px;
+  font-size: 13px;
   color: #999;
   display: flex;
   align-items: center;
