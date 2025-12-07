@@ -1,6 +1,6 @@
 {
   "name": "datajunction-ui",
-  "version": "0.0.20",
+  "version": "0.0.20.dev1",
   "description": "DataJunction Metrics Platform UI",
   "module": "src/index.tsx",
   "repository": {
