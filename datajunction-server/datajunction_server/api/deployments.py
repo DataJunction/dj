@@ -4,7 +4,6 @@ Bulk deployment APIs.
 
 import asyncio
 import logging
-from typing import Callable
 import uuid
 
 from fastapi import Depends, BackgroundTasks, Request
@@ -16,7 +15,6 @@ from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.api.helpers import get_save_history
 from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentSpec,
@@ -159,7 +157,6 @@ async def create_deployment(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    save_history: Callable = Depends(get_save_history),
     cache: Cache = Depends(get_cache),
     validate_access: access.ValidateAccessFn = Depends(
         validate_access,
@@ -176,7 +173,6 @@ async def create_deployment(
             current_user=current_user,
             request=request,
             query_service_client=query_service_client,
-            save_history=save_history,
             validate_access=validate_access,
             background_tasks=background_tasks,
             cache=cache,
