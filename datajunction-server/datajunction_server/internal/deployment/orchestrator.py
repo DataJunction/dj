@@ -1280,12 +1280,16 @@ class DeploymentOrchestrator:
         ]
 
     async def _deploy_delete_node(self, name: str) -> DeploymentResult:
+        async def add_history(event, session):
+            """Add history to session without committing"""
+            session.add(event)
+
         try:
             await hard_delete_node(
                 name=name,
                 session=self.session,
                 current_user=self.context.current_user,
-                save_history=self.context.save_history,
+                save_history=add_history,
             )
             return DeploymentResult(
                 name=name,

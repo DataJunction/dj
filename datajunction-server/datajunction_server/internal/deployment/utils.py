@@ -1,4 +1,3 @@
-from typing import Callable
 from fastapi import Request, BackgroundTasks
 
 from collections import defaultdict
@@ -115,7 +114,6 @@ class DeploymentContext:
     current_user: User
     request: Request
     query_service_client: QueryServiceClient
-    save_history: Callable
     validate_access: access.ValidateAccessFn
     background_tasks: BackgroundTasks
     cache: Cache
