@@ -97,7 +97,7 @@ services:
     environment:
       - NODE_OPTIONS=--max-old-space-size=4096
     mem_limit: 6g
-    command: sh -c "yarn && yarn webpack-build && yarn webpack-start --host 0.0.0.0 --port 3000"
+    command: sh -c "yarn && NODE_ENV=production yarn webpack --mode=production && yarn serve -s dist -l 3000"
 
   djqs:
     container_name: djqs
