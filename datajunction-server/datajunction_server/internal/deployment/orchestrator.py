@@ -88,7 +88,7 @@ from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
 )
-from datajunction_server.models.history import ActivityType, status_change_history
+from datajunction_server.models.history import ActivityType
 from datajunction_server.database.history import History
 from datajunction_server.internal.history import EntityType
 from datajunction_server.models.node import (
@@ -650,8 +650,8 @@ class DeploymentOrchestrator:
                     )
 
                     # Track history for link deletion
-                    await self.context.save_history(
-                        event=History(
+                    self.session.add(
+                        History(
                             entity_type=EntityType.LINK,
                             entity_name=node.name,
                             node=node.name,
@@ -663,7 +663,6 @@ class DeploymentOrchestrator:
                             },
                             user=self.context.current_user.username,
                         ),
-                        session=self.session,
                     )
 
         if link_ids_to_delete:
@@ -787,8 +786,8 @@ class DeploymentOrchestrator:
                 link_details["join_type"] = join_link.join_type
                 link_details["join_on"] = join_link.rendered_join_on
 
-            await self.context.save_history(
-                event=History(
+            self.session.add(
+                History(
                     entity_type=EntityType.LINK,
                     entity_name=new_revision.name,
                     node=new_revision.name,
@@ -796,7 +795,6 @@ class DeploymentOrchestrator:
                     details=link_details,
                     user=self.context.current_user.username,
                 ),
-                session=self.session,
             )
 
         return DeploymentResult(
@@ -1179,8 +1177,8 @@ class DeploymentOrchestrator:
 
                 # Track history for cube create/update operations
                 activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
-                await self.context.save_history(
-                    event=History(
+                self.session.add(
+                    History(
                         entity_type=EntityType.NODE,
                         entity_name=cube_spec.rendered_name,
                         node=cube_spec.rendered_name,
@@ -1193,7 +1191,6 @@ class DeploymentOrchestrator:
                         },
                         user=self.context.current_user.username,
                     ),
-                    session=self.session,
                 )
 
                 # Create deployment result
@@ -1576,7 +1573,6 @@ class DeploymentOrchestrator:
             if existing
             else DeploymentResult.Operation.CREATE
         )
-        old_status = existing.current.status if existing else None
         changelog = await self._generate_changelog(result)
         new_node = self._create_or_update_node(result.spec, existing)
         new_revision = await self._create_node_revision(
@@ -1591,8 +1587,8 @@ class DeploymentOrchestrator:
 
         # Track history for create/update operations
         activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
-        await self.context.save_history(
-            event=History(
+        self.session.add(
+            History(
                 entity_type=EntityType.NODE,
                 entity_name=result.spec.rendered_name,
                 node=result.spec.rendered_name,
@@ -1603,20 +1599,7 @@ class DeploymentOrchestrator:
                 },
                 user=self.context.current_user.username,
             ),
-            session=self.session,
         )
-
-        # Track status change if status changed during update
-        if existing and old_status != new_revision.status:
-            await self.context.save_history(
-                event=status_change_history(
-                    new_revision,
-                    old_status,
-                    new_revision.status,
-                    current_user=self.context.current_user,
-                ),
-                session=self.session,
-            )
 
         deployment_result = DeploymentResult(
             name=result.spec.rendered_name,
