@@ -516,6 +516,54 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     return changed_fields
 
 
+class HierarchyLevelSpec(BaseModel):
+    """
+    Specification for a hierarchy level
+    """
+
+    name: str
+    dimension_node: str
+    grain_columns: list[str] | None = None
+
+
+class HierarchySpec(BaseModel):
+    """
+    Specification for a dimensional hierarchy.
+    Hierarchies define ordered levels of dimension nodes for drill-down/roll-up operations.
+    """
+
+    name: str
+    node_type: Literal["hierarchy"] = "hierarchy"
+    display_name: str | None = None
+    description: str | None = None
+    levels: list[HierarchyLevelSpec] = Field(min_length=2)
+
+    # Not user-supplied, gets injected
+    namespace: str | None = Field(default=None, exclude=True)
+
+    @property
+    def rendered_name(self) -> str:
+        if self.namespace:
+            if "${prefix}" in self.name:
+                return render_prefixes(self.name, self.namespace)
+            return f"{self.namespace}{SEPARATOR}{self.name}"
+        return self.name
+
+    @property
+    def rendered_levels(self) -> list[HierarchyLevelSpec]:
+        """Render level dimension_node names with namespace prefixes"""
+        if not self.namespace:
+            return self.levels
+        return [
+            HierarchyLevelSpec(
+                name=level.name,
+                dimension_node=render_prefixes(level.dimension_node, self.namespace),
+                grain_columns=level.grain_columns,
+            )
+            for level in self.levels
+        ]
+
+
 class DeploymentSpec(BaseModel):
     """
     Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
@@ -525,11 +573,12 @@ class DeploymentSpec(BaseModel):
     namespace: str
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
+    hierarchies: list[HierarchySpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def set_namespaces(self):
         """
-        Set namespace on all node specs and their dimension links
+        Set namespace on all node specs, dimension links, and hierarchies
         """
         if (  # pragma: no cover
             hasattr(self, "nodes") and hasattr(self, "namespace") and self.namespace
@@ -544,6 +593,17 @@ class DeploymentSpec(BaseModel):
                     for link in node.dimension_links:
                         if not link.namespace:
                             link.namespace = self.namespace
+
+        # Set namespace on hierarchies
+        if (
+            hasattr(self, "hierarchies")
+            and hasattr(self, "namespace")
+            and self.namespace
+        ):
+            for hierarchy in self.hierarchies:
+                if hasattr(hierarchy, "namespace") and not hierarchy.namespace:
+                    hierarchy.namespace = self.namespace
+
         return self
 
 
@@ -579,6 +639,7 @@ class DeploymentResult(BaseModel):
         NODE = "node"
         LINK = "link"
         TAG = "tag"
+        HIERARCHY = "hierarchy"
         GENERAL = "general"
 
     name: str

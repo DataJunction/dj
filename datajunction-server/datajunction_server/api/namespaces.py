@@ -11,11 +11,17 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
+from datajunction_server.database.hierarchy import Hierarchy
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
-from datajunction_server.models.deployment import CubeSpec, DeploymentSpec
+from datajunction_server.models.deployment import (
+    CubeSpec,
+    DeploymentSpec,
+    HierarchyLevelSpec,
+    HierarchySpec,
+)
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -441,7 +447,31 @@ async def export_namespace_spec(
                 inject_prefixes(dimension, namespace)
                 for dimension in node_spec.dimensions
             ]
+
+    # Export hierarchies in the namespace
+    hierarchies = await Hierarchy.list_by_namespace(session, namespace)
+    hierarchy_specs = [
+        HierarchySpec(
+            name=inject_prefixes(h.name, namespace),
+            display_name=h.display_name,
+            description=h.description,
+            levels=[
+                HierarchyLevelSpec(
+                    name=level.name,
+                    dimension_node=inject_prefixes(
+                        level.dimension_node.name,
+                        namespace,
+                    ),
+                    grain_columns=level.grain_columns,
+                )
+                for level in sorted(h.levels, key=lambda lvl: lvl.level_order)
+            ],
+        )
+        for h in hierarchies
+    ]
+
     return DeploymentSpec(
         namespace=namespace,
         nodes=node_specs,
+        hierarchies=hierarchy_specs,
     )

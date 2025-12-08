@@ -59,6 +59,7 @@ class DeploymentService:
 
         namespace = deployment_spec["namespace"]
         nodes: list[dict[str, Any]] = deployment_spec.get("nodes", [])
+        hierarchies: list[dict[str, Any]] = deployment_spec.get("hierarchies", [])
         base_path = Path(target_path)
         base_path.mkdir(parents=True, exist_ok=True)
 
@@ -78,6 +79,26 @@ class DeploymentService:
             with open(file_path, "w") as yaml_file:
                 yaml.dump(
                     DeploymentService.clean_dict(node),
+                    yaml_file,
+                    sort_keys=False,
+                )
+
+        # Create a YAML for each hierarchy in the appropriate namespace folder
+        for hierarchy in hierarchies:
+            hierarchy_name = hierarchy["name"]
+            # Namespace folder is everything except the last part
+            hierarchy_parts = hierarchy_name.replace("${prefix}", "").split(".")
+            hierarchy_namespace_path = base_path.joinpath(*hierarchy_parts[:-1])
+            hierarchy_namespace_path.mkdir(parents=True, exist_ok=True)
+
+            # File name is the last part
+            file_name = hierarchy_parts[-1] + ".yaml"
+            file_path = hierarchy_namespace_path / file_name
+
+            # Write YAML for this hierarchy
+            with open(file_path, "w") as yaml_file:
+                yaml.dump(
+                    DeploymentService.clean_dict(hierarchy),
                     yaml_file,
                     sort_keys=False,
                 )
@@ -172,18 +193,27 @@ class DeploymentService:
         with open(path, "r") as f:
             return yaml.safe_load(f)
 
-    def _collect_nodes_from_dir(self, base_dir: str | Path) -> list[dict[str, Any]]:
+    def _collect_nodes_from_dir(
+        self,
+        base_dir: str | Path,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """
-        Recursively collect all node YAML files under base_dir/nodes.
+        Recursively collect all YAML files under base_dir.
+        Returns a tuple of (nodes, hierarchies).
         """
         nodes = []
+        hierarchies = []
         nodes_dir = Path(base_dir)
         for path in nodes_dir.rglob("*.yaml"):
             if path.name == "dj.yaml":
                 continue
-            node_dict = DeploymentService.read_yaml_file(path)
-            nodes.append(node_dict)
-        return nodes
+            yaml_dict = DeploymentService.read_yaml_file(path)
+            node_type = yaml_dict.get("node_type", "")
+            if node_type == "hierarchy":
+                hierarchies.append(yaml_dict)
+            else:
+                nodes.append(yaml_dict)
+        return nodes, hierarchies
 
     def _read_project_yaml(self, base_dir: str | Path) -> dict[str, Any]:
         """
@@ -199,10 +229,11 @@ class DeploymentService:
         Reads exported YAML files and reconstructs a DeploymentSpec-compatible dict.
         """
         project_metadata = self._read_project_yaml(base_dir)
-        nodes = self._collect_nodes_from_dir(base_dir)
+        nodes, hierarchies = self._collect_nodes_from_dir(base_dir)
         deployment_spec = {
             "namespace": project_metadata.get("namespace", ""),  # fallback to empty
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            "hierarchies": hierarchies,
         }
         return deployment_spec

@@ -158,6 +158,24 @@ class Hierarchy(Base):  # type: ignore
         return list(result.scalars().all())
 
     @classmethod
+    async def list_by_namespace(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+    ) -> List["Hierarchy"]:
+        """List all hierarchies whose names start with the given namespace prefix."""
+        prefix = f"{namespace}."
+        result = await session.execute(
+            select(cls)
+            .options(
+                selectinload(cls.levels).selectinload(HierarchyLevel.dimension_node),
+                selectinload(cls.created_by),
+            )
+            .where(cls.name.startswith(prefix)),
+        )
+        return list(result.scalars().all())
+
+    @classmethod
     async def validate_levels(
         cls,
         session: AsyncSession,

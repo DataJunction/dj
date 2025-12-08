@@ -70,6 +70,8 @@ from datajunction_server.internal.deployment.validation import (
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.tag import Tag
 from datajunction_server.models.attribute import ColumnAttributes
@@ -79,6 +81,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DeploymentStatus,
     DimensionJoinLinkSpec,
+    HierarchySpec,
     LinkableNodeSpec,
     MetricSpec,
     SourceSpec,
@@ -527,6 +530,11 @@ class DeploymentOrchestrator:
             self.deployed_results.extend(deployed_cubes)
             await self._update_deployment_status()
 
+        # Deploy hierarchies (after all dimension nodes exist)
+        hierarchy_results = await self._deploy_hierarchies()
+        self.deployed_results.extend(hierarchy_results)
+        await self._update_deployment_status()
+
         if plan.to_delete:
             delete_results = await self._delete_nodes(plan.to_delete)
             self.deployed_results.extend(delete_results)
@@ -852,6 +860,157 @@ class DeploymentOrchestrator:
             time.perf_counter() - start,
         )
         return deployment_results
+
+    async def _deploy_hierarchies(self) -> list[DeploymentResult]:
+        """Deploy hierarchies from the deployment spec"""
+        hierarchies_to_deploy = self.deployment_spec.hierarchies
+        if not hierarchies_to_deploy:
+            return []
+
+        logger.info("Starting deployment of %d hierarchies", len(hierarchies_to_deploy))
+        start = time.perf_counter()
+        deployment_results = []
+
+        for hierarchy_spec in hierarchies_to_deploy:
+            result = await self._deploy_single_hierarchy(hierarchy_spec)
+            deployment_results.append(result)
+
+        await self.session.commit()
+
+        logger.info(
+            "Deployed %d hierarchies in %.3fs",
+            len(hierarchies_to_deploy),
+            time.perf_counter() - start,
+        )
+        return deployment_results
+
+    async def _deploy_single_hierarchy(
+        self,
+        hierarchy_spec: HierarchySpec,
+    ) -> DeploymentResult:
+        """Deploy a single hierarchy, creating or updating as needed"""
+        hierarchy_name = hierarchy_spec.rendered_name
+        rendered_levels = hierarchy_spec.rendered_levels
+
+        try:
+            # Check if hierarchy already exists
+            existing_hierarchy = await Hierarchy.get_by_name(
+                self.session,
+                hierarchy_name,
+            )
+
+            # Validate hierarchy levels - check that dimension nodes exist
+            validation_errors, dimension_nodes = await Hierarchy.validate_levels(
+                self.session,
+                [
+                    HierarchyLevelInput(
+                        name=level.name,
+                        dimension_node=level.dimension_node,
+                        grain_columns=level.grain_columns,
+                    )
+                    for level in rendered_levels
+                ],
+            )
+            if validation_errors:
+                return DeploymentResult(
+                    name=hierarchy_name,
+                    deploy_type=DeploymentResult.Type.HIERARCHY,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.CREATE,
+                    message=f"Hierarchy validation failed: {'; '.join(validation_errors)}",
+                )
+
+            if existing_hierarchy:
+                # Update existing hierarchy
+                if hierarchy_spec.display_name is not None:
+                    existing_hierarchy.display_name = hierarchy_spec.display_name
+                if hierarchy_spec.description is not None:
+                    existing_hierarchy.description = hierarchy_spec.description
+
+                # Update levels - clear and recreate
+                existing_hierarchy.levels.clear()
+                await self.session.flush()
+
+                for idx, level_spec in enumerate(rendered_levels):
+                    level = HierarchyLevel(
+                        hierarchy_id=existing_hierarchy.id,
+                        name=level_spec.name,
+                        dimension_node_id=dimension_nodes[level_spec.dimension_node].id,
+                        level_order=idx,
+                        grain_columns=level_spec.grain_columns,
+                    )
+                    existing_hierarchy.levels.append(level)
+
+                # Track history for update
+                await self.context.save_history(
+                    event=History(
+                        entity_type=EntityType.HIERARCHY,
+                        entity_name=hierarchy_name,
+                        activity_type=ActivityType.UPDATE,
+                        user=self.context.current_user.username,
+                        details={"deployment_id": self.deployment_id},
+                    ),
+                    session=self.session,
+                )
+
+                return DeploymentResult(
+                    name=hierarchy_name,
+                    deploy_type=DeploymentResult.Type.HIERARCHY,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.UPDATE,
+                    message=f"Hierarchy {hierarchy_name} updated successfully",
+                )
+            else:
+                # Create new hierarchy
+                hierarchy = Hierarchy(
+                    name=hierarchy_name,
+                    display_name=hierarchy_spec.display_name,
+                    description=hierarchy_spec.description,
+                    created_by_id=self.context.current_user.id,
+                )
+                self.session.add(hierarchy)
+                await self.session.flush()
+
+                # Create levels
+                for idx, level_spec in enumerate(rendered_levels):
+                    level = HierarchyLevel(
+                        hierarchy_id=hierarchy.id,
+                        name=level_spec.name,
+                        dimension_node_id=dimension_nodes[level_spec.dimension_node].id,
+                        level_order=idx,
+                        grain_columns=level_spec.grain_columns,
+                    )
+                    self.session.add(level)
+
+                # Track history for creation
+                await self.context.save_history(
+                    event=History(
+                        entity_type=EntityType.HIERARCHY,
+                        entity_name=hierarchy_name,
+                        activity_type=ActivityType.CREATE,
+                        user=self.context.current_user.username,
+                        details={"deployment_id": self.deployment_id},
+                    ),
+                    session=self.session,
+                )
+
+                return DeploymentResult(
+                    name=hierarchy_name,
+                    deploy_type=DeploymentResult.Type.HIERARCHY,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.CREATE,
+                    message=f"Hierarchy {hierarchy_name} created successfully",
+                )
+
+        except Exception as exc:
+            logger.exception("Failed to deploy hierarchy %s", hierarchy_name)
+            return DeploymentResult(
+                name=hierarchy_name,
+                deploy_type=DeploymentResult.Type.HIERARCHY,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.UNKNOWN,
+                message=str(exc),
+            )
 
     async def _bulk_validate_cubes(
         self,
