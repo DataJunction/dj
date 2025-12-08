@@ -245,7 +245,7 @@
 .notification-meta {
   font-size: 13px;
   color: #999;
-  display: flex;
+  display: block;
   align-items: center;
   gap: 0.35rem;
 }
