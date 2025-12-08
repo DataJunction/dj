@@ -17,7 +17,7 @@ async def test_downstream_nodes(
     # of METRIC type
     query = """
     {
-        downstreamNodes(nodeName: "default.repair_orders_fact", nodeType: METRIC) {
+        downstreamNodes(nodeNames: ["default.repair_orders_fact"], nodeType: METRIC) {
             name
             type
             current {
@@ -71,7 +71,7 @@ async def test_downstream_nodes(
     # of any type
     query = """
     {
-        downstreamNodes(nodeName: "default.repair_order_details", nodeType: null) {
+        downstreamNodes(nodeNames: ["default.repair_order_details"], nodeType: null) {
             name
             type
         }
@@ -97,6 +97,30 @@ async def test_downstream_nodes(
 
 
 @pytest.mark.asyncio
+async def test_downstream_nodes_multiple_inputs(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding downstream nodes from multiple input nodes.
+    """
+    query = """
+    {
+        downstreamNodes(nodeNames: ["default.repair_orders", "default.dispatchers"], nodeType: TRANSFORM) {
+            name
+            type
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    downstream_names = {node["name"] for node in data["data"]["downstreamNodes"]}
+    # Should include transforms downstream of both sources
+    assert "default.repair_orders_fact" in downstream_names
+
+
+@pytest.mark.asyncio
 async def test_downstream_nodes_deactivated(
     module__client_with_roads: AsyncClient,
 ) -> None:
@@ -110,7 +134,7 @@ async def test_downstream_nodes_deactivated(
 
     query = """
     {
-        downstreamNodes(nodeName: "default.repair_orders_fact", nodeType: METRIC, includeDeactivated: false) {
+        downstreamNodes(nodeNames: ["default.repair_orders_fact"], nodeType: METRIC, includeDeactivated: false) {
             name
             type
         }
@@ -131,7 +155,7 @@ async def test_downstream_nodes_deactivated(
 
     query = """
     {
-        downstreamNodes(nodeName: "default.repair_orders_fact", nodeType: METRIC, includeDeactivated: true) {
+        downstreamNodes(nodeNames: ["default.repair_orders_fact"], nodeType: METRIC, includeDeactivated: true) {
             name
             type
         }
