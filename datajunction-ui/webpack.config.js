@@ -10,6 +10,8 @@ var babelOptions = {
   presets: ['@babel/preset-react'],
 };
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 module.exports = {
   cache: true,
   entry: {
@@ -17,7 +19,7 @@ module.exports = {
     vendor: ['events', 'react', 'react-dom'],
   },
   target: 'web',
-  mode: 'development',
+  mode: isProduction ? 'production' : 'development',
   stats: 'minimal',
   output: {
     path: path.resolve(__dirname, './dist'),
