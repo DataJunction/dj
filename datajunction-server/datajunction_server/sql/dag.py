@@ -22,7 +22,7 @@ from datajunction_server.database.node import (
     NodeRelationship,
     NodeRevision,
 )
-from datajunction_server.errors import DJDoesNotExistException, DJGraphCycleException
+from datajunction_server.errors import DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import NodeType, NodeNameVersion
@@ -305,31 +305,71 @@ async def _bfs_process_level_concurrently(
 
 async def get_upstream_nodes(
     session: AsyncSession,
-    node_name: str,
+    node_name: Union[str, List[str]],
     node_type: NodeType = None,
     include_deactivated: bool = True,
 ) -> List[Node]:
     """
-    Gets all upstreams of the given node, filterable by node type.
-    Uses a recursive CTE query to build out all parents of the node.
+    Gets all upstreams of the given node(s), filterable by node type.
+    Uses a recursive CTE query to build out all parents of the nodes.
+
+    For metrics, we first get immediate parent IDs and then run the recursive
+    CTE from those parents. This is more efficient because metrics only have
+    one parent, and it avoids unnecessary traversal of shared parents.
     """
-    node = (
-        (
-            await session.execute(
-                select(Node)
-                .where(
-                    (Node.name == node_name) & (is_(Node.deactivated_at, None)),
-                )
-                .options(joinedload(Node.current)),
-            )
-        )
-        .unique()
-        .scalar()
+    # Normalize to list
+    node_names = [node_name] if isinstance(node_name, str) else node_name
+
+    nodes = await Node.get_by_names(
+        session,
+        node_names,
+        options=_node_output_options(),
     )
-    if not node:
-        raise DJDoesNotExistException(  # pragma: no cover
-            message=f"Node with name {node_name} does not exist",
+
+    if not nodes:
+        return []  # pragma: no cover
+
+    # Collect starting revision IDs and immediate parent IDs for metrics
+    starting_revision_ids: List[int] = []
+    immediate_parent_ids: List[int] = []
+    metric_revision_ids: List[int] = []
+    non_metric_revision_ids: List[int] = []
+
+    for node in nodes:
+        if node.type == NodeType.METRIC:
+            metric_revision_ids.append(node.current.id)
+        else:
+            non_metric_revision_ids.append(node.current.id)
+
+    # For metrics, get immediate parent IDs in a single query
+    if metric_revision_ids:
+        parent_ids_query = select(NodeRelationship.parent_id).where(
+            NodeRelationship.child_id.in_(metric_revision_ids),
         )
+        immediate_parent_ids = list(
+            (await session.execute(parent_ids_query)).scalars().all(),
+        )
+
+        if immediate_parent_ids:
+            # Get the current revision IDs for those parent nodes
+            revision_ids_query = (
+                select(NodeRevision.id)
+                .join(Node, Node.id == NodeRevision.node_id)
+                .where(
+                    Node.id.in_(immediate_parent_ids),
+                    Node.current_version == NodeRevision.version,
+                )
+            )
+            starting_revision_ids.extend(
+                (await session.execute(revision_ids_query)).scalars().all(),
+            )
+
+    # Add non-metric revision IDs directly
+    starting_revision_ids.extend(non_metric_revision_ids)
+
+    if not starting_revision_ids:
+        # No parents to traverse
+        return []
 
     dag = (
         (
@@ -338,7 +378,7 @@ async def get_upstream_nodes(
                 NodeRevision.id,
                 NodeRevision.node_id,
             )
-            .where(NodeRelationship.child_id == node.current.id)
+            .where(NodeRelationship.child_id.in_(starting_revision_ids))
             .join(Node, NodeRelationship.parent_id == Node.id)
             .join(
                 NodeRevision,
@@ -380,7 +420,27 @@ async def get_upstream_nodes(
         .options(*_node_output_options())
     )
 
-    results = (await session.execute(statement)).unique().scalars().all()
+    results = list((await session.execute(statement)).unique().scalars().all())
+
+    # For metrics, include the immediate parents in the results
+    # (they are the starting point for the CTE, so not included by default)
+    if immediate_parent_ids:
+        # Load parents with full options for consistent output
+        parent_query = (
+            select(Node)
+            .where(Node.id.in_(immediate_parent_ids))
+            .options(*_node_output_options())
+        )
+        if not include_deactivated:
+            parent_query = parent_query.where(is_(Node.deactivated_at, None))
+        loaded_parents = (await session.execute(parent_query)).unique().scalars().all()
+
+        # Add parents that aren't already in results
+        existing_ids = {r.id for r in results}
+        for parent in loaded_parents:
+            if parent.id not in existing_ids:
+                results.append(parent)
+
     return [
         upstream
         for upstream in results

@@ -445,10 +445,22 @@ type Query {
 
   """Find downstream nodes (optionally, of a given type) from a given node."""
   downstreamNodes(
-    """The node name to find downstream nodes for."""
-    nodeName: String!
+    """The node names to find downstream nodes for."""
+    nodeNames: [String!]!
 
     """The node type to filter the downstream nodes on."""
+    nodeType: NodeType = null
+
+    """Whether to include deactivated nodes in the result."""
+    includeDeactivated: Boolean! = false
+  ): [Node!]!
+
+  """Find upstream nodes (optionally, of a given type) from a given node."""
+  upstreamNodes(
+    """The node names to find upstream nodes for."""
+    nodeNames: [String!]!
+
+    """The node type to filter the upstream nodes on."""
     nodeType: NodeType = null
 
     """Whether to include deactivated nodes in the result."""
