@@ -104,15 +104,17 @@ async def get_node_by_name(
     """
     Get a node by name
     """
+    from datajunction_server.models.node import NodeOutput
+
     statement = select(Node).where(Node.name == name)
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
         statement = statement.where(Node.type == node_type)
     if with_current:
-        statement = statement.options(joinedload(Node.current)).options(
-            joinedload(Node.tags),
-        )
+        # Use full NodeOutput load options to ensure all required fields
+        # (like dimension_links) are eagerly loaded for serialization
+        statement = statement.options(*NodeOutput.load_options())
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
     else:

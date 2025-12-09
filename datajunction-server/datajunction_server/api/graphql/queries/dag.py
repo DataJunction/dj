@@ -8,8 +8,12 @@ import strawberry
 from strawberry.types import Info
 
 from datajunction_server.database.node import Node
-from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
+from datajunction_server.api.graphql.resolvers.nodes import (
+    find_nodes_by,
+    load_node_options,
+)
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
+from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.sql.dag import (
     get_common_dimensions,
     get_downstream_nodes,
@@ -75,6 +79,11 @@ async def downstream_nodes(
     fanout threshold check and BFS fallback work better with single nodes.
     """
     session = info.context["session"]
+
+    # Build load options based on requested GraphQL fields
+    fields = extract_fields(info)
+    options = load_node_options(fields)
+
     all_downstreams: dict[int, Node] = {}
     for node_name in node_names:
         downstreams = await get_downstream_nodes(
@@ -82,6 +91,7 @@ async def downstream_nodes(
             node_name=node_name,
             node_type=node_type,
             include_deactivated=include_deactivated,
+            options=options,
         )
         for node in downstreams:
             if node.id not in all_downstreams:  # pragma: no cover
@@ -116,9 +126,15 @@ async def upstream_nodes(
     Results are deduplicated by node ID.
     """
     session = info.context["session"]
+
+    # Build load options based on requested GraphQL fields
+    fields = extract_fields(info)
+    options = load_node_options(fields)
+
     return await get_upstream_nodes(  # type: ignore
         session,
         node_name=node_names,
         node_type=node_type,
         include_deactivated=include_deactivated,
+        options=options,
     )
