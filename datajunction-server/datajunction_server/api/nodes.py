@@ -941,29 +941,30 @@ async def tags_node(
     Add a tag to a node
     """
     node = await Node.get_by_name(session=session, name=name)
+    existing_tags = {tag.name for tag in node.tags}  # type: ignore
     if not tag_names:
         tag_names = []  # pragma: no cover
-    tags = await get_tags_by_name(session, names=tag_names)
-    node.tags = tags  # type: ignore
-
-    session.add(node)
-    await save_history(
-        event=History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,  # type: ignore
-            node=node.name,  # type: ignore
-            activity_type=ActivityType.TAG,
-            details={
-                "tags": tag_names,
-            },
-            user=current_user.username,
-        ),
-        session=session,
-    )
-    await session.commit()
-    await session.refresh(node)
-    for tag in tags:
-        await session.refresh(tag)
+    if existing_tags != set(tag_names):
+        tags = await get_tags_by_name(session, names=tag_names)
+        node.tags = tags  # type: ignore
+        session.add(node)
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.TAG,
+                details={
+                    "tags": tag_names,
+                },
+                user=current_user.username,
+            ),
+            session=session,
+        )
+        await session.commit()
+        await session.refresh(node)
+        for tag in tags:
+            await session.refresh(tag)
 
     return JSONResponse(
         status_code=200,
