@@ -396,3 +396,62 @@ class TestTags:
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == []
+
+    @pytest.mark.asyncio
+    async def test_tagging_node_with_same_tags_does_not_create_history(
+        self,
+        client_with_dbt: AsyncClient,
+    ) -> None:
+        """
+        Test that tagging a node with the same tags doesn't create a new history event.
+        """
+        # Create tags
+        await self.create_tag(client_with_dbt)
+        await self.create_another_tag(client_with_dbt)
+
+        # Tag a node with two tags
+        response = await client_with_dbt.post(
+            "/nodes/default.items_sold_count/tags/?tag_names=sales_report&tag_names=reports",
+        )
+        assert response.status_code == 200
+
+        # Check history - should have one tag event
+        response = await client_with_dbt.get(
+            "/history?node=default.items_sold_count",
+        )
+        history = response.json()
+        tag_events = [h for h in history if h["activity_type"] == "tag"]
+        assert len(tag_events) == 1
+        assert tag_events[0]["details"] == {"tags": ["sales_report", "reports"]}
+
+        # Tag the same node with the same tags again (order may differ)
+        response = await client_with_dbt.post(
+            "/nodes/default.items_sold_count/tags/?tag_names=reports&tag_names=sales_report",
+        )
+        assert response.status_code == 200
+
+        # Check history again - should still have only one tag event (no new history)
+        response = await client_with_dbt.get(
+            "/history?node=default.items_sold_count",
+        )
+        history = response.json()
+        tag_events = [h for h in history if h["activity_type"] == "tag"]
+        assert len(tag_events) == 1, (
+            "No new history event should be created when tags haven't changed"
+        )
+
+        # Now actually change the tags - remove one
+        response = await client_with_dbt.post(
+            "/nodes/default.items_sold_count/tags/?tag_names=sales_report",
+        )
+        assert response.status_code == 200
+
+        # Check history - should now have two tag events
+        response = await client_with_dbt.get(
+            "/history?node=default.items_sold_count",
+        )
+        history = response.json()
+        tag_events = [h for h in history if h["activity_type"] == "tag"]
+        assert len(tag_events) == 2, (
+            "A new history event should be created when tags are changed"
+        )
