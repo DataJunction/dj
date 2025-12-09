@@ -6,8 +6,8 @@ describe('<NodeDependenciesTab />', () => {
   const mockDjClient = {
     node: jest.fn(),
     nodeDimensions: jest.fn(),
-    upstreams: jest.fn(),
-    downstreams: jest.fn(),
+    upstreamsGQL: jest.fn(),
+    downstreamsGQL: jest.fn(),
   };
 
   const mockNode = {
@@ -131,14 +131,20 @@ describe('<NodeDependenciesTab />', () => {
   beforeEach(() => {
     // Reset the mocks before each test
     mockDjClient.nodeDimensions.mockReset();
-    mockDjClient.upstreams.mockReset();
-    mockDjClient.downstreams.mockReset();
+    mockDjClient.upstreamsGQL.mockReset();
+    mockDjClient.downstreamsGQL.mockReset();
   });
 
   it('renders nodes with dimensions', async () => {
-    mockDjClient.nodeDimensions.mockReturnValue(mockDimensions);
-    mockDjClient.upstreams.mockReturnValue([mockNode]);
-    mockDjClient.downstreams.mockReturnValue([mockNode]);
+    // Use mockResolvedValue since the component now uses .then()
+    mockDjClient.nodeDimensions.mockResolvedValue(mockDimensions);
+    // GraphQL responses return uppercase types (e.g., "SOURCE")
+    mockDjClient.upstreamsGQL.mockResolvedValue([
+      { name: mockNode.name, type: 'SOURCE' },
+    ]);
+    mockDjClient.downstreamsGQL.mockResolvedValue([
+      { name: mockNode.name, type: 'SOURCE' },
+    ]);
     render(<NodeDependenciesTab node={mockNode} djClient={mockDjClient} />);
     await waitFor(() => {
       for (const dimension of mockDimensions) {

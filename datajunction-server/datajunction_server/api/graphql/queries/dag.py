@@ -10,7 +10,11 @@ from strawberry.types import Info
 from datajunction_server.database.node import Node
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
-from datajunction_server.sql.dag import get_common_dimensions, get_downstream_nodes
+from datajunction_server.sql.dag import (
+    get_common_dimensions,
+    get_downstream_nodes,
+    get_upstream_nodes,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
 
@@ -42,10 +46,10 @@ async def common_dimensions(
 
 
 async def downstream_nodes(
-    node_name: Annotated[
-        str,
+    node_names: Annotated[
+        list[str],
         strawberry.argument(
-            description="The node name to find downstream nodes for.",
+            description="The node names to find downstream nodes for.",
         ),
     ],
     node_type: Annotated[
@@ -64,12 +68,57 @@ async def downstream_nodes(
     info: Info,
 ) -> list[Node]:
     """
-    Return a list of downstream nodes for a given node.
+    Return a list of downstream nodes for one or more nodes.
+    Results are deduplicated by node ID.
+
+    Note: Unlike upstreams, downstreams uses per-node queries because the
+    fanout threshold check and BFS fallback work better with single nodes.
     """
     session = info.context["session"]
-    return await get_downstream_nodes(  # type: ignore
+    all_downstreams: dict[int, Node] = {}
+    for node_name in node_names:
+        downstreams = await get_downstream_nodes(
+            session,
+            node_name=node_name,
+            node_type=node_type,
+            include_deactivated=include_deactivated,
+        )
+        for node in downstreams:
+            if node.id not in all_downstreams:  # pragma: no cover
+                all_downstreams[node.id] = node
+    return list(all_downstreams.values())
+
+
+async def upstream_nodes(
+    node_names: Annotated[
+        list[str],
+        strawberry.argument(
+            description="The node names to find upstream nodes for.",
+        ),
+    ],
+    node_type: Annotated[
+        NodeType | None,
+        strawberry.argument(
+            description="The node type to filter the upstream nodes on.",
+        ),
+    ] = None,
+    include_deactivated: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to include deactivated nodes in the result.",
+        ),
+    ] = False,
+    *,
+    info: Info,
+) -> list[Node]:
+    """
+    Return a list of upstream nodes for one or more nodes.
+    Results are deduplicated by node ID.
+    """
+    session = info.context["session"]
+    return await get_upstream_nodes(  # type: ignore
         session,
-        node_name=node_name,
+        node_name=node_names,
         node_type=node_type,
         include_deactivated=include_deactivated,
     )

@@ -690,6 +690,49 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  // GraphQL-based upstream/downstream queries - more efficient as they only fetch needed fields
+  upstreamsGQL: async function (nodeNames) {
+    const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
+    const query = `
+      query GetUpstreamNodes($nodeNames: [String!]!) {
+        upstreamNodes(nodeNames: $nodeNames) {
+          name
+          type
+        }
+      }
+    `;
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { nodeNames: names } }),
+      })
+    ).json();
+    return results.data?.upstreamNodes || [];
+  },
+
+  downstreamsGQL: async function (nodeNames) {
+    const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
+    const query = `
+      query GetDownstreamNodes($nodeNames: [String!]!) {
+        downstreamNodes(nodeNames: $nodeNames) {
+          name
+          type
+        }
+      }
+    `;
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { nodeNames: names } }),
+      })
+    ).json();
+    return results.data?.downstreamNodes || [];
+  },
+
   node_dag: async function (name) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/dag/`, {

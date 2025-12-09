@@ -4,53 +4,51 @@ import { labelize } from '../../../utils/form';
 import LoadingIcon from '../../icons/LoadingIcon';
 
 export default function NodeDependenciesTab({ node, djClient }) {
-  const [nodeDAG, setNodeDAG] = useState({
-    upstreams: [],
-    downstreams: [],
-    dimensions: [],
-  });
-
-  const [retrieved, setRetrieved] = useState(false);
+  const [upstreams, setUpstreams] = useState(null);
+  const [downstreams, setDownstreams] = useState(null);
+  const [dimensions, setDimensions] = useState(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      if (node) {
-        let upstreams = await djClient.upstreams(node.name);
-        let downstreams = await djClient.downstreams(node.name);
-        let dimensions = await djClient.nodeDimensions(node.name);
-        setNodeDAG({
-          upstreams: upstreams,
-          downstreams: downstreams,
-          dimensions: dimensions,
-        });
-        setRetrieved(true);
-      }
-    };
-    fetchData().catch(console.error);
+    if (node) {
+      // Reset state when node changes
+      setUpstreams(null);
+      setDownstreams(null);
+      setDimensions(null);
+
+      // Load all three in parallel, display each as it loads
+      djClient.upstreamsGQL(node.name).then(setUpstreams).catch(console.error);
+      djClient
+        .downstreamsGQL(node.name)
+        .then(setDownstreams)
+        .catch(console.error);
+      djClient
+        .nodeDimensions(node.name)
+        .then(setDimensions)
+        .catch(console.error);
+    }
   }, [djClient, node]);
 
-  // Builds the block of dimensions selectors, grouped by node name + path
   return (
     <div>
       <h2>Upstreams</h2>
-      {retrieved ? (
-        <NodeList nodes={nodeDAG.upstreams} />
+      {upstreams !== null ? (
+        <NodeList nodes={upstreams} />
       ) : (
         <span style={{ display: 'block' }}>
           <LoadingIcon centered={false} />
         </span>
       )}
       <h2>Downstreams</h2>
-      {retrieved ? (
-        <NodeList nodes={nodeDAG.downstreams} />
+      {downstreams !== null ? (
+        <NodeList nodes={downstreams} />
       ) : (
         <span style={{ display: 'block' }}>
           <LoadingIcon centered={false} />
         </span>
       )}
       <h2>Dimensions</h2>
-      {retrieved ? (
-        <NodeDimensionsList rawDimensions={nodeDAG.dimensions} />
+      {dimensions !== null ? (
+        <NodeDimensionsList rawDimensions={dimensions} />
       ) : (
         <span style={{ display: 'block' }}>
           <LoadingIcon centered={false} />
@@ -128,24 +126,28 @@ export function NodeDimensionsList({ rawDimensions }) {
 export function NodeList({ nodes }) {
   return nodes && nodes.length > 0 ? (
     <ul className="backfills">
-      {nodes?.map(node => (
-        <li
-          className="backfill"
-          style={{ marginBottom: '5px' }}
-          key={node.name}
-        >
-          <span
-            className={`node_type__${node.type} badge node_type`}
-            style={{ marginRight: '5px' }}
-            role="dialog"
-            aria-hidden="false"
-            aria-label="NodeType"
+      {nodes?.map(node => {
+        // GraphQL returns uppercase types (e.g., "SOURCE"), CSS classes expect lowercase
+        const nodeType = node.type?.toLowerCase() || '';
+        return (
+          <li
+            className="backfill"
+            style={{ marginBottom: '5px' }}
+            key={node.name}
           >
-            {node.type}
-          </span>
-          <a href={`/nodes/${node.name}`}>{node.name}</a>
-        </li>
-      ))}
+            <span
+              className={`node_type__${nodeType} badge node_type`}
+              style={{ marginRight: '5px' }}
+              role="dialog"
+              aria-hidden="false"
+              aria-label="NodeType"
+            >
+              {nodeType}
+            </span>
+            <a href={`/nodes/${node.name}`}>{node.name}</a>
+          </li>
+        );
+      })}
     </ul>
   ) : (
     <span style={{ display: 'block' }}>None</span>

@@ -324,6 +324,82 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('calls upstreamsGQL correctly with single node', async () => {
+    const nodeName = 'sampleNode';
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: { upstreamNodes: [{ name: 'upstream1', type: 'SOURCE' }] },
+      }),
+    );
+    const result = await DataJunctionAPI.upstreamsGQL(nodeName);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/graphql`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(result).toEqual([{ name: 'upstream1', type: 'SOURCE' }]);
+  });
+
+  it('calls upstreamsGQL correctly with multiple nodes', async () => {
+    const nodeNames = ['node1', 'node2'];
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          upstreamNodes: [
+            { name: 'upstream1', type: 'SOURCE' },
+            { name: 'upstream2', type: 'TRANSFORM' },
+          ],
+        },
+      }),
+    );
+    const result = await DataJunctionAPI.upstreamsGQL(nodeNames);
+    expect(result).toEqual([
+      { name: 'upstream1', type: 'SOURCE' },
+      { name: 'upstream2', type: 'TRANSFORM' },
+    ]);
+  });
+
+  it('calls downstreamsGQL correctly with single node', async () => {
+    const nodeName = 'sampleNode';
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: { downstreamNodes: [{ name: 'downstream1', type: 'METRIC' }] },
+      }),
+    );
+    const result = await DataJunctionAPI.downstreamsGQL(nodeName);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/graphql`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(result).toEqual([{ name: 'downstream1', type: 'METRIC' }]);
+  });
+
+  it('calls downstreamsGQL correctly with multiple nodes', async () => {
+    const nodeNames = ['node1', 'node2'];
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          downstreamNodes: [
+            { name: 'downstream1', type: 'METRIC' },
+            { name: 'downstream2', type: 'CUBE' },
+          ],
+        },
+      }),
+    );
+    const result = await DataJunctionAPI.downstreamsGQL(nodeNames);
+    expect(result).toEqual([
+      { name: 'downstream1', type: 'METRIC' },
+      { name: 'downstream2', type: 'CUBE' },
+    ]);
+  });
+
   it('calls node_dag correctly', async () => {
     const nodeName = 'sampleNode';
     fetch.mockResponseOnce(JSON.stringify({}));
