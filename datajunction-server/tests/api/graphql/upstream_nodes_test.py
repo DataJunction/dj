@@ -237,3 +237,85 @@ async def test_upstream_nodes_deactivated(
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
     assert "default.repair_orders_fact" in upstream_names
+
+
+@pytest.mark.asyncio
+async def test_upstream_nodes_with_nested_fields(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test upstream nodes query with nested fields that require database joins.
+    This tests that load_node_options correctly builds options based on the
+    requested GraphQL fields (tags, owners, current.columns, etc.).
+    """
+    # Query with many nested fields that require joins
+    # Use includeDeactivated: true since earlier tests may have deactivated nodes
+    query = """
+    {
+        upstreamNodes(nodeNames: ["default.num_repair_orders"], includeDeactivated: true) {
+            name
+            type
+            tags {
+                name
+                tagType
+            }
+            owners {
+                username
+            }
+            current {
+                displayName
+                status
+                description
+                columns {
+                    name
+                    type
+                }
+                parents {
+                    name
+                }
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify we got results
+    upstreams = data["data"]["upstreamNodes"]
+    assert len(upstreams) > 0
+
+    # Find the repair_orders_fact transform (immediate parent of the metric)
+    repair_orders_fact = next(
+        (n for n in upstreams if n["name"] == "default.repair_orders_fact"),
+        None,
+    )
+    assert repair_orders_fact is not None
+
+    # Verify nested fields are populated
+    assert repair_orders_fact["type"] == "TRANSFORM"
+    assert repair_orders_fact["current"] is not None
+    assert repair_orders_fact["current"]["status"] == "VALID"
+    assert repair_orders_fact["current"]["displayName"] == "Repair Orders Fact"
+
+    # Verify columns are loaded (requires selectinload)
+    columns = repair_orders_fact["current"]["columns"]
+    assert columns is not None
+    assert len(columns) > 0
+    column_names = {c["name"] for c in columns}
+    assert "repair_order_id" in column_names
+
+    # Verify parents are loaded (requires selectinload)
+    parents = repair_orders_fact["current"]["parents"]
+    assert parents is not None
+    assert len(parents) > 0
+
+    # Find a source node and verify its fields
+    source_node = next(
+        (n for n in upstreams if n["type"] == "SOURCE"),
+        None,
+    )
+    assert source_node is not None
+    assert source_node["current"] is not None
+    assert source_node["current"]["columns"] is not None

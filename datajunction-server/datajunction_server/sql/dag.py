@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Tuple, Union, cast
 
 from sqlalchemy import and_, func, join, literal, or_, select, distinct
+from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
@@ -65,15 +66,20 @@ async def get_downstream_nodes(
     include_deactivated: bool = True,
     include_cubes: bool = True,
     depth: int = -1,
-) -> List[Node]:
+    options: list[ExecutableOption] = None,
+) -> list[Node]:
     """
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
+    # Use full options if none provided (for REST API DAGNodeOutput compatibility)
+    result_options = options if options is not None else _node_output_options()
+
+    # Initial lookup always uses light options (only need node.id)
     node = await Node.get_by_name(
         session,
         node_name,
-        options=_node_output_options(),
+        options=[joinedload(Node.current)],
     )
     if not node:
         return []
@@ -160,7 +166,7 @@ async def get_downstream_nodes(
         final_select = final_select.where(max_depths.c.max_depth < depth)
 
     statement = final_select.order_by(max_depths.c.max_depth, Node.id).options(
-        *_node_output_options(),
+        *result_options,
     )
     results = (await session.execute(statement)).unique().scalars().all()
     return [
@@ -308,6 +314,7 @@ async def get_upstream_nodes(
     node_name: Union[str, List[str]],
     node_type: NodeType = None,
     include_deactivated: bool = True,
+    options: List = None,
 ) -> List[Node]:
     """
     Gets all upstreams of the given node(s), filterable by node type.
@@ -320,10 +327,14 @@ async def get_upstream_nodes(
     # Normalize to list
     node_names = [node_name] if isinstance(node_name, str) else node_name
 
+    # Use full options if none provided (for REST API DAGNodeOutput compatibility)
+    result_options = options if options is not None else _node_output_options()
+
+    # Initial lookup always uses light options (only need type and current.id)
     nodes = await Node.get_by_names(
         session,
         node_names,
-        options=_node_output_options(),
+        options=[joinedload(Node.current)],
     )
 
     if not nodes:
@@ -417,7 +428,7 @@ async def get_upstream_nodes(
             (Node.current_version == NodeRevision.version)
             & (Node.id == NodeRevision.node_id),
         )
-        .options(*_node_output_options())
+        .options(*result_options)
     )
 
     results = list((await session.execute(statement)).unique().scalars().all())
@@ -425,11 +436,11 @@ async def get_upstream_nodes(
     # For metrics, include the immediate parents in the results
     # (they are the starting point for the CTE, so not included by default)
     if immediate_parent_ids:
-        # Load parents with full options for consistent output
+        # Load parents with same options for consistent output
         parent_query = (
             select(Node)
             .where(Node.id.in_(immediate_parent_ids))
-            .options(*_node_output_options())
+            .options(*result_options)
         )
         if not include_deactivated:
             parent_query = parent_query.where(is_(Node.deactivated_at, None))
