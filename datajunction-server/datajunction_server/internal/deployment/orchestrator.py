@@ -89,6 +89,8 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
 )
 from datajunction_server.models.history import ActivityType
+from datajunction_server.database.history import History
+from datajunction_server.internal.history import EntityType
 from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
@@ -638,7 +640,6 @@ class DeploymentOrchestrator:
                     and link.role == delete_link.role
                 ):
                     link_ids_to_delete.append(link.id)  # type: ignore
-                    # await self.session.delete(link)
                     delete_results.append(
                         DeploymentResult(
                             name=link_name,
@@ -647,6 +648,23 @@ class DeploymentOrchestrator:
                             operation=DeploymentResult.Operation.DELETE,
                         ),
                     )
+
+                    # Track history for link deletion
+                    self.session.add(
+                        History(
+                            entity_type=EntityType.LINK,
+                            entity_name=node.name,
+                            node=node.name,
+                            activity_type=ActivityType.DELETE,
+                            details={
+                                "dimension_node": delete_link.rendered_dimension_node,
+                                "role": delete_link.role,
+                                "deployment_id": self.deployment_id,
+                            },
+                            user=self.context.current_user.username,
+                        ),
+                    )
+
         if link_ids_to_delete:
             await self.session.execute(
                 DimensionLink.__table__.delete().where(
@@ -754,6 +772,31 @@ class DeploymentOrchestrator:
             )
         role_suffix = f"[{link_spec.role}]" if link_spec.role else ""
         await self.session.flush()
+
+        # Track history for dimension link create/update (skip REFRESH/NOOP)
+        if activity_type in (ActivityType.CREATE, ActivityType.UPDATE):
+            link_details = {
+                "dimension_node": dimension_node.name,
+                "link_type": link_spec.type,
+                "role": link_spec.role,
+                "deployment_id": self.deployment_id,
+            }
+            if link_spec.type == LinkType.JOIN:
+                join_link = cast(DimensionJoinLinkSpec, link_spec)
+                link_details["join_type"] = join_link.join_type
+                link_details["join_on"] = join_link.rendered_join_on
+
+            self.session.add(
+                History(
+                    entity_type=EntityType.LINK,
+                    entity_name=new_revision.name,
+                    node=new_revision.name,
+                    activity_type=activity_type,
+                    details=link_details,
+                    user=self.context.current_user.username,
+                ),
+            )
+
         return DeploymentResult(
             name=f"{new_revision.name} -> {dimension_node.name}" + role_suffix,
             deploy_type=DeploymentResult.Type.LINK,
@@ -1132,6 +1175,24 @@ class DeploymentOrchestrator:
                     )
                 )
 
+                # Track history for cube create/update operations
+                activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
+                self.session.add(
+                    History(
+                        entity_type=EntityType.NODE,
+                        entity_name=cube_spec.rendered_name,
+                        node=cube_spec.rendered_name,
+                        activity_type=activity_type,
+                        details={
+                            "version": new_node.current_version,
+                            "deployment_id": self.deployment_id,
+                            "metrics": cube_spec.rendered_metrics,
+                            "dimensions": cube_spec.rendered_dimensions,
+                        },
+                        user=self.context.current_user.username,
+                    ),
+                )
+
                 # Create deployment result
                 deployment_result = DeploymentResult(
                     name=cube_spec.rendered_name,
@@ -1219,12 +1280,16 @@ class DeploymentOrchestrator:
         ]
 
     async def _deploy_delete_node(self, name: str) -> DeploymentResult:
+        async def add_history(event, session):
+            """Add history to session without committing"""
+            session.add(event)
+
         try:
             await hard_delete_node(
                 name=name,
                 session=self.session,
                 current_user=self.context.current_user,
-                save_history=self.context.save_history,
+                save_history=add_history,
             )
             return DeploymentResult(
                 name=name,
@@ -1523,6 +1588,23 @@ class DeploymentOrchestrator:
         self.session.add(new_node)
         self.session.add(new_revision)
         await self.session.flush()
+
+        # Track history for create/update operations
+        activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
+        self.session.add(
+            History(
+                entity_type=EntityType.NODE,
+                entity_name=result.spec.rendered_name,
+                node=result.spec.rendered_name,
+                activity_type=activity_type,
+                details={
+                    "version": new_node.current_version,
+                    "deployment_id": self.deployment_id,
+                },
+                user=self.context.current_user.username,
+            ),
+        )
+
         deployment_result = DeploymentResult(
             name=result.spec.rendered_name,
             deploy_type=DeploymentResult.Type.NODE,

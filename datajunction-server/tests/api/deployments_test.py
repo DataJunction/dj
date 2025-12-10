@@ -2853,3 +2853,194 @@ async def test_print_roads_spec(roads_nodes):
     )
     print("Roads Spec:", json.dumps(spec.model_dump()))
     assert 1 == 2
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDeploymentHistoryTracking:
+    """Tests for history tracking during YAML deployments"""
+
+    @pytest.mark.asyncio
+    async def test_deployment_creates_history_for_nodes(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that deploying nodes creates history entries for each create/update operation
+        """
+        namespace = "history_test"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+                SELECT
+                    hard_hat_id,
+                    last_name,
+                    first_name,
+                    state
+                FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+        )
+
+        # Deploy nodes
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_hard_hats,
+                    default_us_states,
+                    default_us_state,
+                    dim_spec,
+                ],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Check history for source node
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hats/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        assert len(history) >= 1
+        # Find the create event
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        assert len(create_events) == 1
+        assert create_events[0]["entity_type"] == "node"
+        assert "deployment_id" in create_events[0]["details"]
+
+        # Check history for dimension node
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hat/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        assert len(history) >= 1
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        assert len(create_events) == 1
+        assert create_events[0]["entity_type"] == "node"
+        assert "deployment_id" in create_events[0]["details"]
+
+    @pytest.mark.asyncio
+    async def test_deployment_creates_history_for_updates(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """
+        Test that updating nodes via deployment creates history entries
+        """
+        namespace = "history_update_test"
+
+        # First deployment - create
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_hard_hats],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Second deployment - update description
+        updated_hard_hats = SourceSpec(
+            name=default_hard_hats.name,
+            description="Updated description for hard hats table",
+            catalog=default_hard_hats.catalog,
+            schema=default_hard_hats.schema_,
+            table=default_hard_hats.table,
+            columns=default_hard_hats.columns,
+            owners=default_hard_hats.owners,
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[updated_hard_hats],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Check history shows both create and update
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hats/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        update_events = [h for h in history if h["activity_type"] == "update"]
+        assert len(create_events) >= 1
+        assert len(update_events) >= 1
+        # Verify deployment_id is tracked
+        assert "deployment_id" in create_events[0]["details"]
+        assert "deployment_id" in update_events[0]["details"]
+
+    @pytest.mark.asyncio
+    async def test_deployment_creates_history_for_dimension_links(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that deploying nodes with dimension links creates history entries for links
+        """
+        namespace = "history_link_test"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="""Hard hat dimension""",
+            query="""
+                SELECT
+                    hard_hat_id,
+                    last_name,
+                    first_name,
+                    state
+                FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                ),
+            ],
+            owners=["dj"],
+        )
+
+        # Deploy nodes with dimension links
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_hard_hats,
+                    default_us_states,
+                    default_us_state,
+                    dim_spec,
+                ],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Check history for dimension links
+        response = await client.get(
+            f"/history?node={namespace}.default.hard_hat",
+        )
+        assert response.status_code == 200
+        history = response.json()
+
+        # Should have link creation history
+        link_events = [h for h in history if h["entity_type"] == "link"]
+        assert len(link_events) >= 1
+        link_create_events = [h for h in link_events if h["activity_type"] == "create"]
+        assert len(link_create_events) >= 1
+        # Verify link details are tracked
+        assert "dimension_node" in link_create_events[0]["details"]
+        assert "deployment_id" in link_create_events[0]["details"]
