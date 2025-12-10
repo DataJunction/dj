@@ -256,6 +256,9 @@ async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
     """
     Conditionally refresh a list of attributes for a SQLAlchemy ORM object.
     """
+    import time
+    from datajunction_server.tracing import get_tracer
+
     attributes_to_refresh = []
 
     for attr_name in attributes:
@@ -265,7 +268,20 @@ async def refresh_if_needed(session: AsyncSession, obj, attributes: list[str]):
             attributes_to_refresh.append(attr_name)
 
     if attributes_to_refresh:
+        tracer = get_tracer()
+        start_time = time.perf_counter() if tracer else None
+
         await session.refresh(obj, attributes_to_refresh)
+
+        if tracer and start_time:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            class_name = obj.__class__.__name__
+            tracer.record_refresh(
+                class_name=class_name,
+                attributes=attributes_to_refresh,
+                time_ms=elapsed_ms,
+                triggered_query=True,
+            )
 
 
 async def execute_with_retry(

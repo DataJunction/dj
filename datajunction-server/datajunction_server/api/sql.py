@@ -27,6 +27,11 @@ from datajunction_server.models import access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.sql import GeneratedSQL
+from datajunction_server.tracing import (
+    start_tracing,
+    stop_tracing,
+    ensure_listeners_installed,
+)
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -64,6 +69,10 @@ async def get_measures_sql_for_cube_v2(
             "for the metrics and dimensions in the cube"
         ),
     ),
+    trace: bool = Query(
+        False,
+        description="Enable query tracing to diagnose performance issues",
+    ),
     cache: Cache = Depends(get_cache),
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -86,29 +95,62 @@ async def get_measures_sql_for_cube_v2(
     For example, if some of your metrics are aggregations on measures in parent node A
     and others are aggregations on measures in parent node B, this endpoint will generate
     two measures queries, one for A and one for B.
+
+    Set trace=true to enable performance tracing. Tracing stats will be logged and
+    returned in response headers (X-Trace-*).
     """
-    query_cache_manager = QueryCacheManager(
-        cache=cache,
-        query_type=QueryBuildType.MEASURES,
-    )
-    return await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=metrics,
-            dimensions=dimensions,
-            filters=filters,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            orderby=orderby,
-            query_params=query_params,
-            include_all_columns=include_all_columns,
-            preaggregate=preaggregate,
-            use_materialized=use_materialized,
-            current_user=current_user,
-            validate_access=validate_access,
-        ),
-    )
+    # Start tracing if requested
+    if trace:
+        ensure_listeners_installed()
+        start_tracing()
+        _logger.info(
+            f"[TRACE] Starting measures/v2 request: metrics={metrics}, "
+            f"dimensions={dimensions}, filters={filters}",
+        )
+
+    try:
+        query_cache_manager = QueryCacheManager(
+            cache=cache,
+            query_type=QueryBuildType.MEASURES,
+        )
+        result = await query_cache_manager.get_or_load(
+            background_tasks,
+            request,
+            QueryRequestParams(
+                nodes=metrics,
+                dimensions=dimensions,
+                filters=filters,
+                engine_name=engine_name,
+                engine_version=engine_version,
+                orderby=orderby,
+                query_params=query_params,
+                include_all_columns=include_all_columns,
+                preaggregate=preaggregate,
+                use_materialized=use_materialized,
+                current_user=current_user,
+                validate_access=validate_access,
+            ),
+        )
+        return result
+    finally:
+        # Stop tracing and log results
+        if trace:
+            stats = stop_tracing()
+            if stats:
+                _logger.info(
+                    f"[TRACE] measures/v2 complete: "
+                    f"queries={stats['query_count']}, "
+                    f"query_time={stats['total_query_time_ms']:.2f}ms, "
+                    f"refreshes={stats['refresh_count']}, "
+                    f"refresh_time={stats['total_refresh_time_ms']:.2f}ms, "
+                    f"total_time={stats['total_time_ms']:.2f}ms",
+                )
+                # Log detailed breakdown if there were many queries
+                if stats["query_count"] > 10:
+                    _logger.warning(
+                        f"[TRACE] High query count! Top refreshes: "
+                        f"{[(r.class_name, r.attributes, r.time_ms) for r in stats['refreshes'][:10]]}",
+                    )
 
 
 @router.get(
@@ -162,6 +204,76 @@ async def get_sql(
             validate_access=validate_access,
         ),
     )
+
+
+@router.get(
+    "/sql/measures/experimental/",
+    response_model=List[GeneratedSQL],
+    name="Get Measures SQL (Experimental - Direct SQL)",
+)
+async def get_measures_sql_experimental(
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
+    query_params: str = Query("{}", description="Query parameters"),
+    *,
+    include_all_columns: bool = Query(
+        False,
+        description="Whether to include all columns",
+    ),
+    trace: bool = Query(
+        True,  # Default to true for experimental endpoint
+        description="Enable query tracing",
+    ),
+    session: AsyncSession = Depends(get_session),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+    use_materialized: bool = True,
+) -> List[GeneratedSQL]:
+    """
+    EXPERIMENTAL: Return measures SQL using direct SQL queries instead of SQLAlchemy ORM.
+
+    This is a new implementation that loads all needed data in ~5-10 queries total,
+    instead of 2000+ queries with the ORM approach.
+
+    Use this endpoint to compare performance with /sql/measures/v2/
+    """
+    from datajunction_server.construction.sql_builder import get_measures_query_v2
+
+    # Start tracing
+    if trace:
+        ensure_listeners_installed()
+        start_tracing()
+        _logger.info(
+            f"[TRACE] Starting EXPERIMENTAL measures request: metrics={metrics}, "
+            f"dimensions={dimensions}, filters={filters}",
+        )
+
+    try:
+        result = await get_measures_query_v2(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            include_all_columns=include_all_columns,
+            use_materialized=use_materialized,
+        )
+        return result
+    finally:
+        if trace:
+            stats = stop_tracing()
+            if stats:
+                _logger.info(
+                    f"[TRACE] EXPERIMENTAL measures complete: "
+                    f"queries={stats['query_count']}, "
+                    f"query_time={stats['total_query_time_ms']:.2f}ms, "
+                    f"refreshes={stats['refresh_count']}, "
+                    f"total_time={stats['total_time_ms']:.2f}ms",
+                )
 
 
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")

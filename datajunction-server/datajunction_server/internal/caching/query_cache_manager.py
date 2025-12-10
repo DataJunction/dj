@@ -63,7 +63,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
     A generic manager for handling caching operations.
     """
 
-    _cache_key_prefix = "sql"
+    _cache_key_prefix = "sql1"
     default_timeout = settings.query_cache_timeout
 
     def __init__(self, cache: Cache, query_type: QueryBuildType):
