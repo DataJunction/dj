@@ -1,7 +1,7 @@
 """
 SQL related APIs.
 """
-
+import json
 import logging
 from http import HTTPStatus
 from typing import List, Optional
@@ -209,7 +209,7 @@ async def get_sql(
 @router.get(
     "/sql/measures/experimental/",
     response_model=List[GeneratedSQL],
-    name="Get Measures SQL (Experimental - Direct SQL)",
+    name="Get Measures SQL (Experimental - Eager Loading)",
 )
 async def get_measures_sql_experimental(
     metrics: List[str] = Query([]),
@@ -217,6 +217,10 @@ async def get_measures_sql_experimental(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     query_params: str = Query("{}", description="Query parameters"),
+    preaggregate: bool = Query(
+        False,
+        description="Whether to pre-aggregate to the requested dimensions",
+    ),
     *,
     include_all_columns: bool = Query(
         False,
@@ -229,29 +233,37 @@ async def get_measures_sql_experimental(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
     use_materialized: bool = True,
 ) -> List[GeneratedSQL]:
     """
-    EXPERIMENTAL: Return measures SQL using direct SQL queries instead of SQLAlchemy ORM.
+    EXPERIMENTAL: Return measures SQL using eager loading to avoid N+1 queries.
 
-    This is a new implementation that loads all needed data in ~5-10 queries total,
-    instead of 2000+ queries with the ORM approach.
+    This endpoint uses the same SQL generation logic as /sql/measures/v2/ but
+    pre-loads all node data using SQLAlchemy eager loading, reducing query count
+    from 2000+ to ~20.
 
     Use this endpoint to compare performance with /sql/measures/v2/
     """
-    from datajunction_server.construction.sql_builder import get_measures_query_v2
+    from datajunction_server.construction.eager_loader import eager_load_for_measures
+    from datajunction_server.internal.sql import get_measures_query
 
     # Start tracing
     if trace:
         ensure_listeners_installed()
         start_tracing()
         _logger.info(
-            f"[TRACE] Starting EXPERIMENTAL measures request: metrics={metrics}, "
+            f"[TRACE] Starting EXPERIMENTAL (eager) measures request: metrics={metrics}, "
             f"dimensions={dimensions}, filters={filters}",
         )
 
     try:
-        result = await get_measures_query_v2(
+        # Pre-load all nodes with eager loading
+        await eager_load_for_measures(session, metrics, dimensions)
+        
+        # Now call the regular get_measures_query - it will find pre-loaded data in the session
+        result = await get_measures_query(
             session=session,
             metrics=metrics,
             dimensions=dimensions,
@@ -259,8 +271,12 @@ async def get_measures_sql_experimental(
             orderby=orderby,
             engine_name=engine_name,
             engine_version=engine_version,
+            current_user=current_user,
+            validate_access=validate_access,
             include_all_columns=include_all_columns,
             use_materialized=use_materialized,
+            preagg_requested=preaggregate,
+            query_parameters=json.loads(query_params),
         )
         return result
     finally:
@@ -268,7 +284,7 @@ async def get_measures_sql_experimental(
             stats = stop_tracing()
             if stats:
                 _logger.info(
-                    f"[TRACE] EXPERIMENTAL measures complete: "
+                    f"[TRACE] EXPERIMENTAL (eager) measures complete: "
                     f"queries={stats['query_count']}, "
                     f"query_time={stats['total_query_time_ms']:.2f}ms, "
                     f"refreshes={stats['refresh_count']}, "

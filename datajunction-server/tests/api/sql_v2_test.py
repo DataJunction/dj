@@ -525,7 +525,7 @@ async def test_measures_sql_with_filters__v2(
         **({"orderby": orderby} if orderby else {}),
     }
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params=sql_params,
     )
     data = response.json()
@@ -1016,7 +1016,7 @@ async def test_measures_sql_preaggregate(
         "preaggregate": True,
     }
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params=sql_params,
     )
     data = response.json()
@@ -1034,12 +1034,12 @@ async def test_measures_sql_include_all_columns(
     duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
-    Test ``GET /sql/measures/v2`` with include_all_columns set to true.
+    Test ``GET /sql/measures/experimental`` with include_all_columns set to true.
     """
     await fix_dimension_links(module__client_with_roads)
 
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params={
             "metrics": ["default.avg_time_to_dispatch"],
             "dimensions": [
@@ -1138,12 +1138,12 @@ async def test_measures_sql_errors(
     module__client_with_roads: AsyncClient,
 ):
     """
-    Test ``GET /sql/measures/v2`` with include_all_columns set to true.
+    Test ``GET /sql/measures/experimental`` with include_all_columns set to true.
     """
     await fix_dimension_links(module__client_with_roads)
 
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params={
             "metrics": ["default.avg_time_to_dispatch"],
             "dimensions": [
@@ -1255,7 +1255,7 @@ async def test_measures_sql_agg_distinct_metric(
     metric_complex = await create_metric_distinct_expression(module__client_with_roads)
 
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params={
             "metrics": ["default.avg_repair_price", metric_simple, metric_complex],
             "dimensions": [
@@ -1348,7 +1348,7 @@ async def test_measures_sql_simple_agg_metric(
     """
     await fix_dimension_links(module__client_with_roads)
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params={
             "metrics": ["default.avg_repair_price", "default.num_repair_orders"],
             "dimensions": [
@@ -1539,7 +1539,7 @@ async def test_measures_sql_local_dimensions(
     await fix_dimension_links(module__client_with_roads)
 
     response = await module__client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/measures/experimental",
         params={
             "metrics": [
                 "default.avg_length_of_employment",
@@ -1633,7 +1633,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             == "SUM(default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419)"
         )
         response = await module__client_with_roads.get(
-            "/sql/measures/v2",
+            "/sql/measures/experimental",
             params={
                 "metrics": [metric_name],
                 "dimensions": ["default.hard_hat.city"],
@@ -1695,7 +1695,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             == "COUNT( DISTINCT default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d)"
         )
         response = await module__client_with_roads.get(
-            "/sql/measures/v2",
+            "/sql/measures/experimental",
             params={
                 "metrics": [metric_name],
                 "dimensions": [],
@@ -1801,7 +1801,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             "COUNT( DISTINCT default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7)"
         )
         response = await module__client_with_roads.get(
-            "/sql/measures/v2",
+            "/sql/measures/experimental",
             params={
                 "metrics": [metric_name],
                 "dimensions": ["default.hard_hat.city"],
