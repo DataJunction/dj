@@ -106,7 +106,6 @@ export function NamespacePage() {
       const namespaces = await djClient.namespaces();
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
-      // currentUser is now provided by UserProvider context
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);

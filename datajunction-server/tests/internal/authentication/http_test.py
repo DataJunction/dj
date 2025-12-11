@@ -86,12 +86,7 @@ def test_dj_http_bearer_w_cookie(
         "name": "DJ",
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
-        "created_collections": [],
-        "created_nodes": [],
-        "created_tags": [],
         "last_viewed_notifications_at": None,
-        "notification_preferences": [],
-        "owned_nodes": [],
     }
 
 
@@ -116,12 +111,7 @@ def test_dj_http_bearer_w_auth_headers(
         "name": "DJ",
         "oauth_provider": OAuthProvider.BASIC,
         "is_admin": False,
-        "created_collections": [],
-        "created_nodes": [],
-        "created_tags": [],
-        "owned_nodes": [],
         "last_viewed_notifications_at": None,
-        "notification_preferences": [],
     }
 
 
