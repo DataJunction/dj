@@ -117,7 +117,10 @@ async def list_namespaces(
     """
     List namespaces with the number of nodes contained in them
     """
+    import time
+    start = time.time()
     results = await NodeNamespace.get_all_with_node_count(session)
+    print("get all nodes took", time.time() - start)
     resource_requests = [
         access.ResourceRequest(
             verb=access.ResourceAction.READ,

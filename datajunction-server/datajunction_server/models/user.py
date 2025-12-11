@@ -42,13 +42,13 @@ class UserOutput(BaseModel):
     name: str | None = None
     oauth_provider: OAuthProvider
     is_admin: bool = False
-    created_collections: list[CollectionInfo] = Field(default_factory=list)
-    created_nodes: list[CreatedNode] = Field(default_factory=list)
-    owned_nodes: list[CreatedNode] = Field(default_factory=list)
-    created_tags: list[TagOutput] = Field(default_factory=list)
-    notification_preferences: list[NotificationPreferenceOutput] = Field(
-        default_factory=list,
-    )
+    # created_collections: list[CollectionInfo] = Field(default_factory=list)
+    # created_nodes: list[CreatedNode] = Field(default_factory=list)
+    # owned_nodes: list[CreatedNode] = Field(default_factory=list)
+    # created_tags: list[TagOutput] = Field(default_factory=list)
+    # notification_preferences: list[NotificationPreferenceOutput] = Field(
+    #     default_factory=list,
+    # )
     last_viewed_notifications_at: UTCDatetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

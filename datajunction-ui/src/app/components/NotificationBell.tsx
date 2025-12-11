@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../providers/djclient';
+import { useCurrentUser } from '../providers/UserProvider';
 import NotificationIcon from '../icons/NotificationIcon';
 import SettingsIcon from '../icons/SettingsIcon';
 import LoadingIcon from '../icons/LoadingIcon';
@@ -68,6 +69,7 @@ export default function NotificationBell({
   forceClose,
 }: NotificationBellProps) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const { currentUser, loading: userLoading } = useCurrentUser();
   const [showDropdown, setShowDropdown] = useState(false);
 
   // Close when forceClose becomes true
@@ -82,14 +84,15 @@ export default function NotificationBell({
   const [loading, setLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Fetch notifications on mount
+  // Fetch notifications when user data is available
   useEffect(() => {
+    if (userLoading) return;
+
     async function fetchNotifications() {
       setLoading(true);
       try {
-        const current = await djClient.whoami();
         const history: HistoryEntry[] =
-          (await djClient.getSubscribedHistory(10)) || [];
+          (await djClient.getSubscribedHistory(5)) || [];
 
         // Get unique entity names and fetch their info via GraphQL
         // (some may not be nodes, but GraphQL will just not return them)
@@ -101,7 +104,10 @@ export default function NotificationBell({
         const enriched = enrichWithNodeInfo(history, nodes);
         setNotifications(enriched);
         setUnreadCount(
-          calculateUnreadCount(history, current?.last_viewed_notifications_at),
+          calculateUnreadCount(
+            history,
+            currentUser?.last_viewed_notifications_at,
+          ),
         );
       } catch (error) {
         console.error('Error fetching notifications:', error);
@@ -110,7 +116,7 @@ export default function NotificationBell({
       }
     }
     fetchNotifications();
-  }, [djClient]);
+  }, [djClient, currentUser, userLoading]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
