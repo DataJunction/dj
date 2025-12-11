@@ -11,7 +11,7 @@ import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
-import { NodePage } from './pages/NodePage/Loadable';
+import { NodePage } from './pages/NodePage';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
@@ -21,8 +21,9 @@ import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterTablePage } from './pages/RegisterTablePage';
-import { Root } from './pages/Root/Loadable';
+import { Root } from './pages/Root';
 import DJClientContext from './providers/djclient';
+import { UserProvider } from './providers/UserProvider';
 import { DataJunctionAPI } from './services/DJService';
 import { CookiesProvider, useCookies } from 'react-cookie';
 import * as Constants from './constants';
@@ -44,6 +45,7 @@ export function App() {
               />
             </Helmet>
             <DJClientContext.Provider value={{ DataJunctionAPI }}>
+              <UserProvider>
               <Routes>
                 <Route
                   path="/"
@@ -139,6 +141,7 @@ export function App() {
                 />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
+              </UserProvider>
             </DJClientContext.Provider>
           </>
         ) : (

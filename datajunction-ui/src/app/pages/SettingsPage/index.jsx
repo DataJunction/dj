@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
+import { useCurrentUser } from '../../providers/UserProvider';
 import LoadingIcon from '../../icons/LoadingIcon';
 import ProfileSection from './ProfileSection';
 import NotificationSubscriptionsSection from './NotificationSubscriptionsSection';
@@ -11,18 +12,17 @@ import '../../../styles/settings.css';
  */
 export function SettingsPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const [currentUser, setCurrentUser] = useState(null);
+  const { currentUser, loading: userLoading } = useCurrentUser();
   const [subscriptions, setSubscriptions] = useState([]);
   const [serviceAccounts, setServiceAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Wait for user to be loaded from context
+    if (userLoading) return;
+
     async function fetchData() {
       try {
-        // Fetch user profile
-        const user = await djClient.whoami();
-        setCurrentUser(user);
-
         // Fetch notification subscriptions
         const prefs = await djClient.getNotificationPreferences();
 
@@ -69,7 +69,7 @@ export function SettingsPage() {
       }
     }
     fetchData();
-  }, [djClient]);
+  }, [djClient, userLoading]);
 
   // Subscription handlers
   const handleUpdateSubscription = async (sub, activityTypes) => {
