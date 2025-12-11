@@ -79,11 +79,26 @@ async def list_tags(
     """
     List all available tags.
     """
-    statement = select(Tag)
+    statement = select(
+        Tag.name,
+        Tag.tag_type,
+        Tag.description,
+        Tag.display_name,
+        Tag.tag_metadata,
+    )
     if tag_type:
         statement = statement.where(Tag.tag_type == tag_type)
     result = await session.execute(statement)
-    return result.scalars().all()
+    return [
+        TagOutput(
+            name=tag[0],
+            tag_type=tag[1],
+            description=tag[2],
+            display_name=tag[3],
+            tag_metadata=tag[4],
+        )
+        for tag in result.all()
+    ]
 
 
 @router.get("/tags/{name}/", response_model=TagOutput)
