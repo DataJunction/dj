@@ -5,7 +5,6 @@ from http import HTTPStatus
 from typing import Annotated, List, Optional
 from datetime import datetime, timezone
 
-from datajunction_server.models.notifications import NotificationPreferenceModel
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +18,6 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.notifications import (
     get_entity_notification_preferences,
-    get_user_notification_preferences,
 )
 from datajunction_server.models.notifications import NotificationPreferenceModel
 from datajunction_server.utils import (
@@ -127,24 +125,40 @@ async def get_preferences(
     current_user: User = Depends(get_current_user),
 ) -> List[NotificationPreferenceModel]:
     """Gets notification preferences for the current user"""
-    notification_preferences = await get_user_notification_preferences(
-        session=session,
-        user=current_user,
-        entity_name=entity_name,
-        entity_type=entity_type,
-    )
-    response = [
-        NotificationPreferenceModel(
-            entity_type=pref.entity_type,
-            entity_name=pref.entity_name,
-            activity_types=pref.activity_types,
-            user_id=pref.user.id,
-            username=pref.user.username,
-            alert_types=pref.alert_types,
+    statement = (
+        select(
+            NotificationPreference.entity_type,
+            NotificationPreference.entity_name,
+            NotificationPreference.activity_types,
+            NotificationPreference.alert_types,
+            User.id.label("user_id"),
+            User.username,
         )
-        for pref in notification_preferences
+        .join(User, NotificationPreference.user_id == User.id)
+        .where(
+            NotificationPreference.user_id == current_user.id,
+        )
+    )
+
+    if entity_name:
+        statement = statement.where(NotificationPreference.entity_name == entity_name)
+    if entity_type:
+        statement = statement.where(NotificationPreference.entity_type == entity_type)
+
+    result = await session.execute(statement)
+    rows = result.all()
+
+    return [
+        NotificationPreferenceModel(
+            entity_type=row.entity_type,
+            entity_name=row.entity_name,
+            activity_types=row.activity_types,
+            alert_types=row.alert_types,
+            user_id=row.user_id,
+            username=row.username,
+        )
+        for row in rows
     ]
-    return response
 
 
 @router.get("/notifications/users")

@@ -6,7 +6,6 @@ from datetime import timedelta
 from http import HTTPStatus
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
@@ -33,10 +32,15 @@ async def whoami(
     """
     Returns the current authenticated user
     """
-    statement = (
-        select(User.id, User.username, User.email, User.name, User.oauth_provider, User.is_admin, User.last_viewed_notifications_at)
-        .where(User.username == current_user.username)
-    )
+    statement = select(
+        User.id,
+        User.username,
+        User.email,
+        User.name,
+        User.oauth_provider,
+        User.is_admin,
+        User.last_viewed_notifications_at,
+    ).where(User.username == current_user.username)
     result = await session.execute(statement)
     user = result.one_or_none()
     return UserOutput(
