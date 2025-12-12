@@ -40,7 +40,8 @@ export default function NodeInfoTab({ node }) {
     return !value;
   }
   const metricsWarning =
-    node?.type === 'metric' && node?.incompatible_druid_functions.length > 0 ? (
+    node?.type === 'metric' &&
+    node?.incompatible_druid_functions?.length > 0 ? (
       <div className="message warning" style={{ marginTop: '0.7rem' }}>
         ⚠{' '}
         <small>
