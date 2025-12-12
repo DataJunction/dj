@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import UserMenu from '../UserMenu';
 import DJClientContext from '../../providers/djclient';
+import { UserProvider } from '../../providers/UserProvider';
 
 describe('<UserMenu />', () => {
   const createMockDjClient = (overrides = {}) => ({
@@ -17,7 +18,9 @@ describe('<UserMenu />', () => {
   const renderWithContext = (mockDjClient: any, props = {}) => {
     return render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <UserMenu {...props} />
+        <UserProvider>
+          <UserMenu {...props} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
   };
@@ -164,7 +167,9 @@ describe('<UserMenu />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <UserMenu forceClose={false} />
+        <UserProvider>
+          <UserMenu forceClose={false} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 
@@ -184,7 +189,9 @@ describe('<UserMenu />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <UserMenu forceClose={true} />
+        <UserProvider>
+          <UserMenu forceClose={true} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 

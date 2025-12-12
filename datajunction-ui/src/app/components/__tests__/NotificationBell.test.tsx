@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import NotificationBell from '../NotificationBell';
 import DJClientContext from '../../providers/djclient';
+import { UserProvider } from '../../providers/UserProvider';
 
 describe('<NotificationBell />', () => {
   const mockNotifications = [
@@ -52,10 +53,12 @@ describe('<NotificationBell />', () => {
     ...overrides,
   });
 
-  const renderWithContext = (mockDjClient: any) => {
+  const renderWithContext = (mockDjClient: any, props = {}) => {
     return render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <NotificationBell />
+        <UserProvider>
+          <NotificationBell {...props} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
   };
@@ -218,7 +221,9 @@ describe('<NotificationBell />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <NotificationBell onDropdownToggle={onDropdownToggle} />
+        <UserProvider>
+          <NotificationBell onDropdownToggle={onDropdownToggle} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 
@@ -239,7 +244,9 @@ describe('<NotificationBell />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <NotificationBell forceClose={false} />
+        <UserProvider>
+          <NotificationBell forceClose={false} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 
@@ -259,7 +266,9 @@ describe('<NotificationBell />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <NotificationBell forceClose={true} />
+        <UserProvider>
+          <NotificationBell forceClose={true} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 
@@ -275,7 +284,9 @@ describe('<NotificationBell />', () => {
       <DJClientContext.Provider
         value={{ DataJunctionAPI: mockDjClient as any }}
       >
-        <NotificationBell onDropdownToggle={onDropdownToggle} />
+        <UserProvider>
+          <NotificationBell onDropdownToggle={onDropdownToggle} />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
 
