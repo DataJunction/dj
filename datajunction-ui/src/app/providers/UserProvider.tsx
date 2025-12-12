@@ -14,7 +14,6 @@ interface User {
   email?: string;
   name?: string;
   last_viewed_notifications_at?: string | null;
-  // Add other user fields as needed
 }
 
 interface UserContextType {
@@ -51,7 +50,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }
   }, [djClient]);
 
-  // Fetch user data once on mount
   useEffect(() => {
     fetchUser();
   }, [fetchUser]);
@@ -69,7 +67,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }
 
-// Custom hook for consuming the user context
 export function useCurrentUser() {
   const context = useContext(UserContext);
   if (context === undefined) {
