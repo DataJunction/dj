@@ -351,11 +351,21 @@ describe('<NodePage />', () => {
       expect(
         screen.getByRole('dialog', { name: 'NodeType' }),
       ).toHaveTextContent('metric');
-
-      expect(
-        container.getElementsByClassName('language-sql'),
-      ).toMatchSnapshot();
     });
+
+    // Wait separately for getMetric to be called and data to render
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.getMetric).toHaveBeenCalledWith(
+        'default.num_repair_orders',
+      );
+    });
+
+    // Wait for metric expression to appear (SyntaxHighlighter may split text)
+    await waitFor(() => {
+      expect(screen.getByText(/count/)).toBeInTheDocument();
+    });
+
+    expect(container.getElementsByClassName('language-sql')).toMatchSnapshot();
   }, 60000);
 
   it('renders the NodeInfo tab correctly for cube nodes', async () => {

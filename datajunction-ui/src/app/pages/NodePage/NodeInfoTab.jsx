@@ -76,6 +76,19 @@ export default function NodeInfoTab({ node }) {
     }
   }, [node, djClient]);
 
+  // For cubes
+  const [cubeElements, setCubeElements] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const cube = await djClient.cube(node.name);
+      setCubeElements(cube.cube_elements);
+    };
+    if (node.type === 'cube') {
+      fetchData().catch(console.error);
+    }
+  }, [node, djClient]);
+
   function toggle(value) {
     return !value;
   }
@@ -263,7 +276,7 @@ export default function NodeInfoTab({ node }) {
       ''
     );
 
-  const cubeElementsDiv = node?.cube_elements ? (
+  const cubeElementsDiv = cubeElements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
         <div
@@ -273,10 +286,10 @@ export default function NodeInfoTab({ node }) {
         >
           <h6 className="mb-0 w-100">Cube Elements</h6>
           <div className={`list-group-item`}>
-            {node.cube_elements.map(cubeElem =>
+            {cubeElements.map(cubeElem =>
               cubeElem.type === 'metric' ? displayCubeElement(cubeElem) : '',
             )}
-            {node.cube_elements.map(cubeElem =>
+            {cubeElements.map(cubeElem =>
               cubeElem.type !== 'metric' ? displayCubeElement(cubeElem) : '',
             )}
           </div>
