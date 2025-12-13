@@ -1,11 +1,27 @@
+import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import { nightOwl } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import PythonIcon from '../../icons/PythonIcon';
+import LoadingIcon from 'app/icons/LoadingIcon';
 
-export default function ClientCodePopover({ code }) {
+export default function ClientCodePopover({ nodeName }) {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [showModal, setShowModal] = useState(false);
   const modalRef = useRef(null);
+  const [code, setCode] = useState(null);
+
+  useEffect(() => {
+    async function fetchCode() {
+      try {
+        const code = await djClient.clientCode(nodeName);
+        setCode(code);
+      } catch (err) {
+        console.log(err);
+      }
+    }
+    fetchCode();
+  }, [nodeName, djClient]);
 
   useEffect(() => {
     const handleClickOutside = event => {
@@ -83,9 +99,15 @@ export default function ClientCodePopover({ code }) {
               ×
             </button>
             <h2>Python Client Code</h2>
-            <SyntaxHighlighter language="python" style={nightOwl}>
-              {code}
-            </SyntaxHighlighter>
+            {code ? (
+              <SyntaxHighlighter language="python" style={nightOwl}>
+                {code}
+              </SyntaxHighlighter>
+            ) : (
+              <>
+                <LoadingIcon />
+              </>
+            )}
           </div>
         </div>
       )}

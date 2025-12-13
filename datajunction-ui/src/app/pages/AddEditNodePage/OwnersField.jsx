@@ -4,13 +4,14 @@
 import { ErrorMessage } from 'formik';
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
+import { useCurrentUser } from '../../providers/UserProvider';
 import { FormikSelect } from './FormikSelect';
 
 export const OwnersField = ({ defaultValue }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const { currentUser } = useCurrentUser();
 
   const [availableUsers, setAvailableUsers] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -23,8 +24,6 @@ export const OwnersField = ({ defaultValue }) => {
           };
         }),
       );
-      const current = await djClient.whoami();
-      setCurrentUser(current);
     }
     fetchData();
   }, [djClient]);

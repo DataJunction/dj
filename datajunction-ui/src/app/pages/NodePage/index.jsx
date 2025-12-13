@@ -17,6 +17,7 @@ import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
 import AlertIcon from '../../icons/AlertIcon';
+import LoadingIcon from '../../icons/LoadingIcon';
 import NodeDependenciesTab from './NodeDependenciesTab';
 import { useNavigate } from 'react-router-dom';
 
@@ -30,7 +31,7 @@ export function NodePage() {
     selectedTab: tab || 'info',
   });
 
-  const [node, setNode] = useState();
+  const [node, setNode] = useState(null);
 
   const onClickTab = id => () => {
     navigate(`/nodes/${name}/${id}`);
@@ -52,21 +53,12 @@ export function NodePage() {
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.node(name);
-      data.createNodeClientCode = await djClient.clientCode(name);
-      if (data.type === 'metric') {
-        const metric = await djClient.getMetric(name);
-        data.metric_metadata = metric.current.metricMetadata;
-        data.required_dimensions = metric.current.requiredDimensions;
-        data.upstream_node = metric.current.parents[0].name;
-        data.expression = metric.current.metricMetadata.expression;
-        data.incompatible_druid_functions =
-          metric.current.metricMetadata.incompatibleDruidFunctions;
+      if (data.message !== undefined) {
+        // Error response
+        setNode(data);
+        return;
       }
-      if (data.type === 'cube') {
-        const cube = await djClient.cube(name);
-        data.cube_elements = cube.cube_elements;
-      }
-      setNode(data);
+      setNode({ ...data });
     };
     fetchData().catch(console.error);
   }, [djClient, name]);
@@ -124,8 +116,7 @@ export function NodePage() {
 
   switch (state.selectedTab) {
     case 'info':
-      tabToDisplay =
-        node && node.message === undefined ? <NodeInfoTab node={node} /> : '';
+      tabToDisplay = node ? <NodeInfoTab node={node} /> : '';
       break;
     case 'columns':
       tabToDisplay = <NodeColumnTab node={node} djClient={djClient} />;
@@ -168,7 +159,7 @@ export function NodePage() {
 
         <WatchButton node={node} />
 
-        <ClientCodePopover code={node?.createNodeClientCode} />
+        <ClientCodePopover nodeName={name} />
         {node?.type === 'cube' && <NotebookDownload node={node} />}
       </div>
     );
@@ -179,7 +170,11 @@ export function NodePage() {
     <div className="node__header">
       <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
-        {node?.message === undefined ? (
+        {node === undefined ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <LoadingIcon />
+          </div>
+        ) : node?.message === undefined ? (
           <div className="card-header" style={{}}>
             <div
               style={{
