@@ -52,73 +52,13 @@ export function NodePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch node data first and display it immediately
       const data = await djClient.node(name);
       if (data.message !== undefined) {
-        // Error response - set node to show error message
+        // Error response
         setNode(data);
         return;
       }
-
-      // Set node immediately so the page can render
       setNode({ ...data });
-
-      // Fetch additional data in parallel and update as they arrive
-      const additionalFetches = [];
-
-      // // Always fetch client code
-      // additionalFetches.push(
-      //   djClient
-      //     .clientCode(name)
-      //     .then(code => {
-      //       setNode(prev =>
-      //         prev ? { ...prev, createNodeClientCode: code } : prev,
-      //       );
-      //     })
-      //     .catch(err => console.error('Failed to fetch client code:', err)),
-      // );
-
-      // // Fetch metric-specific data
-      // if (data.type === 'metric') {
-      //   additionalFetches.push(
-      //     djClient
-      //       .getMetric(name)
-      //       .then(metric => {
-      //         setNode(prev =>
-      //           prev
-      //             ? {
-      //                 ...prev,
-      //                 metric_metadata: metric.current.metricMetadata,
-      //                 required_dimensions: metric.current.requiredDimensions,
-      //                 upstream_node: metric.current.parents[0]?.name,
-      //                 expression: metric.current.metricMetadata?.expression,
-      //                 incompatible_druid_functions:
-      //                   metric.current.metricMetadata
-      //                     ?.incompatibleDruidFunctions || [],
-      //               }
-      //             : prev,
-      //         );
-      //       })
-      //       .catch(err => console.error('Failed to fetch metric data:', err)),
-      //   );
-      // }
-
-      // Fetch cube-specific data
-      if (data.type === 'cube') {
-        additionalFetches.push(
-          djClient
-            .cube(name)
-            .then(cube => {
-              setNode(prev =>
-                prev ? { ...prev, cube_elements: cube.cube_elements } : prev,
-              );
-            })
-            .catch(err => console.error('Failed to fetch cube data:', err)),
-        );
-      }
-
-      // Wait for all additional fetches (they update state individually)
-      await Promise.allSettled(additionalFetches);
     };
     fetchData().catch(console.error);
   }, [djClient, name]);
