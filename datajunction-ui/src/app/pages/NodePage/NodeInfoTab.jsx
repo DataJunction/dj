@@ -11,9 +11,31 @@ import { labelize } from '../../../utils/form';
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
 
+// interface MetricInfo {
+//   name: string;
+//   current: MetricRevision;
+// }
+
+// interface MetricRevision {
+//   parents: array<string>;
+//   metricMetadata:
+// }
+
+// interface MetricMetadata {
+//   direction: string;
+//   unit: string;
+//   expression: string;
+//   significantDigits: string;
+//   incompatibleDruidFunctions: array<string>;
+// }
+
 export default function NodeInfoTab({ node }) {
   const [compiledSQL, setCompiledSQL] = useState('');
   const [checked, setChecked] = useState(false);
+
+  // For metrics
+  const [metricInfo, setMetricInfo] = useState(null);
+
   const nodeTags = node?.tags.map(tag => (
     <div className={'badge tag_value'}>
       <a href={`/tags/${tag.name}`}>{tag.display_name}</a>
@@ -36,17 +58,49 @@ export default function NodeInfoTab({ node }) {
     };
     fetchData().catch(console.error);
   }, [node, djClient, checked]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const metric = await djClient.getMetric(node.name);
+      setMetricInfo({
+        metric_metadata: metric.current.metricMetadata,
+        required_dimensions: metric.current.requiredDimensions,
+        upstream_node: metric.current.parents[0]?.name,
+        expression: metric.current.metricMetadata?.expression,
+        incompatible_druid_functions:
+          metric.current.metricMetadata?.incompatibleDruidFunctions || [],
+      });
+    };
+    if (node.type === 'metric') {
+      fetchData().catch(console.error);
+    }
+  }, [node, djClient]);
+
+  // For cubes
+  const [cubeElements, setCubeElements] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const cube = await djClient.cube(node.name);
+      setCubeElements(cube.cube_elements);
+    };
+    if (node.type === 'cube') {
+      fetchData().catch(console.error);
+    }
+  }, [node, djClient]);
+
   function toggle(value) {
     return !value;
   }
   const metricsWarning =
-    node?.type === 'metric' && node?.incompatible_druid_functions.length > 0 ? (
+    node?.type === 'metric' &&
+    metricInfo?.incompatible_druid_functions?.length > 0 ? (
       <div className="message warning" style={{ marginTop: '0.7rem' }}>
         ⚠{' '}
         <small>
           The following functions used in the metric definition may not be
           compatible with Druid SQL:{' '}
-          {node?.incompatible_druid_functions.map(func => (
+          {metricInfo?.incompatible_druid_functions.map(func => (
             <li
               style={{ listStyleType: 'none', margin: '0.7rem 0.7rem' }}
               key={func}
@@ -79,15 +133,15 @@ export default function NodeInfoTab({ node }) {
           <div style={{ marginBottom: '30px' }}>
             <h6 className="mb-0 w-100">Upstream Node</h6>
             <p>
-              <a href={`/nodes/${node?.upstream_node}`}>
-                {node?.upstream_node}
+              <a href={`/nodes/${metricInfo?.upstream_node}`}>
+                {metricInfo?.upstream_node}
               </a>
             </p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
             <SyntaxHighlighter language="sql" style={foundation}>
-              {node?.expression}
+              {metricInfo?.expression}
             </SyntaxHighlighter>
           </div>
         </div>
@@ -163,8 +217,10 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="MetricDirection"
             >
-              {node?.metric_metadata?.direction
-                ? labelize(node?.metric_metadata?.direction?.toLowerCase())
+              {metricInfo?.metric_metadata?.direction
+                ? labelize(
+                    metricInfo?.metric_metadata?.direction?.toLowerCase(),
+                  )
                 : 'None'}
             </p>
           </div>
@@ -176,8 +232,10 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="MetricUnit"
             >
-              {node?.metric_metadata?.unit?.name
-                ? labelize(node?.metric_metadata?.unit?.name?.toLowerCase())
+              {metricInfo?.metric_metadata?.unit?.name
+                ? labelize(
+                    metricInfo?.metric_metadata?.unit?.name?.toLowerCase(),
+                  )
                 : 'None'}
             </p>
           </div>
@@ -189,7 +247,7 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="SignificantDigits"
             >
-              {node?.metric_metadata?.significantDigits || 'None'}
+              {metricInfo?.metric_metadata?.significantDigits || 'None'}
             </p>
           </div>
         </div>
@@ -218,7 +276,7 @@ export default function NodeInfoTab({ node }) {
       ''
     );
 
-  const cubeElementsDiv = node?.cube_elements ? (
+  const cubeElementsDiv = cubeElements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
         <div
@@ -228,10 +286,10 @@ export default function NodeInfoTab({ node }) {
         >
           <h6 className="mb-0 w-100">Cube Elements</h6>
           <div className={`list-group-item`}>
-            {node.cube_elements.map(cubeElem =>
+            {cubeElements.map(cubeElem =>
               cubeElem.type === 'metric' ? displayCubeElement(cubeElem) : '',
             )}
-            {node.cube_elements.map(cubeElem =>
+            {cubeElements.map(cubeElem =>
               cubeElem.type !== 'metric' ? displayCubeElement(cubeElem) : '',
             )}
           </div>
@@ -375,8 +433,8 @@ export default function NodeInfoTab({ node }) {
         </div>
       </div>
       {metricMetadataDiv}
-      {node?.type !== 'cube' && node?.type !== 'metric' ? queryDiv : ''}
-      {node?.type === 'metric' ? metricQueryDiv : ''}
+      {node.type !== 'cube' && node.type !== 'metric' ? queryDiv : ''}
+      {node.type === 'metric' ? metricQueryDiv : ''}
       {customMetadataDiv}
       {cubeElementsDiv}
     </div>

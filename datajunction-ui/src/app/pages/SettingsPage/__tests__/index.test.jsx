@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { SettingsPage } from '../index';
 import DJClientContext from '../../../providers/djclient';
+import { UserProvider } from '../../../providers/UserProvider';
 
 describe('SettingsPage', () => {
   const mockDjClient = {
@@ -18,7 +19,9 @@ describe('SettingsPage', () => {
   const renderWithContext = () => {
     return render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <SettingsPage />
+        <UserProvider>
+          <SettingsPage />
+        </UserProvider>
       </DJClientContext.Provider>,
     );
   };

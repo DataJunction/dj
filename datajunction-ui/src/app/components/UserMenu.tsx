@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../providers/djclient';
+import { useCurrentUser } from '../providers/UserProvider';
 
 interface User {
   id: number;
@@ -32,7 +33,7 @@ export default function UserMenu({
   forceClose,
 }: UserMenuProps) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const { currentUser } = useCurrentUser();
   const [showDropdown, setShowDropdown] = useState(false);
 
   // Close when forceClose becomes true
@@ -41,15 +42,6 @@ export default function UserMenu({
       setShowDropdown(false);
     }
   }, [forceClose, showDropdown]);
-
-  // Fetch current user on mount
-  useEffect(() => {
-    async function fetchUser() {
-      const user = await djClient.whoami();
-      setCurrentUser(user);
-    }
-    fetchUser();
-  }, [djClient]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -79,7 +71,7 @@ export default function UserMenu({
   return (
     <div className="nav-dropdown user-menu-dropdown">
       <button className="avatar-button" onClick={handleToggle}>
-        {getInitials(currentUser)}
+        {getInitials(currentUser as User | null)}
       </button>
       {showDropdown && (
         <div className="nav-dropdown-menu">

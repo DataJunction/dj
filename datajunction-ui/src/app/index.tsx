@@ -11,7 +11,7 @@ import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
-import { NodePage } from './pages/NodePage/Loadable';
+import { NodePage } from './pages/NodePage';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
@@ -21,8 +21,9 @@ import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterTablePage } from './pages/RegisterTablePage';
-import { Root } from './pages/Root/Loadable';
+import { Root } from './pages/Root';
 import DJClientContext from './providers/djclient';
+import { UserProvider } from './providers/UserProvider';
 import { DataJunctionAPI } from './services/DJService';
 import { CookiesProvider, useCookies } from 'react-cookie';
 import * as Constants from './constants';
@@ -44,101 +45,107 @@ export function App() {
               />
             </Helmet>
             <DJClientContext.Provider value={{ DataJunctionAPI }}>
-              <Routes>
-                <Route
-                  path="/"
-                  element={<Root />}
-                  children={
-                    <>
-                      <Route path="nodes" key="nodes">
-                        <Route path=":name" element={<NodePage />} />
-                        <Route
-                          path=":name/edit"
-                          key="edit"
-                          element={<AddEditNodePage />}
-                        />
-                        <Route
-                          path=":name/edit-cube"
-                          key="edit-cube"
-                          element={<CubeBuilderPage />}
-                        />
-                        <Route
-                          path=":name/revisions/:revision"
-                          element={<RevisionDiff />}
-                        />
-                        <Route path=":name/:tab" element={<NodePage />} />
-                      </Route>
+              <UserProvider>
+                <Routes>
+                  <Route
+                    path="/"
+                    element={<Root />}
+                    children={
+                      <>
+                        <Route path="nodes" key="nodes">
+                          <Route path=":name" element={<NodePage />} />
+                          <Route
+                            path=":name/edit"
+                            key="edit"
+                            element={<AddEditNodePage />}
+                          />
+                          <Route
+                            path=":name/edit-cube"
+                            key="edit-cube"
+                            element={<CubeBuilderPage />}
+                          />
+                          <Route
+                            path=":name/revisions/:revision"
+                            element={<RevisionDiff />}
+                          />
+                          <Route path=":name/:tab" element={<NodePage />} />
+                        </Route>
 
-                      <Route path="/" element={<NamespacePage />} key="index" />
-                      <Route path="namespaces">
                         <Route
-                          path=":namespace"
+                          path="/"
                           element={<NamespacePage />}
-                          key="namespaces"
+                          key="index"
                         />
-                      </Route>
-                      <Route
-                        path="create/tag"
-                        key="createtag"
-                        element={<AddEditTagPage />}
-                      ></Route>
-                      <Route
-                        path="create/source"
-                        key="register"
-                        element={<RegisterTablePage />}
-                      ></Route>
-                      <Route path="/create/cube">
+                        <Route path="namespaces">
+                          <Route
+                            path=":namespace"
+                            element={<NamespacePage />}
+                            key="namespaces"
+                          />
+                        </Route>
                         <Route
-                          path=":initialNamespace"
-                          key="create"
-                          element={<CubeBuilderPage />}
+                          path="create/tag"
+                          key="createtag"
+                          element={<AddEditTagPage />}
+                        ></Route>
+                        <Route
+                          path="create/source"
+                          key="register"
+                          element={<RegisterTablePage />}
+                        ></Route>
+                        <Route path="/create/cube">
+                          <Route
+                            path=":initialNamespace"
+                            key="create"
+                            element={<CubeBuilderPage />}
+                          />
+                          <Route
+                            path=""
+                            key="create"
+                            element={<CubeBuilderPage />}
+                          />
+                        </Route>
+                        <Route path="create/:nodeType">
+                          <Route
+                            path=":initialNamespace"
+                            key="create"
+                            element={<AddEditNodePage />}
+                          />
+                          <Route
+                            path=""
+                            key="create"
+                            element={<AddEditNodePage />}
+                          />
+                        </Route>
+                        <Route
+                          path="sql"
+                          key="sql"
+                          element={<SQLBuilderPage />}
+                        />
+                        <Route path="tags" key="tags">
+                          <Route path=":name" element={<TagPage />} />
+                        </Route>
+                        <Route
+                          path="overview"
+                          key="overview"
+                          element={<OverviewPage />}
                         />
                         <Route
-                          path=""
-                          key="create"
-                          element={<CubeBuilderPage />}
-                        />
-                      </Route>
-                      <Route path="create/:nodeType">
-                        <Route
-                          path=":initialNamespace"
-                          key="create"
-                          element={<AddEditNodePage />}
+                          path="settings"
+                          key="settings"
+                          element={<SettingsPage />}
                         />
                         <Route
-                          path=""
-                          key="create"
-                          element={<AddEditNodePage />}
+                          path="notifications"
+                          key="notifications"
+                          element={<NotificationsPage />}
                         />
-                      </Route>
-                      <Route
-                        path="sql"
-                        key="sql"
-                        element={<SQLBuilderPage />}
-                      />
-                      <Route path="tags" key="tags">
-                        <Route path=":name" element={<TagPage />} />
-                      </Route>
-                      <Route
-                        path="overview"
-                        key="overview"
-                        element={<OverviewPage />}
-                      />
-                      <Route
-                        path="settings"
-                        key="settings"
-                        element={<SettingsPage />}
-                      />
-                      <Route
-                        path="notifications"
-                        key="notifications"
-                        element={<NotificationsPage />}
-                      />
-                    </>
-                  }
-                />
-                <Route path="*" element={<NotFoundPage />} />
-              </Routes>
+                      </>
+                    }
+                  />
+                  <Route path="*" element={<NotFoundPage />} />
+                </Routes>
+              </UserProvider>
             </DJClientContext.Provider>
           </>
         ) : (

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useContext, useEffect, useState } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
+import { useCurrentUser } from '../../providers/UserProvider';
 import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
@@ -24,6 +25,7 @@ export function NamespacePage() {
   const fields = ['name', 'displayName', 'type', 'status', 'mode', 'updatedAt'];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const { currentUser } = useCurrentUser();
   var { namespace } = useParams();
 
   const [state, setState] = useState({
@@ -31,7 +33,6 @@ export function NamespacePage() {
     nodes: [],
   });
   const [retrieved, setRetrieved] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
 
   const [filters, setFilters] = useState({
     tags: [],
@@ -105,9 +106,6 @@ export function NamespacePage() {
       const namespaces = await djClient.namespaces();
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
-      const currentUser = await djClient.whoami();
-      // setFilters({...filters, edited_by: currentUser?.username});
-      setCurrentUser(currentUser);
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);

@@ -114,18 +114,13 @@ async def test_service_account_token_success(
     )
     assert whoami_response.status_code == 200
     assert whoami_response.json() == {
-        "created_collections": [],
-        "created_nodes": [],
-        "created_tags": [],
         "email": None,
         "id": mock.ANY,
         "is_admin": False,
         "name": "Login SA",
         "oauth_provider": "basic",
-        "owned_nodes": [],
         "username": sa_data["client_id"],
         "last_viewed_notifications_at": None,
-        "notification_preferences": [],
     }
 
 
