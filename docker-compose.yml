@@ -86,7 +86,7 @@ services:
 
   djui:
     container_name: djui
-    image: node:19
+    image: node:20
     working_dir: /usr/src/app
     ports:
       - "3000:3000"
