@@ -13,6 +13,9 @@ from datajunction_server.models.cube_materialization import (
 from datajunction_server.models.cube_materialization import (
     MetricComponent as MetricComponent_,
 )
+from datajunction_server.models.cube_materialization import (
+    DecomposedMetric as DecomposedMetric_,
+)
 from datajunction_server.models.node import MetricDirection as MetricDirection_
 
 MetricDirection = strawberry.enum(MetricDirection_)
@@ -39,15 +42,21 @@ class AggregationRule: ...
 class MetricComponent: ...
 
 
-@strawberry.type
+@strawberry.experimental.pydantic.type(model=DecomposedMetric_, all_fields=True)
 class DecomposedMetric:
     """
-    Decomposed metric, which includes its components and derived query
+    Decomposed metric, which includes its components and combining expression.
+
+    - components: The individual measures that make up this metric
+    - combiner: Expression combining merged components into the final value
+    - derived_query: The full derived query AST as a string
+    - derived_expression: Alias for combiner (backward compatibility)
     """
 
-    components: list[MetricComponent]
-    derived_query: str
-    derived_expression: str
+    @strawberry.field
+    def derived_expression(self) -> str:
+        """Alias for combiner, for backward compatibility with existing GraphQL queries."""
+        return self.combiner  # type: ignore
 
 
 @strawberry.type

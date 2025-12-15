@@ -1,9 +1,11 @@
 """Used for extracting components from metric definitions."""
 
 import hashlib
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from functools import lru_cache
 
-from datajunction_server.models.cube_materialization import (
+from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
     MetricComponent,
@@ -13,6 +15,257 @@ from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 
+# =============================================================================
+# AST Builder Helpers
+# =============================================================================
+
+
+def make_func(name: str, *args: ast.Expression | str) -> ast.Function:
+    """Build a Function AST node."""
+    return ast.Function(
+        ast.Name(name),
+        args=[ast.Column(ast.Name(a)) if isinstance(a, str) else a for a in args],
+    )
+
+
+# =============================================================================
+# Decomposition Framework
+# =============================================================================
+
+
+@dataclass
+class ComponentDef:
+    """
+    Defines one component of an aggregation decomposition.
+
+    Attributes:
+        suffix: Name suffix for the component (e.g., "_sum", "_count", "_hll")
+        accumulate: Phase 1 - how to build from raw data. Can be:
+            - Simple function name: "SUM" -> SUM(expr)
+            - Template with {}: "SUM(POWER({}, 2))" -> SUM(POWER(expr, 2))
+        merge: Phase 2 function - combine pre-aggregated values (e.g., "SUM", "hll_union")
+    """
+
+    suffix: str
+    accumulate: str
+    merge: str
+
+
+class AggDecomposition(ABC):
+    """
+    Abstract base class for aggregation decompositions.
+
+    Defines the three phases of metric decomposition:
+    1. Accumulate: How to build components from raw data (via `components`)
+    2. Merge: How to combine pre-aggregated components (via `components`)
+    3. Combiner: How to produce the final metric value from merged components
+
+    Subclasses must define `components` and implement `combine()`.
+    """
+
+    @property
+    @abstractmethod
+    def components(self) -> list[ComponentDef]:
+        """Define the components needed for this aggregation."""
+
+    @abstractmethod
+    def combine(self, components: list[MetricComponent]) -> ast.Expression:
+        """Build the combiner expression from merged metric components."""
+
+
+# =============================================================================
+# Decomposition Registry
+# =============================================================================
+
+DECOMPOSITION_REGISTRY: dict[type, type[AggDecomposition] | None] = {}
+
+
+def decomposes(func_class: type):
+    """Decorator to register a decomposition class for a function."""
+
+    def decorator(decomp_class: type[AggDecomposition]):
+        DECOMPOSITION_REGISTRY[func_class] = decomp_class
+        return decomp_class
+
+    return decorator
+
+
+def not_decomposable(func_class: type):
+    """Mark a function as not decomposable (requires full dataset)."""
+    DECOMPOSITION_REGISTRY[func_class] = None
+
+
+# =============================================================================
+# Simple Decompositions (accumulate == merge)
+# =============================================================================
+
+
+@decomposes(dj_functions.Sum)
+class SumDecomposition(AggDecomposition):
+    """SUM: simple additive aggregation."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_sum", "SUM", "SUM")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SUM", components[0].name)
+
+
+@decomposes(dj_functions.Max)
+class MaxDecomposition(AggDecomposition):
+    """MAX: maximum value is associative."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_max", "MAX", "MAX")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("MAX", components[0].name)
+
+
+@decomposes(dj_functions.Min)
+class MinDecomposition(AggDecomposition):
+    """MIN: minimum value is associative."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_min", "MIN", "MIN")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("MIN", components[0].name)
+
+
+@decomposes(dj_functions.AnyValue)
+class AnyValueDecomposition(AggDecomposition):
+    """ANY_VALUE: any value from the group."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_any_value", "ANY_VALUE", "ANY_VALUE")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("ANY_VALUE", components[0].name)
+
+
+# =============================================================================
+# Count Decompositions (accumulate=COUNT, merge=SUM)
+# =============================================================================
+
+
+@decomposes(dj_functions.Count)
+class CountDecomposition(AggDecomposition):
+    """COUNT: count rows, merge by summing counts."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_count", "COUNT", "SUM")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SUM", components[0].name)
+
+
+@decomposes(dj_functions.CountIf)
+class CountIfDecomposition(AggDecomposition):
+    """COUNT_IF: conditional count, merge by summing counts."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_count_if", "COUNT_IF", "SUM")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SUM", components[0].name)
+
+
+# =============================================================================
+# AVG Decomposition (needs sum and count)
+# =============================================================================
+
+
+@decomposes(dj_functions.Avg)
+class AvgDecomposition(AggDecomposition):
+    """AVG = SUM / COUNT, requires two components."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef("_sum", "SUM", "SUM"),
+            ComponentDef("_count", "COUNT", "SUM"),
+        ]
+
+    def combine(self, components: list[MetricComponent]):
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=make_func("SUM", components[0].name),
+            right=make_func("SUM", components[1].name),
+        )
+
+
+# =============================================================================
+# HLL Sketch Decomposition (approximate distinct count)
+# =============================================================================
+
+
+@decomposes(dj_functions.ApproxCountDistinct)
+class ApproxCountDistinctDecomposition(AggDecomposition):
+    """
+    APPROX_COUNT_DISTINCT using HyperLogLog sketches.
+
+    Uses Spark function names (hll_sketch_agg, hll_union, hll_sketch_estimate).
+    Translation to other dialects happens in the transpilation layer.
+    """
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [ComponentDef("_hll", "hll_sketch_agg", "hll_union")]
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func(
+            "hll_sketch_estimate",
+            make_func("hll_union", components[0].name),
+        )
+
+
+# =============================================================================
+# Non-Decomposable Aggregations
+# =============================================================================
+
+# These require access to the full dataset and cannot be pre-aggregated
+not_decomposable(dj_functions.MaxBy)
+not_decomposable(dj_functions.MinBy)
+
+
+# =============================================================================
+# Decomposition Lookup
+# =============================================================================
+
+
+def get_decomposition(func_class: type) -> AggDecomposition | None:
+    """Get decomposition instance for a function class, or None if not decomposable."""
+    decomp_class = DECOMPOSITION_REGISTRY.get(func_class)
+    if decomp_class is None:
+        return None
+    return decomp_class()
+
+
+# =============================================================================
+# Decomposition Result
+# =============================================================================
+
+
+@dataclass
+class DecompositionResult:
+    """Result of decomposing an aggregation function."""
+
+    components: list[MetricComponent]
+    combiner: ast.Node
+
+
+# =============================================================================
+# Metric Component Extractor
+# =============================================================================
+
+
 class MetricComponentExtractor:
     """
     Extracts metric components from a metric definition and generates SQL derived
@@ -20,19 +273,6 @@ class MetricComponentExtractor:
     """
 
     def __init__(self, query_ast: ast.Query):
-        self.handlers = {
-            dj_functions.Sum: self._simple_associative_agg,
-            dj_functions.Count: self._simple_associative_agg,
-            dj_functions.CountIf: self._simple_associative_agg,
-            dj_functions.Max: self._simple_associative_agg,
-            dj_functions.MaxBy: self._max_min_by_agg,
-            dj_functions.Min: self._simple_associative_agg,
-            dj_functions.MinBy: self._max_min_by_agg,
-            dj_functions.Avg: self._avg,
-            dj_functions.AnyValue: self._simple_associative_agg,
-        }
-
-        # Outputs from decomposition
         self._components: list[MetricComponent] = []
         self._components_tracker: set[str] = set()
         self._query_ast = query_ast
@@ -41,194 +281,125 @@ class MetricComponentExtractor:
     @classmethod
     @lru_cache(maxsize=128)
     def from_query_string(cls, metric_query: str):
-        """Create metric component extractor from query string"""
+        """Create metric component extractor from query string."""
         query_ast = parse(metric_query)
         return MetricComponentExtractor(query_ast=query_ast)
 
     @classmethod
     def from_query_ast(cls, query_ast: ast.Query):  # pragma: no cover
-        """Create metric component extractor from query AST"""
+        """Create metric component extractor from query AST."""
         return MetricComponentExtractor(query_ast=query_ast)  # pragma: no cover
 
     def extract(self) -> tuple[list[MetricComponent], ast.Query]:
         """
-        Decomposes the metric query into its constituent aggregatable components and
-        constructs a SQL query derived from those components.
+        Decomposes the metric query into its constituent aggregatable components
+        and constructs a SQL query derived from those components.
         """
         if not self._extracted and self._query_ast.select.from_:
-            # Normalize metric queries with aliases
-            parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
-                0
-            ].primary.alias  # type: ignore
-            if parent_node_alias:
-                for col in self._query_ast.find_all(ast.Column):
-                    if (
-                        col.namespace
-                        and col.namespace[0].name == parent_node_alias.name
-                    ):
-                        col.name = ast.Name(col.name.name)
-                self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+            self._normalize_aliases()
 
             for func in self._query_ast.find_all(ast.Function):
                 dj_function = func.function()
-                handler = self.handlers.get(dj_function)
-                if handler and dj_function.is_aggregation:
-                    if func_components := handler(func):  # pragma: no cover
-                        MetricComponentExtractor.update_ast(func, func_components)
-                    for component in sorted(func_components, key=lambda m: m.name):
-                        if component.name not in self._components_tracker:
-                            self._components_tracker.add(component.name)
-                            self._components.append(component)
+                if dj_function and dj_function.is_aggregation:
+                    result = self._decompose(func, dj_function)
+                    if result:
+                        # Apply combiner to AST
+                        func.parent.replace(from_=func, to=result.combiner)  # type: ignore
+                        # Collect unique components
+                        for comp in sorted(result.components, key=lambda m: m.name):
+                            if comp.name not in self._components_tracker:
+                                self._components_tracker.add(comp.name)
+                                self._components.append(comp)
 
             self._extracted = True
         return self._components, self._query_ast
 
+    def _normalize_aliases(self):
+        """Remove table aliases from the query to normalize column references."""
+        parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
+            0
+        ].primary.alias  # type: ignore
+        if parent_node_alias:
+            for col in self._query_ast.find_all(ast.Column):
+                if col.namespace and col.namespace[0].name == parent_node_alias.name:
+                    col.name = ast.Name(col.name.name)
+            self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+
+    def _decompose(
+        self,
+        func: ast.Function,
+        dj_function: type,
+    ) -> DecompositionResult | None:
+        """Decompose an aggregation function using the registry."""
+        decomposition = get_decomposition(dj_function)
+
+        if decomposition is None:
+            # Not decomposable (e.g., MAX_BY, MIN_BY)
+            return None
+
+        # Build components from decomposition
+        components = [
+            self._make_component(func, comp_def)
+            for comp_def in decomposition.components
+        ]
+
+        # Build combiner AST
+        is_distinct = func.quantifier == ast.SetQuantifier.Distinct
+
+        if is_distinct:
+            # DISTINCT aggregations can't be pre-aggregated, so keep original function
+            # Just replace column references with component names
+            combiner_ast: ast.Expression = ast.Function(
+                func.name,
+                args=[ast.Column(ast.Name(components[0].name))],
+                quantifier=ast.SetQuantifier.Distinct,
+            )
+        else:
+            combiner_ast = decomposition.combine(components)
+
+        return DecompositionResult(components, combiner_ast)
+
+    def _make_component(
+        self,
+        func: ast.Function,
+        comp_def: ComponentDef,
+    ) -> MetricComponent:
+        """Create a MetricComponent from a function and component definition."""
+        arg = func.args[0]
+        expression = str(arg)
+
+        # Build component name from columns in the expression
+        columns = list(arg.find_all(ast.Column))
+        is_distinct = func.quantifier == ast.SetQuantifier.Distinct
+
+        if is_distinct:
+            # DISTINCT uses column names + "_distinct"
+            base_name = (
+                "_".join(amenable_name(str(col)) for col in columns) + "_distinct"
+            )
+        elif columns:
+            # Normal case: column names + suffix
+            base_name = (
+                "_".join(amenable_name(str(col)) for col in columns) + comp_def.suffix
+            )
+        else:
+            # No columns (e.g., COUNT(*)) - use suffix without leading underscore
+            base_name = comp_def.suffix.lstrip("_") or "count"
+
+        short_hash = self._short_hash(expression)
+
+        return MetricComponent(
+            name=f"{base_name}_{short_hash}",
+            expression=expression,
+            aggregation=None if is_distinct else comp_def.accumulate,
+            merge=None if is_distinct else comp_def.merge,
+            rule=AggregationRule(
+                type=Aggregability.LIMITED if is_distinct else Aggregability.FULL,
+                level=[str(a) for a in func.args] if is_distinct else None,
+            ),
+        )
+
     def _short_hash(self, expression: str) -> str:
-        """
-        Generates a short hash for the given expression.
-        """
+        """Generate a short hash for the given expression."""
         signature = expression + str(self._query_ast.select.from_)
         return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]
-
-    def _simple_associative_agg(self, func: ast.Function) -> list[MetricComponent]:
-        """
-        Handles decomposition for a single-argument associative aggregation function.
-        Examples: SUM, MAX, MIN, COUNT
-        """
-        # Handle the case where the quantifier is DISTINCT, where we need to generate a
-        # component that represents the dimension column with the distinct quantifier.
-        arg = func.args[0]
-        if func.quantifier == ast.SetQuantifier.Distinct:
-            component_name = "_".join(
-                [amenable_name(str(col)) for col in arg.find_all(ast.Column)]
-                + ["distinct"],
-            )
-        else:
-            component_name = "_".join(
-                [amenable_name(str(col)) for col in arg.find_all(ast.Column)]
-                + [func.name.name.lower()],
-            )
-
-        expression = str(arg)
-        # TODO: we should only hash on the lowercase version of the expression, but we can't
-        # do this migration until after we get versioned measures
-        short_hash = self._short_hash(expression)
-
-        return [
-            MetricComponent(
-                name=f"{component_name}_{short_hash}",
-                expression=expression,
-                aggregation=func.name.name.upper()
-                if func.quantifier != ast.SetQuantifier.Distinct
-                else None,
-                rule=AggregationRule(
-                    type=Aggregability.FULL
-                    if func.quantifier != ast.SetQuantifier.Distinct
-                    else Aggregability.LIMITED,
-                    level=(
-                        [str(arg) for arg in func.args]
-                        if func.quantifier == ast.SetQuantifier.Distinct
-                        else None
-                    ),
-                ),
-            ),
-        ]
-
-    def _max_min_by_agg(self, func: ast.Function) -> list[MetricComponent]:
-        """
-        Handles decomposition for MAX_BY or MIN_BY aggregation functions.
-
-        MAX_BY/MIN_BY functions cannot be pre-aggregated because they depend on finding
-        the row with the maximum/minimum ordering value across the entire dataset.
-        Pre-aggregating would lose the ordering relationship between measure and ordering
-        values, making it impossible to correctly reconstruct the result.
-
-        Example:
-          MAX_BY(clicked, dateint) must be computed on the full dataset to find
-          the 'clicked' value corresponding to the row with the highest 'dateint'.
-
-        Args:
-            func: The MAX_BY or MIN_BY function AST node
-
-        Returns:
-            An empty list which captures that this function cannot be decomposed.
-        """
-        return []
-
-    def _avg(self, func: ast.Function) -> list[MetricComponent]:
-        """
-        Handles decomposition for AVG (it requires both the SUM and COUNT of
-        the function's argument).
-        """
-        arg = func.args[0]
-        component_name = "_".join([str(col) for col in arg.find_all(ast.Column)])
-        expression = str(arg)
-        short_hash = self._short_hash(expression)
-        return [
-            MetricComponent(
-                name=f"{component_name}_{dj_functions.Sum.__name__.lower()}_{short_hash}",
-                expression=expression,
-                aggregation=dj_functions.Sum.__name__.upper(),
-                rule=AggregationRule(
-                    type=Aggregability.FULL
-                    if func.quantifier != ast.SetQuantifier.Distinct
-                    else Aggregability.LIMITED,
-                    level=(
-                        [str(arg) for arg in func.args]
-                        if func.quantifier == ast.SetQuantifier.Distinct
-                        else None
-                    ),
-                ),
-            ),
-            MetricComponent(
-                name=f"{component_name}_{dj_functions.Count.__name__.lower()}_{short_hash}",
-                expression=expression,
-                aggregation=dj_functions.Count.__name__.upper(),
-                rule=AggregationRule(
-                    type=Aggregability.FULL
-                    if func.quantifier != ast.SetQuantifier.Distinct
-                    else Aggregability.LIMITED,
-                    level=(
-                        [str(arg) for arg in func.args]
-                        if func.quantifier == ast.SetQuantifier.Distinct
-                        else None
-                    ),
-                ),
-            ),
-        ]
-
-    @staticmethod
-    def update_ast(func: ast.Function, components: list[MetricComponent]):
-        """
-        Updates the query AST based on the metric components derived from the function.
-        """
-        function = func.function()
-        if function == dj_functions.Avg:
-            func.parent.replace(  # type: ignore
-                from_=func,
-                to=ast.BinaryOp(
-                    op=ast.BinaryOpKind.Divide,
-                    left=ast.Function(
-                        ast.Name("SUM"),
-                        args=[ast.Column(ast.Name(components[0].name))],
-                    ),
-                    right=ast.Function(
-                        ast.Name("SUM"),
-                        args=[ast.Column(ast.Name(components[1].name))],
-                    ),
-                ),
-            )
-        elif function in (dj_functions.Count, dj_functions.CountIf):
-            if func.quantifier != ast.SetQuantifier.Distinct:
-                func.name.name = "SUM"
-                func.args = [
-                    ast.Column(ast.Name(component.name)) for component in components
-                ]
-            else:
-                func.args = [
-                    ast.Column(ast.Name(component.name)) for component in components
-                ]
-        else:
-            func.args = [
-                ast.Column(ast.Name(component.name)) for component in components
-            ]

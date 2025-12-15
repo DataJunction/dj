@@ -5,9 +5,14 @@ from typing import Any, Dict, List, Optional, Union, Literal
 
 from pydantic import BaseModel, Field, field_validator, computed_field
 
-from datajunction_server.enum import StrEnum
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    DecomposedMetric,
+    MetricComponent,
+)
 from datajunction_server.models.materialization import (
     DRUID_AGG_MAPPING,
     MaterializationJobTypeEnum,
@@ -17,67 +22,13 @@ from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
 
-
-class Aggregability(StrEnum):
-    """
-    Type of allowed aggregation for a given metric component.
-    """
-
-    FULL = "full"
-    LIMITED = "limited"
-    NONE = "none"
-
-
-class AggregationRule(BaseModel):
-    """
-    The aggregation rule for the metric component. If the Aggregability type is LIMITED, the
-    `level` should be specified to highlight the level at which the metric component needs to
-    be aggregated in order to support the specified aggregation function.
-
-    For example, consider a metric like COUNT(DISTINCT user_id). It can be decomposed into a
-    single metric component with LIMITED aggregability, i.e., it is only aggregatable if the
-    component is calculated at the `user_id` level:
-    - name: num_users
-      expression: DISTINCT user_id
-      aggregation: COUNT
-      rule:
-        type: LIMITED
-        level: ["user_id"]
-    """
-
-    type: Aggregability = Aggregability.NONE
-    level: list[str] | None = None
-
-
-class MetricComponent(BaseModel):
-    """
-    A reusable, named building block of a metric definition.
-
-    A MetricComponent represents a SQL expression that can serve as an input to building
-    a metric. It may be an aggregatable fact (e.g. `view_secs` in `SUM(view_secs)`),
-    a conditional (e.g., `IF(x, y, z)` in `SUM(IF(x, y, z))`) or a distinct expression
-    (e.g. `DISTINCT IF(x, y, z)`), or any derived input used in computing metrics.
-
-    Components may be:
-    - Aggregated directly to form a simple metric (e.g. `SUM(view_secs)`)
-    - Combined with others to define derived metrics (e.g. `SUM(clicks) / SUM(view_secs)`)
-    - Reused across multiple metrics
-
-    Not all components require aggregation — some may be passed through as-is or grouped by,
-    with the group-by grain defined by the aggregation rule.
-
-    Attributes:
-        name: A unique name for the component, typically derived from its expression.
-        expression: The raw SQL expression that defines the component.
-        aggregation: The aggregation function to apply (e.g. 'SUM', 'COUNT'), or None if unaggregated.
-        rule: Aggregation rules that define how and when the component can be aggregated
-            (e.g., full or limited), and at what grain it can be aggregated.
-    """
-
-    name: str
-    expression: str  # A SQL expression for defining the measure
-    aggregation: str | None
-    rule: AggregationRule
+# Re-export for backward compatibility
+__all__ = [
+    "Aggregability",
+    "AggregationRule",
+    "DecomposedMetric",
+    "MetricComponent",
+]
 
 
 class MetricMeasures(BaseModel):

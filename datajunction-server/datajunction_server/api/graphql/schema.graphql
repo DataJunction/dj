@@ -75,9 +75,10 @@ type DJError {
 scalar DateTime
 
 type DecomposedMetric {
-  components: [MetricComponent!]!
-  derivedQuery: String!
   derivedExpression: String!
+  components: [MetricComponent!]!
+  combiner: String!
+  derivedQuery: String
 }
 
 enum Dialect {
@@ -223,6 +224,7 @@ type MetricComponent {
   name: String!
   expression: String!
   aggregation: String
+  merge: String
   rule: AggregationRule!
 }
 

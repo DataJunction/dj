@@ -66,6 +66,13 @@ async def test_downstream_nodes(
             "type": "METRIC",
             "current": {"customMetadata": None},
         },
+        {
+            "current": {
+                "customMetadata": None,
+            },
+            "name": "default.num_unique_hard_hats_approx",
+            "type": "METRIC",
+        },
     ]
 
     # of any type
@@ -93,6 +100,7 @@ async def test_downstream_nodes(
         {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
     ]
 
 
@@ -151,6 +159,7 @@ async def test_downstream_nodes_deactivated(
         {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
     ]
 
     query = """
@@ -173,6 +182,7 @@ async def test_downstream_nodes_deactivated(
         {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
     ]
 
 

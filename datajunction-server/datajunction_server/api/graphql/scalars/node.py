@@ -266,10 +266,12 @@ class NodeRevision:
             return None
         extractor = MetricComponentExtractor.from_query_string(root.query)
         components, derived_ast = extractor.extract()
+        # The derived_expression is the combiner (how to combine merged components)
+        combiner_expr = str(derived_ast.select.projection[0])
         return DecomposedMetric(  # type: ignore
             components=components,
+            combiner=combiner_expr,
             derived_query=str(derived_ast),
-            derived_expression=str(derived_ast.select.projection[0]),
         )
 
     # Only cubes will have these fields
