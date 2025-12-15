@@ -193,6 +193,8 @@
     "@babel/plugin-proposal-class-properties": "7.18.6",
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
     "@testing-library/user-event": "14.4.3",
+    "@types/glob": "^8.1.0",
+    "@types/minimatch": "^5.1.2",
     "eslint-config-prettier": "8.8.0",
     "eslint-plugin-prettier": "4.2.1",
     "eslint-plugin-react-hooks": "4.6.0",
