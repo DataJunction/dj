@@ -53,6 +53,7 @@ async def test_list_nodes_with_dimension(
         "default.repair_order_details",
         "default.repair_order",
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "default.avg_repair_price",
         "default.repair_orders_fact",
         "default.total_repair_cost",
@@ -83,6 +84,7 @@ async def test_list_nodes_with_dimension(
         "default.hard_hat",
         "default.repair_order",
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "default.avg_repair_price",
         "default.repair_orders_fact",
         "default.total_repair_cost",
@@ -113,6 +115,7 @@ async def test_list_nodes_with_dimension(
     data = response.json()
     assert {node["name"] for node in data} == {
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "default.avg_repair_price",
         "default.total_repair_cost",
         "default.discounted_orders_rate",
@@ -138,6 +141,7 @@ async def test_list_nodes_with_common_dimension(
         "default.repair_orders",
         "default.repair_order_details",
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "default.avg_repair_price",
         "default.total_repair_cost",
         "default.repair_orders_fact",
@@ -169,6 +173,7 @@ async def test_list_nodes_with_common_dimension(
     data = response.json()
     assert {node["name"] for node in data} == {
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "default.avg_repair_price",
         "default.total_repair_cost",
         "default.discounted_orders_rate",

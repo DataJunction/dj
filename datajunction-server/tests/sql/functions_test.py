@@ -2014,6 +2014,19 @@ async def test_histogram_numeric_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_hll_sketch_agg(session: AsyncSession):
+    """
+    Test the `hll_sketch_agg` function
+    """
+    query = parse("SELECT hll_sketch_agg(col, 5) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.BinaryType)  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_hour_func(session: AsyncSession):
     """
     Test the `hour` function

@@ -448,11 +448,11 @@ async def test_find_by_names(
                     },
                     {
                         "name": "completed_repairs",
-                        "type": "bigint",
+                        "type": "long",
                     },
                     {
                         "name": "total_repairs_dispatched",
-                        "type": "bigint",
+                        "type": "long",
                     },
                     {
                         "name": "total_amount_in_region",
@@ -468,7 +468,7 @@ async def test_find_by_names(
                     },
                     {
                         "name": "unique_contractors",
-                        "type": "bigint",
+                        "type": "long",
                     },
                 ],
             },
@@ -1385,3 +1385,76 @@ async def test_find_nodes_paginated_filter_by_mode(
         edge["node"]["name"] for edge in data["data"]["findNodesPaginated"]["edges"]
     ]
     assert "default.draft_test_node" in node_names
+
+
+@pytest.mark.asyncio
+async def test_approx_count_distinct_metric_decomposition(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that APPROX_COUNT_DISTINCT metrics decompose into HLL sketch components.
+
+    This verifies that:
+    1. The metric decomposes to a single HLL component
+    2. The aggregation is hll_sketch_agg (Spark's function for building sketch)
+    3. The merge is hll_union (Spark's function for combining sketches)
+    4. The derived query uses hll_sketch_estimate(hll_union(...)) as the combiner
+
+    Translation to other dialects (Druid, Trino) happens in the transpilation layer.
+    """
+    query = """
+    {
+        findNodes(names: ["default.num_unique_hard_hats_approx"]) {
+            name
+            type
+            current {
+                query
+                extractedMeasures {
+                    components {
+                        name
+                        expression
+                        aggregation
+                        merge
+                        rule {
+                            type
+                        }
+                    }
+                    combiner
+                    derivedQuery
+                    derivedExpression
+                }
+            }
+        }
+    }
+    """
+
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    assert len(data["data"]["findNodes"]) == 1
+    node = data["data"]["findNodes"][0]
+    assert node["name"] == "default.num_unique_hard_hats_approx"
+    assert node["type"] == "METRIC"
+
+    extracted = node["current"]["extractedMeasures"]
+    assert extracted is not None
+
+    # Should have exactly one HLL component
+    components = extracted["components"]
+    assert len(components) == 1
+
+    hll_component = components[0]
+    assert hll_component["expression"] == "hard_hat_id"
+    assert hll_component["aggregation"] == "hll_sketch_agg"  # Spark's HLL accumulate
+    assert hll_component["merge"] == "hll_union"  # Spark's HLL merge
+    assert hll_component["rule"]["type"] == "FULL"
+
+    # The combiner should use Spark HLL functions
+    assert "hll_sketch_estimate" in extracted["combiner"]
+    assert "hll_union" in extracted["combiner"]
+    assert "hll_sketch_estimate" in extracted["derivedExpression"]
+
+    # The derived query should contain Spark HLL functions
+    assert "hll_sketch_estimate" in extracted["derivedQuery"]
+    assert "hll_union" in extracted["derivedQuery"]

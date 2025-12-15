@@ -130,11 +130,15 @@ def resolve_metric_component_against_parent(
     We resolve column references based on the parent's column mappings and apply the types
     from the parent.
     """
-    expr_sql = (
-        f"{component.aggregation}({component.expression})"
-        if component.aggregation
-        else component.expression
-    )
+    # aggregation is function name or template (e.g., "SUM" or "SUM(POWER({}, 2))")
+    if not component.aggregation:
+        expr_sql = component.expression
+    elif "{}" in component.aggregation:
+        # Template case: "SUM(POWER({}, 2))" -> "SUM(POWER(x, 2))"
+        expr_sql = component.aggregation.format(component.expression)
+    else:
+        # Simple case: "SUM" -> "SUM(x)"
+        expr_sql = f"{component.aggregation}({component.expression})"
     # Add all expressions from the metric component's aggregation level to the GROUP BY
     group_by_clause = (
         f"GROUP BY {','.join(component.rule.level)}" if component.rule.level else ""

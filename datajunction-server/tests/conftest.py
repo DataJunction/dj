@@ -1171,6 +1171,16 @@ async def module__client_with_basic(
 
 
 @pytest_asyncio.fixture(scope="module")
+async def module__client_with_simple_hll(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a minimal DJ client fixture for HLL/APPROX_COUNT_DISTINCT testing.
+    """
+    return await module__client_example_loader(["SIMPLE_HLL"])
+
+
+@pytest_asyncio.fixture(scope="module")
 async def module__client_with_both_basics(
     module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
 ) -> AsyncClient:

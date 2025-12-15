@@ -103,7 +103,7 @@ async def test_system_metrics(module__client_with_system: AsyncClient) -> None:
                 [
                     {
                         "col": "system.dj.number_of_nodes",
-                        "value": 41,
+                        "value": 42,
                     },
                 ],
             ],
@@ -130,7 +130,7 @@ async def test_system_metrics(module__client_with_system: AsyncClient) -> None:
                     },
                     {
                         "col": "system.dj.number_of_nodes",
-                        "value": 10,
+                        "value": 11,
                     },
                 ],
                 [

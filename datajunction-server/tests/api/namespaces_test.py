@@ -32,7 +32,7 @@ async def test_list_all_namespaces(
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 64},
+        {"namespace": "default", "num_nodes": 65},
         {
             "namespace": "different.basic",
             "num_nodes": 2,
@@ -50,6 +50,7 @@ async def test_list_all_namespaces(
             "num_nodes": 1,
         },
         {"namespace": "foo.bar", "num_nodes": 26},
+        {"namespace": "hll", "num_nodes": 4},
     ]
 
 
@@ -639,6 +640,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
         "municipality_type.source.yaml",
         "national_level_agg.transform.yaml",
         "num_repair_orders.metric.yaml",
+        "num_unique_hard_hats_approx.metric.yaml",
         "regional_level_agg.transform.yaml",
         "regional_repair_efficiency.metric.yaml",
         "repair_order.dimension.yaml",
@@ -704,7 +706,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
     assert response.status_code in (200, 201)
     data = response.json()
     assert data["namespace"] == "default"
-    assert len(data["nodes"]) == 36
+    assert len(data["nodes"]) == 37
     assert {node["name"] for node in data["nodes"]} == {
         "${prefix}repair_orders_view",
         "${prefix}municipality_municipality_type",
@@ -729,6 +731,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
         "${prefix}national_level_agg",
         "${prefix}regional_repair_efficiency",
         "${prefix}num_repair_orders",
+        "${prefix}num_unique_hard_hats_approx",
         "${prefix}avg_repair_price",
         "${prefix}total_repair_cost",
         "${prefix}avg_length_of_employment",
@@ -759,7 +762,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
                 "description": None,
                 "display_name": "Num Repair Orders",
                 "name": "default.num_repair_orders",
-                "type": "bigint",
+                "type": "long",
                 "partition": None,
             },
             {
