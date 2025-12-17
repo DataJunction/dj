@@ -1030,3 +1030,136 @@ def test_approx_count_distinct_combined_metrics_dialect_translation():
     assert "SUM(" in trino_sql
     assert "cardinality(merge(" in trino_sql
     assert "hll_sketch_estimate" not in trino_sql
+
+
+def test_var_pop():
+    """
+    Test decomposition for a population variance metric.
+
+    VAR_POP decomposes into three components:
+    - SUM(x): to compute mean
+    - SUM(POWER(x, 2)): sum of squares (uses template syntax)
+    - COUNT(x): for normalization
+
+    Formula: E[X²] - E[X]² = (sum_sq/n) - (sum/n)²
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT VAR_POP(price) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Verify we have exactly 3 components
+    assert len(measures) == 3
+
+    # Build a lookup by aggregation type for order-independent assertions
+    by_agg = {m.aggregation: m for m in measures}
+
+    # Check SUM component
+    assert "SUM" in by_agg
+    assert by_agg["SUM"].expression == "price"
+    assert by_agg["SUM"].merge == "SUM"
+    assert "_sum_" in by_agg["SUM"].name
+
+    # Check SUM(POWER({}, 2)) component - the template syntax for sum of squares
+    assert "SUM(POWER({}, 2))" in by_agg
+    assert by_agg["SUM(POWER({}, 2))"].expression == "price"
+    assert by_agg["SUM(POWER({}, 2))"].merge == "SUM"
+    assert "_sum_sq_" in by_agg["SUM(POWER({}, 2))"].name
+
+    # Check COUNT component
+    assert "COUNT" in by_agg
+    assert by_agg["COUNT"].expression == "price"
+    assert by_agg["COUNT"].merge == "SUM"
+    assert "_count_" in by_agg["COUNT"].name
+
+    # The derived SQL should reference all components
+    derived_str = str(derived_sql)
+    assert derived_str == str(
+        parse("""
+      SELECT
+        SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
+        POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+      FROM parent_node"""),
+    )
+
+
+def test_var_samp():
+    """
+    Test decomposition for a sample variance metric.
+
+    VAR_SAMP uses n-1 in the denominator (Bessel's correction).
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT VAR_SAMP(price) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Same components as VAR_POP
+    assert len(measures) == 3
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+    assert str(derived_sql) == str(
+        parse("""
+      SELECT
+        SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+      FROM parent_node"""),
+    )
+
+
+def test_stddev_pop():
+    """
+    Test decomposition for population standard deviation.
+
+    STDDEV_POP = SQRT(VAR_POP), so it uses the same components as variance.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT STDDEV_POP(price) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Same components as VAR_POP
+    assert len(measures) == 3
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+
+    # Derived SQL should include SQRT for standard deviation
+    derived_str = str(derived_sql)
+    assert derived_str == str(
+        parse("""
+      SELECT
+        SQRT(
+          SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
+          POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
+        )
+      FROM parent_node"""),
+    )
+
+
+def test_stddev_samp():
+    """
+    Test decomposition for sample standard deviation.
+
+    STDDEV_SAMP = SQRT(VAR_SAMP).
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT STDDEV_SAMP(price) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Same components as VAR_SAMP
+    assert len(measures) == 3
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+
+    # Derived SQL should include SQRT
+    derived_str = str(derived_sql)
+    assert derived_str == str(
+        parse("""
+      SELECT
+        SQRT(
+          SUM(price_count_726db899) * SUM(price_sum_sq_726db899) -
+          POWER(SUM(price_sum_726db899), 2) /
+          SUM(price_count_726db899) * SUM(price_count_726db899) - 1
+        )
+      FROM parent_node"""),
+    )
