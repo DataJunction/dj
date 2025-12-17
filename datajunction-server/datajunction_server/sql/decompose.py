@@ -3,8 +3,12 @@
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from functools import lru_cache
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
@@ -608,6 +612,23 @@ class DecompositionResult:
     combiner: ast.Node
 
 
+@dataclass
+class BaseMetricData:
+    """Data for a single base metric."""
+
+    name: str
+    query: str
+
+
+@dataclass
+class MetricData:
+    """All data needed to extract components from a metric."""
+
+    query: str
+    is_derived: bool
+    base_metrics: list[BaseMetricData]
+
+
 # =============================================================================
 # Metric Component Extractor
 # =============================================================================
@@ -617,65 +638,238 @@ class MetricComponentExtractor:
     """
     Extracts metric components from a metric definition and generates SQL derived
     from those components.
+
+    For base metrics: decomposes aggregation functions (SUM, AVG, etc.) into components.
+    For derived metrics: collects components from base metrics and substitutes references.
     """
 
-    def __init__(self, query_ast: ast.Query):
-        self._components: list[MetricComponent] = []
-        self._components_tracker: set[str] = set()
-        self._query_ast = query_ast
-        self._extracted = False
+    def __init__(self, node_revision_id: int):
+        """
+        Extract metric components from a specific metric revision.
+
+        Args:
+            node_revision_id: ID of the metric node revision
+        """
+        self._node_revision_id = node_revision_id
 
     @classmethod
-    @lru_cache(maxsize=128)
-    def from_query_string(cls, metric_query: str):
-        """Create metric component extractor from query string."""
-        query_ast = parse(metric_query)
-        return MetricComponentExtractor(query_ast=query_ast)
-
-    @classmethod
-    def from_query_ast(cls, query_ast: ast.Query):  # pragma: no cover
-        """Create metric component extractor from query AST."""
-        return MetricComponentExtractor(query_ast=query_ast)  # pragma: no cover
-
-    def extract(self) -> tuple[list[MetricComponent], ast.Query]:
+    async def from_node_name(  # pragma: no cover
+        cls,
+        node_name: str,
+        session: AsyncSession,
+    ) -> "MetricComponentExtractor":
         """
-        Decomposes the metric query into its constituent aggregatable components
-        and constructs a SQL query derived from those components.
-        """
-        if not self._extracted and self._query_ast.select.from_:
-            self._normalize_aliases()
+        Create extractor for the latest version of a metric.
 
-            for func in self._query_ast.find_all(ast.Function):
+        Args:
+            node_name: Name of the metric node
+            session: Database session
+
+        Returns:
+            MetricComponentExtractor for the current revision
+        """
+        stmt = (
+            select(NodeRevision.id)
+            .join(Node, Node.id == NodeRevision.node_id)
+            .where(
+                Node.name == node_name,
+                Node.current_version == NodeRevision.version,
+            )
+        )
+        result = await session.execute(stmt)
+        revision_id = result.scalar_one()
+        return cls(revision_id)
+
+    async def extract(
+        self,
+        session: AsyncSession,
+    ) -> tuple[list[MetricComponent], ast.Query]:
+        """
+        Extract metric components from the query.
+
+        For base metrics: decomposes aggregation functions into components.
+        For derived metrics: collects components from base metrics and substitutes references.
+
+        Args:
+            session: Database session for loading metric data
+        """
+        # Single DB query: load this metric's query + base metrics + their queries
+        metric_data = await self._load_metric_data(session)
+
+        # Parse queries (pure computation, no DB)
+        query_ast = parse(metric_data.query)
+
+        # Extract components from each base metric (pure, no DB)
+        all_components = []
+        components_tracker = set()
+        base_metrics_data = {}
+
+        for base_metric in metric_data.base_metrics:
+            base_ast = parse(base_metric.query)
+            base_components, derived_ast = self._extract_base(base_ast)
+
+            for comp in base_components:
+                if comp.name not in components_tracker:
+                    components_tracker.add(comp.name)
+                    all_components.append(comp)
+
+            # Store for derived metric substitution
+            base_metrics_data[base_metric.name] = (
+                base_components,
+                str(derived_ast.select.projection[0]),
+            )
+
+        # For derived metrics: substitute metric references in query
+        # For base metrics: use the decomposed query directly
+        if metric_data.is_derived:
+            query_ast = self._substitute_metric_references(query_ast, base_metrics_data)
+        else:
+            # Base metric - use the decomposed AST directly
+            query_ast = derived_ast
+
+        return all_components, query_ast
+
+    async def _load_metric_data(self, session: AsyncSession) -> MetricData:
+        """
+        Load all metric data in a single query.
+
+        Returns:
+            MetricData with query, is_derived flag, and list of base metrics
+        """
+        # Query to get metric parents (if any)
+        parent_stmt = (
+            select(
+                Node.name.label("parent_name"),
+                NodeRevision.query.label("parent_query"),
+            )
+            .select_from(NodeRelationship)
+            .join(Node, NodeRelationship.parent_id == Node.id)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(
+                NodeRelationship.child_id == self._node_revision_id,
+                Node.type == NodeType.METRIC,
+            )
+        )
+        parent_result = await session.execute(parent_stmt)
+        parent_rows = parent_result.all()
+
+        # Query to get this metric's own data
+        this_metric_stmt = (
+            select(
+                NodeRevision.query,
+                Node.name,
+            )
+            .join(Node, NodeRevision.node_id == Node.id)
+            .where(
+                NodeRevision.id == self._node_revision_id,
+                Node.current_version == NodeRevision.version,
+            )
+        )
+        this_result = await session.execute(this_metric_stmt)
+        this_row = this_result.one()
+
+        if parent_rows:
+            # Derived metric - base metrics are the parents
+            return MetricData(
+                query=this_row.query,
+                is_derived=True,
+                base_metrics=[
+                    BaseMetricData(name=row.parent_name, query=row.parent_query)
+                    for row in parent_rows
+                ],
+            )
+        else:
+            # Base metric - base metric is itself
+            return MetricData(
+                query=this_row.query,
+                is_derived=False,
+                base_metrics=[BaseMetricData(name=this_row.name, query=this_row.query)],
+            )
+
+    def _extract_base(
+        self,
+        query_ast: ast.Query,
+    ) -> tuple[list[MetricComponent], ast.Query]:
+        """
+        Extract components from a base metric by decomposing aggregations.
+
+        Returns:
+            Tuple of (components, modified_query_ast)
+        """
+        components: list[MetricComponent] = []
+        components_tracker: set[str] = set()
+
+        if query_ast.select.from_:  # pragma: no branch
+            query_ast = self._normalize_aliases(query_ast)
+
+            for func in query_ast.find_all(ast.Function):
                 dj_function = func.function()
                 if dj_function and dj_function.is_aggregation:
-                    result = self._decompose(func, dj_function)
+                    result = self._decompose(func, dj_function, query_ast)
                     if result:
                         # Apply combiner to AST
                         func.parent.replace(from_=func, to=result.combiner)  # type: ignore
                         # Collect unique components
                         for comp in sorted(result.components, key=lambda m: m.name):
-                            if comp.name not in self._components_tracker:
-                                self._components_tracker.add(comp.name)
-                                self._components.append(comp)
+                            if comp.name not in components_tracker:
+                                components_tracker.add(comp.name)
+                                components.append(comp)
 
-            self._extracted = True
-        return self._components, self._query_ast
+        return components, query_ast
 
-    def _normalize_aliases(self):
-        """Remove table aliases from the query to normalize column references."""
-        parent_node_alias = self._query_ast.select.from_.relations[  # type: ignore
+    def _substitute_metric_references(
+        self,
+        query_ast: ast.Query,
+        base_metrics_data: dict[str, tuple[list[MetricComponent], str]],
+    ) -> ast.Query:
+        """
+        Substitute metric references in derived metric query with their combiner expressions.
+
+        Args:
+            query_ast: The derived metric's query AST
+            base_metrics_data: Dict of metric_name -> (components, combiner_expr)
+
+        Returns:
+            Modified query_ast with substitutions
+        """
+        # Find and replace metric references with their combiner expressions
+        for col in list(query_ast.find_all(ast.Column)):
+            col_name = col.identifier()
+            if col_name in base_metrics_data:
+                _, combiner_expr = base_metrics_data[col_name]
+                if combiner_expr and col.parent:  # pragma: no branch
+                    # Parse the combiner expression (wrap in SELECT to make it valid SQL)
+                    combiner_ast = parse(f"SELECT {combiner_expr}").select.projection[0]
+                    col.parent.replace(from_=col, to=combiner_ast)
+
+        return query_ast
+
+    def _normalize_aliases(self, query_ast: ast.Query) -> ast.Query:
+        """
+        Remove table aliases from the query to normalize column references.
+
+        Returns:
+            Modified query_ast
+        """
+        parent_node_alias = query_ast.select.from_.relations[  # type: ignore
             0
         ].primary.alias  # type: ignore
         if parent_node_alias:
-            for col in self._query_ast.find_all(ast.Column):
+            for col in query_ast.find_all(ast.Column):
                 if col.namespace and col.namespace[0].name == parent_node_alias.name:
                     col.name = ast.Name(col.name.name)
-            self._query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+            query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+        return query_ast
 
     def _decompose(
         self,
         func: ast.Function,
         dj_function: type,
+        query_ast: ast.Query,
     ) -> DecompositionResult | None:
         """Decompose an aggregation function using the registry."""
         decomposition = get_decomposition(dj_function)
@@ -686,7 +880,7 @@ class MetricComponentExtractor:
 
         # Build components from decomposition
         components = [
-            self._make_component(func, comp_def)
+            self._make_component(func, comp_def, query_ast)
             for comp_def in decomposition.components
         ]
 
@@ -710,6 +904,7 @@ class MetricComponentExtractor:
         self,
         func: ast.Function,
         comp_def: ComponentDef,
+        query_ast: ast.Query,
     ) -> MetricComponent:
         """Create a MetricComponent from a function and component definition."""
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct
@@ -743,7 +938,7 @@ class MetricComponentExtractor:
             # No columns (e.g., COUNT(*)) - use suffix without leading underscore
             base_name = comp_def.suffix.lstrip("_") or "count"
 
-        short_hash = self._short_hash(expression)
+        short_hash = self._short_hash(expression, query_ast)
 
         # Build accumulate expression with template expansion
         accumulate_expr = self._expand_template(comp_def.accumulate, func.args)
@@ -782,7 +977,7 @@ class MetricComponentExtractor:
         # Single {} placeholder - use first arg
         return template.replace("{}", str(args[0]))
 
-    def _short_hash(self, expression: str) -> str:
+    def _short_hash(self, expression: str, query_ast: ast.Query) -> str:
         """Generate a short hash for the given expression."""
-        signature = expression + str(self._query_ast.select.from_)
+        signature = expression + str(query_ast.select.from_)
         return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]

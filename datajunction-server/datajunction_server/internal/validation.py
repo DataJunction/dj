@@ -109,31 +109,99 @@ async def validate_node_data(
     query_ast.select.add_aliases_to_unnamed_columns()
 
     if validated_node.type == NodeType.METRIC and node_validator.dependencies_map:
-        all_available_columns = {
-            col.name
-            for upstream_node in node_validator.dependencies_map.keys()
-            for col in upstream_node.columns
-        }
+        # Check if this is a derived metric (references other metrics)
+        metric_parents = [
+            parent
+            for parent in node_validator.dependencies_map.keys()
+            if parent.type == NodeType.METRIC
+        ]
+        non_metric_parents = [
+            parent
+            for parent in node_validator.dependencies_map.keys()
+            if parent.type != NodeType.METRIC
+        ]
 
-        metric_expression = query_ast.select.projection[0]
-        referenced_columns = metric_expression.find_all(ast.Column)
+        if metric_parents:
+            # This is a derived metric - validate that referenced metrics are base metrics
+            # (not other derived metrics). Only 1 level of metric nesting is supported.
+            nested_derived_metrics = [
+                parent.name for parent in metric_parents if parent.is_derived_metric
+            ]
+            if nested_derived_metrics:
+                node_validator.status = NodeStatus.INVALID
+                node_validator.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_PARENT,
+                        message=(
+                            f"Derived metrics cannot reference other derived metrics. "
+                            f"Found nested derived metric(s): {', '.join(nested_derived_metrics)}. "
+                            f"Only 1 level of metric nesting is supported."
+                        ),
+                    ),
+                )
+            elif len(metric_parents) > 1:
+                # For cross-fact derived metrics, validate that there are shared dimensions
+                # between all referenced base metrics
+                from datajunction_server.sql.dag import get_dimensions
 
-        missing_columns = []
-        for col in referenced_columns:
-            column_name = col.alias_or_name.name
-            # Skip columns with namespaces, those are from dimension links and will
-            # be validated when the metric node is compiled
-            if not col.namespace and column_name not in all_available_columns:
-                missing_columns.append(column_name)
+                # Get dimensions for each base metric
+                all_dimension_sets: List[Set[str]] = []
+                for base_metric in metric_parents:
+                    dims = await get_dimensions(
+                        session,
+                        base_metric.node,
+                        with_attributes=True,
+                    )
+                    dim_names = {d.name for d in dims}
+                    all_dimension_sets.append(dim_names)
 
-        if missing_columns:
-            node_validator.status = NodeStatus.INVALID
-            node_validator.errors.append(
-                DJError(
-                    code=ErrorCode.MISSING_COLUMNS,
-                    message=f"Metric definition references missing columns: {', '.join(missing_columns)}",
-                ),
-            )
+                # Compute intersection of all dimension sets
+                if all_dimension_sets:  # pragma: no branch
+                    shared_dimensions = all_dimension_sets[0]
+                    for dim_set in all_dimension_sets[1:]:
+                        shared_dimensions = shared_dimensions & dim_set
+
+                    if not shared_dimensions:
+                        metric_names = [m.name for m in metric_parents]
+                        node_validator.status = NodeStatus.INVALID
+                        node_validator.errors.append(
+                            DJError(
+                                code=ErrorCode.INVALID_PARENT,
+                                message=(
+                                    f"Cannot create derived metric from base metrics with no shared "
+                                    f"dimensions. The following metrics have no dimensions in common: "
+                                    f"{', '.join(metric_names)}. Cross-fact derived metrics require "
+                                    f"at least one shared dimension for joining."
+                                ),
+                            ),
+                        )
+        else:
+            # Standard metric - validate columns exist on parent nodes
+            all_available_columns = {
+                col.name
+                for upstream_node in non_metric_parents
+                for col in upstream_node.columns
+            }
+
+            metric_expression = query_ast.select.projection[0]
+            referenced_columns = metric_expression.find_all(ast.Column)
+
+            missing_columns = []
+            for col in referenced_columns:
+                column_name = col.alias_or_name.name
+                # Skip columns with namespaces, those are from dimension links and will
+                # be validated when the metric node is compiled
+                if not col.namespace and column_name not in all_available_columns:
+                    missing_columns.append(column_name)
+
+            if missing_columns:
+                node_validator.status = NodeStatus.INVALID
+                node_validator.errors.append(
+                    DJError(
+                        code=ErrorCode.MISSING_COLUMNS,
+                        message=f"Metric definition references missing columns: {', '.join(missing_columns)}",
+                    ),
+                )
 
     # Invalid parents will invalidate this node
     # Note: we include source nodes here because they sometimes appear to be invalid, but
@@ -276,7 +344,7 @@ def validate_metric_query(query_ast: ast.Query, name: str) -> None:
         )
 
     projection_0 = query_ast.select.projection[0]
-    if not projection_0.is_aggregation():  # type: ignore
+    if not projection_0.is_aggregation() and query_ast.select.from_ is not None:  # type: ignore
         raise DJInvalidMetricQueryException(
             f"Metric {name} has an invalid query, should have an aggregate expression",
         )

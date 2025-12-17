@@ -1,9 +1,8 @@
 """Functions for building DJ node queries"""
 
+import asyncio
 import collections
 import logging
-import os
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, DefaultDict, List, Optional, Set, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +18,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.naming import LOOKUP_CHARS, amenable_name, from_amenable_name
-from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.sql.dag import get_shared_dimensions, get_metric_parents
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
@@ -122,16 +121,25 @@ def rename_columns(
     return built_ast
 
 
-def group_metrics_by_parent(
+async def group_metrics_by_parent(
+    session: AsyncSession,
     metric_nodes: List[Node],
 ) -> DefaultDict[Node, List[NodeRevision]]:
     """
-    Group metrics by their parent node
+    Group metrics by their parent node.
+    For derived metrics, this groups by the ultimate non-metric parent(s).
+
+    Note: If a metric has multiple ultimate parents, it will appear in
+    multiple groups. This supports cross-fact metrics.
     """
-    common_parents = collections.defaultdict(list)
+    common_parents: DefaultDict[Node, List[NodeRevision]] = collections.defaultdict(
+        list,
+    )
     for metric_node in metric_nodes:
-        immediate_parent = metric_node.current.parents[0]
-        common_parents[immediate_parent].append(metric_node.current)
+        ultimate_parents = await get_metric_parents(session, [metric_node])
+        for parent in ultimate_parents:
+            if metric_node.current not in common_parents[parent]:  # pragma: no cover
+                common_parents[parent].append(metric_node.current)
     return common_parents
 
 
@@ -339,8 +347,9 @@ def build_materialized_cube_node(
     return combined_ast
 
 
-def extract_components_and_parent_columns(
+async def extract_components_and_parent_columns(
     metric_nodes: list[Node],
+    session: "AsyncSession",
 ) -> Tuple[
     DefaultDict[str, Set[str]],
     dict[str, tuple[list[MetricComponent], ast.Query]],
@@ -362,23 +371,26 @@ def extract_components_and_parent_columns(
         }
     )
     """
+
     components_by_metric: dict[str, tuple[list[MetricComponent], ast.Query]] = {}
     parent_columns = collections.defaultdict(set)
 
-    def extract_components_and_columns(metric_query: str):
-        extractor = MetricComponentExtractor.from_query_string(metric_query)
-        metric_ast = parse(metric_query)
-        return extractor.extract(), list(metric_ast.find_all(ast.Column))
+    async def extract_components_and_columns(metric_node: Node):
+        extractor = MetricComponentExtractor(metric_node.current.id)
+        measures, derived_sql = await extractor.extract(session)
+        metric_ast = parse(metric_node.current.query)
+        return measures, derived_sql, list(metric_ast.find_all(ast.Column))
 
-    max_workers = min(max(1, len(metric_nodes)), os.cpu_count())  # type: ignore
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        extracted_measures = executor.map(
-            extract_components_and_columns,
-            [metric_node.current.query for metric_node in metric_nodes],
-        )
+    # Extract in parallel using asyncio.gather
+    extracted_measures = await asyncio.gather(
+        *[extract_components_and_columns(node) for node in metric_nodes],
+    )
 
-    for metric_node, (measures, columns) in zip(metric_nodes, extracted_measures):
-        components_by_metric[metric_node.name] = measures
+    for metric_node, (measures, derived_sql, columns) in zip(
+        metric_nodes,
+        extracted_measures,
+    ):
+        components_by_metric[metric_node.name] = (measures, derived_sql)
         for col in columns:
             parent_columns[metric_node.current.parents[0].name].add(  # type: ignore
                 col.alias_or_name.name,

@@ -1086,10 +1086,21 @@ class Column(Aliasable, Named, Expression):
                             to_process.append((new_table, path + [link]))
         return found
 
+    def _get_parent_query(self) -> Optional["Query"]:
+        """Find the parent Query node for this column."""
+        node = self.parent
+        while node is not None:
+            if isinstance(node, Query):
+                return node
+            node = getattr(node, "parent", None)
+        return None
+
     async def compile(self, ctx: CompileContext):
         """
         Compile a column.
         Determines the table from which a column is from.
+        For metric references (columns with namespace but no table source),
+        resolves the type from the metric's output.
         """
         if self.is_compiled():
             return
@@ -1100,6 +1111,43 @@ class Column(Aliasable, Named, Expression):
         else:
             found_sources = list(set(await self.find_table_sources(ctx)))
             if len(found_sources) < 1:
+                # No table sources found - check if this is a metric reference
+                # Only try metric resolution if:
+                # 1. Column has a namespace (e.g., default.total_repair_cost)
+                # 2. The parent query has NO FROM clause (derived metric pattern)
+                parent_query = self._get_parent_query()
+                has_from_clause = (
+                    parent_query is not None and parent_query.select.from_ is not None
+                )
+
+                # Metric references have exactly ONE namespace part (e.g., default.metric_name)
+                # Columns with 2+ namespace parts are table.column refs (e.g., default.table.column)
+                if self.namespace and len(self.namespace) == 1 and not has_from_clause:
+                    # Try to resolve as a metric node reference
+                    node_name = self.identifier()
+                    try:
+                        dj_node = await get_dj_node(
+                            ctx.session,
+                            node_name,
+                            {DJNodeType.METRIC},
+                        )
+                        if dj_node:
+                            # Found a metric - get its output type
+                            # Metrics have a single projection column
+                            # Need to refresh to ensure columns are loaded
+                            await refresh_if_needed(ctx.session, dj_node, ["columns"])
+                            if dj_node.columns:
+                                self._type = dj_node.columns[0].type
+                                self._is_compiled = True
+                                return
+                            else:
+                                # Metric found but no columns - this shouldn't happen
+                                # Fall through to error
+                                pass
+                    except DJErrorException:
+                        # Not a metric, fall through to normal error
+                        pass
+
                 ctx.exception.errors.append(
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
@@ -1460,10 +1508,17 @@ class Table(TableExpression, Named):
                     await refresh_if_needed(ctx.session, db_node.current, ["columns"])
                     dj_node = db_node.current
                 else:
+                    # Include METRIC nodes to support derived metrics (metrics that reference
+                    # other metrics). This allows metric references in FROM clauses.
                     dj_node = await get_dj_node(
                         ctx.session,
                         table_name,
-                        {DJNodeType.SOURCE, DJNodeType.TRANSFORM, DJNodeType.DIMENSION},
+                        {
+                            DJNodeType.SOURCE,
+                            DJNodeType.TRANSFORM,
+                            DJNodeType.DIMENSION,
+                            DJNodeType.METRIC,
+                        },
                     )
                     # Cache successful lookups in context
                     ctx.dependencies_cache[table_name] = dj_node
@@ -3053,26 +3108,75 @@ class Query(TableExpression, UnNamed):
         context: Optional[CompileContext] = None,
     ) -> Tuple[Dict[NodeRevision, List[Table]], Dict[str, List[Table]]]:
         """
-        Find all dependencies in a compiled query
+        Find all dependencies in a compiled query.
+
+        For queries with FROM clauses: finds Table references.
+        For queries without FROM (e.g., derived metrics): finds Column references
+        with namespaces that point to node names (e.g., default.metric_a).
         """
-
-        if not self.is_compiled():
-            if not context:
-                raise DJQueryBuildException(
-                    "Context not provided for query compilation!",
-                )
-            await self.compile(context)
-
         deps: Dict[NodeRevision, List[Table]] = {}
         danglers: Dict[str, List[Table]] = {}
-        for table in self.find_all(Table):
-            if node := table.dj_node:
-                deps[node] = deps.get(node, [])
-                deps[node].append(table)
-            else:
-                name = table.identifier(quotes=False)
-                danglers[name] = danglers.get(name, [])
-                danglers[name].append(table)
+
+        # Check if this is a query without FROM (e.g., derived metric)
+        has_from = self.select.from_ is not None
+
+        if has_from:
+            # Standard case: compile and extract Table references
+            if not self.is_compiled():
+                if not context:
+                    raise DJQueryBuildException(
+                        "Context not provided for query compilation!",
+                    )
+                await self.compile(context)
+
+            for table in self.find_all(Table):
+                if node := table.dj_node:
+                    deps[node] = deps.get(node, [])
+                    deps[node].append(table)
+                else:
+                    name = table.identifier(quotes=False)
+                    danglers[name] = danglers.get(name, [])
+                    danglers[name].append(table)
+        else:
+            # No FROM clause (derived metric): look for Column references with namespaces
+            # These are node references like default.metric_a, default.metric_b
+            if not context:
+                raise DJQueryBuildException(
+                    "Context not provided for dependency extraction!",
+                )
+
+            for col in self.find_all(Column):
+                # Metric references have exactly ONE namespace part (e.g., default.metric_name)
+                # Columns with 2+ namespace parts are table.column refs (e.g., default.table.column)
+                if col.namespace and len(col.namespace) == 1:
+                    # Column with single namespace is a node reference (e.g., default.metric_a)
+                    node_name = col.identifier()
+                    if node_name in [d.name for d in deps.keys()]:
+                        continue  # Already found this dependency
+
+                    # Look up the node - for derived metrics, we expect metric references
+                    try:
+                        dj_node = await get_dj_node(
+                            context.session,
+                            node_name,
+                            {
+                                DJNodeType.SOURCE,
+                                DJNodeType.TRANSFORM,
+                                DJNodeType.DIMENSION,
+                                DJNodeType.METRIC,
+                            },
+                        )
+                        if dj_node:
+                            deps[dj_node] = deps.get(dj_node, [])
+                            # Store None for table since there's no Table AST node
+                    except DJErrorException:
+                        # Node doesn't exist - add to danglers
+                        danglers[node_name] = danglers.get(node_name, [])
+
+            # Also compile the query to resolve column types for derived metrics
+            # This triggers Column.compile which handles metric reference type resolution
+            if not self.is_compiled():
+                await self.compile(context)
 
         return deps, danglers
 

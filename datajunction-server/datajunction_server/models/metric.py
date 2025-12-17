@@ -5,6 +5,7 @@ Models for metrics.
 from typing import List, Optional, Dict
 
 from pydantic.main import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node
 from datajunction_server.models.cube_materialization import MetricComponent
@@ -52,7 +53,12 @@ class Metric(BaseModel):
     custom_metadata: Optional[Dict] = None
 
     @classmethod
-    def parse_node(cls, node: Node, dims: List[DimensionAttributeOutput]) -> "Metric":
+    async def parse_node(
+        cls,
+        node: Node,
+        dims: List[DimensionAttributeOutput],
+        session: AsyncSession,
+    ) -> "Metric":
         """
         Parses a node into a metric.
         """
@@ -63,8 +69,8 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
-        extractor = MetricComponentExtractor.from_query_string(node.current.query)
-        measures, derived_sql = extractor.extract()
+        extractor = MetricComponentExtractor(node.current.id)
+        measures, derived_sql = await extractor.extract(session)
         return cls(
             id=node.id,
             name=node.name,

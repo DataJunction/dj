@@ -360,9 +360,10 @@ async def get_measures_query(
     metric_nodes = await check_metrics_exist(session, metrics)
     await check_dimension_attributes_exist(session, dimensions)
 
-    common_parents = group_metrics_by_parent(metric_nodes)
-    parent_columns, metric_components = extract_components_and_parent_columns(
+    common_parents = await group_metrics_by_parent(session, metric_nodes)
+    parent_columns, metric_components = await extract_components_and_parent_columns(
         metric_nodes,
+        session,
     )
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"

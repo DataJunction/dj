@@ -280,6 +280,24 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "hll.events",
         "hll.total_events",
         "hll.unique_users",
+        # DERIVED_METRICS examples
+        "default.orders_source",
+        "default.events_source",
+        "default.inventory_source",
+        "default.dates_source",
+        "default.customers_source",
+        "default.warehouses_source",
+        "default.derived_date",
+        "default.customer",
+        "default.warehouse",
+        "default.dm_revenue",
+        "default.dm_orders",
+        "default.dm_page_views",
+        "default.dm_total_inventory",
+        "default.dm_revenue_per_order",
+        "default.dm_revenue_per_page_view",
+        "default.dm_wow_revenue_change",
+        "default.dm_mom_revenue_change",
     }
 
 

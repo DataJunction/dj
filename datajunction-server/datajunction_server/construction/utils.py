@@ -34,6 +34,9 @@ async def get_dj_node(
                 await session.execute(
                     query.options(
                         joinedload(Node.current).options(
+                            # Load the back-reference to Node so .node is available
+                            # without triggering lazy loading (avoids MissingGreenlet errors)
+                            joinedload(NodeRevision.node),
                             *NodeRevision.default_load_options(),
                         ),
                     ),
