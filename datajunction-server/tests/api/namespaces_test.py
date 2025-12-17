@@ -32,7 +32,7 @@ async def test_list_all_namespaces(
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
-        {"namespace": "default", "num_nodes": 65},
+        {"namespace": "default", "num_nodes": 82},
         {
             "namespace": "different.basic",
             "num_nodes": 2,

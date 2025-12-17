@@ -3,25 +3,92 @@ Tests for ``datajunction_server.sql.decompose``.
 """
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
-def test_simple_sum():
+@pytest_asyncio.fixture
+async def parent_node(session: AsyncSession, current_user):
+    """Create a parent source node called 'parent_node'."""
+    node = Node(
+        name="parent_node",
+        type=NodeType.SOURCE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(node)
+    await session.flush()
+
+    revision = NodeRevision(
+        node_id=node.id,
+        version="v1.0",
+        name="parent_node",
+        type=NodeType.SOURCE,
+        created_by_id=current_user.id,
+    )
+    session.add(revision)
+    await session.flush()
+    return node
+
+
+@pytest_asyncio.fixture
+async def create_metric(session: AsyncSession, current_user, parent_node):
+    """Fixture to create a metric node with a query."""
+    created_metrics: list[NodeRevision] = []
+
+    async def _create(query: str, name: str = None, parent=None):
+        parent_to_use = parent if parent else parent_node
+        metric_name = name or f"test_metric_{len(created_metrics)}"
+
+        metric_node = Node(
+            name=metric_name,
+            type=NodeType.METRIC,
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(metric_node)
+        await session.flush()
+
+        metric_rev = NodeRevision(
+            node_id=metric_node.id,
+            version="v1.0",
+            name=metric_name,
+            type=NodeType.METRIC,
+            query=query,
+            created_by_id=current_user.id,
+        )
+        session.add(metric_rev)
+        await session.flush()
+
+        rel = NodeRelationship(parent_id=parent_to_use.id, child_id=metric_rev.id)
+        session.add(rel)
+        await session.flush()
+
+        created_metrics.append(metric_rev)
+        return metric_rev
+
+    return _create
+
+
+@pytest.mark.asyncio
+async def test_simple_sum(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that is a simple sum.
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT SUM(sales_amount) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT SUM(sales_amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -37,14 +104,16 @@ def test_simple_sum():
     )
 
 
-def test_sum_with_cast():
+@pytest.mark.asyncio
+async def test_sum_with_cast(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that has a sum with a cast.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT CAST(SUM(sales_amount) AS DOUBLE) * 100.0 FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -61,10 +130,11 @@ def test_sum_with_cast():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT 100.0 * SUM(sales_amount) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -80,14 +150,16 @@ def test_sum_with_cast():
     )
 
 
-def test_sum_with_coalesce():
+@pytest.mark.asyncio
+async def test_sum_with_coalesce(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that has a sum with coalesce.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT COALESCE(SUM(sales_amount), 0) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -102,10 +174,11 @@ def test_sum_with_coalesce():
         parse("SELECT COALESCE(SUM(sales_amount_sum_b5a3cefe), 0) FROM parent_node"),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT SUM(COALESCE(sales_amount, 0)) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_65a3b528",
@@ -121,14 +194,16 @@ def test_sum_with_coalesce():
     )
 
 
-def test_multiple_sums():
+@pytest.mark.asyncio
+async def test_multiple_sums(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that has multiple sums.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(sales_amount) + SUM(fraud_sales) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -153,10 +228,11 @@ def test_multiple_sums():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT SUM(sales_amount) - SUM(fraud_sales) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
@@ -182,14 +258,16 @@ def test_multiple_sums():
     )
 
 
-def test_nested_functions():
+@pytest.mark.asyncio
+async def test_nested_functions(session: AsyncSession, create_metric):
     """
     Test behavior with deeply nested functions inside aggregations.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(ROUND(COALESCE(sales_amount, 0) * 1.1)) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_090066cf",
@@ -204,10 +282,11 @@ def test_nested_functions():
         parse("SELECT SUM(sales_amount_sum_090066cf) FROM parent_node"),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT LN(SUM(COALESCE(sales_amount, 0)) + 1) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_sum_65a3b528",
@@ -223,7 +302,8 @@ def test_nested_functions():
     )
 
 
-def test_average():
+@pytest.mark.asyncio
+async def test_average(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that uses AVG.
 
@@ -233,10 +313,9 @@ def test_average():
 
     The combiner is: SUM(sum_col) / SUM(count_col)
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT AVG(sales_amount) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT AVG(sales_amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     expected_measures = [
         MetricComponent(
@@ -263,14 +342,16 @@ def test_average():
     )
 
 
-def test_rate():
+@pytest.mark.asyncio
+async def test_rate(session: AsyncSession, create_metric):
     """
     Test decomposition for a rate metric definition.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(clicks) / SUM(impressions) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures0 = [
         MetricComponent(
             name="clicks_sum_c45fd8cf",
@@ -294,10 +375,11 @@ def test_rate():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT 1.0 * SUM(clicks) / NULLIF(SUM(impressions), 0) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="clicks_sum_c45fd8cf",
@@ -322,11 +404,12 @@ def test_rate():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev3 = await create_metric(
         "SELECT CAST(CAST(SUM(clicks) AS INT) AS DOUBLE) / "
         "CAST(SUM(impressions) AS DOUBLE) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor3 = MetricComponentExtractor(metric_rev3.id)
+    measures, derived_sql = await extractor3.extract(session)
     assert measures == expected_measures0
     assert str(derived_sql) == str(
         parse(
@@ -335,10 +418,11 @@ def test_rate():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev4 = await create_metric(
         "SELECT COALESCE(SUM(clicks) / SUM(impressions), 0) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor4 = MetricComponentExtractor(metric_rev4.id)
+    measures, derived_sql = await extractor4.extract(session)
     expected_measures = [
         MetricComponent(
             name="clicks_sum_c45fd8cf",
@@ -363,11 +447,12 @@ def test_rate():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev5 = await create_metric(
         "SELECT IF(SUM(clicks) > 0, CAST(SUM(impressions) AS DOUBLE) "
         "/ CAST(SUM(clicks) AS DOUBLE), NULL) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor5 = MetricComponentExtractor(metric_rev5.id)
+    measures, derived_sql = await extractor5.extract(session)
     expected_measures = [
         MetricComponent(
             name="clicks_sum_c45fd8cf",
@@ -392,10 +477,11 @@ def test_rate():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev6 = await create_metric(
         "SELECT ln(sum(clicks) + 1) / sum(views) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor6 = MetricComponentExtractor(metric_rev6.id)
+    measures, derived_sql = await extractor6.extract(session)
     expected_measures = [
         MetricComponent(
             name="clicks_sum_c45fd8cf",
@@ -420,14 +506,14 @@ def test_rate():
     )
 
 
-def test_max_if():
+@pytest.mark.asyncio
+async def test_max_if(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that uses MAX.
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT MAX(IF(condition, 1, 0)) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT MAX(IF(condition, 1, 0)) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="condition_max_f04b0c57",
@@ -443,16 +529,18 @@ def test_max_if():
     )
 
 
-def test_fraction_with_if():
+@pytest.mark.asyncio
+async def test_fraction_with_if(session: AsyncSession, create_metric):
     """
     Test decomposition for a rate metric with complex numerator and denominators.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT IF(SUM(COALESCE(action, 0)) > 0, "
         "CAST(SUM(COALESCE(action_two, 0)) AS DOUBLE) / "
         "CAST(SUM(COALESCE(action, 0)) AS DOUBLE), NULL) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     expected_measures = [
         MetricComponent(
@@ -480,16 +568,18 @@ def test_fraction_with_if():
     )
 
 
-def test_count():
+@pytest.mark.asyncio
+async def test_count(session: AsyncSession, create_metric):
     """
     Test decomposition for a count metric.
 
     COUNT aggregation merges as SUM (sum up the counts).
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT COUNT(IF(action = 1, action_event_ts, 0)) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="action_action_event_ts_count_7d582e65",
@@ -507,14 +597,16 @@ def test_count():
     )
 
 
-def test_count_distinct_rate():
+@pytest.mark.asyncio
+async def test_count_distinct_rate(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric that uses count distinct.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT COUNT(DISTINCT user_id) / COUNT(action) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="user_id_distinct_7f092f23",
@@ -543,14 +635,14 @@ def test_count_distinct_rate():
     )
 
 
-def test_any_value():
+@pytest.mark.asyncio
+async def test_any_value(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that has ANY_VALUE as the agg function
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT ANY_VALUE(sales_amount) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT ANY_VALUE(sales_amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="sales_amount_any_value_b5a3cefe",
@@ -566,28 +658,32 @@ def test_any_value():
     )
 
 
-def test_no_aggregation():
+@pytest.mark.asyncio
+async def test_no_aggregation(session: AsyncSession, create_metric):
     """
     Test behavior when there is no aggregation function in the metric query.
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT sales_amount FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
-    expected_measures = []
-    assert measures == expected_measures
+    metric_rev = await create_metric("SELECT sales_amount FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert measures == []
     assert str(derived_sql) == str(parse("SELECT sales_amount FROM parent_node"))
 
 
-def test_multiple_aggregations_with_conditions():
+@pytest.mark.asyncio
+async def test_multiple_aggregations_with_conditions(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test behavior with conditional aggregations in the metric query.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(IF(region = 'US', sales_amount, 0)) + "
         "COUNT(DISTINCT IF(region = 'US', account_id, NULL)) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="region_sales_amount_sum_5467b14a",
@@ -615,11 +711,12 @@ def test_multiple_aggregations_with_conditions():
         ),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT cast(coalesce(max(a), max(b), 0) as double) + "
         "cast(coalesce(max(a), max(b)) as double) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
     expected_measures = [
         MetricComponent(
             name="a_max_0f00346b",
@@ -645,9 +742,11 @@ def test_multiple_aggregations_with_conditions():
     )
 
 
-def test_min_agg():
-    extractor = MetricComponentExtractor.from_query_string("SELECT MIN(a) FROM parent")
-    measures, derived_sql = extractor.extract()
+@pytest.mark.asyncio
+async def test_min_agg(session: AsyncSession, create_metric):
+    metric_rev = await create_metric("SELECT MIN(a) FROM parent")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     assert measures == [
         MetricComponent(
             name="a_min_3cf406a5",
@@ -660,36 +759,37 @@ def test_min_agg():
     assert str(derived_sql) == str(parse("SELECT MIN(a_min_3cf406a5) FROM parent"))
 
 
-def test_empty_query():
+@pytest.mark.asyncio
+async def test_empty_query(session: AsyncSession, create_metric):
     """
     Test behavior when the metric query is empty.
     """
+    metric_rev = await create_metric("")
+    extractor = MetricComponentExtractor(metric_rev.id)
     with pytest.raises(DJParseException, match="Empty query provided!"):
-        extractor = MetricComponentExtractor.from_query_string("")
-        extractor.extract()
+        await extractor.extract(session)
 
 
-def test_unsupported_aggregation_function():
+@pytest.mark.asyncio
+async def test_unsupported_aggregation_function(session: AsyncSession, create_metric):
     """
     Test behavior when the query contains unsupported aggregation functions. We just return an
     empty list of measures in this case, because there are no pre-aggregatable measures.
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT MEDIAN(sales_amount) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
-    expected_measures = []
-    assert measures == expected_measures
+    metric_rev = await create_metric("SELECT MEDIAN(sales_amount) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert measures == []
     assert str(derived_sql) == str(
         parse("SELECT MEDIAN(sales_amount) FROM parent_node"),
     )
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev2 = await create_metric(
         "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
-    expected_measures = []
-    assert measures == expected_measures
+    extractor2 = MetricComponentExtractor(metric_rev2.id)
+    measures, derived_sql = await extractor2.extract(session)
+    assert measures == []
     assert str(derived_sql) == str(
         parse(
             "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
@@ -697,15 +797,17 @@ def test_unsupported_aggregation_function():
     )
 
 
-def test_count_if():
+@pytest.mark.asyncio
+async def test_count_if(session: AsyncSession, create_metric):
     """
     Test decomposition for count_if.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT CAST(COUNT_IF(ARRAY_CONTAINS(field_a, 'xyz')) AS FLOAT) / COUNT(*) "
         "FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="field_a_count_if_3979ffbd",
@@ -731,16 +833,18 @@ def test_count_if():
     )
 
 
-def test_metric_query_with_aliases():
+@pytest.mark.asyncio
+async def test_metric_query_with_aliases(session: AsyncSession, create_metric):
     """
     Test behavior when the query contains unsupported aggregation functions. We just return an
     empty list of measures in this case, because there are no pre-aggregatable measures.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT avg(cast(repair_orders_fact.time_to_dispatch as int)) "
         "FROM default.repair_orders_fact repair_orders_fact",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="time_to_dispatch_count_3bc9baed",
@@ -766,37 +870,40 @@ def test_metric_query_with_aliases():
     )
 
 
-def test_max_by():
+@pytest.mark.asyncio
+async def test_max_by(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric that uses MAX_BY.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
-    expected_measures = []
-    assert measures == expected_measures
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert measures == []
     assert str(derived_sql) == str(
         parse("SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
     )
 
 
-def test_min_by():
+@pytest.mark.asyncio
+async def test_min_by(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric that uses MIN_BY.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
-    expected_measures = []
-    assert measures == expected_measures
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+    assert measures == []
     assert str(derived_sql) == str(
         parse("SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
     )
 
 
-def test_approx_count_distinct():
+@pytest.mark.asyncio
+async def test_approx_count_distinct(session: AsyncSession, create_metric):
     """
     Test decomposition for an approximate count distinct metric.
 
@@ -807,10 +914,11 @@ def test_approx_count_distinct():
 
     Translation to other dialects (Druid, Trino) happens in the transpilation layer.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
     expected_measures = [
         MetricComponent(
             name="user_id_hll_7f092f23",
@@ -829,14 +937,19 @@ def test_approx_count_distinct():
     )
 
 
-def test_approx_count_distinct_with_expression():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_with_expression(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test decomposition for APPROX_COUNT_DISTINCT with a complex expression.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(COALESCE(user_id, 'unknown')) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Verify structure of the measure (hash value may vary)
     assert len(measures) == 1
@@ -853,14 +966,19 @@ def test_approx_count_distinct_with_expression():
     assert "_hll_" in derived_str
 
 
-def test_approx_count_distinct_with_conditional():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_with_conditional(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test decomposition for APPROX_COUNT_DISTINCT with IF condition.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(IF(active = 1, user_id, NULL)) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Verify structure of the measure
     assert len(measures) == 1
@@ -876,14 +994,19 @@ def test_approx_count_distinct_with_conditional():
     assert "hll_union" in derived_str
 
 
-def test_approx_count_distinct_combined_with_sum():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_combined_with_sum(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test decomposition for a metric combining APPROX_COUNT_DISTINCT with SUM.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(revenue) / APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Should have two measures: one for SUM, one for HLL
     assert len(measures) == 2
@@ -907,15 +1030,17 @@ def test_approx_count_distinct_combined_with_sum():
     assert "hll_union" in derived_str
 
 
-def test_approx_count_distinct_multiple():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_multiple(session: AsyncSession, create_metric):
     """
     Test decomposition with multiple APPROX_COUNT_DISTINCT on different columns.
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(user_id) + APPROX_COUNT_DISTINCT(session_id) "
         "FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Should have two HLL measures
     assert len(measures) == 2
@@ -932,17 +1057,19 @@ def test_approx_count_distinct_multiple():
     assert derived_str.count("hll_union") == 2
 
 
-def test_approx_count_distinct_rate():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_rate(session: AsyncSession, create_metric):
     """
     Test decomposition for a rate metric using APPROX_COUNT_DISTINCT.
 
     Example: unique users who clicked / unique users who viewed
     """
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT CAST(APPROX_COUNT_DISTINCT(IF(clicked = 1, user_id, NULL)) AS DOUBLE) / "
         "CAST(APPROX_COUNT_DISTINCT(user_id) AS DOUBLE) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Should have two HLL measures
     assert len(measures) == 2
@@ -961,7 +1088,11 @@ def test_approx_count_distinct_rate():
     assert "hll_union" in derived_str
 
 
-def test_approx_count_distinct_dialect_translation():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_dialect_translation(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test that the decomposed HLL SQL can be translated to different dialects.
 
@@ -972,10 +1103,11 @@ def test_approx_count_distinct_dialect_translation():
     from datajunction_server.models.engine import Dialect
     from datajunction_server.sql.translation import translate_sql
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
     )
-    _, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
     spark_sql = str(derived_sql)
 
     # The decomposed SQL uses Spark HLL functions
@@ -1001,18 +1133,23 @@ def test_approx_count_distinct_dialect_translation():
     assert spark_spark_sql == spark_sql
 
 
-def test_approx_count_distinct_combined_metrics_dialect_translation():
+@pytest.mark.asyncio
+async def test_approx_count_distinct_combined_metrics_dialect_translation(
+    session: AsyncSession,
+    create_metric,
+):
     """
     Test dialect translation for a complex metric combining HLL with other aggregations.
     """
     from datajunction_server.models.engine import Dialect
     from datajunction_server.sql.translation import translate_sql
 
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT SUM(revenue) / APPROX_COUNT_DISTINCT(user_id) AS revenue_per_user "
         "FROM parent_node",
     )
-    _, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    _, derived_sql = await extractor.extract(session)
     spark_sql = str(derived_sql)
 
     # Verify Spark SQL structure - contains both SUM and HLL
@@ -1032,7 +1169,8 @@ def test_approx_count_distinct_combined_metrics_dialect_translation():
     assert "hll_sketch_estimate" not in trino_sql
 
 
-def test_var_pop():
+@pytest.mark.asyncio
+async def test_var_pop(session: AsyncSession, create_metric):
     """
     Test decomposition for a population variance metric.
 
@@ -1043,10 +1181,9 @@ def test_var_pop():
 
     Formula: E[X²] - E[X]² = (sum_sq/n) - (sum/n)²
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT VAR_POP(price) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT VAR_POP(price) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Verify we have exactly 3 components
     assert len(measures) == 3
@@ -1083,16 +1220,16 @@ def test_var_pop():
     )
 
 
-def test_var_samp():
+@pytest.mark.asyncio
+async def test_var_samp(session: AsyncSession, create_metric):
     """
     Test decomposition for a sample variance metric.
 
     VAR_SAMP uses n-1 in the denominator (Bessel's correction).
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT VAR_SAMP(price) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT VAR_SAMP(price) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Same components as VAR_POP
     assert len(measures) == 3
@@ -1106,16 +1243,16 @@ def test_var_samp():
     )
 
 
-def test_stddev_pop():
+@pytest.mark.asyncio
+async def test_stddev_pop(session: AsyncSession, create_metric):
     """
     Test decomposition for population standard deviation.
 
     STDDEV_POP = SQRT(VAR_POP), so it uses the same components as variance.
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT STDDEV_POP(price) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT STDDEV_POP(price) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Same components as VAR_POP
     assert len(measures) == 3
@@ -1135,16 +1272,16 @@ def test_stddev_pop():
     )
 
 
-def test_stddev_samp():
+@pytest.mark.asyncio
+async def test_stddev_samp(session: AsyncSession, create_metric):
     """
     Test decomposition for sample standard deviation.
 
     STDDEV_SAMP = SQRT(VAR_SAMP).
     """
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT STDDEV_SAMP(price) FROM parent_node",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT STDDEV_SAMP(price) FROM parent_node")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Same components as VAR_SAMP
     assert len(measures) == 3
@@ -1165,12 +1302,14 @@ def test_stddev_samp():
     )
 
 
-def test_covar_pop():
+@pytest.mark.asyncio
+async def test_covar_pop(session: AsyncSession, create_metric):
     """Test COVAR_POP decomposition - population covariance."""
-    extractor = MetricComponentExtractor.from_query_string(
+    metric_rev = await create_metric(
         "SELECT COVAR_POP(price, quantity) FROM parent_node",
     )
-    measures, derived_sql = extractor.extract()
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Should have 4 components: sum_x, sum_y, sum_xy, count
     assert len(measures) == 4
@@ -1194,12 +1333,12 @@ def test_covar_pop():
     assert "_count_" in by_agg["COUNT(price)"].name
 
 
-def test_covar_samp():
+@pytest.mark.asyncio
+async def test_covar_samp(session: AsyncSession, create_metric):
     """Test COVAR_SAMP decomposition - sample covariance with Bessel's correction."""
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT COVAR_SAMP(revenue, cost) FROM sales",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT COVAR_SAMP(revenue, cost) FROM sales")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Same 4 components as COVAR_POP
     assert len(measures) == 4
@@ -1212,12 +1351,12 @@ def test_covar_samp():
     }
 
 
-def test_corr():
+@pytest.mark.asyncio
+async def test_corr(session: AsyncSession, create_metric):
     """Test CORR decomposition - Pearson correlation coefficient."""
-    extractor = MetricComponentExtractor.from_query_string(
-        "SELECT CORR(x, y) FROM data",
-    )
-    measures, derived_sql = extractor.extract()
+    metric_rev = await create_metric("SELECT CORR(x, y) FROM data")
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
 
     # Should have 6 components: sum_x, sum_y, sum_x_sq, sum_y_sq, sum_xy, count
     assert len(measures) == 6
@@ -1243,3 +1382,222 @@ def test_corr():
     assert "_sum_y_sq_" in by_agg["SUM(POWER(y, 2))"].name
     assert "_sum_xy_" in by_agg["SUM(x * y)"].name
     assert "_count_" in by_agg["COUNT(x)"].name
+
+
+# =============================================================================
+# Tests for extract_from_base_metrics (derived metrics)
+# =============================================================================
+
+
+@pytest_asyncio.fixture
+async def create_base_metric(session: AsyncSession, current_user, parent_node):
+    """Fixture to create a base metric node with a query (has non-metric parent)."""
+    created_metrics = {}
+
+    async def _create(name: str, query: str):
+        metric_node = Node(
+            name=name,
+            type=NodeType.METRIC,
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(metric_node)
+        await session.flush()
+
+        metric_rev = NodeRevision(
+            node_id=metric_node.id,
+            version="v1.0",
+            name=name,
+            type=NodeType.METRIC,
+            query=query,
+            created_by_id=current_user.id,
+        )
+        session.add(metric_rev)
+        await session.flush()
+
+        # Base metric has source node as parent (not another metric)
+        rel = NodeRelationship(parent_id=parent_node.id, child_id=metric_rev.id)
+        session.add(rel)
+        await session.flush()
+
+        created_metrics[name] = (metric_node, metric_rev)
+        return metric_node, metric_rev
+
+    return _create
+
+
+@pytest_asyncio.fixture
+async def create_derived_metric(session: AsyncSession, current_user):
+    """Fixture to create a derived metric that references base metrics."""
+
+    async def _create(name: str, query: str, base_metric_nodes: list[Node]):
+        metric_node = Node(
+            name=name,
+            type=NodeType.METRIC,
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(metric_node)
+        await session.flush()
+
+        metric_rev = NodeRevision(
+            node_id=metric_node.id,
+            version="v1.0",
+            name=name,
+            type=NodeType.METRIC,
+            query=query,
+            created_by_id=current_user.id,
+        )
+        session.add(metric_rev)
+        await session.flush()
+
+        # Derived metric has base metrics as parents
+        for base_node in base_metric_nodes:
+            rel = NodeRelationship(parent_id=base_node.id, child_id=metric_rev.id)
+            session.add(rel)
+
+        await session.flush()
+        return metric_node, metric_rev
+
+    return _create
+
+
+@pytest.mark.asyncio
+async def test_extract_derived_metric_revenue_per_order(
+    session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test derived metric: revenue_per_order = revenue / orders
+
+    This tests the "same parent" pattern where both base metrics come from the
+    same fact table (orders_source). The derived metric references both by name.
+    """
+    # Create base metrics (both from same "orders" fact)
+    revenue_node, _ = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    orders_node, _ = await create_base_metric(
+        "default.orders",
+        "SELECT COUNT(*) FROM default.orders_source",
+    )
+
+    # Create derived metric: revenue per order with NULLIF for divide-by-zero protection
+    _, derived_rev = await create_derived_metric(
+        "default.revenue_per_order",
+        "SELECT default.revenue / NULLIF(default.orders, 0)",
+        [revenue_node, orders_node],
+    )
+
+    extractor = MetricComponentExtractor(derived_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should collect components from both base metrics:
+    # - revenue: SUM(amount) -> amount_sum component
+    # - orders: COUNT(*) -> count component
+    assert len(components) == 2
+
+    # Verify component types
+    agg_types = {c.aggregation for c in components}
+    assert "SUM" in agg_types
+    assert "COUNT" in agg_types
+
+    # Derived SQL should have metric references substituted
+    assert "default.revenue" not in derived_sql
+    assert "default.orders" not in derived_sql
+    # Should contain the combiner expressions
+    assert "SUM(" in derived_sql
+    assert "NULLIF(" in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_derived_metric_cross_fact_ratio(
+    session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test derived metric: revenue_per_page_view = revenue / page_views
+
+    This tests the "cross-fact" pattern where base metrics come from different
+    fact tables (orders_source and events_source) that share dimensions.
+    """
+    # Create base metrics from different facts
+    revenue_node, _ = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    page_views_node, _ = await create_base_metric(
+        "default.page_views",
+        "SELECT SUM(page_views) FROM default.events_source",
+    )
+
+    # Create cross-fact derived metric
+    _, derived_rev = await create_derived_metric(
+        "default.revenue_per_page_view",
+        "SELECT default.revenue / NULLIF(default.page_views, 0)",
+        [revenue_node, page_views_node],
+    )
+
+    extractor = MetricComponentExtractor(derived_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should collect SUM components from both base metrics
+    assert len(components) == 2
+    assert all(c.aggregation == "SUM" for c in components)
+
+    # Verify expressions reference different columns
+    expressions = {c.expression for c in components}
+    assert "amount" in expressions
+    assert "page_views" in expressions
+
+    # Derived SQL should have metric references substituted
+    assert "default.revenue" not in derived_sql
+    assert "default.page_views" not in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_derived_metric_shared_components(
+    session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test component deduplication when base metrics share the same aggregation.
+
+    When two base metrics have identical aggregations (same expression + function),
+    they produce the same component hash and should be deduplicated.
+    """
+    # Two base metrics that both aggregate "amount" with SUM
+    # They'll produce the same component: amount_sum_<hash>
+    gross_revenue_node, _ = await create_base_metric(
+        "default.gross_revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    net_revenue_node, _ = await create_base_metric(
+        "default.net_revenue",
+        "SELECT SUM(amount) - SUM(discount) FROM default.orders_source",
+    )
+
+    # Derived metric that uses both
+    _, derived_rev = await create_derived_metric(
+        "default.revenue_ratio",
+        "SELECT default.gross_revenue / NULLIF(default.net_revenue, 0)",
+        [gross_revenue_node, net_revenue_node],
+    )
+
+    extractor = MetricComponentExtractor(derived_rev.id)
+    components, _ = await extractor.extract(session)
+
+    # Should have 2 unique components:
+    # - amount_sum (shared between both metrics - deduplicated)
+    # - discount_sum (only in net_revenue)
+    assert len(components) == 2
+
+    # Verify the amount component appears only once
+    amount_components = [c for c in components if c.expression == "amount"]
+    assert len(amount_components) == 1

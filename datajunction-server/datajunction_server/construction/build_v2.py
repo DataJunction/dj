@@ -1416,7 +1416,7 @@ class CubeQueryBuilder:
             group_metrics_by_parent,
         )
 
-        common_parents = group_metrics_by_parent(self.metric_nodes)
+        common_parents = await group_metrics_by_parent(self.session, self.metric_nodes)
         measures_queries = {}
         for parent_node, metrics in common_parents.items():  # type: ignore
             await refresh_if_needed(self.session, parent_node, ["current"])

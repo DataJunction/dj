@@ -113,7 +113,7 @@ async def get_a_metric(
     """
     node = await get_metric(session, name)
     dims = await get_dimensions(session, node.current.parents[0])
-    metric = Metric.parse_node(node, dims)
+    metric = await Metric.parse_node(node, dims, session)
     return metric
 
 

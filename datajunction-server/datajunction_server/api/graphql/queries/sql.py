@@ -122,7 +122,7 @@ async def materialization_plan(
     }
 
     # Group the metrics by upstream node
-    grouped_metrics = group_metrics_by_parent(metric_nodes)
+    grouped_metrics = await group_metrics_by_parent(session, metric_nodes)
     units = []
     for upstream_node, metrics_in_group in grouped_metrics.items():
         # Ensure frozen measures are loaded

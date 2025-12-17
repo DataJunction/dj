@@ -258,14 +258,19 @@ class NodeRevision:
         )
 
     @strawberry.field
-    def extracted_measures(self, root: "DBNodeRevision") -> DecomposedMetric | None:
+    async def extracted_measures(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+    ) -> DecomposedMetric | None:
         """
         A list of metric components for a metric node
         """
         if root.type != NodeType.METRIC:
             return None
-        extractor = MetricComponentExtractor.from_query_string(root.query)
-        components, derived_ast = extractor.extract()
+        session = info.context["session"]  # type: ignore
+        extractor = MetricComponentExtractor(root.id)
+        components, derived_ast = await extractor.extract(session)
         # The derived_expression is the combiner (how to combine merged components)
         combiner_expr = str(derived_ast.select.projection[0])
         return DecomposedMetric(  # type: ignore

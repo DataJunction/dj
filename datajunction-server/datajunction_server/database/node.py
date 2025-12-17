@@ -1097,6 +1097,30 @@ class NodeRevision(
         tree = parse(self.query)
         return validate_metric_query(tree, self.name)
 
+    @property
+    def is_derived_metric(self) -> bool:
+        """
+        Check if this metric references other metrics (making it a derived metric).
+        A derived metric is a metric whose parent(s) include other metric nodes.
+        """
+        if self.type != NodeType.METRIC:
+            return False
+        return any(parent.type == NodeType.METRIC for parent in self.parents)
+
+    @property
+    def metric_parents(self) -> List["Node"]:
+        """
+        Get the list of parent nodes that are metrics.
+        """
+        return [parent for parent in self.parents if parent.type == NodeType.METRIC]
+
+    @property
+    def non_metric_parents(self) -> List["Node"]:
+        """
+        Get the list of parent nodes that are not metrics.
+        """
+        return [parent for parent in self.parents if parent.type != NodeType.METRIC]
+
     def extra_validation(self) -> None:
         """
         Extra validation for node data.

@@ -2535,6 +2535,346 @@ SIMPLE_HLL = (  # type: ignore
     ),
 )
 
+# =============================================================================
+# DERIVED_METRICS - Example derived metrics that reference other metrics
+# =============================================================================
+# These metrics demonstrate derived metric capabilities where a metric
+# references another metric node rather than a transform/source directly.
+#
+# This example set tests:
+#   1. Same-parent derived metrics (ratio of metrics from same fact)
+#   2. Cross-fact derived metrics (ratio of metrics from different facts with shared dims)
+#   3. Period-over-period metrics (WoW, MoM using LAG on base metric)
+#   4. Failure case: cross-fact with NO shared dimensions
+#
+# Schema:
+#   - orders_source: order_id, amount, customer_id, order_date
+#   - events_source: event_id, page_views, customer_id, event_date
+#   - inventory_source: inventory_id, quantity, warehouse_id, inventory_date
+#   - dates_source: date_id, date_value, week, month, year
+#   - customers_source: customer_id, name, email
+#   - warehouses_source: warehouse_id, name, location
+#
+# Dimensions:
+#   - default.derived_date (shared: orders, events)
+#   - default.customer (shared: orders, events)
+#   - default.warehouse (only: inventory - NO overlap with orders/events)
+#
+# Base Metrics:
+#   - default.dm_revenue (orders_source) -> dims: derived_date, customer
+#   - default.dm_orders (orders_source) -> dims: derived_date, customer
+#   - default.dm_page_views (events_source) -> dims: derived_date, customer
+#   - default.dm_total_inventory (inventory_source) -> dims: warehouse only
+#
+# Derived Metrics:
+#   - default.dm_revenue_per_order (same parent: orders)
+#   - default.dm_revenue_per_page_view (cross-fact: orders + events, shared dims)
+#   - default.dm_wow_revenue_change (period-over-period)
+#   - default.dm_mom_revenue_change (period-over-period)
+# =============================================================================
+DERIVED_METRICS = (  # type: ignore
+    # =========================================================================
+    # Source Nodes
+    # =========================================================================
+    (
+        "/nodes/source/",
+        {
+            "name": "default.orders_source",
+            "description": "Orders fact table",
+            "columns": [
+                {"name": "order_id", "type": "int"},
+                {"name": "amount", "type": "float"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "order_date", "type": "int"},  # FK to dates_source.date_id
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "orders",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "default.events_source",
+            "description": "Events fact table",
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "page_views", "type": "int"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "event_date", "type": "int"},  # FK to dates_source.date_id
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "events",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "default.inventory_source",
+            "description": "Inventory fact table (no shared dimensions with orders/events)",
+            "columns": [
+                {"name": "inventory_id", "type": "int"},
+                {"name": "quantity", "type": "int"},
+                {"name": "warehouse_id", "type": "int"},
+                {"name": "inventory_date", "type": "int"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "inventory",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "default.dates_source",
+            "description": "Date dimension source",
+            "columns": [
+                {"name": "date_id", "type": "int"},
+                {"name": "date_value", "type": "timestamp"},
+                {"name": "week", "type": "int"},
+                {"name": "month", "type": "int"},
+                {"name": "year", "type": "int"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "dates",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "default.customers_source",
+            "description": "Customer dimension source",
+            "columns": [
+                {"name": "customer_id", "type": "int"},
+                {"name": "name", "type": "string"},
+                {"name": "email", "type": "string"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "customers",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "default.warehouses_source",
+            "description": "Warehouse dimension source",
+            "columns": [
+                {"name": "warehouse_id", "type": "int"},
+                {"name": "name", "type": "string"},
+                {"name": "location", "type": "string"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "derived",
+            "table": "warehouses",
+        },
+    ),
+    # =========================================================================
+    # Dimension Nodes
+    # =========================================================================
+    (
+        "/nodes/dimension/",
+        {
+            "name": "default.derived_date",
+            "description": "Date dimension",
+            "query": """
+                SELECT
+                    date_id,
+                    date_value,
+                    week,
+                    month,
+                    year
+                FROM default.dates_source
+            """,
+            "mode": "published",
+            "primary_key": ["date_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "default.customer",
+            "description": "Customer dimension",
+            "query": """
+                SELECT
+                    customer_id,
+                    name,
+                    email
+                FROM default.customers_source
+            """,
+            "mode": "published",
+            "primary_key": ["customer_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "default.warehouse",
+            "description": "Warehouse dimension (NOT shared with orders/events)",
+            "query": """
+                SELECT
+                    warehouse_id,
+                    name,
+                    location
+                FROM default.warehouses_source
+            """,
+            "mode": "published",
+            "primary_key": ["warehouse_id"],
+        },
+    ),
+    # =========================================================================
+    # Dimension Links - Connect facts to shared dimensions
+    # =========================================================================
+    # orders_source -> date (via order_date)
+    (
+        "/nodes/default.orders_source/link",
+        {
+            "dimension_node": "default.derived_date",
+            "join_type": "left",
+            "join_on": "default.orders_source.order_date = default.derived_date.date_id",
+        },
+    ),
+    # orders_source -> customer (via customer_id)
+    (
+        "/nodes/default.orders_source/link",
+        {
+            "dimension_node": "default.customer",
+            "join_type": "left",
+            "join_on": "default.orders_source.customer_id = default.customer.customer_id",
+        },
+    ),
+    # events_source -> date (via event_date)
+    (
+        "/nodes/default.events_source/link",
+        {
+            "dimension_node": "default.derived_date",
+            "join_type": "left",
+            "join_on": "default.events_source.event_date = default.derived_date.date_id",
+        },
+    ),
+    # events_source -> customer (via customer_id)
+    (
+        "/nodes/default.events_source/link",
+        {
+            "dimension_node": "default.customer",
+            "join_type": "left",
+            "join_on": "default.events_source.customer_id = default.customer.customer_id",
+        },
+    ),
+    # inventory_source -> warehouse (via warehouse_id) - NO overlap with orders/events dims
+    (
+        "/nodes/default.inventory_source/link",
+        {
+            "dimension_node": "default.warehouse",
+            "join_type": "left",
+            "join_on": "default.inventory_source.warehouse_id = default.warehouse.warehouse_id",
+        },
+    ),
+    # =========================================================================
+    # Base Metrics
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_revenue",
+            "description": "Total revenue from orders",
+            "query": "SELECT SUM(amount) FROM default.orders_source",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_orders",
+            "description": "Count of orders",
+            "query": "SELECT COUNT(*) FROM default.orders_source",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_page_views",
+            "description": "Total page views from events",
+            "query": "SELECT SUM(page_views) FROM default.events_source",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_total_inventory",
+            "description": "Total inventory quantity (warehouse-only dimension)",
+            "query": "SELECT SUM(quantity) FROM default.inventory_source",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Same Parent (orders_source)
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_revenue_per_order",
+            "description": "Revenue per order (same parent ratio)",
+            "query": "SELECT default.dm_revenue / NULLIF(default.dm_orders, 0)",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Cross-Fact with Shared Dimensions (orders + events)
+    # Available dimensions = intersection = {date, customer}
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_revenue_per_page_view",
+            "description": "Revenue per page view (cross-fact ratio with shared dimensions)",
+            "query": "SELECT default.dm_revenue / NULLIF(default.dm_page_views, 0)",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Period-over-Period
+    # Same base metric (default.dm_revenue), different ORDER BY dimensions
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_wow_revenue_change",
+            "description": "Week-over-week revenue change (%)",
+            "query": """
+                SELECT
+                    (default.dm_revenue - LAG(default.dm_revenue, 1) OVER (ORDER BY default.derived_date.week))
+                    / NULLIF(LAG(default.dm_revenue, 1) OVER (ORDER BY default.derived_date.week), 0) * 100
+            """,
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "default.dm_mom_revenue_change",
+            "description": "Month-over-month revenue change (%)",
+            "query": """
+                SELECT
+                    (default.dm_revenue - LAG(default.dm_revenue, 1) OVER (ORDER BY default.derived_date.month))
+                    / NULLIF(LAG(default.dm_revenue, 1) OVER (ORDER BY default.derived_date.month), 0) * 100
+            """,
+            "mode": "published",
+        },
+    ),
+)
+
+
 EXAMPLES = {  # type: ignore
     "ROADS": ROADS,
     "NAMESPACED_ROADS": NAMESPACED_ROADS,
@@ -2546,6 +2886,7 @@ EXAMPLES = {  # type: ignore
     "LATERAL_VIEW": LATERAL_VIEW,
     "DIMENSION_LINK": DIMENSION_LINK,
     "SIMPLE_HLL": SIMPLE_HLL,
+    "DERIVED_METRICS": DERIVED_METRICS,
 }
 
 
@@ -2686,6 +3027,44 @@ COLUMN_MAPPINGS = {
         Column(name="created_by_id", type=IntegerType(), order=16),
         Column(name="query_ast", type=BinaryType(), order=17),
         Column(name="custom_metadata", type=StringType(), order=18),
+    ],
+    # =========================================================================
+    # DERIVED_METRICS canonical example set columns
+    # =========================================================================
+    "default.derived.orders": [
+        Column(name="order_id", type=IntegerType(), order=0),
+        Column(name="amount", type=FloatType(), order=1),
+        Column(name="customer_id", type=IntegerType(), order=2),
+        Column(name="order_date", type=IntegerType(), order=3),
+    ],
+    "default.derived.events": [
+        Column(name="event_id", type=IntegerType(), order=0),
+        Column(name="page_views", type=IntegerType(), order=1),
+        Column(name="customer_id", type=IntegerType(), order=2),
+        Column(name="event_date", type=IntegerType(), order=3),
+    ],
+    "default.derived.inventory": [
+        Column(name="inventory_id", type=IntegerType(), order=0),
+        Column(name="quantity", type=IntegerType(), order=1),
+        Column(name="warehouse_id", type=IntegerType(), order=2),
+        Column(name="inventory_date", type=IntegerType(), order=3),
+    ],
+    "default.derived.dates": [
+        Column(name="date_id", type=IntegerType(), order=0),
+        Column(name="date_value", type=TimestampType(), order=1),
+        Column(name="week", type=IntegerType(), order=2),
+        Column(name="month", type=IntegerType(), order=3),
+        Column(name="year", type=IntegerType(), order=4),
+    ],
+    "default.derived.customers": [
+        Column(name="customer_id", type=IntegerType(), order=0),
+        Column(name="name", type=StringType(), order=1),
+        Column(name="email", type=StringType(), order=2),
+    ],
+    "default.derived.warehouses": [
+        Column(name="warehouse_id", type=IntegerType(), order=0),
+        Column(name="name", type=StringType(), order=1),
+        Column(name="location", type=StringType(), order=2),
     ],
 }
 
