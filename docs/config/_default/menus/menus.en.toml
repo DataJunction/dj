@@ -23,6 +23,13 @@
   parent = "get-started"
 
 [[main]]
+  name = "Metric Decomposition"
+  weight = 35
+  identifier = "metric-decomposition"
+  url = "/docs/0.1.0/dj-concepts/metric-decomposition/"
+  parent = "get-started"
+
+[[main]]
   name = "Clients"
   weight = 40
   identifier = "clients"
