@@ -2027,6 +2027,32 @@ async def test_hll_sketch_agg(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_hll_union(session: AsyncSession):
+    """
+    Test the `hll_union` function
+    """
+    query = parse("SELECT hll_union(col) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.BinaryType)  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_hll_sketch_estimate(session: AsyncSession):
+    """
+    Test the `hll_sketch_estimate` function
+    """
+    query = parse("SELECT hll_sketch_estimate(col) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_hour_func(session: AsyncSession):
     """
     Test the `hour` function

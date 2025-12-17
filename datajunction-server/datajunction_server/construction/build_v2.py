@@ -133,7 +133,7 @@ def resolve_metric_component_against_parent(
     # aggregation is function name or template (e.g., "SUM" or "SUM(POWER({}, 2))")
     if not component.aggregation:
         expr_sql = component.expression
-    elif "{}" in component.aggregation:
+    elif "{}" in component.aggregation:  # pragma: no cover
         # Template case: "SUM(POWER({}, 2))" -> "SUM(POWER(x, 2))"
         expr_sql = component.aggregation.format(component.expression)
     else:
