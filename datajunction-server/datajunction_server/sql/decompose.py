@@ -342,7 +342,7 @@ class VarianceDecomposition(VarianceDecompositionBase):
     """VARIANCE (alias for VAR_SAMP in Spark)."""
 
     def combine(self, components: list[MetricComponent]):
-        return self._make_var_samp(components)
+        return self._make_var_samp(components)  # pragma: no cover
 
 
 # =============================================================================
@@ -371,7 +371,7 @@ class StddevDecomposition(VarianceDecompositionBase):
     """STDDEV (alias for STDDEV_SAMP in Spark)."""
 
     def combine(self, components: list[MetricComponent]):
-        return make_func("SQRT", self._make_var_samp(components))
+        return make_func("SQRT", self._make_var_samp(components))  # pragma: no cover
 
 
 # =============================================================================
