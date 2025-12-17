@@ -285,20 +285,3 @@ Response:
   "combiner": "SUM(price_sum_abc123) / SUM(price_count_abc123)"
 }
 ```
-
-## Best Practices
-
-1. **Prefer APPROX_COUNT_DISTINCT over COUNT(DISTINCT)** for large datasets - it's decomposable
-   and typically accurate within 2-3%
-
-2. **Use additive aggregations when possible** - SUM, COUNT, MIN, MAX all decompose perfectly
-
-3. **Structure rate metrics as ratios of SUMs** - `SUM(numerator) / SUM(denominator)` decomposes
-   into two independent measures
-
-4. **Avoid MEDIAN in materialized cubes** - use approximate versions or compute
-   at query time from raw data
-
-5. **Check aggregability before materializing** - use the measures API to verify your metrics
-   can be decomposed
-
