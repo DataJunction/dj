@@ -227,6 +227,151 @@ class ApproxCountDistinctDecomposition(AggDecomposition):
 
 
 # =============================================================================
+# Variance Decompositions
+# =============================================================================
+
+
+class VarianceDecompositionBase(AggDecomposition):
+    """
+    Base class for variance decompositions.
+
+    Variance can be computed from three components:
+    - sum(x): sum of values
+    - sum(x²): sum of squared values
+    - count: number of values
+
+    VAR_POP = E[X²] - E[X]² = sum(x²)/n - (sum(x)/n)²
+    VAR_SAMP uses Bessel's correction: n/(n-1) * VAR_POP
+    """
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef("_sum", "SUM", "SUM"),
+            ComponentDef("_sum_sq", "SUM(POWER({}, 2))", "SUM"),  # sum of x²
+            ComponentDef("_count", "COUNT", "SUM"),
+        ]
+
+    def _make_var_pop(self, components: list[MetricComponent]) -> ast.Expression:
+        """Build VAR_POP: E[X²] - E[X]²"""
+        sum_col = components[0].name
+        sum_sq_col = components[1].name
+        count_col = components[2].name
+
+        # E[X²] = SUM(sum_sq) / SUM(count)
+        mean_of_squares = ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=make_func("SUM", sum_sq_col),
+            right=make_func("SUM", count_col),
+        )
+
+        # E[X]² = (SUM(sum) / SUM(count))²
+        square_of_mean = make_func(
+            "POWER",
+            ast.BinaryOp(
+                op=ast.BinaryOpKind.Divide,
+                left=make_func("SUM", sum_col),
+                right=make_func("SUM", count_col),
+            ),
+            ast.Number(2),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=mean_of_squares,
+            right=square_of_mean,
+        )
+
+    def _make_var_samp(self, components: list[MetricComponent]) -> ast.Expression:
+        """
+        Build VAR_SAMP with Bessel's correction.
+
+        = (n * SUM(x²) - SUM(x)²) / (n * (n-1))
+        where n = SUM(count)
+        """
+        sum_col = components[0].name
+        sum_sq_col = components[1].name
+        count_col = components[2].name
+
+        n = make_func("SUM", count_col)
+        sum_x = make_func("SUM", sum_col)
+        sum_x_sq = make_func("SUM", sum_sq_col)
+
+        # Numerator: n * sum_x_sq - sum_x²
+        numerator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_x_sq),
+            right=make_func("POWER", sum_x, ast.Number(2)),
+        )
+
+        # Denominator: n * (n - 1)
+        denominator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Multiply,
+            left=n,
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Minus, left=n, right=ast.Number(1)),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=numerator,
+            right=denominator,
+        )
+
+
+@decomposes(dj_functions.VarPop)
+class VarPopDecomposition(VarianceDecompositionBase):
+    """Population variance: E[X²] - E[X]²"""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_pop(components)
+
+
+@decomposes(dj_functions.VarSamp)
+class VarSampDecomposition(VarianceDecompositionBase):
+    """Sample variance with Bessel's correction."""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_samp(components)
+
+
+@decomposes(dj_functions.Variance)
+class VarianceDecomposition(VarianceDecompositionBase):
+    """VARIANCE (alias for VAR_SAMP in Spark)."""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_samp(components)
+
+
+# =============================================================================
+# Standard Deviation Decompositions (square root of variance)
+# =============================================================================
+
+
+@decomposes(dj_functions.StddevPop)
+class StddevPopDecomposition(VarianceDecompositionBase):
+    """Population standard deviation: sqrt(VAR_POP)"""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_pop(components))
+
+
+@decomposes(dj_functions.StddevSamp)
+class StddevSampDecomposition(VarianceDecompositionBase):
+    """Sample standard deviation: sqrt(VAR_SAMP)"""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_samp(components))
+
+
+@decomposes(dj_functions.Stddev)
+class StddevDecomposition(VarianceDecompositionBase):
+    """STDDEV (alias for STDDEV_SAMP in Spark)."""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_samp(components))
+
+
+# =============================================================================
 # Non-Decomposable Aggregations
 # =============================================================================
 
