@@ -9,7 +9,7 @@ preserving the mathematical correctness of metrics when queried at different dim
 
 ## Why Decomposition is Necessary
 
-OLAP databases like Druid are optimized for  rollup aggregations (SUM, COUNT, MIN, MAX) but
+OLAP databases like Druid are optimized for rollup aggregations (e.g., SUM, COUNT, MIN, MAX) but
 cannot directly compute complex metrics like averages or rates from pre-aggregated data. For example:
 
 ```sql
@@ -25,32 +25,51 @@ DataJunction solves this by decomposing metrics into their additive components.
 
 ## The Three Phases of Decomposition
 
-Metric decomposition works in three phases:
+Each decomposable aggregation defines three operations. Let's use `AVG(price)` as a running example:
 
 ### Phase 1: Accumulate
 
-Build raw components from source data. This happens when data is first ingested into the measures table.
+This phase defines how to build the raw components from source data during initial ingestion.
 
-```
-Source Data → Simple Aggregations → Measures Table
-```
+For `AVG(price)`, we need two components:
+- `SUM(price)` -> `price_sum`
+- `COUNT(price)` -> `price_count`
+
+Each of these components are computed when data is loaded into the measures table.
 
 ### Phase 2: Merge
 
-Combine pre-aggregated components when rolling up across dimensions. This uses associative operations
-that produce the same result regardless of grouping.
+This phase defines how to combine pre-aggregated components when rolling up to coarser granularity. This uses associative operations that produce the same result regardless of grouping.
 
-```
-Measures (by hour) → Roll up → Measures (by day)
-```
+For our AVG components:
+- `price_sum` merges via `SUM` (add the sums together)
+- `price_count` merges via `SUM` (add the counts together)
+
+**Example:** Rolling up from hourly to daily measures:
+
+| Hour | price_sum | price_count |
+|------|-----------|-------------|
+| 10am | 300 | 3 |
+| 11am | 500 | 5 |
+| 12pm | 200 | 2 |
+
+After merge (daily level):
+| Day | price_sum | price_count |
+|-----|-----------|-------------|
+| Mon | 1000 | 10 |
 
 ### Phase 3: Combine
 
-Reconstruct the final metric value from merged components. This is the formula applied at query time.
+Reconstruct the final metric value from the merged components. This formula is applied at query time.
 
+For `AVG(price)`:
+```sql
+SUM(price_sum) / SUM(price_count)
 ```
-Merged Components → Combiner Expression → Final Metric Value
-```
+
+Using our example: `1000 / 10 = 100` ✓
+
+This is mathematically equivalent to computing `AVG(price)` on the original data, but works on pre-aggregated measures.
 
 ## Decomposition by Aggregation Type
 
