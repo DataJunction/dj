@@ -1200,6 +1200,7 @@ async def create_metric_distinct_single_column(client: AsyncClient):
         {
             "aggregation": None,
             "expression": "hard_hat_id",
+            "merge": None,
             "name": "hard_hat_id_distinct_ac37a223",
             "rule": {"level": ["hard_hat_id"], "type": "limited"},
         },
@@ -1228,6 +1229,7 @@ async def create_metric_distinct_expression(client: AsyncClient):
         {
             "aggregation": None,
             "expression": "IF(hard_hat_id = 1, 1, 0)",
+            "merge": None,
             "name": "hard_hat_id_distinct_0291ee39",
             "rule": {"level": ["IF(hard_hat_id = 1, 1, 0)"], "type": "limited"},
         },
@@ -1621,6 +1623,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             {
                 "aggregation": "SUM",
                 "expression": "default.local_hard_hats_2.hard_hat_id",
+                "merge": "SUM",
                 "name": "default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419",
                 "rule": {
                     "level": None,
@@ -1683,6 +1686,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             {
                 "aggregation": None,
                 "expression": "default.municipality_dim.contact_name",
+                "merge": None,
                 "name": "default_DOT_municipality_dim_DOT_contact_name_distinct_bc16351d",
                 "rule": {
                     "level": ["default.municipality_dim.contact_name"],
@@ -1787,6 +1791,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "aggregation": None,
                 "expression": "IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, "
                 "NULL)",
+                "merge": None,
                 "name": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7",
                 "rule": {
                     "level": [
@@ -1976,3 +1981,84 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
             ("Ziegler", "OK", 0),
             ("Boone", "NY", 1),
         ]
+
+
+@pytest.mark.asyncio
+async def test_approx_count_distinct_metric_sql(
+    module__client_with_simple_hll: AsyncClient,
+):
+    """
+    Test SQL generation for APPROX_COUNT_DISTINCT metric using a minimal fixture.
+
+    This verifies that:
+    1. The metric query generates valid SQL with APPROX_COUNT_DISTINCT
+    2. The preaggregate path decomposes to Spark HLL functions
+    3. The combiner uses hll_sketch_estimate(hll_union(...))
+
+    Uses the SIMPLE_HLL fixture which has just:
+    - hll.events (source table with user_id, category)
+    - hll.category_dim (dimension)
+    - hll.unique_users (APPROX_COUNT_DISTINCT metric)
+    """
+    client = module__client_with_simple_hll
+
+    # Test basic metric query (no preaggregate)
+    response = await client.get(
+        "/sql",
+        params={
+            "metrics": ["hll.unique_users"],
+            "dimensions": ["hll.category_dim.category"],
+            "filters": [],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    # The SQL should contain APPROX_COUNT_DISTINCT
+    assert "APPROX_COUNT_DISTINCT" in data["sql"].upper()
+
+    # Test with preaggregate=True to get measures SQL
+    response = await client.get(
+        "/sql/measures/v2",
+        params={
+            "metrics": ["hll.unique_users"],
+            "dimensions": ["hll.category_dim.category"],
+            "filters": [],
+            "preaggregate": True,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    translated_sql = data[0]
+
+    # The measures SQL should use Spark HLL functions:
+    # - hll_sketch_estimate for the finalize step
+    # - hll_union for the merge step
+    assert str(parse(translated_sql["sql"])) == str(
+        parse("""WITH hll_DOT_events AS (
+        SELECT  hll_DOT_events.event_id,
+          hll_DOT_events.user_id,
+          hll_DOT_events.category,
+          hll_DOT_events.event_time
+        FROM hll.events AS hll_DOT_events
+        ),
+        hll_DOT_events_built AS (
+        SELECT  hll_DOT_events.user_id,
+          hll_DOT_events.category hll_DOT_category_dim_DOT_category
+        FROM hll_DOT_events
+        )
+
+        SELECT  hll_DOT_events_built.hll_DOT_category_dim_DOT_category,
+          hll_sketch_agg(user_id) AS user_id_hll_7a744b96
+        FROM hll_DOT_events_built
+        GROUP BY  hll_DOT_events_built.hll_DOT_category_dim_DOT_category
+      """),
+    )
+    assert translated_sql["grain"] == ["hll_DOT_category_dim_DOT_category"]
+
+    response = await client.get("/metrics/hll.unique_users")
+    assert str(parse(response.json()["derived_query"])) == str(
+        parse(
+            "SELECT hll_sketch_estimate(hll_union(user_id_hll_7a744b96)) FROM hll.events",
+        ),
+    )

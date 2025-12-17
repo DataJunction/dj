@@ -244,6 +244,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.hard_hat_state",
         "default.hard_hat_to_delete",
         "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
         "basic.source.users",
         "default.date",
         "default.us_states",
@@ -275,6 +276,10 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "default.large_revenue_payments_only_2",
         "default.large_revenue_payments_only_custom",
         "default.repair_orders_fact",
+        "hll.category_dim",
+        "hll.events",
+        "hll.total_events",
+        "hll.unique_users",
     }
 
 
@@ -1402,6 +1407,11 @@ class TestNodeCRUD:
                 {
                     "effect": "downstream node is now invalid",
                     "name": "default.num_repair_orders",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.num_unique_hard_hats_approx",
                     "status": "invalid",
                 },
                 {
@@ -4777,7 +4787,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Completed Repairs",
                 "name": "completed_repairs",
-                "type": "bigint",
+                "type": "long",
                 "partition": None,
             },
             {
@@ -4787,7 +4797,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Total Repairs Dispatched",
                 "name": "total_repairs_dispatched",
-                "type": "bigint",
+                "type": "long",
                 "partition": None,
             },
             {
@@ -4827,7 +4837,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Unique Contractors",
                 "name": "unique_contractors",
-                "type": "bigint",
+                "type": "long",
                 "partition": None,
             },
         ]

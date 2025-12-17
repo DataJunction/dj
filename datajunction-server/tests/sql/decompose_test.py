@@ -27,6 +27,7 @@ def test_simple_sum():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",  # SUM merges as SUM
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -49,6 +50,7 @@ def test_sum_with_cast():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -68,6 +70,7 @@ def test_sum_with_cast():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -90,6 +93,7 @@ def test_sum_with_coalesce():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -107,6 +111,7 @@ def test_sum_with_coalesce():
             name="sales_amount_sum_65a3b528",
             expression="COALESCE(sales_amount, 0)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -129,12 +134,14 @@ def test_multiple_sums():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="fraud_sales_sum_0e1bc4a2",
             expression="fraud_sales",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -155,12 +162,14 @@ def test_multiple_sums():
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="fraud_sales_sum_0e1bc4a2",
             expression="fraud_sales",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -186,6 +195,7 @@ def test_nested_functions():
             name="sales_amount_sum_090066cf",
             expression="ROUND(COALESCE(sales_amount, 0) * 1.1)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -203,6 +213,7 @@ def test_nested_functions():
             name="sales_amount_sum_65a3b528",
             expression="COALESCE(sales_amount, 0)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -215,6 +226,12 @@ def test_nested_functions():
 def test_average():
     """
     Test decomposition for a metric definition that uses AVG.
+
+    AVG decomposes into two components:
+    - SUM: aggregation=SUM, merge=SUM
+    - COUNT: aggregation=COUNT, merge=SUM (counts roll up as sums)
+
+    The combiner is: SUM(sum_col) / SUM(count_col)
     """
     extractor = MetricComponentExtractor.from_query_string(
         "SELECT AVG(sales_amount) FROM parent_node",
@@ -226,12 +243,14 @@ def test_average():
             name="sales_amount_count_b5a3cefe",
             expression="sales_amount",
             aggregation="COUNT",
+            merge="SUM",  # COUNT merges as SUM
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="sales_amount_sum_b5a3cefe",
             expression="sales_amount",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -257,12 +276,14 @@ def test_rate():
             name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -282,12 +303,14 @@ def test_rate():
             name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -321,12 +344,14 @@ def test_rate():
             name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -348,12 +373,14 @@ def test_rate():
             name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="impressions_sum_3be0a0e7",
             expression="impressions",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -374,19 +401,21 @@ def test_rate():
             name="clicks_sum_c45fd8cf",
             expression="clicks",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="views_sum_d8e39817",
             expression="views",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT ln(sum(clicks_sum_c45fd8cf) + 1) / sum(views_sum_d8e39817) FROM parent_node",
+            "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / SUM(views_sum_d8e39817) FROM parent_node",
         ),
     )
 
@@ -404,6 +433,7 @@ def test_max_if():
             name="condition_max_f04b0c57",
             expression="IF(condition, 1, 0)",
             aggregation="MAX",
+            merge="MAX",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -429,12 +459,14 @@ def test_fraction_with_if():
             name="action_sum_c9802ccb",
             expression="COALESCE(action, 0)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="action_two_sum_05d921a8",
             expression="COALESCE(action_two, 0)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -451,6 +483,8 @@ def test_fraction_with_if():
 def test_count():
     """
     Test decomposition for a count metric.
+
+    COUNT aggregation merges as SUM (sum up the counts).
     """
     extractor = MetricComponentExtractor.from_query_string(
         "SELECT COUNT(IF(action = 1, action_event_ts, 0)) FROM parent_node",
@@ -461,10 +495,13 @@ def test_count():
             name="action_action_event_ts_count_7d582e65",
             expression="IF(action = 1, action_event_ts, 0)",
             aggregation="COUNT",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
     assert measures == expected_measures
+    # Verify COUNT merges as SUM
+    assert measures[0].merge == "SUM"
     assert str(derived_sql) == str(
         parse("SELECT SUM(action_action_event_ts_count_7d582e65) FROM parent_node"),
     )
@@ -483,6 +520,7 @@ def test_count_distinct_rate():
             name="user_id_distinct_7f092f23",
             expression="user_id",
             aggregation=None,
+            merge=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
                 level=["user_id"],
@@ -492,6 +530,7 @@ def test_count_distinct_rate():
             name="action_count_50d753fd",
             expression="action",
             aggregation="COUNT",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -517,6 +556,7 @@ def test_any_value():
             name="sales_amount_any_value_b5a3cefe",
             expression="sales_amount",
             aggregation="ANY_VALUE",
+            merge="ANY_VALUE",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -553,12 +593,14 @@ def test_multiple_aggregations_with_conditions():
             name="region_sales_amount_sum_5467b14a",
             expression="IF(region = 'US', sales_amount, 0)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="region_account_id_distinct_ee608f27",
             expression="IF(region = 'US', account_id, NULL)",
             aggregation=None,
+            merge=None,
             rule=AggregationRule(
                 type=Aggregability.LIMITED,
                 level=["IF(region = 'US', account_id, NULL)"],
@@ -583,22 +625,39 @@ def test_multiple_aggregations_with_conditions():
             name="a_max_0f00346b",
             expression="a",
             aggregation="MAX",
+            merge="MAX",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
             name="b_max_6d64a2e5",
             expression="b",
             aggregation="MAX",
+            merge="MAX",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
     assert measures == expected_measures
     assert str(derived_sql) == str(
         parse(
-            "SELECT CAST(coalesce(max(a_max_0f00346b), max(b_max_6d64a2e5), 0) AS DOUBLE) + "
-            "CAST(coalesce(max(a_max_0f00346b), max(b_max_6d64a2e5)) AS DOUBLE) FROM parent_node",
+            "SELECT CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5), 0) AS DOUBLE) + "
+            "CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5)) AS DOUBLE) FROM parent_node",
         ),
     )
+
+
+def test_min_agg():
+    extractor = MetricComponentExtractor.from_query_string("SELECT MIN(a) FROM parent")
+    measures, derived_sql = extractor.extract()
+    assert measures == [
+        MetricComponent(
+            name="a_min_3cf406a5",
+            expression="a",
+            aggregation="MIN",
+            merge="MIN",
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
+    assert str(derived_sql) == str(parse("SELECT MIN(a_min_3cf406a5) FROM parent"))
 
 
 def test_empty_query():
@@ -652,12 +711,14 @@ def test_count_if():
             name="field_a_count_if_3979ffbd",
             expression="ARRAY_CONTAINS(field_a, 'xyz')",
             aggregation="COUNT_IF",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
         MetricComponent(
             name="count_58ac32c5",
             expression="*",
             aggregation="COUNT",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL),
         ),
     ]
@@ -685,12 +746,14 @@ def test_metric_query_with_aliases():
             name="time_to_dispatch_count_3bc9baed",
             expression="CAST(time_to_dispatch AS INT)",
             aggregation="COUNT",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
         MetricComponent(
             name="time_to_dispatch_sum_3bc9baed",
             expression="CAST(time_to_dispatch AS INT)",
             aggregation="SUM",
+            merge="SUM",
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
@@ -731,3 +794,239 @@ def test_min_by():
     assert str(derived_sql) == str(
         parse("SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
     )
+
+
+def test_approx_count_distinct():
+    """
+    Test decomposition for an approximate count distinct metric.
+
+    APPROX_COUNT_DISTINCT decomposes to HLL sketch operations using Spark functions:
+    - aggregation: hll_sketch_agg (Spark's function for building HLL sketch)
+    - merge: hll_union (Spark's function for combining sketches)
+    - The combiner uses hll_sketch_estimate(hll_union(...)) to get the final count
+
+    Translation to other dialects (Druid, Trino) happens in the transpilation layer.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+    expected_measures = [
+        MetricComponent(
+            name="user_id_hll_7f092f23",
+            expression="user_id",
+            aggregation="hll_sketch_agg",  # Spark's HLL accumulate
+            merge="hll_union",  # Spark's HLL merge
+            rule=AggregationRule(type=Aggregability.FULL, level=None),
+        ),
+    ]
+    assert measures == expected_measures
+    # Verify the derived SQL uses Spark HLL functions
+    assert str(derived_sql) == str(
+        parse(
+            "SELECT hll_sketch_estimate(hll_union(user_id_hll_7f092f23)) FROM parent_node",
+        ),
+    )
+
+
+def test_approx_count_distinct_with_expression():
+    """
+    Test decomposition for APPROX_COUNT_DISTINCT with a complex expression.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT APPROX_COUNT_DISTINCT(COALESCE(user_id, 'unknown')) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Verify structure of the measure (hash value may vary)
+    assert len(measures) == 1
+    measure = measures[0]
+    assert measure.expression == "COALESCE(user_id, 'unknown')"
+    assert measure.aggregation == "hll_sketch_agg"
+    assert measure.merge == "hll_union"
+    assert measure.rule.type == Aggregability.FULL
+
+    # Verify derived SQL contains the HLL functions
+    derived_str = str(derived_sql)
+    assert "hll_sketch_estimate" in derived_str
+    assert "hll_union" in derived_str
+    assert "_hll_" in derived_str
+
+
+def test_approx_count_distinct_with_conditional():
+    """
+    Test decomposition for APPROX_COUNT_DISTINCT with IF condition.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT APPROX_COUNT_DISTINCT(IF(active = 1, user_id, NULL)) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Verify structure of the measure
+    assert len(measures) == 1
+    measure = measures[0]
+    assert measure.expression == "IF(active = 1, user_id, NULL)"
+    assert measure.aggregation == "hll_sketch_agg"
+    assert measure.merge == "hll_union"
+    assert measure.rule.type == Aggregability.FULL
+
+    # Verify derived SQL contains the HLL functions
+    derived_str = str(derived_sql)
+    assert "hll_sketch_estimate" in derived_str
+    assert "hll_union" in derived_str
+
+
+def test_approx_count_distinct_combined_with_sum():
+    """
+    Test decomposition for a metric combining APPROX_COUNT_DISTINCT with SUM.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT SUM(revenue) / APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Should have two measures: one for SUM, one for HLL
+    assert len(measures) == 2
+
+    # Find SUM measure
+    sum_measures = [m for m in measures if m.aggregation == "SUM"]
+    assert len(sum_measures) == 1
+    assert sum_measures[0].expression == "revenue"
+    assert sum_measures[0].merge == "SUM"
+
+    # Find HLL measure
+    hll_measures = [m for m in measures if m.aggregation == "hll_sketch_agg"]
+    assert len(hll_measures) == 1
+    assert hll_measures[0].expression == "user_id"
+    assert hll_measures[0].merge == "hll_union"
+
+    # Verify derived SQL has both
+    derived_str = str(derived_sql)
+    assert "SUM(" in derived_str
+    assert "hll_sketch_estimate" in derived_str
+    assert "hll_union" in derived_str
+
+
+def test_approx_count_distinct_multiple():
+    """
+    Test decomposition with multiple APPROX_COUNT_DISTINCT on different columns.
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT APPROX_COUNT_DISTINCT(user_id) + APPROX_COUNT_DISTINCT(session_id) "
+        "FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Should have two HLL measures
+    assert len(measures) == 2
+    assert all(m.aggregation == "hll_sketch_agg" for m in measures)
+    assert all(m.merge == "hll_union" for m in measures)
+
+    # Verify both expressions are present
+    expressions = {m.expression for m in measures}
+    assert expressions == {"user_id", "session_id"}
+
+    # Verify derived SQL has both HLL estimate calls
+    derived_str = str(derived_sql)
+    assert derived_str.count("hll_sketch_estimate") == 2
+    assert derived_str.count("hll_union") == 2
+
+
+def test_approx_count_distinct_rate():
+    """
+    Test decomposition for a rate metric using APPROX_COUNT_DISTINCT.
+
+    Example: unique users who clicked / unique users who viewed
+    """
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT CAST(APPROX_COUNT_DISTINCT(IF(clicked = 1, user_id, NULL)) AS DOUBLE) / "
+        "CAST(APPROX_COUNT_DISTINCT(user_id) AS DOUBLE) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Should have two HLL measures
+    assert len(measures) == 2
+    assert all(m.aggregation == "hll_sketch_agg" for m in measures)
+    assert all(m.merge == "hll_union" for m in measures)
+
+    # Verify expressions
+    expressions = {m.expression for m in measures}
+    assert "user_id" in expressions
+    assert "IF(clicked = 1, user_id, NULL)" in expressions
+
+    # Verify derived SQL structure
+    derived_str = str(derived_sql)
+    assert "CAST(" in derived_str
+    assert "hll_sketch_estimate" in derived_str
+    assert "hll_union" in derived_str
+
+
+def test_approx_count_distinct_dialect_translation():
+    """
+    Test that the decomposed HLL SQL can be translated to different dialects.
+
+    This is an integration test showing the full flow:
+    1. Decompose APPROX_COUNT_DISTINCT -> Spark HLL functions
+    2. Translate Spark HLL functions -> target dialect
+    """
+    from datajunction_server.models.engine import Dialect
+    from datajunction_server.sql.translation import translate_sql
+
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
+    )
+    _, derived_sql = extractor.extract()
+    spark_sql = str(derived_sql)
+
+    # The decomposed SQL uses Spark HLL functions
+    assert "hll_sketch_estimate" in spark_sql
+    assert "hll_union" in spark_sql
+
+    # Translate to Druid
+    druid_sql = translate_sql(spark_sql, Dialect.DRUID)
+    assert "APPROX_COUNT_DISTINCT_DS_HLL" in druid_sql
+    assert "DS_HLL" in druid_sql
+    assert "hll_sketch_estimate" not in druid_sql
+    assert "hll_union" not in druid_sql
+
+    # Translate to Trino
+    trino_sql = translate_sql(spark_sql, Dialect.TRINO)
+    assert "cardinality" in trino_sql
+    assert "merge" in trino_sql
+    assert "hll_sketch_estimate" not in trino_sql
+    assert "hll_union" not in trino_sql
+
+    # Spark to Spark is identity
+    spark_spark_sql = translate_sql(spark_sql, Dialect.SPARK)
+    assert spark_spark_sql == spark_sql
+
+
+def test_approx_count_distinct_combined_metrics_dialect_translation():
+    """
+    Test dialect translation for a complex metric combining HLL with other aggregations.
+    """
+    from datajunction_server.models.engine import Dialect
+    from datajunction_server.sql.translation import translate_sql
+
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT SUM(revenue) / APPROX_COUNT_DISTINCT(user_id) AS revenue_per_user "
+        "FROM parent_node",
+    )
+    _, derived_sql = extractor.extract()
+    spark_sql = str(derived_sql)
+
+    # Verify Spark SQL structure - contains both SUM and HLL
+    assert "SUM(" in spark_sql
+    assert "hll_sketch_estimate(hll_union(" in spark_sql
+
+    # Translate to Druid - should preserve SUM but translate HLL
+    druid_sql = translate_sql(spark_sql, Dialect.DRUID)
+    assert "SUM(" in druid_sql
+    assert "APPROX_COUNT_DISTINCT_DS_HLL(DS_HLL(" in druid_sql
+    assert "hll_sketch_estimate" not in druid_sql
+
+    # Translate to Trino
+    trino_sql = translate_sql(spark_sql, Dialect.TRINO)
+    assert "SUM(" in trino_sql
+    assert "cardinality(merge(" in trino_sql
+    assert "hll_sketch_estimate" not in trino_sql

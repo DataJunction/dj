@@ -6,6 +6,7 @@ import logging
 
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.dialect import DialectRegistry, dialect_plugin
+from datajunction_server.sql.translation import translate_sql
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
@@ -101,7 +102,25 @@ def transpile_sql(
     sql: str,
     dialect: Dialect | None = None,
 ) -> str:
+    """
+    Transpile SQL to a target dialect.
+
+    This function performs two steps:
+    1. Translate canonical function names to dialect-specific names
+    2. Use SQLGlot (if available) for general SQL transpilation
+
+    Args:
+        sql: The SQL string to transpile
+        dialect: The target SQL dialect (if None, returns SQL unchanged)
+
+    Returns:
+        The transpiled SQL string
+    """
     if dialect:
+        # Translate canonical function names to dialect-specific names
+        sql = translate_sql(sql, dialect)
+
+        # Use SQLGlot for general transpilation
         if plugin_class := DialectRegistry.get_plugin(  # pragma: no cover
             dialect.name.lower(),
         ):
