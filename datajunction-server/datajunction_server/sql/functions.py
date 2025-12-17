@@ -416,13 +416,6 @@ class HllUnion(Function):
 
 @HllUnion.register
 def infer_type(
-    sketch: ct.BinaryType,
-) -> ct.BinaryType:
-    return ct.BinaryType()
-
-
-@HllUnion.register
-def infer_type(
     sketch: ct.ColumnType,
 ) -> ct.BinaryType:
     return ct.BinaryType()
@@ -439,13 +432,6 @@ class HllSketchEstimate(Function):
 
     is_aggregation = False  # Scalar function, not an aggregation
     dialects = [Dialect.SPARK, Dialect.DRUID, Dialect.TRINO]
-
-
-@HllSketchEstimate.register
-def infer_type(
-    sketch: ct.BinaryType,
-) -> ct.LongType:
-    return ct.LongType()
 
 
 @HllSketchEstimate.register
@@ -471,7 +457,7 @@ class HllSketchUnion(Function):
 def infer_type(
     sketch: ct.BinaryType,
 ) -> ct.BinaryType:
-    return ct.BinaryType()
+    return ct.BinaryType()  # pragma: no cover
 
 
 class ApproxCountDistinctDsHll(Function):
