@@ -752,6 +752,19 @@ CROSS JOIN
         },
     ),
     (
+        "/nodes/metric/",
+        {
+            "description": "Approximate number of unique hard hats (technicians) who worked on repair orders",
+            "query": (
+                "SELECT APPROX_COUNT_DISTINCT(hard_hat_id) "
+                "FROM default.repair_orders_fact"
+            ),
+            "mode": "published",
+            "display_name": "Unique Hard Hats (Approx)",
+            "name": "default.num_unique_hard_hats_approx",
+        },
+    ),
+    (
         ("/nodes/default.repair_orders_fact/link"),
         {
             "dimension_node": "default.municipality_dim",
@@ -2455,6 +2468,73 @@ DIMENSION_LINK = (  # type: ignore
     ),
 )
 
+# =============================================================================
+# SIMPLE_HLL - Minimal example for testing HLL/APPROX_COUNT_DISTINCT
+# =============================================================================
+# A simple events table with user_id and category for testing approximate
+# distinct count metrics.
+# =============================================================================
+SIMPLE_HLL = (  # type: ignore
+    (
+        "/namespaces/hll/",
+        {},
+    ),
+    (
+        "/nodes/source/",
+        {
+            "name": "hll.events",
+            "description": "Simple events table for HLL testing",
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "user_id", "type": "int"},
+                {"name": "category", "type": "string"},
+                {"name": "event_time", "type": "timestamp"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "hll",
+            "table": "events",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "hll.category_dim",
+            "description": "Category dimension",
+            "query": "SELECT DISTINCT category AS category FROM hll.events",
+            "mode": "published",
+            "primary_key": ["category"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "hll.unique_users",
+            "description": "Approximate unique user count using HLL",
+            "query": "SELECT APPROX_COUNT_DISTINCT(user_id) FROM hll.events",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "hll.total_events",
+            "description": "Total event count (for comparison)",
+            "query": "SELECT COUNT(event_id) FROM hll.events",
+            "mode": "published",
+        },
+    ),
+    # Link the dimension to the source node
+    (
+        "/nodes/hll.events/link",
+        {
+            "dimension_node": "hll.category_dim",
+            "join_type": "left",
+            "join_on": "hll.events.category = hll.category_dim.category",
+        },
+    ),
+)
+
 EXAMPLES = {  # type: ignore
     "ROADS": ROADS,
     "NAMESPACED_ROADS": NAMESPACED_ROADS,
@@ -2465,6 +2545,7 @@ EXAMPLES = {  # type: ignore
     "DBT": DBT,
     "LATERAL_VIEW": LATERAL_VIEW,
     "DIMENSION_LINK": DIMENSION_LINK,
+    "SIMPLE_HLL": SIMPLE_HLL,
 }
 
 

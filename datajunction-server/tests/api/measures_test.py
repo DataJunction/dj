@@ -81,7 +81,7 @@ async def test_list_all_measures(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "bigint",
+                "type": "long",
             },
         ],
         "description": "Number of completed repairs",
@@ -117,7 +117,7 @@ async def test_create_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "bigint",
+                "type": "long",
             },
         ],
         "description": "Number of completed repairs",
@@ -169,7 +169,7 @@ async def test_edit_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "bigint",
+                "type": "long",
             },
         ],
         "description": "random description",
@@ -220,7 +220,7 @@ async def test_edit_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "bigint",
+                "type": "long",
             },
         ],
         "description": "random description",
@@ -261,7 +261,7 @@ async def test_list_frozen_measures(
         "/frozen-measures",
     )
     frozen_measures = response.json()
-    assert len(frozen_measures) == 16
+    assert len(frozen_measures) == 17
 
     response = await module__client_with_roads.get(
         "/frozen-measures?aggregation=SUM",
@@ -279,7 +279,7 @@ async def test_list_frozen_measures(
         "/frozen-measures?upstream_name=default.repair_orders_fact&upstream_version=v1.0",
     )
     frozen_measures = response.json()
-    assert len(frozen_measures) == 10
+    assert len(frozen_measures) == 11
 
     response = await module__client_with_roads.get(
         "/frozen-measures?prefix=repair_order_id_count_bd241964",
