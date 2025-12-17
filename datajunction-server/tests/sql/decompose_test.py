@@ -1060,11 +1060,11 @@ def test_var_pop():
     assert by_agg["SUM"].merge == "SUM"
     assert "_sum_" in by_agg["SUM"].name
 
-    # Check SUM(POWER({}, 2)) component - the template syntax for sum of squares
-    assert "SUM(POWER({}, 2))" in by_agg
-    assert by_agg["SUM(POWER({}, 2))"].expression == "price"
-    assert by_agg["SUM(POWER({}, 2))"].merge == "SUM"
-    assert "_sum_sq_" in by_agg["SUM(POWER({}, 2))"].name
+    # Check SUM(POWER(price, 2)) component - expanded template for sum of squares
+    assert "SUM(POWER(price, 2))" in by_agg
+    assert by_agg["SUM(POWER(price, 2))"].expression == "price"
+    assert by_agg["SUM(POWER(price, 2))"].merge == "SUM"
+    assert "_sum_sq_" in by_agg["SUM(POWER(price, 2))"].name
 
     # Check COUNT component
     assert "COUNT" in by_agg
@@ -1097,7 +1097,7 @@ def test_var_samp():
     # Same components as VAR_POP
     assert len(measures) == 3
     agg_types = {m.aggregation for m in measures}
-    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+    assert agg_types == {"SUM", "SUM(POWER(price, 2))", "COUNT"}
     assert str(derived_sql) == str(
         parse("""
       SELECT
@@ -1120,7 +1120,7 @@ def test_stddev_pop():
     # Same components as VAR_POP
     assert len(measures) == 3
     agg_types = {m.aggregation for m in measures}
-    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+    assert agg_types == {"SUM", "SUM(POWER(price, 2))", "COUNT"}
 
     # Derived SQL should include SQRT for standard deviation
     derived_str = str(derived_sql)
@@ -1149,7 +1149,7 @@ def test_stddev_samp():
     # Same components as VAR_SAMP
     assert len(measures) == 3
     agg_types = {m.aggregation for m in measures}
-    assert agg_types == {"SUM", "SUM(POWER({}, 2))", "COUNT"}
+    assert agg_types == {"SUM", "SUM(POWER(price, 2))", "COUNT"}
 
     # Derived SQL should include SQRT
     derived_str = str(derived_sql)
@@ -1163,3 +1163,83 @@ def test_stddev_samp():
         )
       FROM parent_node"""),
     )
+
+
+def test_covar_pop():
+    """Test COVAR_POP decomposition - population covariance."""
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT COVAR_POP(price, quantity) FROM parent_node",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Should have 4 components: sum_x, sum_y, sum_xy, count
+    assert len(measures) == 4
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {
+        "SUM(price)",
+        "SUM(quantity)",
+        "SUM(price * quantity)",
+        "COUNT(price)",
+    }
+
+    # All components should merge via SUM
+    for m in measures:
+        assert m.merge == "SUM"
+
+    # Check component naming
+    by_agg = {m.aggregation: m for m in measures}
+    assert "_sum_x_" in by_agg["SUM(price)"].name
+    assert "_sum_y_" in by_agg["SUM(quantity)"].name
+    assert "_sum_xy_" in by_agg["SUM(price * quantity)"].name
+    assert "_count_" in by_agg["COUNT(price)"].name
+
+
+def test_covar_samp():
+    """Test COVAR_SAMP decomposition - sample covariance with Bessel's correction."""
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT COVAR_SAMP(revenue, cost) FROM sales",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Same 4 components as COVAR_POP
+    assert len(measures) == 4
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {
+        "SUM(revenue)",
+        "SUM(cost)",
+        "SUM(revenue * cost)",
+        "COUNT(revenue)",
+    }
+
+
+def test_corr():
+    """Test CORR decomposition - Pearson correlation coefficient."""
+    extractor = MetricComponentExtractor.from_query_string(
+        "SELECT CORR(x, y) FROM data",
+    )
+    measures, derived_sql = extractor.extract()
+
+    # Should have 6 components: sum_x, sum_y, sum_x_sq, sum_y_sq, sum_xy, count
+    assert len(measures) == 6
+    agg_types = {m.aggregation for m in measures}
+    assert agg_types == {
+        "SUM(x)",
+        "SUM(y)",
+        "SUM(POWER(x, 2))",
+        "SUM(POWER(y, 2))",
+        "SUM(x * y)",
+        "COUNT(x)",
+    }
+
+    # All components should merge via SUM
+    for m in measures:
+        assert m.merge == "SUM"
+
+    # Check component naming includes both columns where appropriate
+    by_agg = {m.aggregation: m for m in measures}
+    assert "_sum_x_" in by_agg["SUM(x)"].name
+    assert "_sum_y_" in by_agg["SUM(y)"].name
+    assert "_sum_x_sq_" in by_agg["SUM(POWER(x, 2))"].name
+    assert "_sum_y_sq_" in by_agg["SUM(POWER(y, 2))"].name
+    assert "_sum_xy_" in by_agg["SUM(x * y)"].name
+    assert "_count_" in by_agg["COUNT(x)"].name
