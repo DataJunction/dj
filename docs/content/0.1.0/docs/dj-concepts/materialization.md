@@ -15,6 +15,9 @@ metric expression into its constituent simple aggregation measures prior to mate
 ingested into the OLAP database as separate columns and they're combined back together into the original metrics
 when users request metric data.
 
+For a detailed explanation of how this decomposition works, including supported aggregation types and
+dialect translation, see [Metric Decomposition](../metric-decomposition/).
+
 A few examples include:
 
 <table>
@@ -206,4 +209,49 @@ sum(price2)
 ```
 </td>
 </tr>
+
+
+
+
+<tr>
+<td rowspan="3">
+
+```sql
+SELECT
+  APPROX_COUNT_DISTINCT(
+    user_id
+  ) AS unique_users
+FROM events
+```
+</td>
+<tr>
+<th>Name</th><th>Agg</th><th>Expr</th>
+</tr>
+<tr>
+<td>
+
+`user_id_hll`
+</td>
+<td>
+
+`hll_sketch_agg`
+</td>
+<td>
+
+```sql
+hll_sketch_agg(user_id)
+```
+
+*Stored as binary HLL sketch*
+</td>
+</tr>
 </table>
+
+The combiner expression for `APPROX_COUNT_DISTINCT` uses HyperLogLog functions:
+```sql
+hll_sketch_estimate(hll_union(user_id_hll))
+```
+
+This is automatically translated to the appropriate dialect when querying:
+- **Druid:** `APPROX_COUNT_DISTINCT_DS_HLL(DS_HLL(user_id_hll))`
+- **Trino:** `cardinality(merge(user_id_hll))`
