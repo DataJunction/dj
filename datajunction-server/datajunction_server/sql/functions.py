@@ -1257,6 +1257,8 @@ class Corr(Function):
     corr(expr1, expr2) - Compute the correlation of expr1 and expr2.
     """
 
+    is_aggregation = True
+
 
 @Corr.register  # type: ignore
 def infer_type(
@@ -1355,6 +1357,8 @@ class CovarPop(Function):
     covar_pop(expr1, expr2) - Returns the population covariance of expr1 and expr2.
     """
 
+    is_aggregation = True
+
 
 @CovarPop.register  # type: ignore
 def infer_type(
@@ -1368,6 +1372,8 @@ class CovarSamp(Function):
     """
     covar_samp(expr1, expr2) - Returns the sample covariance of expr1 and expr2.
     """
+
+    is_aggregation = True
 
 
 @CovarSamp.register  # type: ignore
