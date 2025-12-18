@@ -43,12 +43,15 @@ class ComponentDef:
         accumulate: Phase 1 - how to build from raw data. Can be:
             - Simple function name: "SUM" -> SUM(expr)
             - Template with {}: "SUM(POWER({}, 2))" -> SUM(POWER(expr, 2))
+            - Template with {0}, {1}: "SUM({0} * {1})" for multi-arg functions
         merge: Phase 2 function - combine pre-aggregated values (e.g., "SUM", "hll_union")
+        arg_index: Which function argument to use (default 0). Use None for multi-arg templates.
     """
 
     suffix: str
     accumulate: str
     merge: str
+    arg_index: int | None = 0  # Which arg to use, or None for multi-arg templates
 
 
 class AggDecomposition(ABC):
@@ -227,6 +230,350 @@ class ApproxCountDistinctDecomposition(AggDecomposition):
 
 
 # =============================================================================
+# Variance Decompositions
+# =============================================================================
+
+
+class VarianceDecompositionBase(AggDecomposition):
+    """
+    Base class for variance decompositions.
+
+    Variance can be computed from three components:
+    - sum(x): sum of values
+    - sum(x²): sum of squared values
+    - count: number of values
+
+    VAR_POP = E[X²] - E[X]² = sum(x²)/n - (sum(x)/n)²
+    VAR_SAMP uses Bessel's correction: n/(n-1) * VAR_POP
+    """
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef("_sum", "SUM", "SUM"),
+            ComponentDef("_sum_sq", "SUM(POWER({}, 2))", "SUM"),  # sum of x²
+            ComponentDef("_count", "COUNT", "SUM"),
+        ]
+
+    def _make_var_pop(self, components: list[MetricComponent]) -> ast.Expression:
+        """Build VAR_POP: E[X²] - E[X]²"""
+        sum_col = components[0].name
+        sum_sq_col = components[1].name
+        count_col = components[2].name
+
+        # E[X²] = SUM(sum_sq) / SUM(count)
+        mean_of_squares = ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=make_func("SUM", sum_sq_col),
+            right=make_func("SUM", count_col),
+        )
+
+        # E[X]² = (SUM(sum) / SUM(count))²
+        square_of_mean = make_func(
+            "POWER",
+            ast.BinaryOp(
+                op=ast.BinaryOpKind.Divide,
+                left=make_func("SUM", sum_col),
+                right=make_func("SUM", count_col),
+            ),
+            ast.Number(2),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=mean_of_squares,
+            right=square_of_mean,
+        )
+
+    def _make_var_samp(self, components: list[MetricComponent]) -> ast.Expression:
+        """
+        Build VAR_SAMP with Bessel's correction.
+
+        = (n * SUM(x²) - SUM(x)²) / (n * (n-1))
+        where n = SUM(count)
+        """
+        sum_col = components[0].name
+        sum_sq_col = components[1].name
+        count_col = components[2].name
+
+        n = make_func("SUM", count_col)
+        sum_x = make_func("SUM", sum_col)
+        sum_x_sq = make_func("SUM", sum_sq_col)
+
+        # Numerator: n * sum_x_sq - sum_x²
+        numerator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_x_sq),
+            right=make_func("POWER", sum_x, ast.Number(2)),
+        )
+
+        # Denominator: n * (n - 1)
+        denominator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Multiply,
+            left=n,
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Minus, left=n, right=ast.Number(1)),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=numerator,
+            right=denominator,
+        )
+
+
+@decomposes(dj_functions.VarPop)
+class VarPopDecomposition(VarianceDecompositionBase):
+    """Population variance: E[X²] - E[X]²"""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_pop(components)
+
+
+@decomposes(dj_functions.VarSamp)
+class VarSampDecomposition(VarianceDecompositionBase):
+    """Sample variance with Bessel's correction."""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_samp(components)
+
+
+@decomposes(dj_functions.Variance)
+class VarianceDecomposition(VarianceDecompositionBase):
+    """VARIANCE (alias for VAR_SAMP in Spark)."""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_var_samp(components)  # pragma: no cover
+
+
+# =============================================================================
+# Standard Deviation Decompositions (square root of variance)
+# =============================================================================
+
+
+@decomposes(dj_functions.StddevPop)
+class StddevPopDecomposition(VarianceDecompositionBase):
+    """Population standard deviation: sqrt(VAR_POP)"""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_pop(components))
+
+
+@decomposes(dj_functions.StddevSamp)
+class StddevSampDecomposition(VarianceDecompositionBase):
+    """Sample standard deviation: sqrt(VAR_SAMP)"""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_samp(components))
+
+
+@decomposes(dj_functions.Stddev)
+class StddevDecomposition(VarianceDecompositionBase):
+    """STDDEV (alias for STDDEV_SAMP in Spark)."""
+
+    def combine(self, components: list[MetricComponent]):
+        return make_func("SQRT", self._make_var_samp(components))  # pragma: no cover
+
+
+# =============================================================================
+# Covariance Decompositions (two-argument functions)
+# =============================================================================
+
+
+class CovarianceDecompositionBase(AggDecomposition):
+    """
+    Base class for covariance decompositions.
+
+    Covariance between X and Y can be computed from four components:
+    - sum(x): sum of first variable
+    - sum(y): sum of second variable
+    - sum(x*y): sum of products
+    - count: number of pairs
+
+    COVAR_POP = E[XY] - E[X]*E[Y] = sum(xy)/n - (sum(x)/n)*(sum(y)/n)
+    COVAR_SAMP uses Bessel's correction
+    """
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef("_sum_x", "SUM({0})", "SUM", arg_index=0),
+            ComponentDef("_sum_y", "SUM({1})", "SUM", arg_index=1),
+            ComponentDef("_sum_xy", "SUM({0} * {1})", "SUM", arg_index=None),
+            ComponentDef("_count", "COUNT({0})", "SUM", arg_index=0),
+        ]
+
+    def _make_covar_pop(self, components: list[MetricComponent]) -> ast.Expression:
+        """Build COVAR_POP: E[XY] - E[X]*E[Y]"""
+        sum_x_col = components[0].name
+        sum_y_col = components[1].name
+        sum_xy_col = components[2].name
+        count_col = components[3].name
+
+        n = make_func("SUM", count_col)
+        sum_x = make_func("SUM", sum_x_col)
+        sum_y = make_func("SUM", sum_y_col)
+        sum_xy = make_func("SUM", sum_xy_col)
+
+        # E[XY] = sum(xy) / n
+        mean_of_products = ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=sum_xy,
+            right=n,
+        )
+
+        # E[X] * E[Y] = (sum(x)/n) * (sum(y)/n)
+        product_of_means = ast.BinaryOp(
+            op=ast.BinaryOpKind.Multiply,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Divide, left=sum_x, right=n),
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Divide, left=sum_y, right=n),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=mean_of_products,
+            right=product_of_means,
+        )
+
+    def _make_covar_samp(self, components: list[MetricComponent]) -> ast.Expression:
+        """
+        Build COVAR_SAMP with Bessel's correction.
+
+        = (n * sum(xy) - sum(x) * sum(y)) / (n * (n-1))
+        """
+        sum_x_col = components[0].name
+        sum_y_col = components[1].name
+        sum_xy_col = components[2].name
+        count_col = components[3].name
+
+        n = make_func("SUM", count_col)
+        sum_x = make_func("SUM", sum_x_col)
+        sum_y = make_func("SUM", sum_y_col)
+        sum_xy = make_func("SUM", sum_xy_col)
+
+        # Numerator: n * sum(xy) - sum(x) * sum(y)
+        numerator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_xy),
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=sum_x, right=sum_y),
+        )
+
+        # Denominator: n * (n - 1)
+        denominator = ast.BinaryOp(
+            op=ast.BinaryOpKind.Multiply,
+            left=n,
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Minus, left=n, right=ast.Number(1)),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=numerator,
+            right=denominator,
+        )
+
+
+@decomposes(dj_functions.CovarPop)
+class CovarPopDecomposition(CovarianceDecompositionBase):
+    """Population covariance: E[XY] - E[X]*E[Y]"""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_covar_pop(components)
+
+
+@decomposes(dj_functions.CovarSamp)
+class CovarSampDecomposition(CovarianceDecompositionBase):
+    """Sample covariance with Bessel's correction."""
+
+    def combine(self, components: list[MetricComponent]):
+        return self._make_covar_samp(components)
+
+
+# =============================================================================
+# Correlation Decomposition (CORR = COVAR / (STDDEV_X * STDDEV_Y))
+# =============================================================================
+
+
+@decomposes(dj_functions.Corr)
+class CorrDecomposition(AggDecomposition):
+    """
+    Pearson correlation coefficient.
+
+    CORR(X,Y) = COVAR(X,Y) / (STDDEV(X) * STDDEV(Y))
+
+    Requires 6 components:
+    - sum(x), sum(y): for means
+    - sum(x²), sum(y²): for variances
+    - sum(xy): for covariance
+    - count: for all calculations
+    """
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef("_sum_x", "SUM({0})", "SUM", arg_index=0),
+            ComponentDef("_sum_y", "SUM({1})", "SUM", arg_index=1),
+            ComponentDef("_sum_x_sq", "SUM(POWER({0}, 2))", "SUM", arg_index=0),
+            ComponentDef("_sum_y_sq", "SUM(POWER({1}, 2))", "SUM", arg_index=1),
+            ComponentDef("_sum_xy", "SUM({0} * {1})", "SUM", arg_index=None),
+            ComponentDef("_count", "COUNT({0})", "SUM", arg_index=0),
+        ]
+
+    def combine(self, components: list[MetricComponent]) -> ast.Expression:
+        """
+        Build CORR: COVAR(X,Y) / (STDDEV(X) * STDDEV(Y))
+
+        Using population formulas:
+        COVAR_POP = E[XY] - E[X]*E[Y]
+        VAR_POP = E[X²] - E[X]²
+        """
+        sum_x_col = components[0].name
+        sum_y_col = components[1].name
+        sum_x_sq_col = components[2].name
+        sum_y_sq_col = components[3].name
+        sum_xy_col = components[4].name
+        count_col = components[5].name
+
+        n = make_func("SUM", count_col)
+        sum_x = make_func("SUM", sum_x_col)
+        sum_y = make_func("SUM", sum_y_col)
+        sum_x_sq = make_func("SUM", sum_x_sq_col)
+        sum_y_sq = make_func("SUM", sum_y_sq_col)
+        sum_xy = make_func("SUM", sum_xy_col)
+
+        # Covariance numerator: n * sum(xy) - sum(x) * sum(y)
+        covar_num = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_xy),
+            right=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=sum_x, right=sum_y),
+        )
+
+        # Variance X: n * sum(x²) - sum(x)²
+        var_x = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_x_sq),
+            right=make_func("POWER", sum_x, ast.Number(2)),
+        )
+
+        # Variance Y: n * sum(y²) - sum(y)²
+        var_y = ast.BinaryOp(
+            op=ast.BinaryOpKind.Minus,
+            left=ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=n, right=sum_y_sq),
+            right=make_func("POWER", sum_y, ast.Number(2)),
+        )
+
+        # Denominator: sqrt(var_x * var_y)
+        denominator = make_func(
+            "SQRT",
+            ast.BinaryOp(op=ast.BinaryOpKind.Multiply, left=var_x, right=var_y),
+        )
+
+        return ast.BinaryOp(
+            op=ast.BinaryOpKind.Divide,
+            left=covar_num,
+            right=denominator,
+        )
+
+
+# =============================================================================
 # Non-Decomposable Aggregations
 # =============================================================================
 
@@ -365,13 +712,23 @@ class MetricComponentExtractor:
         comp_def: ComponentDef,
     ) -> MetricComponent:
         """Create a MetricComponent from a function and component definition."""
-        arg = func.args[0]
-        expression = str(arg)
-
-        # Build component name from columns in the expression
-        columns = list(arg.find_all(ast.Column))
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct
 
+        # Determine which args to use based on arg_index
+        if comp_def.arg_index is not None:
+            # Single-arg component
+            arg = func.args[comp_def.arg_index]
+            expression = str(arg)
+            columns = list(arg.find_all(ast.Column))
+        else:
+            # Multi-arg component (e.g., for CORR, COVAR)
+            # Expression combines all args
+            expression = " * ".join(str(a) for a in func.args)
+            columns = []
+            for a in func.args:
+                columns.extend(a.find_all(ast.Column))
+
+        # Build component name from columns in the expression
         if is_distinct:
             # DISTINCT uses column names + "_distinct"
             base_name = (
@@ -388,16 +745,42 @@ class MetricComponentExtractor:
 
         short_hash = self._short_hash(expression)
 
+        # Build accumulate expression with template expansion
+        accumulate_expr = self._expand_template(comp_def.accumulate, func.args)
+
         return MetricComponent(
             name=f"{base_name}_{short_hash}",
             expression=expression,
-            aggregation=None if is_distinct else comp_def.accumulate,
+            aggregation=None if is_distinct else accumulate_expr,
             merge=None if is_distinct else comp_def.merge,
             rule=AggregationRule(
                 type=Aggregability.LIMITED if is_distinct else Aggregability.FULL,
                 level=[str(a) for a in func.args] if is_distinct else None,
             ),
         )
+
+    def _expand_template(self, template: str, args: list) -> str:
+        """
+        Expand accumulate template with function arguments.
+
+        Supports:
+        - Simple function name: "SUM" -> "SUM"
+        - Single placeholder {}: "SUM(POWER({}, 2))" -> "SUM(POWER(x, 2))"
+        - Indexed placeholders: "SUM({0} * {1})" -> "SUM(x * y)"
+        """
+        if "{" not in template:
+            # Simple function name, no expansion needed
+            return template
+
+        # Check for indexed placeholders {0}, {1}, etc.
+        if "{0}" in template or "{1}" in template:
+            result = template
+            for i, arg in enumerate(args):
+                result = result.replace(f"{{{i}}}", str(arg))
+            return result
+
+        # Single {} placeholder - use first arg
+        return template.replace("{}", str(args[0]))
 
     def _short_hash(self, expression: str) -> str:
         """Generate a short hash for the given expression."""

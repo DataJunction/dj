@@ -152,6 +152,102 @@ merge distinct value sets associatively without storing all values.
 DJ marks these as `LIMITED` aggregability, meaning they can only be pre-aggregated if the query
 includes all columns that affect distinctness.
 
+### Variance & Standard Deviation
+
+Variance uses the identity `VAR = E[X²] - E[X]²` to decompose into three components:
+
+| Component | Accumulate | Merge |
+|-----------|------------|-------|
+| `sum_col` | `SUM(x)` | `SUM` |
+| `sum_sq_col` | `SUM(POWER(x, 2))` | `SUM` |
+| `count_col` | `COUNT(x)` | `SUM` |
+
+**Supported functions:**
+
+| Function | Combiner |
+|----------|----------|
+| `VAR_POP(x)` | `(sum_sq/n) - (sum/n)²` |
+| `VAR_SAMP(x)` | `(n*sum_sq - sum²) / (n*(n-1))` |
+| `STDDEV_POP(x)` | `SQRT(VAR_POP)` |
+| `STDDEV_SAMP(x)` | `SQRT(VAR_SAMP)` |
+| `VARIANCE(x)` | Same as VAR_SAMP |
+| `STDDEV(x)` | Same as STDDEV_SAMP |
+
+**Example:**
+```sql
+-- Original metric
+SELECT STDDEV(response_time) FROM requests
+
+-- Decomposed measures
+SELECT 
+  SUM(response_time) AS response_time_sum,
+  SUM(POWER(response_time, 2)) AS response_time_sum_sq,
+  COUNT(response_time) AS response_time_count
+FROM requests
+```
+
+### Covariance (Two-Column Metrics)
+
+Covariance measures the relationship between two variables and uses the identity 
+`COVAR = E[XY] - E[X]*E[Y]`:
+
+| Component | Accumulate | Merge |
+|-----------|------------|-------|
+| `sum_x` | `SUM(x)` | `SUM` |
+| `sum_y` | `SUM(y)` | `SUM` |
+| `sum_xy` | `SUM(x * y)` | `SUM` |
+| `count` | `COUNT(x)` | `SUM` |
+
+**Supported functions:**
+
+| Function | Combiner |
+|----------|----------|
+| `COVAR_POP(x, y)` | `(sum_xy/n) - (sum_x/n)*(sum_y/n)` |
+| `COVAR_SAMP(x, y)` | `(n*sum_xy - sum_x*sum_y) / (n*(n-1))` |
+
+**Example:**
+```sql
+-- Original metric: covariance between ad spend and revenue
+SELECT COVAR_POP(ad_spend, revenue) FROM campaigns
+
+-- Decomposed measures
+SELECT 
+  SUM(ad_spend) AS ad_spend_sum,
+  SUM(revenue) AS revenue_sum,
+  SUM(ad_spend * revenue) AS ad_spend_revenue_sum_xy,
+  COUNT(ad_spend) AS count
+FROM campaigns
+```
+
+### Correlation (Two-Column Metrics)
+
+Correlation normalizes covariance by standard deviations: `CORR = COVAR(X,Y) / (STDDEV(X) * STDDEV(Y))`.
+This requires 6 components:
+
+| Component | Accumulate | Merge |
+|-----------|------------|-------|
+| `sum_x` | `SUM(x)` | `SUM` |
+| `sum_y` | `SUM(y)` | `SUM` |
+| `sum_x_sq` | `SUM(POWER(x, 2))` | `SUM` |
+| `sum_y_sq` | `SUM(POWER(y, 2))` | `SUM` |
+| `sum_xy` | `SUM(x * y)` | `SUM` |
+| `count` | `COUNT(x)` | `SUM` |
+
+**Combiner:**
+```
+numerator = n * sum_xy - sum_x * sum_y
+denominator = SQRT((n * sum_x_sq - sum_x²) * (n * sum_y_sq - sum_y²))
+CORR = numerator / denominator
+```
+
+**Example:**
+```sql
+-- Original metric: correlation between price and quantity
+SELECT CORR(price, quantity) FROM orders
+
+-- Decomposed into 6 measures, combined at query time
+```
+
 ## Complex Metric Examples
 
 ### Rate Metrics
@@ -285,3 +381,32 @@ Response:
   "combiner": "SUM(price_sum_abc123) / SUM(price_count_abc123)"
 }
 ```
+
+## Supported Functions Reference
+
+Quick reference for all decomposable aggregation functions:
+
+| Function | # Components | Aggregability | Notes |
+|----------|--------------|---------------|-------|
+| `SUM(x)` | 1 | FULL | Simple additive |
+| `COUNT(x)` | 1 | FULL | Merges via SUM |
+| `MIN(x)` | 1 | FULL | Simple associative |
+| `MAX(x)` | 1 | FULL | Simple associative |
+| `ANY_VALUE(x)` | 1 | FULL | Any value from group |
+| `COUNT_IF(cond)` | 1 | FULL | Conditional count |
+| `AVG(x)` | 2 | FULL | sum + count |
+| `VAR_POP(x)` | 3 | FULL | sum + sum_sq + count |
+| `VAR_SAMP(x)` | 3 | FULL | sum + sum_sq + count |
+| `VARIANCE(x)` | 3 | FULL | Alias for VAR_SAMP |
+| `STDDEV_POP(x)` | 3 | FULL | sqrt of VAR_POP |
+| `STDDEV_SAMP(x)` | 3 | FULL | sqrt of VAR_SAMP |
+| `STDDEV(x)` | 3 | FULL | Alias for STDDEV_SAMP |
+| `COVAR_POP(x, y)` | 4 | FULL | Two-column metric |
+| `COVAR_SAMP(x, y)` | 4 | FULL | Two-column metric |
+| `CORR(x, y)` | 6 | FULL | Two-column metric |
+| `APPROX_COUNT_DISTINCT(x)` | 1 | FULL | HLL sketch |
+| `COUNT(DISTINCT x)` | 1 | LIMITED | Requires full data |
+| `MEDIAN(x)` | - | NONE | Not decomposable |
+| `PERCENTILE(x, p)` | - | NONE | Not decomposable |
+| `MAX_BY(x, y)` | - | NONE | Not decomposable |
+| `MIN_BY(x, y)` | - | NONE | Not decomposable |
