@@ -2605,13 +2605,29 @@ async def activate_node(
     node.deactivated_at = None  # type: ignore
 
     # Find all downstream nodes and revalidate them
-    downstreams = await get_downstream_nodes(session, node.name)
+    downstreams = await get_downstream_nodes(
+        session,
+        node.name,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    selectinload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    selectinload(Column.dimension),
+                ),
+                selectinload(NodeRevision.parents),
+                selectinload(NodeRevision.cube_elements).selectinload(
+                    Column.node_revision,
+                ),
+            ),
+        ],
+    )
     for downstream in downstreams:
         old_status = downstream.current.status
         if downstream.type == NodeType.CUBE:
             downstream.current.status = NodeStatus.VALID
             for element in downstream.current.cube_elements:
-                await session.refresh(element, ["node_revision"])
                 if (
                     element.node_revision
                     and element.node_revision.status == NodeStatus.INVALID

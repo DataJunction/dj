@@ -1237,6 +1237,59 @@ class TestNodeCRUD:
             "warnings": [],
         }
 
+    @pytest.mark.asyncio
+    async def test_restore_node_with_downstream_cube(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Test restoring a node that has a downstream cube.
+        This tests the fix for the greenlet_spawn async lazy-loading issue
+        when accessing cube_element.node_revision during node restoration.
+        """
+        # Create a cube that depends on some metrics and dimensions
+        response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.dispatcher.company_name",
+                ],
+                "description": "Cube for testing restore",
+                "mode": "published",
+                "name": "default.test_restore_cube",
+            },
+        )
+        assert response.status_code == 201
+
+        # Verify the cube is valid
+        response = await client_with_roads.get("/nodes/default.test_restore_cube/")
+        assert response.json()["status"] == NodeStatus.VALID
+
+        # Deactivate a node that's upstream of the cube's metrics
+        # (repair_orders_fact is upstream of num_repair_orders and avg_repair_price)
+        response = await client_with_roads.delete("/nodes/default.repair_orders_fact/")
+        assert response.status_code == 200
+
+        # Verify the cube became invalid
+        response = await client_with_roads.get("/nodes/default.test_restore_cube/")
+        assert response.json()["status"] == NodeStatus.INVALID
+
+        # Restore the upstream node - this is where the greenlet_spawn bug would occur
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders_fact/restore/",
+        )
+        assert response.status_code in (200, 201)
+
+        # Verify the cube is valid again after restore
+        response = await client_with_roads.get("/nodes/default.test_restore_cube/")
+        assert response.json()["status"] == NodeStatus.VALID
+
+        # Clean up
+        response = await client_with_roads.delete("/nodes/default.test_restore_cube/")
+        assert response.status_code == 200
+
     async def verify_complete_hard_delete(
         self,
         session: AsyncSession,
