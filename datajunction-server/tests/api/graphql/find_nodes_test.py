@@ -1458,3 +1458,175 @@ async def test_approx_count_distinct_metric_decomposition(
     # The derived query should contain Spark HLL functions
     assert "hll_sketch_estimate" in extracted["derivedQuery"]
     assert "hll_union" in extracted["derivedQuery"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_dimensions_filter(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with the dimensions filter.
+    This filters to nodes that have ALL of the specified dimensions.
+    """
+    # Find nodes that have the hard_hat dimension
+    query = """
+    {
+        findNodes(dimensions: ["default.hard_hat"]) {
+            name
+            type
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    node_names = {node["name"] for node in data["data"]["findNodes"]}
+
+    # These nodes should have the hard_hat dimension
+    expected_nodes = {
+        "default.repair_orders",
+        "default.repair_order_details",
+        "default.repair_order",
+        "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
+        "default.avg_repair_price",
+        "default.repair_orders_fact",
+        "default.total_repair_cost",
+        "default.discounted_orders_rate",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+    }
+    assert node_names == expected_nodes
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_dimensions_filter_combined_with_type(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with dimensions filter combined with node type filter.
+    """
+    # Find only METRIC nodes that have the hard_hat dimension
+    query = """
+    {
+        findNodes(dimensions: ["default.hard_hat"], nodeTypes: [METRIC]) {
+            name
+            type
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    node_names = {node["name"] for node in data["data"]["findNodes"]}
+
+    # All returned nodes should be METRICs with the hard_hat dimension
+    for node in data["data"]["findNodes"]:
+        assert node["type"] == "METRIC"
+
+    # These are the metrics with the hard_hat dimension
+    expected_metrics = {
+        "default.num_repair_orders",
+        "default.num_unique_hard_hats_approx",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.discounted_orders_rate",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+    }
+    assert node_names == expected_metrics
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_nonexistent_dimension(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that finding nodes with a nonexistent dimension returns empty list.
+    """
+    query = """
+    {
+        findNodes(dimensions: ["default.nonexistent_dimension"]) {
+            name
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == []
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_dimension_attribute(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with a dimension attribute (e.g., default.hard_hat.city).
+    This should work the same as filtering by the dimension node.
+    """
+    # Find nodes using dimension attribute (includes column name)
+    query_with_attr = """
+    {
+        findNodes(dimensions: ["default.hard_hat.hard_hat_id"]) {
+            name
+        }
+    }
+    """
+    response_attr = await module__client_with_roads.post(
+        "/graphql",
+        json={"query": query_with_attr},
+    )
+    assert response_attr.status_code == 200
+    data_attr = response_attr.json()
+    nodes_from_attr = {node["name"] for node in data_attr["data"]["findNodes"]}
+
+    # Find nodes using dimension node name
+    query_with_node = """
+    {
+        findNodes(dimensions: ["default.hard_hat"]) {
+            name
+        }
+    }
+    """
+    response_node = await module__client_with_roads.post(
+        "/graphql",
+        json={"query": query_with_node},
+    )
+    assert response_node.status_code == 200
+    data_node = response_node.json()
+    nodes_from_node = {node["name"] for node in data_node["data"]["findNodes"]}
+
+    # Both should return the same set of nodes
+    assert nodes_from_attr == nodes_from_node
+    assert len(nodes_from_attr) > 0  # Ensure we got some results
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_mixed_dimension_formats(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding nodes with a mix of dimension node names and dimension attributes.
+    """
+    # Mix a dimension node name and a dimension attribute
+    query = """
+    {
+        findNodes(dimensions: ["default.hard_hat", "default.dispatcher.dispatcher_id"]) {
+            name
+            type
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    node_names = {node["name"] for node in data["data"]["findNodes"]}
+
+    # Should find nodes that have BOTH hard_hat AND dispatcher dimensions
+    # This should include repair_orders_fact and related nodes
+    assert len(node_names) > 0
+    # All results should have both dimensions available
+    assert "default.repair_orders_fact" in node_names
