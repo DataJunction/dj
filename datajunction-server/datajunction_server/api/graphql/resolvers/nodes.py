@@ -34,6 +34,7 @@ async def find_nodes_by(
     order_by: NodeSortField = NodeSortField.CREATED_AT,
     ascending: bool = False,
     mode: Optional[NodeMode] = None,
+    dimensions: Optional[List[str]] = None,
 ) -> List[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -63,6 +64,7 @@ async def find_nodes_by(
         ascending=ascending,
         options=options,
         mode=mode,
+        dimensions=dimensions,
     )
 
 
