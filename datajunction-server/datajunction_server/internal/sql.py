@@ -66,12 +66,23 @@ async def build_node_sql(
     """
     Build node SQL and save it to query requests
     """
+    import time
+
+    start_time = time.time()
+
     if orderby:
         validate_orderby(orderby, [node_name], dimensions or [])
 
+    # Use eager loading to minimize database queries
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name_eager(
+            session,
+            node_name,
+            load_dimensions=bool(dimensions),  # Only load if we need dimensions
+            load_parents=True,  # Always load for upstream references
+            raise_if_not_exists=True,
+        ),
     )
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
@@ -102,7 +113,7 @@ async def build_node_sql(
         return translated_sql
 
     # For all other nodes, build the node query
-    node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)  # type: ignore
+    # (node already loaded above with eager loading, reuse it)
     if node.type == NodeType.METRIC:
         translated_sql, engine, _ = await build_sql_for_multiple_metrics(
             session,
@@ -140,11 +151,22 @@ async def build_node_sql(
         ]
         query = str(query_ast)
 
-    return TranslatedSQL.create(
+    result = TranslatedSQL.create(
         sql=query,
         columns=columns,
         dialect=engine.dialect if engine else None,
     )
+
+    # Log timing
+    build_time = (time.time() - start_time) * 1000
+    logger.info(
+        "build_node_sql completed: node=%s, dimensions=%d, time=%.2fms",
+        node_name,
+        len(dimensions or []),
+        build_time,
+    )
+
+    return result
 
 
 async def build_sql_for_multiple_metrics(

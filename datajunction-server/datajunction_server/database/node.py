@@ -514,6 +514,117 @@ class Node(Base):
         return ordered_nodes
 
     @classmethod
+    async def get_by_name_eager(
+        cls,
+        session: AsyncSession,
+        name: str,
+        load_dimensions: bool = True,
+        load_parents: bool = True,
+        raise_if_not_exists: bool = False,
+    ) -> Optional["Node"]:
+        """
+        Get a node by name with eager loading to minimize database queries.
+
+        This method loads all commonly needed relationships in 1-2 queries instead
+        of the N+1 pattern that happens with lazy loading. This significantly speeds
+        up query building by eliminating redundant database round trips.
+
+        Args:
+            session: Database session
+            name: Node name
+            load_dimensions: Whether to eagerly load dimension links and their targets
+            load_parents: Whether to eagerly load parent node relationships
+            raise_if_not_exists: Whether to raise exception if node not found
+
+        Returns:
+            Node with all relationships eagerly loaded, or None if not found
+
+        Example:
+            >>> node = await Node.get_by_name_eager(session, "default.revenue", load_dimensions=True)
+            >>> # All columns, dimension_links, availability already loaded - no extra queries!
+            >>> columns = node.current.columns  # Already loaded
+            >>> links = node.current.dimension_links  # Already loaded
+        """
+        from datajunction_server.database.dimensionlink import DimensionLink
+
+        # Build base query
+        statement = (
+            select(Node).where(Node.name == name).where(is_(Node.deactivated_at, None))
+        )
+
+        # Eagerly load current revision with all its relationships
+        options = [
+            joinedload(Node.current).options(
+                # Load columns with their attributes
+                selectinload(NodeRevision.columns).options(
+                    selectinload(Column.attributes),
+                    joinedload(
+                        Column.dimension,
+                    ),  # Load dimension references on columns
+                ),
+                # Load availability state
+                joinedload(NodeRevision.availability),
+                # Load catalog and its engines
+                joinedload(NodeRevision.catalog).options(
+                    selectinload(Catalog.engines),
+                ),
+                # Load metric metadata if exists
+                joinedload(NodeRevision.metric_metadata),
+                # Load materializations
+                selectinload(NodeRevision.materializations),
+            ),
+            # Load node-level relationships
+            selectinload(Node.tags),
+            selectinload(Node.created_by),
+            selectinload(Node.owners),
+        ]
+
+        # Optionally load dimension links (common for query building with dimensions)
+        if load_dimensions:
+            options.append(
+                joinedload(Node.current)
+                .selectinload(NodeRevision.dimension_links)
+                .options(
+                    # Load the target dimension node
+                    joinedload(DimensionLink.dimension).options(
+                        # Load dimension's current revision
+                        joinedload(Node.current).options(
+                            selectinload(NodeRevision.columns).options(
+                                selectinload(Column.attributes),
+                            ),
+                            joinedload(NodeRevision.availability),
+                        ),
+                    ),
+                ),
+            )
+
+        # Optionally load parent nodes (for building upstream references)
+        if load_parents:
+            options.append(
+                joinedload(Node.current)
+                .selectinload(NodeRevision.parents)
+                .options(
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.columns),
+                        joinedload(NodeRevision.availability),
+                    ),
+                ),
+            )
+
+        statement = statement.options(*options)
+
+        result = await session.execute(statement)
+        node = result.unique().scalar_one_or_none()
+
+        if not node and raise_if_not_exists:
+            raise DJNodeNotFound(
+                message=f"Node `{name}` does not exist.",
+                http_status_code=404,
+            )
+
+        return node
+
+    @classmethod
     async def get_cube_by_name(
         cls,
         session: AsyncSession,

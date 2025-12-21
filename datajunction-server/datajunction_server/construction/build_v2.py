@@ -291,12 +291,24 @@ class QueryBuilder:
     ) -> "QueryBuilder":
         """
         Create a QueryBuilder instance for the node revision.
+
+        Note: If the node was loaded with Node.get_by_name_eager(),
+        required_dimensions and dimension_links will already be loaded.
         """
-        await refresh_if_needed(
-            session,
-            node_revision,
-            ["required_dimensions", "dimension_links"],
-        )
+        # Only refresh if not already loaded (i.e., not from eager loading)
+        # Check if dimension_links is loaded by seeing if it's accessible
+        try:
+            _ = node_revision.dimension_links
+            links_loaded = True
+        except:  # noqa: E722
+            links_loaded = False
+
+        if not links_loaded:
+            await refresh_if_needed(
+                session,
+                node_revision,
+                ["required_dimensions", "dimension_links"],
+            )
         instance = cls(session, node_revision, use_materialized=use_materialized)
         return instance
 
@@ -464,11 +476,21 @@ class QueryBuilder:
         7. Add all requested dimensions to the final select.
         8. Add order by and limit to the final select (TODO)
         """
-        await refresh_if_needed(
-            self.session,
-            self.node_revision,
-            ["availability", "columns", "query_ast"],
-        )
+        # Only refresh if not already loaded (from eager loading)
+        # Check if columns are accessible without triggering a query
+        try:
+            _ = self.node_revision.columns
+            columns_loaded = True
+        except:  # noqa: E722
+            columns_loaded = False
+
+        if not columns_loaded:
+            await refresh_if_needed(
+                self.session,
+                self.node_revision,
+                ["availability", "columns", "query_ast"],
+            )
+
         if self.node_revision.query_ast:
             node_ast = self.node_revision.query_ast  # pragma: no cover
         else:
