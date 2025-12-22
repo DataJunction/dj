@@ -14,10 +14,14 @@ from typing import (
     cast,
 )
 
+from sqlalchemy import text, bindparam, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database import Engine
+from datajunction_server.database.attributetype import ColumnAttribute
+from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import (
@@ -281,6 +285,12 @@ class QueryBuilder:
         self.errors: list[DJQueryBuildError] = []
         # The final built query AST
         self.final_ast: Optional[ast.Query] = None
+        # Shared cache for DJ node lookups - reused across all compile calls
+        # This avoids redundant DB queries for the same node
+        self.dependencies_cache: dict[str, Node] = {}
+        # Preloaded join paths keyed by (dim_name, role)
+        # Populated by find_dimension_node_joins
+        self._preloaded_join_paths: dict[tuple[str, str], list[DimensionLink]] = {}
 
     @classmethod
     async def create(
@@ -467,22 +477,42 @@ class QueryBuilder:
         await refresh_if_needed(
             self.session,
             self.node_revision,
-            ["availability", "columns", "query_ast"],
+            ["availability", "columns"],
         )
-        if self.node_revision.query_ast:
-            node_ast = self.node_revision.query_ast  # pragma: no cover
-        else:
-            node_ast = (
-                await compile_node_ast(self.session, self.node_revision)
-                if not self.physical_table
-                else self.create_query_from_physical_table(self.physical_table)
+
+        node_ast = (
+            await compile_node_ast(
+                self.session,
+                self.node_revision,
+                dependencies_cache=self.dependencies_cache,
             )
+            if not self.physical_table
+            else self.create_query_from_physical_table(self.physical_table)
+        )
 
         if self.physical_table and not self._filters and not self.dimensions:
             self.final_ast = node_ast
         else:
+            # Pre-load dimension nodes before building the current node AST
+            # This populates dependencies_cache so Table.compile() can use cached nodes
+            # instead of making individual get_dj_node calls
+            target_dim_names = {
+                FullColumnName(dim).node_name
+                for dim in self._collect_referenced_dimensions()
+                if FullColumnName(dim).node_name != self.node_revision.name
+            }
+            if target_dim_names:
+                self._preloaded_join_paths = (
+                    await self.preload_join_paths_for_dimensions(target_dim_names)
+                )
+
             node_alias, node_ast = await self.build_current_node_ast(node_ast)
-            ctx = CompileContext(self.session, DJException())
+
+            ctx = CompileContext(
+                self.session,
+                DJException(),
+                dependencies_cache=self.dependencies_cache,
+            )
             await node_ast.compile(ctx)
             self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
             await self.build_dimension_node_joins(node_ast, node_alias)
@@ -610,7 +640,11 @@ class QueryBuilder:
         """
         Build the node AST into a CTE
         """
-        ctx = CompileContext(self.session, DJException())
+        ctx = CompileContext(
+            self.session,
+            DJException(),
+            dependencies_cache=self.dependencies_cache,
+        )
         await node_ast.compile(ctx)
         self.errors.extend(ctx.exception.errors)
         node_alias = ast.Name(amenable_name(self.node_revision.name))
@@ -622,6 +656,7 @@ class QueryBuilder:
             build_criteria=self._build_criteria,
             ctes_mapping=self.cte_mapping,
             use_materialized=self.use_materialized,
+            dependencies_cache=self.dependencies_cache,
         )
 
     def initialize_final_query_ast(self, node_ast, node_alias):
@@ -669,6 +704,161 @@ class QueryBuilder:
             else role_path.replace("->", "__")
         )
 
+    async def find_join_paths_batch(
+        self,
+        target_dimension_names: set[str],
+        max_depth: int = 5,
+    ) -> dict[tuple[str, str], list[int]]:
+        """
+        Find join paths from this node to all target dimension nodes using a single
+        recursive CTE query. Returns a dict mapping (dimension_node_name, role_path)
+        to the list of DimensionLink IDs forming the path.
+
+        The role_path is a "->" separated string of roles at each step (e.g., "birth_date->parent").
+        Empty roles are represented as empty strings.
+
+        This is O(1) database calls instead of O(nodes * depth) individual queries.
+        """
+        if not target_dimension_names:
+            return {}  # pragma: no cover
+
+        # Single recursive CTE to find all paths at once
+        # Tracks both the link IDs and the roles at each step
+        recursive_query = text("""
+            WITH RECURSIVE paths AS (
+                -- Base case: first level dimension links from the source node
+                SELECT
+                    dl.id as link_id,
+                    n.name as dim_name,
+                    CAST(dl.id AS TEXT) as path,
+                    COALESCE(dl.role, '') as role_path,
+                    1 as depth
+                FROM dimensionlink dl
+                JOIN node n ON dl.dimension_id = n.id
+                WHERE dl.node_revision_id = :source_revision_id
+
+                UNION ALL
+
+                -- Recursive case: follow dimension_links from each dimension node
+                SELECT
+                    dl2.id as link_id,
+                    n2.name as dim_name,
+                    paths.path || ',' || CAST(dl2.id AS TEXT) as path,
+                    paths.role_path || '->' || COALESCE(dl2.role, '') as role_path,
+                    paths.depth + 1 as depth
+                FROM paths
+                JOIN node prev_node ON paths.dim_name = prev_node.name
+                JOIN noderevision nr ON prev_node.current_version = nr.version AND nr.node_id = prev_node.id
+                JOIN dimensionlink dl2 ON dl2.node_revision_id = nr.id
+                JOIN node n2 ON dl2.dimension_id = n2.id
+                WHERE paths.depth < :max_depth
+            )
+            SELECT dim_name, path, role_path, depth
+            FROM paths
+            WHERE dim_name IN :target_names
+            ORDER BY depth ASC
+        """).bindparams(bindparam("target_names", expanding=True))
+
+        result = await self.session.execute(
+            recursive_query,
+            {
+                "source_revision_id": self.node_revision.id,
+                "max_depth": max_depth,
+                "target_names": list(target_dimension_names),
+            },
+        )
+        rows = result.fetchall()
+
+        # Build paths dict keyed by (dim_name, role_path)
+        paths: dict[tuple[str, str], list[int]] = {}
+        for dim_name, path_str, role_path, depth in rows:
+            key = (dim_name, role_path or "")
+            if key not in paths:  # pragma: no branch
+                paths[key] = [int(x) for x in path_str.split(",")]
+
+        return paths
+
+    async def load_dimension_links_and_nodes(
+        self,
+        link_ids: set[int],
+    ) -> dict[int, DimensionLink]:
+        """
+        Batch load DimensionLinks and their associated dimension Nodes.
+        Returns a dict mapping link_id to DimensionLink object.
+        """
+        if not link_ids:
+            return {}
+
+        # Load all dimension links with eager loading
+        # Include dimension_links on the node revision for multi-hop joins
+        stmt = (
+            select(DimensionLink)
+            .where(DimensionLink.id.in_(link_ids))
+            .options(
+                joinedload(DimensionLink.dimension).options(
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.columns).options(
+                            joinedload(Column.attributes).joinedload(
+                                ColumnAttribute.attribute_type,
+                            ),
+                            joinedload(Column.dimension),
+                            joinedload(Column.partition),
+                        ),
+                        joinedload(NodeRevision.catalog),
+                        selectinload(NodeRevision.availability),
+                        selectinload(NodeRevision.dimension_links).options(
+                            joinedload(DimensionLink.dimension),
+                        ),
+                    ),
+                ),
+            )
+        )
+        result = await self.session.execute(stmt)
+        links = result.scalars().unique().all()
+
+        # Build lookup dict and cache nodes
+        link_dict: dict[int, DimensionLink] = {}
+        for link in links:
+            link_dict[link.id] = link
+            if link.dimension:  # pragma: no branch
+                self.dependencies_cache[link.dimension.name] = link.dimension
+
+        return link_dict
+
+    async def preload_join_paths_for_dimensions(
+        self,
+        target_dimension_names: set[str],
+    ) -> dict[tuple[str, str], list[DimensionLink]]:
+        """
+        Find and load join paths for the requested dimensions using a single recursive
+        CTE query + a single batch load.
+
+        Returns dict mapping (dimension_node_name, role_path) to list of DimensionLink objects.
+        The role_path is a "->" separated string matching the roles at each step.
+        """
+        # Ensure the main node's dimension_links are loaded
+        await refresh_if_needed(self.session, self.node_revision, ["dimension_links"])
+
+        # Use recursive CTE to find all paths in one query (keyed by (dim_name, role_path))
+        path_ids = await self.find_join_paths_batch(target_dimension_names)
+
+        # Collect all link IDs we need to load
+        all_link_ids: set[int] = set()
+        for link_id_list in path_ids.values():
+            all_link_ids.update(link_id_list)
+
+        # Batch load all DimensionLinks + Nodes in one query
+        link_dict = await self.load_dimension_links_and_nodes(all_link_ids)
+
+        # Build the final paths with actual DimensionLink objects
+        dimension_paths: dict[tuple[str, str], list[DimensionLink]] = {}
+        for key, link_id_list in path_ids.items():
+            dimension_paths[key] = [
+                link_dict[lid] for lid in link_id_list if lid in link_dict
+            ]
+
+        return dimension_paths
+
     async def build_dimension_node_joins(self, node_ast, node_alias):
         """
         Builds the dimension joins and adding them to the CTEs
@@ -678,7 +868,8 @@ class QueryBuilder:
         node_ast = node_ast.to_cte(node_alias)
         self.cte_mapping[self.node_revision.name] = node_ast
 
-        # Find all dimension node joins necessary for the requested dimensions and filters
+        # Find all dimension join paths in one recursive CTE query, and then batch
+        # load only the DimensionLinks/Nodes that are actually needed
         dimension_node_joins = await self.find_dimension_node_joins()
 
         # Track added joins to avoid duplicates
@@ -707,6 +898,7 @@ class QueryBuilder:
                         self._filters,
                         self.cte_mapping,
                         use_materialized=self.use_materialized,
+                        dependencies_cache=self.dependencies_cache,
                     )
                 else:
                     dimension_node_query = self.cte_mapping[link.dimension.name]
@@ -802,10 +994,15 @@ class QueryBuilder:
     async def add_request_by_node_name(self, node_name):
         """Add a node request to the access control validator."""
         if self._access_control:  # pragma: no cover
-            await self._access_control.add_request_by_node_name(  # pragma: no cover
-                self.session,
-                node_name,
-            )
+            # Use cached node if available to avoid DB lookup
+            cached_node = self.dependencies_cache.get(node_name)
+            if cached_node:  # pragma: no cover
+                self._access_control.add_request_by_node(cached_node)
+            else:  # pragma: no cover
+                await self._access_control.add_request_by_node_name(
+                    self.session,
+                    node_name,
+                )
 
     def validate_access(self):
         """Validates access"""
@@ -816,23 +1013,105 @@ class QueryBuilder:
         self,
     ) -> dict[str, DimensionJoin]:
         """
-        Returns a list of dimension node joins that are necessary based on
-        the requested dimensions and filters
+        Uses a single recursive CTE query to find all dimension node joins to reach
+        the requested dimensions and filters from the current node.
         """
         dimension_node_joins: dict[str, DimensionJoin] = {}
         necessary_dimensions = self._collect_referenced_dimensions()
+
+        # Separate local dimensions from those needing joins
+        non_local_dimensions: list[FullColumnName] = []
+        target_dimension_node_names: set[str] = set()
+
         for dim in necessary_dimensions:
             attr = FullColumnName(dim)
             if attr.node_name == self.node_revision.name:
-                continue
+                continue  # Local dimension, no join needed
 
+            # Check if it's a local dimension via column.dimension link
+            is_local = False
+            for col in self.node_revision.columns:
+                if f"{self.node_revision.name}.{col.name}" == attr.name:
+                    is_local = True  # pragma: no cover
+                    break  # pragma: no cover
+                if (
+                    col.dimension
+                    and f"{col.dimension.name}.{col.dimension_column}" == attr.name
+                ):
+                    is_local = True
+                    break
+
+            if not is_local:
+                non_local_dimensions.append(attr)
+                target_dimension_node_names.add(attr.node_name)
+
+        # Batch find all join paths using recursive CTE
+        # Returns dict keyed by (dim_name, role_path) so we can match roles too
+        # Skip if already preloaded earlier
+        if self._preloaded_join_paths:
+            preloaded_paths = self._preloaded_join_paths
+        elif target_dimension_node_names:
+            preloaded_paths = await self.preload_join_paths_for_dimensions(
+                target_dimension_node_names,
+            )
+        else:
+            preloaded_paths = {}
+
+        # Build DimensionJoin objects using preloaded paths
+        for attr in non_local_dimensions:
             await self.add_request_by_node_name(attr.node_name)
+
             if attr.join_key not in dimension_node_joins:
-                dimension_join = await self._build_dimension_join_metadata(attr)
-                if dimension_join:
-                    dimension_node_joins[attr.join_key] = dimension_join
+                # Find matching path - try exact role match first, then no-role match
+                join_path = None
+
+                # The role in attr.role is like "birth_date->parent"
+                # The role_path from CTE is like "birth_date->parent" (same format!)
+                role_key = attr.role or ""
+                exact_key = (attr.node_name, role_key)
+
+                if exact_key in preloaded_paths:
+                    join_path = preloaded_paths[exact_key]
+                elif not attr.role:  # pragma: no branch
+                    # No role specified - find any path to this dimension (prefer shortest)
+                    for (dim_name, role_path), path in preloaded_paths.items():
+                        if dim_name == attr.node_name:
+                            if join_path is None or len(path) < len(
+                                join_path,
+                            ):  # pragma: no cover
+                                join_path = path
+
+                if join_path is None:
+                    # No path found - dimension cannot be joined
+                    self.errors.append(
+                        DJQueryBuildError(
+                            code=ErrorCode.INVALID_DIMENSION_JOIN,
+                            message=(
+                                f"This dimension attribute cannot be joined in: {attr.name}. "
+                                f"Please make sure that {attr.node_name} is "
+                                f"linked to {self.node_revision.name}"
+                            ),
+                            context=str(self),
+                        ),
+                    )
+                    continue
+
+                # Check if this dimension actually needs a join
+                if join_path and not await needs_dimension_join(
+                    self.session,
+                    attr.name,
+                    join_path,
+                ):
+                    continue
+
+                dimension_join = DimensionJoin(
+                    join_path=join_path,
+                    requested_dimensions=[attr.name],
+                )
+                dimension_node_joins[attr.join_key] = dimension_join
             else:
                 dimension_node_joins[attr.join_key].add_requested_dimension(attr.name)
+
         return dimension_node_joins
 
     @classmethod
@@ -868,41 +1147,6 @@ class QueryBuilder:
                 if filter_dim_id not in necessary_dimensions:
                     necessary_dimensions.append(filter_dim_id)
         return necessary_dimensions
-
-    async def _build_dimension_join_metadata(
-        self,
-        attr: FullColumnName,
-    ) -> DimensionJoin | None:
-        """
-        Builds metadata on dimension joins needed for the query.
-        """
-        join_path = await dimension_join_path(
-            self.session,
-            self.node_revision,
-            attr.name,
-        )
-        if not join_path and join_path != []:
-            self.errors.append(
-                DJQueryBuildError(
-                    code=ErrorCode.INVALID_DIMENSION_JOIN,
-                    message=(
-                        f"This dimension attribute cannot be joined in: {attr.name}. "
-                        f"Please make sure that {attr.node_name} is "
-                        f"linked to {self.node_revision.name}"
-                    ),
-                    context=str(self),
-                ),
-            )
-        if join_path and await needs_dimension_join(
-            self.session,
-            attr.name,
-            join_path,
-        ):
-            return DimensionJoin(
-                join_path=join_path,  # type: ignore
-                requested_dimensions=[attr.name],
-            )
-        return None
 
 
 class CubeQueryBuilder:
@@ -945,6 +1189,8 @@ class CubeQueryBuilder:
         self.errors: list[DJQueryBuildError] = []
         # The final built query AST
         self.final_ast: Optional[ast.Query] = None
+        # Cache for DJ node dependencies to avoid repeated lookups
+        self.dependencies_cache: dict[str, Node] = {}
 
     def get_default_criteria(
         self,
@@ -1219,7 +1465,11 @@ class CubeQueryBuilder:
                 )
                 parent_ast.select.projection.extend(metric_proj)
 
-            ctx = CompileContext(self.session, DJException())
+            ctx = CompileContext(
+                self.session,
+                DJException(),
+                dependencies_cache=self.dependencies_cache,
+            )
             await parent_ast.compile(ctx)
             measures_queries[parent_node.name] = parent_ast
         return measures_queries
@@ -1387,6 +1637,7 @@ async def dimension_join_path(
     session: AsyncSession,
     node: NodeRevision,
     dimension: str,
+    dependencies_cache: Optional[dict] = None,
 ) -> Optional[list[DimensionLink]]:
     """
     Find a join path between this node and the dimension attribute.
@@ -1394,7 +1645,13 @@ async def dimension_join_path(
     * If it is a local dimension on this node, return []
     * If it is in one of the dimension nodes on the dimensions graph, return a
     list of dimension links that represent the join path
+
+    If dependencies_cache is provided, it will be used to look up pre-loaded nodes
+    to avoid additional database queries.
     """
+    if dependencies_cache is None:
+        dependencies_cache = {}
+
     # Check if it is a local dimension
     for col in node.columns:  # pragma: no cover
         # Decide if we should restrict this to only columns marked as dimensional
@@ -1435,31 +1692,47 @@ async def dimension_join_path(
     while processing_queue:
         current_link, join_path, role_idx = processing_queue.popleft()
         if current_link.id in visited:
-            continue
+            continue  # pragma: no cover
         visited.add(current_link.id)
-        await refresh_if_needed(session, current_link, ["dimension"])
-        if current_link.dimension.name == dimension_attr.node_name:
+
+        # Try to use cached node, fall back to ORM relationship
+        dim_name = current_link.dimension.name
+        dim_node = dependencies_cache.get(dim_name)
+
+        if dim_name == dimension_attr.node_name:
             return join_path
 
-        await refresh_if_needed(session, current_link.dimension, ["current"])
-        await refresh_if_needed(
-            session,
-            current_link.dimension.current,
-            ["dimension_links"],
-        )
+        # Get the current revision - use cache if available
+        if dim_node and dim_node.current:
+            current_revision = dim_node.current  # pragma: no cover
+        else:
+            await refresh_if_needed(session, current_link.dimension, ["current"])
+            current_revision = current_link.dimension.current
+
+        if not current_revision:
+            continue  # pragma: no cover
+
+        # Get dimension links from current revision
+        if (
+            dim_node
+            and dim_node.current
+            and dim_node.current.dimension_links is not None
+        ):
+            dim_links = dim_node.current.dimension_links  # pragma: no cover
+        else:
+            await refresh_if_needed(session, current_revision, ["dimension_links"])
+            dim_links = current_revision.dimension_links
+
         layer_with_role = [
             (link, join_path + [link], role_idx + 1)
-            for link in current_link.dimension.current.dimension_links
+            for link in dim_links
             if not role_path or (link.role == role_path[role_idx])
         ]
         if layer_with_role:
             processing_queue.extend(layer_with_role)
         else:
-            processing_queue.extend(
-                [
-                    (link, join_path + [link], role_idx)
-                    for link in current_link.dimension.current.dimension_links
-                ],
+            processing_queue.extend(  # pragma: no cover
+                [(link, join_path + [link], role_idx) for link in dim_links],
             )
     return None
 
@@ -1471,22 +1744,26 @@ async def build_dimension_node_query(
     filters: list[str],
     cte_mapping: dict[str, ast.Query],
     use_materialized: bool = True,
+    dependencies_cache: Optional[dict] = None,
 ):
     """
     Builds a dimension node query with the requested filters
     """
-    await refresh_if_needed(session, link.dimension, ["current"])
-    await refresh_if_needed(
-        session,
-        link.dimension.current,
-        ["availability", "columns"],
-    )
+    if dependencies_cache is None:
+        dependencies_cache = {}  # pragma: no cover
+
+    dim_node = dependencies_cache.get(link.dimension.name)
+    current_revision = dim_node.current  # type: ignore
     physical_table = get_table_for_node(
-        link.dimension.current,
+        current_revision,
         build_criteria=build_criteria,
     )
     dimension_node_ast = (
-        await compile_node_ast(session, link.dimension.current)
+        await compile_node_ast(
+            session,
+            current_revision,
+            dependencies_cache=dependencies_cache,
+        )
         if not physical_table
         else ast.Query(
             select=ast.Select(
@@ -1497,13 +1774,13 @@ async def build_dimension_node_query(
     )
     dimension_node_query = await build_ast(
         session,
-        link.dimension.current,
+        current_revision,
         dimension_node_ast,
         filters=filters,  # type: ignore
         build_criteria=build_criteria,
         ctes_mapping=cte_mapping,
         use_materialized=use_materialized,
-        use_pickled=not physical_table,
+        dependencies_cache=dependencies_cache,
     )
     return dimension_node_query
 
@@ -1559,13 +1836,29 @@ def build_requested_dimensions_columns(
     return dimensions_columns, errors
 
 
-async def compile_node_ast(session, node_revision: NodeRevision) -> ast.Query:
+async def compile_node_ast(
+    session,
+    node_revision: NodeRevision,
+    dependencies_cache: Optional[dict] = None,
+) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
+
+    Args:
+        session: Database session
+        node_revision: The node revision to compile
+        dependencies_cache: Optional shared cache for DJ node lookups.
+                           If provided, node lookups will be cached and reused
+                           across multiple compile_node_ast calls.
     """
     node_ast = parse(node_revision.query)
-    ctx = CompileContext(session, DJException())
+    ctx = CompileContext(
+        session,
+        DJException(),
+        dependencies_cache=dependencies_cache or {},
+    )
     await node_ast.compile(ctx)
+
     return node_ast
 
 
@@ -1725,7 +2018,7 @@ async def build_ast(
     access_control=None,
     ctes_mapping: dict[str, ast.Query] = None,
     use_materialized: bool = True,
-    use_pickled: bool = True,
+    dependencies_cache: Optional[dict] = None,
 ) -> ast.Query:
     """
     Recursively replaces DJ node references with query ASTs. These are replaced with
@@ -1735,23 +2028,13 @@ async def build_ast(
     This function will apply any filters that can be pushed down to each referenced node's AST
     (filters are only applied if they don't require dimension node joins).
     """
-    context = CompileContext(session=session, exception=DJException())
-    await refresh_if_needed(session, node, ["query_ast"])
-    cached_query_ast = node.query_ast
-    if use_pickled and cached_query_ast:
-        try:  # pragma: no cover
-            query = cached_query_ast  # pragma: no cover
-        except TypeError as exc:  # pragma: no cover
-            logger.error(
-                "Error loading query AST pickle for %s@%s: %s",
-                node.name,
-                node.version,
-                exc,
-            )
-            await query.compile(context)
-    else:
-        await query.compile(context)
+    context = CompileContext(
+        session=session,
+        exception=DJException(),
+        dependencies_cache=dependencies_cache or {},
+    )
 
+    await query.compile(context)
     query.bake_ctes()
     await refresh_if_needed(session, node, ["dimension_links"])
 
@@ -1790,6 +2073,7 @@ async def build_ast(
                         access_control=access_control,
                         ctes_mapping=ctes_mapping,
                         use_materialized=use_materialized,
+                        dependencies_cache=dependencies_cache,
                     )
                     cte_name = ast.Name(amenable_name(referenced_node.name))
                     query_ast = query_ast.to_cte(cte_name, parent_ast=query)
