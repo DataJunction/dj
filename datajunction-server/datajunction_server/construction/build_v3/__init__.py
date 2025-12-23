@@ -1,0 +1,36 @@
+"""
+Build V3: Clean SQL Generation
+
+This module provides a clean-slate reimplementation of SQL generation that:
+- Separates measures (pre-aggregated) from metrics (fully computed)
+- Properly handles metric decomposition and derived metrics
+- Supports explicit hierarchies and inferred dimension link chains
+- Respects aggregability rules and required dimensions
+"""
+
+from datajunction_server.construction.build_v3.builder import (
+    build_measures_sql,
+    build_metrics_sql,
+)
+from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    ColumnMetadata,
+    GeneratedMeasuresSQL,
+    GeneratedSQL,
+    GrainGroupSQL,
+)
+from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
+
+__all__ = [
+    # Main entry points
+    "build_measures_sql",
+    "build_metrics_sql",
+    # Context and types
+    "BuildContext",
+    "GeneratedSQL",
+    "GeneratedMeasuresSQL",
+    "GrainGroupSQL",
+    "ColumnMetadata",
+    # Alias registry
+    "AliasRegistry",
+]
