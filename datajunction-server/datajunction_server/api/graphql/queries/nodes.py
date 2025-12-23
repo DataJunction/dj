@@ -44,6 +44,13 @@ async def find_nodes(
             description="Filter to nodes tagged with these tags",
         ),
     ] = None,
+    dimensions: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="Filter to nodes that have ALL of these dimensions. "
+            "Accepts dimension node names or dimension attributes",
+        ),
+    ] = None,
     limit: Annotated[
         int | None,
         strawberry.argument(description="Limit nodes"),
@@ -74,6 +81,7 @@ async def find_nodes(
         fragment,
         node_types,
         tags,
+        dimensions=dimensions,
         limit=limit,
         order_by=order_by,
         ascending=ascending,

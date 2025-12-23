@@ -599,6 +599,7 @@ class Node(Base):
         ascending: bool = False,
         options: list[ExecutableOption] = None,
         mode: NodeMode | None = None,
+        dimensions: list[str] | None = None,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -621,6 +622,17 @@ class Node(Base):
             if not nodes_with_tags:  # pragma: no cover
                 return []
 
+        # Filter by dimensions (supports node names or attributes)
+        nodes_with_dimensions: list[str] | None = None
+        if dimensions:
+            nodes_with_dimensions = await cls._resolve_dimension_filter(
+                session,
+                dimensions,
+                node_types,
+            )
+            if nodes_with_dimensions is None:
+                return []  # Dimension not found
+
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
         # Join NodeRevision if needed for order_by, fragment filtering, or mode filtering
@@ -641,6 +653,10 @@ class Node(Base):
             statement = statement.where(
                 Node.id.in_(nodes_with_tags),
             )  # pragma: no cover
+        if nodes_with_dimensions:
+            statement = statement.where(
+                Node.name.in_(nodes_with_dimensions),
+            )
         if names:
             statement = statement.where(
                 Node.name.in_(names),  # type: ignore
@@ -701,6 +717,62 @@ class Node(Base):
         if before:
             nodes.reverse()
         return nodes
+
+    @classmethod
+    async def _resolve_dimension_filter(
+        cls,
+        session: AsyncSession,
+        dimensions: list[str],
+        node_types: list[NodeType] | None,
+    ) -> list[str] | None:
+        """
+        Resolve dimension inputs to matching node names.
+
+        Accepts both dimension node names (e.g., "default.hard_hat") and
+        dimension attributes (e.g., "default.hard_hat.city").
+
+        Returns None if any dimension input cannot be resolved (no matches possible).
+        """
+        from datajunction_server.sql.dag import get_nodes_with_common_dimensions
+
+        # Build candidates: each input + its parent (before last dot)
+        candidates = set()
+        input_to_candidates = {d: [d] for d in dimensions}
+        for dim in dimensions:
+            candidates.add(dim)
+            if SEPARATOR in dim:  # pragma: no branch
+                parent = dim.rsplit(SEPARATOR, 1)[0]
+                input_to_candidates[dim].append(parent)
+                candidates.add(parent)
+
+        # Find existing nodes among candidates
+        result = await session.execute(
+            select(Node.name).where(
+                Node.name.in_(candidates),
+                is_(Node.deactivated_at, None),
+            ),
+        )
+        existing_names = {row[0] for row in result.all()}
+
+        # Resolve each input to first matching candidate
+        resolved_names = []
+        for dim in dimensions:
+            resolved = next(
+                (c for c in input_to_candidates[dim] if c in existing_names),
+                None,
+            )
+            if not resolved:
+                return None  # Dimension not found, no matches possible
+            if resolved not in resolved_names:  # pragma: no cover
+                resolved_names.append(resolved)
+
+        dim_nodes = await cls.get_by_names(
+            session,
+            resolved_names,
+            include_inactive=False,
+        )
+        result = await get_nodes_with_common_dimensions(session, dim_nodes, node_types)
+        return [n.name for n in result]
 
 
 class CompressedPickleType(TypeDecorator):
