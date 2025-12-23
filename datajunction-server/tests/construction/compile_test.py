@@ -15,17 +15,17 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 @pytest.mark.asyncio
 async def test_get_table_node_is_none(construction_session: AsyncSession):
     """
-    Test a nonexistent table node with compound exception ignore
+    Test a nonexistent table node with compound exception ignore.
     """
 
-    query = parse("select x from purchases")
+    query = parse("select x from default.purchases")
     ctx = CompileContext(
         session=construction_session,
         exception=DJException(),
     )
     await query.compile(ctx)
 
-    assert "No node `purchases`" in str(ctx.exception.errors)
+    assert "No node `default.purchases`" in str(ctx.exception.errors)
 
 
 @pytest.mark.asyncio
