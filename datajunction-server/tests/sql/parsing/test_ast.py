@@ -40,43 +40,43 @@ async def test_ast_compile_table(
 @pytest.mark.asyncio
 async def test_ast_compile_table_missing_node(session: AsyncSession):
     """
-    Test compiling a table when the node is missing
+    Test compiling a table when the node is missing.
     """
-    query = parse("SELECT a FROM foo")
+    query = parse("SELECT a FROM default.foo")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
-    assert "No node `foo` exists of kind" in exc.errors[0].message
+    assert "No node `default.foo` exists of kind" in exc.errors[0].message
 
-    query = parse("SELECT a FROM foo, bar, baz")
+    query = parse("SELECT a FROM default.foo, default.bar, default.baz")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
-    assert "No node `foo` exists of kind" in exc.errors[0].message
+    assert "No node `default.foo` exists of kind" in exc.errors[0].message
     await query.select.from_.relations[1].primary.compile(ctx)  # type: ignore
-    assert "No node `bar` exists of kind" in exc.errors[1].message
+    assert "No node `default.bar` exists of kind" in exc.errors[1].message
     await query.select.from_.relations[2].primary.compile(ctx)  # type: ignore
-    assert "No node `baz` exists of kind" in exc.errors[2].message
+    assert "No node `default.baz` exists of kind" in exc.errors[2].message
 
-    query = parse("SELECT a FROM foo LEFT JOIN bar")
+    query = parse("SELECT a FROM default.foo LEFT JOIN default.bar")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
-    assert "No node `foo` exists of kind" in exc.errors[0].message
+    assert "No node `default.foo` exists of kind" in exc.errors[0].message
     await query.select.from_.relations[0].extensions[0].right.compile(ctx)  # type: ignore
-    assert "No node `bar` exists of kind" in exc.errors[1].message
+    assert "No node `default.bar` exists of kind" in exc.errors[1].message
 
-    query = parse("SELECT a FROM foo LEFT JOIN (SELECT b FROM bar) b")
+    query = parse("SELECT a FROM default.foo LEFT JOIN (SELECT b FROM default.bar) b")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
-    assert "No node `foo` exists of kind" in exc.errors[0].message
+    assert "No node `default.foo` exists of kind" in exc.errors[0].message
     await (
         query.select.from_.relations[0].extensions[0].right.select.from_.relations  # type: ignore
     )[0].primary.compile(
         ctx,
     )
-    assert "No node `bar` exists of kind" in exc.errors[1].message
+    assert "No node `default.bar` exists of kind" in exc.errors[1].message
 
 
 @pytest.mark.asyncio
