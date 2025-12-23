@@ -402,6 +402,11 @@ type Query {
     """Filter to nodes tagged with these tags"""
     tags: [String!] = null
 
+    """
+    Filter to nodes that have ALL of these dimensions. Accepts dimension node names or dimension attributes
+    """
+    dimensions: [String!] = null
+
     """Limit nodes"""
     limit: Int = 1000
     orderBy: NodeSortField! = CREATED_AT
