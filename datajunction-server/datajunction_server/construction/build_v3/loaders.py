@@ -1,0 +1,414 @@
+"""
+Database loading functions
+"""
+
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy import select, text, bindparam
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload, load_only
+
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Node, NodeRevision, Column
+from datajunction_server.models.node_type import NodeType
+
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.types import BuildContext
+from datajunction_server.construction.build_v3.utils import collect_required_dimensions
+
+logger = logging.getLogger(__name__)
+
+
+async def find_upstream_node_names(
+    session: AsyncSession,
+    starting_node_names: list[str],
+) -> tuple[set[str], dict[str, list[str]]]:
+    """
+    Find all upstream node names using a lightweight recursive CTE.
+
+    This returns just node names (not full nodes) to minimize query overhead.
+    Uses NodeRelationship to traverse the parent-child relationships.
+
+    Returns:
+        Tuple of:
+        - Set of all upstream node names (including the starting nodes)
+        - Dict mapping child_name -> list of parent_names (for metrics to find their parents)
+    """
+    if not starting_node_names:  # pragma: no cover
+        return set(), {}
+
+    # Lightweight recursive CTE - returns node names AND parent-child relationships
+    recursive_query = text("""
+        WITH RECURSIVE upstream AS (
+            -- Base case: get the starting nodes' current revision IDs
+            SELECT
+                nr.id as revision_id,
+                n.name as node_name,
+                CAST(NULL AS TEXT) as child_name
+            FROM node n
+            JOIN noderevision nr ON n.id = nr.node_id AND n.current_version = nr.version
+            WHERE n.name IN :starting_names
+            AND n.deactivated_at IS NULL
+
+            UNION
+
+            -- Recursive case: find parents of current nodes
+            SELECT
+                parent_nr.id as revision_id,
+                parent_n.name as node_name,
+                u.node_name as child_name
+            FROM upstream u
+            JOIN noderelationship nrel ON u.revision_id = nrel.child_id
+            JOIN node parent_n ON nrel.parent_id = parent_n.id
+            JOIN noderevision parent_nr ON parent_n.id = parent_nr.node_id
+                AND parent_n.current_version = parent_nr.version
+            WHERE parent_n.deactivated_at IS NULL
+        )
+        SELECT DISTINCT node_name, child_name FROM upstream
+    """).bindparams(bindparam("starting_names", expanding=True))
+
+    result = await session.execute(
+        recursive_query,
+        {"starting_names": list(starting_node_names)},
+    )
+    rows = result.fetchall()
+
+    # Collect all node names and parent relationships
+    all_names: set[str] = set()
+    # child_name -> list of parent_names
+    parent_map: dict[str, list[str]] = {}
+
+    for node_name, child_name in rows:
+        all_names.add(node_name)
+        if child_name:
+            # node_name is the parent of child_name
+            if child_name not in parent_map:
+                parent_map[child_name] = []
+            parent_map[child_name].append(node_name)
+
+    return all_names, parent_map
+
+
+async def find_join_paths_batch(
+    session: AsyncSession,
+    source_revision_ids: set[int],
+    target_dimension_names: set[str],
+    max_depth: int = 100,  # High limit - early termination handles most cases
+) -> dict[tuple[int, str, str], list[int]]:
+    """
+    Find join paths from multiple source nodes to all target dimension nodes
+    using a single recursive CTE query with early termination.
+
+    Args:
+        source_revision_ids: Set of source node revision IDs to find paths from
+        target_dimension_names: Set of dimension node names to find paths to
+        max_depth: Safety limit (default 100, but early termination kicks in first)
+
+    Returns a dict mapping (source_revision_id, dimension_node_name, role_path)
+    to the list of DimensionLink IDs forming the path.
+
+    The role_path is a "->" separated string of roles at each step.
+    Empty roles are represented as empty strings.
+
+    Key optimization: Once a path reaches a target dimension, it stops exploring
+    from that node (no point continuing past a target).
+    """
+    if not target_dimension_names or not source_revision_ids:  # pragma: no cover
+        return {}
+
+    # Single recursive CTE to find all paths to target dimensions
+    # NOTE: We do NOT use early termination based on is_target because
+    # a target node might also be an intermediate hop for multi-hop paths.
+    # For example, v3.customer might be both:
+    # - A target (for v3.customer.name)
+    # - An intermediate hop (for v3.date.year[customer->registration])
+    # Depth limit prevents infinite recursion.
+    recursive_query = text("""
+        WITH RECURSIVE paths AS (
+            -- Base case: first level dimension links from any source node
+            SELECT
+                dl.node_revision_id as source_rev_id,
+                dl.id as link_id,
+                n.name as dim_name,
+                CAST(dl.id AS TEXT) as path,
+                COALESCE(dl.role, '') as role_path,
+                1 as depth,
+                CASE WHEN n.name IN :target_names THEN 1 ELSE 0 END as is_target
+            FROM dimensionlink dl
+            JOIN node n ON dl.dimension_id = n.id
+            WHERE dl.node_revision_id IN :source_revision_ids
+
+            UNION ALL
+
+            -- Recursive case: follow dimension_links from each dimension node
+            -- Continue exploring even from target nodes (they might be intermediate hops)
+            SELECT
+                paths.source_rev_id as source_rev_id,
+                dl2.id as link_id,
+                n2.name as dim_name,
+                paths.path || ',' || CAST(dl2.id AS TEXT) as path,
+                paths.role_path || '->' || COALESCE(dl2.role, '') as role_path,
+                paths.depth + 1 as depth,
+                CASE WHEN n2.name IN :target_names THEN 1 ELSE 0 END as is_target
+            FROM paths
+            JOIN node prev_node ON paths.dim_name = prev_node.name
+            JOIN noderevision nr ON prev_node.current_version = nr.version AND nr.node_id = prev_node.id
+            JOIN dimensionlink dl2 ON dl2.node_revision_id = nr.id
+            JOIN node n2 ON dl2.dimension_id = n2.id
+            WHERE paths.depth < :max_depth
+        )
+        SELECT source_rev_id, dim_name, path, role_path, depth
+        FROM paths
+        WHERE is_target = 1
+        ORDER BY depth ASC
+    """).bindparams(
+        bindparam("source_revision_ids", expanding=True),
+        bindparam("target_names", expanding=True),
+    )
+
+    result = await session.execute(
+        recursive_query,
+        {
+            "source_revision_ids": list(source_revision_ids),
+            "max_depth": max_depth,
+            "target_names": list(target_dimension_names),
+        },
+    )
+    rows = result.fetchall()
+
+    # Build paths dict keyed by (source_rev_id, dim_name, role_path)
+    paths: dict[tuple[int, str, str], list[int]] = {}
+    for source_rev_id, dim_name, path_str, role_path, depth in rows:
+        key = (source_rev_id, dim_name, role_path or "")
+        if key not in paths:  # pragma: no branch
+            paths[key] = [int(x) for x in path_str.split(",")]
+
+    return paths
+
+
+async def load_dimension_links_batch(
+    session: AsyncSession,
+    link_ids: set[int],
+) -> dict[int, DimensionLink]:
+    """
+    Batch load DimensionLinks with minimal data needed for join building.
+    Returns a dict mapping link_id to DimensionLink object.
+
+    Note: Most dimension nodes should already be in ctx.nodes from query2.
+    We load current+query for pre-parsing cache, but skip heavy relationships.
+    """
+    if not link_ids:
+        return {}
+
+    # Load dimension links with minimal eager loading
+    # Need current.query for pre-parsing, but skip columns/dimension_links/etc
+    stmt = (
+        select(DimensionLink)
+        .where(DimensionLink.id.in_(link_ids))
+        .options(
+            joinedload(DimensionLink.dimension).options(
+                joinedload(Node.current).options(
+                    # Only load what's needed for table references and parsing
+                    joinedload(NodeRevision.catalog),
+                    joinedload(NodeRevision.availability),
+                ),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    links = result.scalars().unique().all()
+
+    return {link.id: link for link in links}
+
+
+async def preload_join_paths(
+    ctx: BuildContext,
+    source_revision_ids: set[int],
+    target_dimension_names: set[str],
+) -> None:
+    """
+    Preload all join paths from multiple source nodes to target dimensions.
+
+    Uses a single recursive CTE query to find paths from ALL sources at once,
+    then a single batch load for DimensionLink objects. Results are stored
+    in ctx.join_paths.
+
+    This is O(2) queries regardless of how many source nodes we have.
+    """
+
+    if not target_dimension_names or not source_revision_ids:
+        return
+
+    # Find all paths from all sources using recursive CTE (single query)
+    path_ids = await find_join_paths_batch(
+        ctx.session,
+        source_revision_ids,
+        target_dimension_names,
+    )
+
+    # Collect all link IDs we need to load
+    all_link_ids: set[int] = set()
+    for link_id_list in path_ids.values():
+        all_link_ids.update(link_id_list)
+
+    # Batch load all DimensionLinks (single query)
+    link_dict = await load_dimension_links_batch(ctx.session, all_link_ids)
+
+    # Store in context, keyed by (source_revision_id, dim_name, role_path)
+    for (source_rev_id, dim_name, role_path), link_id_list in path_ids.items():
+        links = [link_dict[lid] for lid in link_id_list if lid in link_dict]
+        ctx.join_paths[(source_rev_id, dim_name, role_path)] = links
+        # Also cache dimension nodes
+        for link in links:
+            if link.dimension and link.dimension.name not in ctx.nodes:
+                ctx.nodes[link.dimension.name] = link.dimension
+
+    logger.debug(
+        f"[BuildV3] Preloaded {len(path_ids)} join paths for "
+        f"{len(source_revision_ids)} sources in 2 queries",
+    )
+
+
+async def load_nodes(ctx: BuildContext) -> None:
+    """
+    Load all nodes needed for SQL generation
+
+    Query 1: Find all upstream node names using lightweight recursive CTE
+    Query 2: Batch load all those nodes with eager loading
+    Query 3-4: Find join paths and batch load dimension links
+    """
+    # Collect initial node names (metrics + explicit dimension nodes)
+    initial_node_names = set(ctx.metrics)
+
+    # Parse dimension references to get target dimension node names
+    target_dim_names: set[str] = set()
+    for dim in ctx.dimensions:
+        dim_ref = parse_dimension_ref(dim)
+        if dim_ref.node_name:  # pragma: no branch
+            initial_node_names.add(dim_ref.node_name)
+            target_dim_names.add(dim_ref.node_name)
+
+    # Find all upstream nodes using a recursive CTE query
+    all_node_names, parent_map = await find_upstream_node_names(
+        ctx.session,
+        list(initial_node_names),
+    )
+
+    # Store parent map in context for later use (e.g., get_parent_node)
+    ctx.parent_map = parent_map
+
+    # Also include the initial nodes themselves
+    all_node_names.update(initial_node_names)
+
+    logger.debug(f"[BuildV3] Found {len(all_node_names)} nodes to load")
+
+    # Query 2: Batch load all nodes with appropriate eager loading
+    stmt = (
+        select(Node)
+        .where(Node.name.in_(all_node_names))
+        .where(Node.deactivated_at.is_(None))
+        .options(
+            load_only(
+                Node.name,
+                Node.type,
+                Node.current_version,
+            ),
+            joinedload(Node.current).options(
+                load_only(
+                    NodeRevision.name,
+                    NodeRevision.query,
+                    NodeRevision.schema_,
+                    NodeRevision.table,
+                ),
+                selectinload(NodeRevision.columns).options(
+                    load_only(
+                        Column.name,
+                        Column.type,
+                    ),
+                ),
+                joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.required_dimensions).options(
+                    # Load the node_revision and node to reconstruct full dimension path
+                    joinedload(Column.node_revision).options(
+                        joinedload(NodeRevision.node),
+                    ),
+                ),
+                joinedload(NodeRevision.availability),  # For materialization support
+            ),
+        )
+    )
+
+    result = await ctx.session.execute(stmt)
+    nodes = result.scalars().unique().all()
+
+    # Cache all loaded nodes
+    for node in nodes:
+        ctx.nodes[node.name] = node
+
+    # Collect required dimensions from metrics and add to context
+    # Required dimensions are stored as Column objects, so they don't have role info.
+    # We need to check if a user-requested dimension already covers the same (node, column).
+    required_dims = collect_required_dimensions(ctx.nodes, ctx.metrics)
+    for req_dim in required_dims:
+        dim_ref = parse_dimension_ref(req_dim)
+        if dim_ref.node_name:  # pragma: no branch
+            target_dim_names.add(dim_ref.node_name)
+
+            # Check if any existing dimension already covers this (node, column)
+            # This handles cases like: user requests v3.date.week[order],
+            # required dim is v3.date.week (no role) - they're the same column
+            is_covered = False
+            for existing_dim in ctx.dimensions:
+                existing_ref = parse_dimension_ref(existing_dim)
+                if (
+                    existing_ref.node_name == dim_ref.node_name
+                    and existing_ref.column_name == dim_ref.column_name
+                ):
+                    is_covered = True
+                    logger.debug(
+                        f"[BuildV3] Required dimension {req_dim} already covered by {existing_dim}",
+                    )
+                    break
+
+            if not is_covered:
+                logger.info(
+                    f"[BuildV3] Auto-adding required dimension {req_dim} from metric",
+                )
+                ctx.dimensions.append(req_dim)
+
+    # Collect parent revision IDs for join path lookup (using parent_map from Query 1)
+    # For derived metrics, we need to recursively find fact parents through the metric chain
+    parent_revision_ids: set[int] = set()
+
+    def collect_fact_parents(metric_name: str, visited: set[str]) -> None:
+        """Recursively collect fact/transform parent revision IDs from metrics."""
+        if metric_name in visited:  # pragma: no cover
+            return
+        visited.add(metric_name)
+
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node:  # pragma: no cover
+            return
+
+        parent_names = ctx.parent_map.get(metric_name, [])
+        for parent_name in parent_names:
+            parent_node = ctx.nodes.get(parent_name)
+            if not parent_node:  # pragma: no cover
+                continue
+
+            if parent_node.type == NodeType.METRIC:
+                # Parent is another metric - recurse to find its fact parents
+                collect_fact_parents(parent_name, visited)
+            elif parent_node.current:  # pragma: no branch
+                # Parent is a fact/transform - collect its revision ID
+                parent_revision_ids.add(parent_node.current.id)
+
+    for metric_name in ctx.metrics:
+        collect_fact_parents(metric_name, set())
+
+    logger.debug(f"[BuildV3] Loaded {len(ctx.nodes)} nodes")
+
+    # Preload join paths for ALL parent nodes in a single batch
+    await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
