@@ -508,9 +508,25 @@ async def get_dimension_attributes(
         ),
     )
     if node.type == NodeType.METRIC:
+        # For metrics, check if it's a base metric (parent is non-metric) or
+        # derived metric (parent is another metric)
         await refresh_if_needed(session, node.current, ["parents"])
-        node = node.current.parents[0]
-        await refresh_if_needed(session, node, ["current"])
+        first_parent = node.current.parents[0]
+        await refresh_if_needed(session, first_parent, ["current"])
+
+        if first_parent.type == NodeType.METRIC:
+            # Derived metric - use get_dimensions which handles intersection
+            dimensions = cast(
+                list[DimensionAttributeOutput],
+                await get_dimensions(session, node, with_attributes=True),
+            )
+            # Prepend the metric's name to each dimension's path
+            for dim in dimensions:
+                dim.path = [node_name] + dim.path
+            return dimensions
+        else:
+            # Base metric - use the parent directly (original behavior)
+            node = first_parent
 
     # Discover all dimension nodes in the given node's dimensions graph
     dimension_nodes_and_paths = await get_dimension_nodes(
@@ -949,23 +965,55 @@ async def get_dimensions(
     Return all available dimensions for a given node.
     * Setting `attributes` to True will return a list of dimension attributes,
     * Setting `attributes` to False will return a list of dimension nodes
+
+    For metrics, returns the intersection of dimensions available from
+    all non-metric parents.
     """
-    if node.type == NodeType.METRIC:
-        dag = await get_dimensions_dag(
-            session,
-            node.current.parents[0].current,
-            with_attributes,
-            depth=depth,
-        )
-    else:
+    if node.type != NodeType.METRIC:
         await session.refresh(node, attribute_names=["current"])
-        dag = await get_dimensions_dag(
+        return await get_dimensions_dag(
             session,
             node.current,
             with_attributes,
             depth=depth,
         )
-    return dag
+
+    # For metrics, get ultimate non-metric parents
+    # This handles both base metrics (returns immediate parents) and
+    # derived metrics (returns base metrics' parents)
+    ultimate_parents = await get_metric_parents(session, [node])
+
+    if not ultimate_parents:
+        return []  # pragma: no cover
+
+    # Get dimensions for all ultimate parents
+    all_dimensions: List[List[DimensionAttributeOutput]] = []
+    for parent in ultimate_parents:
+        await session.refresh(parent, attribute_names=["current"])
+        parent_dims = await get_dimensions_dag(
+            session,
+            parent.current,
+            with_attributes,
+            depth=depth,
+        )
+        all_dimensions.append(parent_dims)
+
+    if not all_dimensions:
+        return []  # pragma: no cover
+
+    if len(all_dimensions) == 1:
+        return all_dimensions[0]
+
+    # Find intersection by dimension name
+    common_names = set(d.name for d in all_dimensions[0])
+    for dims in all_dimensions[1:]:
+        common_names &= set(d.name for d in dims)
+
+    # Return dimensions from first parent that are in the intersection
+    return sorted(
+        [d for d in all_dimensions[0] if d.name in common_names],
+        key=lambda x: (x.name, ",".join(x.path)),
+    )
 
 
 async def get_filter_only_dimensions(
@@ -1035,8 +1083,18 @@ async def get_metric_parents(
     metric_nodes: list[Node],
 ) -> list[Node]:
     """
-    Return a list of parent nodes of the metrics
+    Return a list of non-metric parent nodes of the metrics.
+
+    For derived metrics (metrics that reference base metrics), returns the
+    non-metric parents of those base metrics.
+
+    Note: Only 1 level of metric nesting is supported. Derived metrics can
+    reference base metrics, but not other derived metrics.
     """
+    if not metric_nodes:
+        return []  # pragma: no cover
+
+    # Query 1: Get all immediate parents for the input metrics
     find_latest_node_revisions = [
         and_(
             NodeRevision.name == metric_node.name,
@@ -1058,7 +1116,42 @@ async def get_metric_parents(
             ),
         )
     )
-    return list(set((await session.execute(statement)).scalars().all()))
+    immediate_parents = list(set((await session.execute(statement)).scalars().all()))
+
+    # Separate metric and non-metric parents
+    metric_parents = [p for p in immediate_parents if p.type == NodeType.METRIC]
+    non_metric_parents = [p for p in immediate_parents if p.type != NodeType.METRIC]
+
+    # Query 2: For metric parents (base metrics), get their parents
+    # With 1-level nesting, these must be non-metrics
+    if metric_parents:
+        find_base_metric_revisions = [
+            and_(
+                NodeRevision.name == m.name,
+                NodeRevision.version == m.current_version,
+            )
+            for m in metric_parents
+        ]
+        statement = (
+            select(Node)
+            .where(or_(*find_base_metric_revisions))
+            .select_from(
+                join(
+                    join(
+                        NodeRevision,
+                        NodeRelationship,
+                    ),
+                    Node,
+                    NodeRelationship.parent_id == Node.id,
+                ),
+            )
+        )
+        base_metric_parents = list(
+            set((await session.execute(statement)).scalars().all()),
+        )
+        non_metric_parents.extend(base_metric_parents)
+
+    return list(set(non_metric_parents))
 
 
 async def get_common_dimensions(session: AsyncSession, nodes: list[Node]):
