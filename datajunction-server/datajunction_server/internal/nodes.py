@@ -645,7 +645,10 @@ async def create_cube_node_revision(
 
 async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     """
-    Find or create frozen measures
+    Find or create frozen measures for a metric.
+
+    For base metrics: extracts aggregation components from the metric query.
+    For derived metrics: collects components from referenced base metrics.
     """
     async with session_context() as session:
         node_revision = cast(
@@ -660,17 +663,22 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
         )
         if not node_revision:
             return []  # pragma: no cover
-        extractor = MetricComponentExtractor.from_query_string(
-            node_revision.query.lower(),
-        )
-        measures, derived_sql = extractor.extract()
-        node_revision.derived_expression = str(derived_sql)
 
         frozen_measures: list[FrozenMeasure] = []
         if not node_revision.parents:
             return frozen_measures  # pragma: no cover
 
+        # Extract components using the node revision ID
+        # The extractor will automatically detect base vs derived metrics
+        extractor = MetricComponentExtractor(node_revision.id)
+        measures, derived_sql = await extractor.extract(session)
+
+        node_revision.derived_expression = str(derived_sql)
+
+        # Use the first direct parent for the frozen measure upstream_revision_id
         await session.refresh(node_revision.parents[0], ["current"])
+        upstream_revision_id = node_revision.parents[0].current.id
+
         for measure in measures:
             frozen_measure = await FrozenMeasure.get_by_name(
                 session=session,
@@ -679,7 +687,7 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
             if not frozen_measure and measure.aggregation:
                 frozen_measure = FrozenMeasure(
                     name=measure.name,
-                    upstream_revision_id=node_revision.parents[0].current.id,
+                    upstream_revision_id=upstream_revision_id,
                     expression=measure.expression,
                     aggregation=measure.aggregation,
                     rule=measure.rule,
