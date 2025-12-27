@@ -1834,7 +1834,10 @@ class SqlBaseLexer(Lexer):
         * by a space. 34.E2 is a valid decimal token because it is followed by symbol '+'
         * which is not a digit or letter or underscore.
         """
-        nextChar = chr(self._input.LA(1))
+        nextCharCode = self._input.LA(1)
+        if nextCharCode == -1:  # EOF - end of input is a valid delimiter
+            return True
+        nextChar = chr(nextCharCode)
         if (
             nextChar >= 'A'
             and nextChar <= 'Z' 
@@ -1853,7 +1856,10 @@ class SqlBaseLexer(Lexer):
         it as a bracketed comment.
         Returns true if the next character is '+'.
         """
-        nextChar = chr(self._input.LA(1))
+        nextCharCode = self._input.LA(1)
+        if nextCharCode == -1:  # EOF
+            return False
+        nextChar = chr(nextCharCode)
         if nextChar == '+':
             return True
         else:
