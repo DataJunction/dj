@@ -201,3 +201,30 @@ def test_antlr4_arithmetic_unary_op():
         expr=ast.Column(name=ast.Name(name="a")),
     )
     assert "~a" in str(query_ast)
+
+
+def test_antlr4_decimal_at_eof():
+    """
+    Test parsing expressions with decimal numbers at end of input.
+
+    This tests a fix for a bug where the lexer's isValidDecimal() method
+    would crash with `chr(-1)` ValueError when a decimal like `3600.0`
+    appeared at the end of the input string (EOF).
+    """
+    # Simple decimal at EOF
+    query_ast = parse("SELECT 3600.0")
+    assert "3600.0" in str(query_ast)
+
+    # Expression with decimal at EOF
+    query_ast = parse("SELECT x / 3600.0")
+    assert "3600.0" in str(query_ast)
+    assert "/" in str(query_ast)
+
+    # Multiple decimals, last one at EOF
+    query_ast = parse("SELECT 1.5 + 2.5")
+    assert "1.5" in str(query_ast)
+    assert "2.5" in str(query_ast)
+
+    # Decimal with scientific notation at EOF (normalized to 150.0)
+    query_ast = parse("SELECT 1.5E2")
+    assert "150.0" in str(query_ast)
