@@ -129,8 +129,13 @@ async def find_join_paths_batch(
     if not target_dimension_names or not source_revision_ids:
         return {}
 
-    # Single recursive CTE with early termination
-    # Once we reach a target dimension, don't continue exploring from it
+    # Single recursive CTE to find all paths to target dimensions
+    # NOTE: We do NOT use early termination based on is_target because
+    # a target node might also be an intermediate hop for multi-hop paths.
+    # For example, v3.customer might be both:
+    # - A target (for v3.customer.name)
+    # - An intermediate hop (for v3.date.year[customer->registration])
+    # Depth limit prevents infinite recursion.
     recursive_query = text("""
         WITH RECURSIVE paths AS (
             -- Base case: first level dimension links from any source node
@@ -149,7 +154,7 @@ async def find_join_paths_batch(
             UNION ALL
 
             -- Recursive case: follow dimension_links from each dimension node
-            -- STOP exploring from nodes that are already targets (early termination)
+            -- Continue exploring even from target nodes (they might be intermediate hops)
             SELECT
                 paths.source_rev_id as source_rev_id,
                 dl2.id as link_id,
@@ -164,7 +169,6 @@ async def find_join_paths_batch(
             JOIN dimensionlink dl2 ON dl2.node_revision_id = nr.id
             JOIN node n2 ON dl2.dimension_id = n2.id
             WHERE paths.depth < :max_depth
-              AND paths.is_target = 0  -- Don't continue from target nodes
         )
         SELECT source_rev_id, dim_name, path, role_path, depth
         FROM paths

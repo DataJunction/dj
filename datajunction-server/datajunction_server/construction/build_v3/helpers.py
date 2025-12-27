@@ -1716,9 +1716,10 @@ def parse_filter(filter_str: str) -> ast.Expression:
     Returns:
         The parsed AST expression
 
-    Example:
-        >>> expr = parse_filter("v3.product.category = 'Electronics'")
-        >>> # Returns ast.BinaryOp with comparison
+    Example::
+
+        expr = parse_filter("v3.product.category = 'Electronics'")
+        # Returns ast.BinaryOp with comparison
     """
     # Parse as "SELECT 1 WHERE <filter>" and extract the WHERE clause
     query = parse(f"SELECT 1 WHERE {filter_str}")
@@ -1746,11 +1747,12 @@ def resolve_filter_references(
     Returns:
         The modified filter AST (same object, mutated in place)
 
-    Example:
-        >>> filter_ast = parse_filter("v3.product.category = 'Electronics'")
-        >>> aliases = {"v3.product.category": "category"}
-        >>> resolve_filter_references(filter_ast, aliases, "t2")
-        >>> # Now filter_ast contains "t2.category = 'Electronics'"
+    Example::
+
+        filter_ast = parse_filter("v3.product.category = 'Electronics'")
+        aliases = {"v3.product.category": "category"}
+        resolve_filter_references(filter_ast, aliases, "t2")
+        # Now filter_ast contains "t2.category = 'Electronics'"
     """
 
     def resolve_refs(node: ast.Expression) -> None:
@@ -1808,11 +1810,12 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
     Returns:
         Combined expression or None if empty list
 
-    Example:
-        >>> f1 = parse_filter("status = 'active'")
-        >>> f2 = parse_filter("year >= 2024")
-        >>> combined = combine_filters([f1, f2])
-        >>> # Returns (status = 'active') AND (year >= 2024)
+    Example::
+
+        f1 = parse_filter("status = 'active'")
+        f2 = parse_filter("year >= 2024")
+        combined = combine_filters([f1, f2])
+        # Returns (status = 'active') AND (year >= 2024)
     """
     if not filters:
         return None
@@ -1844,10 +1847,11 @@ def parse_and_resolve_filters(
     Returns:
         Combined filter expression or None if no filters
 
-    Example:
-        >>> filters = ["v3.product.category = 'Electronics'", "status = 'active'"]
-        >>> aliases = {"v3.product.category": "category", "status": "status"}
-        >>> where_clause = parse_and_resolve_filters(filters, aliases, "t1")
+    Example::
+
+        filters = ["v3.product.category = 'Electronics'", "status = 'active'"]
+        aliases = {"v3.product.category": "category", "status": "status"}
+        where_clause = parse_and_resolve_filters(filters, aliases, "t1")
     """
     if not filter_strs:
         return None
