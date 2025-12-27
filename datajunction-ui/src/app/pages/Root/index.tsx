@@ -66,6 +66,11 @@ export function Root() {
               </span>
               <span className="menu-link">
                 <span className="menu-title">
+                  <a href="/materialization-planner">Planner</a>
+                </span>
+              </span>
+              <span className="menu-link">
+                <span className="menu-title">
                   <div className="dropdown">
                     <a
                       className="btn btn-link dropdown-toggle"
