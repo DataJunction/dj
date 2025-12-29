@@ -270,7 +270,7 @@ async def validate_node_data(
         ]
         # Get required dimensions as strings (may be Column objects if already resolved)
         required_dim_strings = [
-            col.name if isinstance(col, Column) else col
+            col.full_name() if isinstance(col, Column) else col
             for col in validated_node.required_dimensions
         ]
         (
