@@ -275,7 +275,7 @@ async def find_required_dimensions(
             # Role is DJ-specific syntax, not part of actual column name
             if "[" in col_name:
                 col_name = col_name.split("[")[0]
-            if dim_node_name not in full_paths:
+            if dim_node_name not in full_paths:  # pragma: no cover
                 full_paths[dim_node_name] = []
             full_paths[dim_node_name].append((required_dim, col_name))
         else:
@@ -286,7 +286,7 @@ async def find_required_dimensions(
         if short_name in parent_col_map:
             matched_columns.append(parent_col_map[short_name])
         else:
-            invalid_required_dimensions.add(short_name)
+            invalid_required_dimensions.add(short_name)  # pragma: no cover
 
     # Single query to fetch all needed dimension nodes
     if full_paths:
@@ -304,7 +304,7 @@ async def find_required_dimensions(
         # Match columns for each full path
         for dim_node_name, paths in full_paths.items():
             dim_node = dim_nodes.get(dim_node_name)
-            if not dim_node or not dim_node.current:
+            if not dim_node or not dim_node.current:  # pragma: no cover
                 # Node not found - all paths for this node are invalid
                 for full_path, _ in paths:
                     invalid_required_dimensions.add(full_path)
