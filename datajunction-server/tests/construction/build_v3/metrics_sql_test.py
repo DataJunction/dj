@@ -847,23 +847,23 @@ class TestMetricsSQLCrossFact:
             ),
             order_details_0 AS (
             SELECT  t2.category,
-                t3.week,
                 t3.month,
+                t3.week,
                 t1.order_id,
                 SUM(t1.line_total) total_revenue
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t2.category, t3.week, t3.month, t1.order_id
+            GROUP BY  t2.category, t3.month, t3.week, t1.order_id
             )
 
             SELECT  COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.week) AS week,
                 COALESCE(order_details_0.month) AS month,
+                COALESCE(order_details_0.week) AS week,
                 (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_revenue_change,
                 (CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_order_growth,
                 (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) , 0) * 100 AS mom_revenue_change
             FROM order_details_0
-            GROUP BY  order_details_0.category, order_details_0.week, order_details_0.month
+            GROUP BY  order_details_0.category, order_details_0.month, order_details_0.week
         """,
         )
         assert result["columns"] == [
@@ -874,14 +874,14 @@ class TestMetricsSQLCrossFact:
                 "type": "string",
             },
             {
-                "name": "week",
-                "semantic_entity": "v3.date.week",
+                "name": "month",
+                "semantic_entity": "v3.date.month",
                 "semantic_type": "dimension",
                 "type": "int",
             },
             {
-                "name": "month",
-                "semantic_entity": "v3.date.month",
+                "name": "week",
+                "semantic_entity": "v3.date.week",
                 "semantic_type": "dimension",
                 "type": "int",
             },

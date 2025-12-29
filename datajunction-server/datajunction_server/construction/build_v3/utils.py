@@ -143,6 +143,7 @@ def collect_required_dimensions(
                     required_dims.add(full_path)
                 else:
                     # Fallback: just use the column name (shouldn't happen)
-                    required_dims.add(col.name)
+                    required_dims.add(col.name)  # pragma: no cover
 
-    return list(required_dims)
+    # Sort for deterministic ordering
+    return sorted(required_dims)
