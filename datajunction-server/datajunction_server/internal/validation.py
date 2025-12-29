@@ -6,7 +6,7 @@ from typing import Dict, List, Set, Union
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.helpers import find_bound_dimensions
+from datajunction_server.api.helpers import find_required_dimensions
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.errors import (
@@ -261,11 +261,25 @@ async def validate_node_data(
         if column:
             node_validator.columns.append(column)
 
-    # check that bound dimensions are from parent nodes
+    # Find required dimension columns from full dimension paths
+    # e.g., "common.dimensions.date.dateint" -> find column "dateint" on node "common.dimensions.date"
     try:
-        invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
-            validated_node,
-            dependencies_map,
+        # Get parent columns for short name lookups
+        parent_columns = [
+            col for parent in dependencies_map.keys() for col in parent.columns
+        ]
+        # Get required dimensions as strings (may be Column objects if already resolved)
+        required_dim_strings = [
+            col.full_name() if isinstance(col, Column) else col
+            for col in validated_node.required_dimensions
+        ]
+        (
+            invalid_required_dimensions,
+            matched_bound_columns,
+        ) = await find_required_dimensions(
+            session,
+            required_dim_strings,
+            parent_columns,
         )
         node_validator.required_dimensions = matched_bound_columns
     except MissingGreenlet:

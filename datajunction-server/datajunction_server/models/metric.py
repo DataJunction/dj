@@ -14,7 +14,7 @@ from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricMetadataOutput,
 )
-from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.models.sql import TranspiledSQL
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
@@ -113,3 +113,17 @@ class TranslatedSQL(TranspiledSQL):
             dialect=dialect,
             **{k: v for k, v in kwargs.items() if k not in {"sql", "dialect"}},
         )
+
+
+class V3TranslatedSQL(BaseModel):
+    """
+    SQL response model for V3 SQL generation endpoints.
+
+    This is a cleaner response model specifically for V3 that:
+    - Uses V3ColumnMetadata (no legacy column/node fields)
+    - Has required fields (not optional like legacy TranslatedSQL)
+    """
+
+    sql: str
+    columns: List[V3ColumnMetadata]
+    dialect: Dialect

@@ -240,29 +240,86 @@ async def get_query(
     return query_ast
 
 
-def find_bound_dimensions(
-    validated_node: NodeRevision,
-    dependencies_map: Dict[NodeRevision, List[ast.Table]],
+async def find_required_dimensions(
+    session: AsyncSession,
+    required_dimensions: list[str],
+    parent_columns: list[Column],
 ) -> Tuple[Set[str], List[Column]]:
     """
-    Finds the matched required dimensions
+    Find Column objects for required dimension paths.
+
+    Required dimensions can be specified as:
+    - Full path: "common.dimensions.date.dateint" -> look up dimension node and find column
+    - Short name: "status" -> find in parent_columns
+
+    Uses a single DB query to fetch all needed dimension nodes.
+
+    Returns:
+        Tuple of (invalid dimension paths, matched Column objects)
     """
-    invalid_required_dimensions = set()
-    matched_bound_columns = []
-    required_dimensions_mapping = {}
-    for col in validated_node.required_dimensions:
-        column_name = col.name if isinstance(col, Column) else col
-        for parent in dependencies_map.keys():
-            parent_columns = {
-                parent_col.name: parent_col for parent_col in parent.columns
-            }
-            required_dimensions_mapping[column_name] = parent_columns.get(column_name)
-    for column_name, required_column in required_dimensions_mapping.items():
-        if required_column is not None:
-            matched_bound_columns.append(required_column)
+    invalid_required_dimensions: Set[str] = set()
+    matched_columns: List[Column] = []
+
+    # Build lookup for parent columns
+    parent_col_map = {col.name: col for col in parent_columns}
+
+    # Separate full paths from short names
+    # full_paths: {dim_node_name: [(full_path, col_name), ...]}
+    full_paths: Dict[str, List[Tuple[str, str]]] = {}
+    short_names: List[str] = []
+
+    for required_dim in required_dimensions:
+        if SEPARATOR in required_dim:
+            dim_node_name, col_name = required_dim.rsplit(SEPARATOR, 1)
+            # Strip role suffix if present (e.g., "week[order]" -> "week")
+            # Role is DJ-specific syntax, not part of actual column name
+            if "[" in col_name:
+                col_name = col_name.split("[")[0]
+            if dim_node_name not in full_paths:  # pragma: no cover
+                full_paths[dim_node_name] = []
+            full_paths[dim_node_name].append((required_dim, col_name))
         else:
-            invalid_required_dimensions.add(column_name)
-    return invalid_required_dimensions, matched_bound_columns  # type: ignore
+            short_names.append(required_dim)
+
+    # Handle short names from parent columns
+    for short_name in short_names:
+        if short_name in parent_col_map:
+            matched_columns.append(parent_col_map[short_name])
+        else:
+            invalid_required_dimensions.add(short_name)  # pragma: no cover
+
+    # Single query to fetch all needed dimension nodes
+    if full_paths:
+        result = await session.execute(
+            select(Node)
+            .filter(Node.name.in_(full_paths.keys()))
+            .options(
+                selectinload(Node.current).options(
+                    selectinload(NodeRevision.columns),
+                ),
+            ),
+        )
+        dim_nodes = {node.name: node for node in result.scalars().all()}
+
+        # Match columns for each full path
+        for dim_node_name, paths in full_paths.items():
+            dim_node = dim_nodes.get(dim_node_name)
+            if not dim_node or not dim_node.current:  # pragma: no cover
+                # Node not found - all paths for this node are invalid
+                for full_path, _ in paths:
+                    invalid_required_dimensions.add(full_path)
+                continue
+
+            # Build column lookup for this dimension
+            dim_col_map = {col.name: col for col in dim_node.current.columns}
+
+            for full_path, col_name in paths:
+                if col_name in dim_col_map:
+                    matched_columns.append(dim_col_map[col_name])
+                else:
+                    invalid_required_dimensions.add(full_path)
+
+    return invalid_required_dimensions, matched_columns
 
 
 async def resolve_downstream_references(
