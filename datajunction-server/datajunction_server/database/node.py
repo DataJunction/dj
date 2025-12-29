@@ -599,7 +599,13 @@ class Node(Base):
         ascending: bool = False,
         options: list[ExecutableOption] = None,
         mode: NodeMode | None = None,
+        owned_by: str | None = None,
+        missing_description: bool = False,
+        missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        statuses: list[NodeStatus] | None = None,
+        has_materialization: bool = False,
+        orphaned_dimension: bool = False,
     ) -> List["Node"]:
         """
         Finds a list of nodes by prefix
@@ -676,15 +682,86 @@ class Node(Base):
         if edited_by:
             edited_node_subquery = (
                 select(History.entity_name)
-                .where((History.user == edited_by))
+                .where(History.user == edited_by)
                 .distinct()
                 .subquery()
             )
+            # Use WHERE IN instead of JOIN + DISTINCT to avoid ORDER BY conflicts
+            statement = statement.where(
+                Node.name.in_(select(edited_node_subquery.c.entity_name)),
+            )
 
-            statement = statement.join(
-                edited_node_subquery,
-                onclause=(edited_node_subquery.c.entity_name == Node.name),
-            ).distinct()
+        # Filter by owner username
+        if owned_by:
+            from datajunction_server.database.nodeowner import NodeOwner
+
+            owned_node_subquery = (
+                select(NodeOwner.node_id)
+                .join(User, NodeOwner.user_id == User.id)
+                .where(User.username == owned_by)
+                .distinct()
+                .subquery()
+            )
+            statement = statement.where(Node.id.in_(select(owned_node_subquery)))
+
+        # Filter nodes missing descriptions (actionable item)
+        if missing_description:
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            statement = statement.where(
+                or_(
+                    NodeRevisionAlias.description.is_(None),
+                    NodeRevisionAlias.description == "",
+                ),
+            )
+
+        # Filter nodes missing owners (actionable item)
+        if missing_owner:
+            from datajunction_server.database.nodeowner import NodeOwner
+
+            nodes_with_owners_subquery = select(NodeOwner.node_id).distinct().subquery()
+            statement = statement.where(
+                ~Node.id.in_(select(nodes_with_owners_subquery)),
+            )
+
+        # Filter by node statuses
+        if statuses:
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            statement = statement.where(NodeRevisionAlias.status.in_(statuses))
+
+        # Filter to nodes with materializations configured
+        if has_materialization:
+            from datajunction_server.database.materialization import Materialization
+
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            nodes_with_mat_subquery = (
+                select(Materialization.node_revision_id)
+                .where(Materialization.deactivated_at.is_(None))
+                .distinct()
+                .subquery()
+            )
+            statement = statement.where(
+                NodeRevisionAlias.id.in_(select(nodes_with_mat_subquery)),
+            )
+
+        # Filter to orphaned dimensions (dimension nodes not linked to by any other node)
+        if orphaned_dimension:
+            from datajunction_server.database.dimensionlink import DimensionLink
+
+            # Only dimension nodes can be orphaned
+            statement = statement.where(Node.type == NodeType.DIMENSION)
+            # Find dimensions that have no DimensionLink pointing to them
+            linked_dimension_subquery = (
+                select(DimensionLink.dimension_id).distinct().subquery()
+            )
+            statement = statement.where(
+                ~Node.id.in_(select(linked_dimension_subquery)),
+            )
 
         if after:
             cursor = NodeCursor.decode(after)

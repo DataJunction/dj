@@ -9,6 +9,7 @@ import strawberry
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import find_nodes_by
+from datajunction_server.models.node import NodeCursor, NodeMode, NodeStatus, NodeType
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.node import Node, NodeSortField
 from datajunction_server.models.node import NodeCursor, NodeMode, NodeType
@@ -131,6 +132,42 @@ async def find_nodes_paginated(
             description="Filter to nodes with this mode (published or draft)",
         ),
     ] = None,
+    owned_by: Annotated[
+        str | None,
+        strawberry.argument(
+            description="Filter to nodes owned by this user",
+        ),
+    ] = None,
+    missing_description: Annotated[
+        bool,
+        strawberry.argument(
+            description="Filter to nodes missing descriptions (for data quality checks)",
+        ),
+    ] = False,
+    missing_owner: Annotated[
+        bool,
+        strawberry.argument(
+            description="Filter to nodes without any owners (for data quality checks)",
+        ),
+    ] = False,
+    statuses: Annotated[
+        list[NodeStatus] | None,
+        strawberry.argument(
+            description="Filter to nodes with these statuses (e.g., VALID, INVALID)",
+        ),
+    ] = None,
+    has_materialization: Annotated[
+        bool,
+        strawberry.argument(
+            description="Filter to nodes that have materializations configured",
+        ),
+    ] = False,
+    orphaned_dimension: Annotated[
+        bool,
+        strawberry.argument(
+            description="Filter to dimension nodes that are not linked to by any other node",
+        ),
+    ] = False,
     after: str | None = None,
     before: str | None = None,
     limit: Annotated[
@@ -161,6 +198,12 @@ async def find_nodes_paginated(
         order_by,
         ascending,
         mode,
+        owned_by,
+        missing_description,
+        missing_owner,
+        statuses,
+        has_materialization,
+        orphaned_dimension,
     )
     return Connection.from_list(
         items=nodes_list,
