@@ -727,10 +727,16 @@ class Node(Base):
 
         # Filter by node statuses
         if statuses:
+            print("statuses", statuses)
             if not join_revision:
                 statement = statement.join(NodeRevisionAlias, Node.current)
                 join_revision = True
-            statement = statement.where(NodeRevisionAlias.status.in_(statuses))
+            # Strawberry enums need to be converted to their lowercase values for DB comparison
+            status_values = [
+                s.value.lower() if hasattr(s, "value") else str(s).lower()
+                for s in statuses
+            ]
+            statement = statement.where(NodeRevisionAlias.status.in_(status_values))
 
         # Filter to nodes with materializations configured
         if has_materialization:
