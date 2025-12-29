@@ -89,7 +89,7 @@ class TestMeasuresSQLEndpoint:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -169,19 +169,19 @@ class TestMeasuresSQLEndpoint:
         assert gg["columns"] == [
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "max_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.max_unit_price",
                 "semantic_type": "metric",
             },
             {
                 "name": "min_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.min_unit_price",
                 "semantic_type": "metric",
             },
@@ -248,7 +248,7 @@ class TestDimensionJoins:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -295,13 +295,13 @@ class TestDimensionJoins:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_quantity",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.total_quantity",
                 "semantic_type": "metric",
             },
@@ -419,13 +419,13 @@ class TestDimensionJoins:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_quantity",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.total_quantity",
                 "semantic_type": "metric",
             },
@@ -666,7 +666,7 @@ class TestMeasuresSQLRoles:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -753,7 +753,7 @@ class TestMeasuresSQLRoles:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -924,13 +924,13 @@ class TestMeasuresSQLMultipleMetrics:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_quantity",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.total_quantity",
                 "semantic_type": "metric",
             },
@@ -1016,22 +1016,22 @@ class TestMeasuresSQLMultipleMetrics:
         # Sort by name for deterministic comparison
         components = sorted(gg["components"], key=lambda c: c["name"])
 
-        # total_quantity component
-        assert components[0]["name"] == "line_total_sum_e1f61696"
-        assert components[0]["expression"] == "line_total"
-        assert components[0]["aggregation"] == "SUM"
-        assert components[0]["merge"] == "SUM"
-        assert components[0]["aggregability"] == "full"
-
         # order_count component (LIMITED - grain column)
-        assert components[1]["name"] == "order_id_distinct_f93d50ab"
-        assert components[1]["expression"] == "order_id"
-        assert components[1]["aggregation"] is None  # Grain column, no aggregation
-        assert components[1]["aggregability"] == "limited"
+        assert components[0]["name"] == "order_id_distinct_f93d50ab"
+        assert components[0]["expression"] == "order_id"
+        assert components[0]["aggregation"] is None  # Grain column, no aggregation
+        assert components[0]["aggregability"] == "limited"
 
         # total_revenue component
-        assert components[2]["name"] == "quantity_sum_06b64d2e"
-        assert components[2]["expression"] == "quantity"
+        assert components[1]["name"] == "quantity_sum_06b64d2e"
+        assert components[1]["expression"] == "quantity"
+        assert components[1]["aggregation"] == "SUM"
+        assert components[1]["merge"] == "SUM"
+        assert components[1]["aggregability"] == "full"
+
+        # total_quantity component
+        assert components[2]["name"] == "line_total_sum_e1f61696"
+        assert components[2]["expression"] == "line_total"
         assert components[2]["aggregation"] == "SUM"
         assert components[2]["merge"] == "SUM"
         assert components[2]["aggregability"] == "full"
@@ -1075,13 +1075,13 @@ class TestMeasuresSQLMultipleMetrics:
             },
             {
                 "name": "page_view_count",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.page_view_count",
                 "semantic_type": "metric",
             },
             {
                 "name": "product_view_count",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.product_view_count",
                 "semantic_type": "metric",
             },
@@ -1207,7 +1207,7 @@ class TestMeasuresSQLCrossFact:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -1246,7 +1246,7 @@ class TestMeasuresSQLCrossFact:
             },
             {
                 "name": "page_view_count",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.page_view_count",
                 "semantic_type": "metric",
             },
@@ -1319,7 +1319,7 @@ class TestMeasuresSQLCrossFact:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -1733,7 +1733,7 @@ class TestMeasuresSQLComponents:
         # Single-component metric has clean name and type "metric"
         assert gg["columns"][1] == {
             "name": "total_revenue",
-            "type": "number",
+            "type": "double",
             "semantic_entity": "v3.total_revenue",
             "semantic_type": "metric",
         }
@@ -1824,14 +1824,14 @@ class TestMeasuresSQLComponents:
         # Both components come from avg_unit_price (first encountered, multi-component)
         assert gg["columns"][1] == {
             "name": "unit_price_count_55cff00f",
-            "type": "number",
+            "type": "double",
             "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
             "semantic_type": "metric_component",
         }
         # SUM component is shared - deduplicated to one occurrence
         assert gg["columns"][2] == {
             "name": "unit_price_sum_55cff00f",
-            "type": "number",
+            "type": "double",
             "semantic_entity": "v3.avg_unit_price:unit_price_sum_55cff00f",
             "semantic_type": "metric_component",
         }
@@ -1901,7 +1901,7 @@ class TestMetricTypesMeasuresSQL:
             },
             {
                 "name": "customer_count",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.customer_count",
                 "semantic_type": "metric",
             },
@@ -2088,25 +2088,25 @@ class TestMeasuresSQLDerived:
             },
             {
                 "name": "max_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.max_unit_price",
                 "semantic_type": "metric",
             },
             {
                 "name": "min_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.min_unit_price",
                 "semantic_type": "metric",
             },
             {
                 "name": "completed_order_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.completed_order_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -2114,13 +2114,13 @@ class TestMeasuresSQLDerived:
                 "name": "unit_price_count_55cff00f",
                 "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
                 "semantic_type": "metric_component",
-                "type": "number",
+                "type": "double",
             },
             {
                 "name": "unit_price_sum_55cff00f",
                 "semantic_entity": "v3.avg_unit_price:unit_price_sum_55cff00f",
                 "semantic_type": "metric_component",
-                "type": "number",
+                "type": "double",
             },
         ]
 

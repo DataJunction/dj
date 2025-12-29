@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3 import (
     build_measures_sql,
 )
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing import ast
 
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
@@ -226,11 +227,28 @@ async def get_measures_sql_v3(
         use_materialized=use_materialized,
     )
 
+    # Build a unified component_aliases map from all grain groups
+    # This maps component hash names -> actual SQL column aliases
+    all_component_aliases: dict[str, str] = {}
+    for gg in result.grain_groups:
+        all_component_aliases.update(gg.component_aliases)
+
     # Build metric formulas from decomposed metrics
     metric_formulas = []
     for metric_name, decomposed in result.decomposed_metrics.items():
-        # Get the combiner expression (the first projection from the derived AST)
-        combiner_str = str(decomposed.derived_ast.select.projection[0])
+        # Get the combiner expression and rewrite component names to actual SQL aliases
+        from copy import deepcopy
+
+        combiner_ast = deepcopy(decomposed.derived_ast.select.projection[0])
+
+        # Replace component hash names with actual SQL aliases in the combiner
+        for col in combiner_ast.find_all(ast.Column):
+            col_name = col.name.name if col.name else None
+            if col_name and col_name in all_component_aliases:
+                col.name = ast.Name(all_component_aliases[col_name])
+                col._table = None
+
+        combiner_str = str(combiner_ast)
 
         # Determine parent node name from the first grain group that contains this metric
         parent_name = None
@@ -246,12 +264,19 @@ async def get_measures_sql_v3(
             result.ctx.nodes,
         )
 
+        # Get component column names as they appear in SQL
+        # Use the unified component_aliases to resolve hash names -> actual aliases
+        component_names = [
+            all_component_aliases.get(comp.name, comp.name)
+            for comp in decomposed.components
+        ]
+
         metric_formulas.append(
             MetricFormulaResponse(
                 name=metric_name,
                 short_name=metric_name.split(".")[-1],
                 combiner=combiner_str,
-                components=[comp.name for comp in decomposed.components],
+                components=component_names,
                 is_derived=is_derived,
                 parent_name=parent_name,
             ),
@@ -277,7 +302,8 @@ async def get_measures_sql_v3(
                 metrics=gg.metrics,
                 components=[
                     ComponentResponse(
-                        name=comp.name,
+                        # Use actual SQL alias (metric short name for single-component, hash for multi)
+                        name=gg.component_aliases.get(comp.name, comp.name),
                         expression=comp.expression,
                         aggregation=comp.aggregation,
                         merge=comp.merge,

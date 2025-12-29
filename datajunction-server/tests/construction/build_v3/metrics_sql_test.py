@@ -73,7 +73,7 @@ class TestMetricsSQLBasic:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -128,13 +128,13 @@ class TestMetricsSQLBasic:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_quantity",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.total_quantity",
                 "semantic_type": "metric",
             },
@@ -192,7 +192,7 @@ class TestMetricsSQLBasic:
             },
             {
                 "name": "avg_unit_price",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.avg_unit_price",
                 "semantic_type": "metric",
             },
@@ -270,7 +270,7 @@ class TestMetricsSQLDerived:
             },
             {
                 "name": "conversion_rate",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.conversion_rate",
                 "semantic_type": "metric",
             },
@@ -334,13 +334,13 @@ class TestMetricsSQLDerived:
             },
             {
                 "name": "avg_order_value",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.avg_order_value",
                 "semantic_type": "metric",
             },
             {
                 "name": "avg_items_per_order",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.avg_items_per_order",
                 "semantic_type": "metric",
             },
@@ -438,19 +438,19 @@ class TestMetricsSQLDerived:
             },
             {
                 "name": "conversion_rate",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.conversion_rate",
                 "semantic_type": "metric",
             },
             {
                 "name": "revenue_per_visitor",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.revenue_per_visitor",
                 "semantic_type": "metric",
             },
             {
                 "name": "revenue_per_page_view",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.revenue_per_page_view",
                 "semantic_type": "metric",
             },
@@ -519,7 +519,7 @@ class TestMetricsSQLDerived:
             },
             {
                 "name": "pages_per_session",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.pages_per_session",
                 "semantic_type": "metric",
             },
@@ -673,13 +673,13 @@ class TestMetricsSQLCrossFact:
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "page_view_count",
-                "type": "number",
+                "type": "bigint",
                 "semantic_entity": "v3.page_view_count",
                 "semantic_type": "metric",
             },
@@ -768,25 +768,25 @@ class TestMetricsSQLCrossFact:
             },
             {
                 "name": "max_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.max_unit_price",
                 "semantic_type": "metric",
             },
             {
                 "name": "min_unit_price",
-                "type": "number",
+                "type": "float",
                 "semantic_entity": "v3.min_unit_price",
                 "semantic_type": "metric",
             },
             {
                 "name": "completed_order_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.completed_order_revenue",
                 "semantic_type": "metric",
             },
             {
                 "name": "total_revenue",
-                "type": "number",
+                "type": "double",
                 "semantic_entity": "v3.total_revenue",
                 "semantic_type": "metric",
             },
@@ -794,13 +794,13 @@ class TestMetricsSQLCrossFact:
                 "name": "price_spread",
                 "semantic_entity": "v3.price_spread",
                 "semantic_type": "metric",
-                "type": "number",
+                "type": "float",
             },
             {
                 "name": "price_spread_pct",
                 "semantic_entity": "v3.price_spread_pct",
                 "semantic_type": "metric",
-                "type": "number",
+                "type": "double",
             },
         ]
 
@@ -847,23 +847,23 @@ class TestMetricsSQLCrossFact:
             ),
             order_details_0 AS (
             SELECT  t2.category,
-                t3.month,
                 t3.week,
+                t3.month,
                 t1.order_id,
                 SUM(t1.line_total) total_revenue
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t2.category, t3.month, t3.week, t1.order_id
+            GROUP BY  t2.category, t3.week, t3.month, t1.order_id
             )
 
             SELECT  COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.month) AS month,
                 COALESCE(order_details_0.week) AS week,
+                COALESCE(order_details_0.month) AS month,
                 (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_revenue_change,
                 (CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_order_growth,
                 (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) , 0) * 100 AS mom_revenue_change
             FROM order_details_0
-            GROUP BY  order_details_0.category, order_details_0.month, order_details_0.week
+            GROUP BY  order_details_0.category, order_details_0.week, order_details_0.month
         """,
         )
         assert result["columns"] == [
@@ -874,14 +874,14 @@ class TestMetricsSQLCrossFact:
                 "type": "string",
             },
             {
-                "name": "month",
-                "semantic_entity": "v3.date.month",
+                "name": "week",
+                "semantic_entity": "v3.date.week",
                 "semantic_type": "dimension",
                 "type": "int",
             },
             {
-                "name": "week",
-                "semantic_entity": "v3.date.week",
+                "name": "month",
+                "semantic_entity": "v3.date.month",
                 "semantic_type": "dimension",
                 "type": "int",
             },
