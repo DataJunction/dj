@@ -1,7 +1,12 @@
 import Select from 'react-select';
 import Control from './FieldControl';
 
-export default function NodeModeSelect({ onChange }) {
+const options = [
+  { value: 'published', label: 'Published' },
+  { value: 'draft', label: 'Draft' },
+];
+
+export default function NodeModeSelect({ onChange, value }) {
   return (
     <span
       className="menu-link"
@@ -14,13 +19,11 @@ export default function NodeModeSelect({ onChange }) {
         label="Mode"
         components={{ Control }}
         onChange={e => onChange(e)}
+        value={value ? options.find(o => o.value === value) : null}
         styles={{
           control: styles => ({ ...styles, backgroundColor: 'white' }),
         }}
-        options={[
-          { value: 'published', label: 'Published' },
-          { value: 'draft', label: 'Draft' },
-        ]}
+        options={options}
       />
     </span>
   );

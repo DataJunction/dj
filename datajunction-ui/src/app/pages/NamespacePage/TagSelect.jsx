@@ -4,7 +4,7 @@ import Control from './FieldControl';
 
 import Select from 'react-select';
 
-export default function TagSelect({ onChange }) {
+export default function TagSelect({ onChange, value }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   const [retrieved, setRetrieved] = useState(false);
@@ -19,6 +19,16 @@ export default function TagSelect({ onChange }) {
     fetchData().catch(console.error);
   }, [djClient]);
 
+  const options = tags?.map(tag => ({
+    value: tag.name,
+    label: tag.display_name,
+  })) || [];
+
+  // For multi-select, value is an array of tag names
+  const selectedValues = value?.length 
+    ? options.filter(o => value.includes(o.value))
+    : [];
+
   return (
     <span
       className="menu-link"
@@ -32,12 +42,8 @@ export default function TagSelect({ onChange }) {
         label="Tags"
         components={{ Control }}
         onChange={e => onChange(e)}
-        options={tags?.map(tag => {
-          return {
-            value: tag.name,
-            label: tag.display_name,
-          };
-        })}
+        value={selectedValues}
+        options={options}
       />
     </span>
   );
