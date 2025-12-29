@@ -1023,14 +1023,14 @@ class TestMeasuresSQLMultipleMetrics:
         assert components[0]["aggregability"] == "limited"
 
         # total_revenue component
-        assert components[1]["name"] == "quantity_sum_06b64d2e"
+        assert components[1]["name"] == "total_quantity"
         assert components[1]["expression"] == "quantity"
         assert components[1]["aggregation"] == "SUM"
         assert components[1]["merge"] == "SUM"
         assert components[1]["aggregability"] == "full"
 
         # total_quantity component
-        assert components[2]["name"] == "line_total_sum_e1f61696"
+        assert components[2]["name"] == "total_revenue"
         assert components[2]["expression"] == "line_total"
         assert components[2]["aggregation"] == "SUM"
         assert components[2]["merge"] == "SUM"
