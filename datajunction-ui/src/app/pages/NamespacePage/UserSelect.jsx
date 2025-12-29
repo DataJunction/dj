@@ -4,7 +4,7 @@ import Control from './FieldControl';
 
 import Select from 'react-select';
 
-export default function UserSelect({ onChange, currentUser }) {
+export default function UserSelect({ onChange, value, currentUser }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [retrieved, setRetrieved] = useState(false);
   const [users, setUsers] = useState([]);
@@ -17,6 +17,16 @@ export default function UserSelect({ onChange, currentUser }) {
     };
     fetchData().catch(console.error);
   }, [djClient]);
+
+  const options = users?.map(user => ({
+    value: user.username,
+    label: user.username,
+  })) || [];
+
+  // Default to current user if no value specified and currentUser is provided
+  const selectedValue = value 
+    ? options.find(o => o.value === value) 
+    : (currentUser ? options.find(o => o.value === currentUser) : null);
 
   return (
     <span
@@ -31,13 +41,8 @@ export default function UserSelect({ onChange, currentUser }) {
           label="Edited By"
           components={{ Control }}
           onChange={e => onChange(e)}
-          defaultValue={{
-            value: currentUser,
-            label: currentUser,
-          }}
-          options={users?.map(user => {
-            return { value: user.username, label: user.username };
-          })}
+          value={selectedValue}
+          options={options}
         />
       ) : (
         ''
