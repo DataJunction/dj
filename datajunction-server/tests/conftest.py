@@ -707,6 +707,22 @@ async def client_with_dbt(
     return await client_example_loader(["DBT"])
 
 
+@pytest_asyncio.fixture
+async def client_with_build_v3(
+    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a DJ client fixture with BUILD_V3 examples.
+    This is the comprehensive test model for V3 SQL generation, including:
+    - Multi-hop dimension traversal with roles
+    - Dimension hierarchies (date, location)
+    - Cross-fact derived metrics (orders + page_views)
+    - Period-over-period metrics (window functions)
+    - Multiple aggregability levels
+    """
+    return await client_example_loader(["BUILD_V3"])
+
+
 def compare_parse_trees(tree1, tree2):
     """
     Recursively compare two ANTLR parse trees for equality.

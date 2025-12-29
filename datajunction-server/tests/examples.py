@@ -2874,6 +2874,675 @@ DERIVED_METRICS = (  # type: ignore
     ),
 )
 
+# =============================================================================
+# BUILD_V3 - Comprehensive test model for V3 SQL generation
+# =============================================================================
+# This example tests:
+# - Multi-hop dimension traversal with roles
+# - Same dimension reachable via different paths (from/to/customer locations)
+# - Dimension hierarchies (date: day->week->month->quarter->year,
+#                         location: postal_code->city->region->country)
+# - Cross-fact derived metrics (orders + page_views)
+# - Period-over-period metrics (window functions)
+# - Ratio metrics (same fact)
+# - Multiple aggregability levels (FULL, LIMITED, NONE)
+# =============================================================================
+BUILD_V3 = (  # type: ignore
+    # =========================================================================
+    # Namespace Setup
+    # =========================================================================
+    (
+        "/namespaces/v3/",
+        {},
+    ),
+    # =========================================================================
+    # Source Nodes - Raw Data Tables
+    # =========================================================================
+    # Orders header table
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_orders",
+            "description": "Order headers with customer and shipping info",
+            "columns": [
+                {"name": "order_id", "type": "int"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "order_date", "type": "int"},  # FK to dates
+                {"name": "from_location_id", "type": "int"},  # warehouse/origin
+                {"name": "to_location_id", "type": "int"},  # delivery destination
+                {"name": "status", "type": "string"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "orders",
+        },
+    ),
+    # Order line items
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_order_items",
+            "description": "Order line items with product and pricing",
+            "columns": [
+                {"name": "order_id", "type": "int"},
+                {"name": "line_number", "type": "int"},
+                {"name": "product_id", "type": "int"},
+                {"name": "quantity", "type": "int"},
+                {"name": "unit_price", "type": "float"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "order_items",
+        },
+    ),
+    # Page views (second fact for cross-fact testing)
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_page_views",
+            "description": "Web page view events",
+            "columns": [
+                {"name": "view_id", "type": "int"},
+                {"name": "session_id", "type": "string"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "page_date", "type": "int"},  # FK to dates
+                {"name": "page_type", "type": "string"},
+                {"name": "product_id", "type": "int"},  # nullable, for product pages
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "page_views",
+        },
+    ),
+    # Customers dimension source
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_customers",
+            "description": "Customer master data",
+            "columns": [
+                {"name": "customer_id", "type": "int"},
+                {"name": "name", "type": "string"},
+                {"name": "email", "type": "string"},
+                {"name": "registration_date", "type": "int"},  # FK to dates
+                {"name": "location_id", "type": "int"},  # customer's home location
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "customers",
+        },
+    ),
+    # Products dimension source
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_products",
+            "description": "Product catalog",
+            "columns": [
+                {"name": "product_id", "type": "int"},
+                {"name": "name", "type": "string"},
+                {"name": "category", "type": "string"},
+                {"name": "subcategory", "type": "string"},
+                {"name": "price", "type": "float"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "products",
+        },
+    ),
+    # Date dimension source (with hierarchy columns)
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_dates",
+            "description": "Date dimension with hierarchy levels",
+            "columns": [
+                {"name": "date_id", "type": "int"},
+                {"name": "date_value", "type": "timestamp"},
+                {"name": "day_of_week", "type": "int"},
+                {"name": "week", "type": "int"},
+                {"name": "month", "type": "int"},
+                {"name": "quarter", "type": "int"},
+                {"name": "year", "type": "int"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "dates",
+        },
+    ),
+    # Location dimension source (with hierarchy columns)
+    (
+        "/nodes/source/",
+        {
+            "name": "v3.src_locations",
+            "description": "Location dimension with geographic hierarchy",
+            "columns": [
+                {"name": "location_id", "type": "int"},
+                {"name": "postal_code", "type": "string"},
+                {"name": "city", "type": "string"},
+                {"name": "region", "type": "string"},
+                {"name": "country", "type": "string"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "locations",
+        },
+    ),
+    # =========================================================================
+    # Transform Nodes - Semantic Unification
+    # =========================================================================
+    # order_details: Joins orders + order_items at line item grain
+    # This is a semantic unification - treating orders and their items as one concept
+    (
+        "/nodes/transform/",
+        {
+            "name": "v3.order_details",
+            "description": "Order line items with order header info (semantic unification)",
+            "query": """
+                SELECT
+                    o.order_id,
+                    oi.line_number,
+                    o.customer_id,
+                    o.order_date,
+                    o.from_location_id,
+                    o.to_location_id,
+                    o.status,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM v3.src_orders o
+                JOIN v3.src_order_items oi ON o.order_id = oi.order_id
+            """,
+            "mode": "published",
+            "primary_key": ["order_id", "line_number"],
+        },
+    ),
+    # page_views_enriched: Simple passthrough with computed column
+    (
+        "/nodes/transform/",
+        {
+            "name": "v3.page_views_enriched",
+            "description": "Page views with computed flags",
+            "query": """
+                SELECT
+                    view_id,
+                    session_id,
+                    customer_id,
+                    page_date,
+                    page_type,
+                    product_id,
+                    CASE WHEN page_type = 'product' THEN 1 ELSE 0 END AS is_product_view,
+                    CASE WHEN page_type = 'checkout' THEN 1 ELSE 0 END AS is_checkout_view
+                FROM v3.src_page_views
+            """,
+            "mode": "published",
+            "primary_key": ["view_id"],
+        },
+    ),
+    # =========================================================================
+    # Dimension Nodes
+    # =========================================================================
+    (
+        "/nodes/dimension/",
+        {
+            "name": "v3.customer",
+            "description": "Customer dimension",
+            "query": """
+                SELECT
+                    customer_id,
+                    name,
+                    email,
+                    registration_date,
+                    location_id
+                FROM v3.src_customers
+            """,
+            "mode": "published",
+            "primary_key": ["customer_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "v3.product",
+            "description": "Product dimension with category hierarchy",
+            "query": """
+                SELECT
+                    product_id,
+                    name,
+                    category,
+                    subcategory,
+                    price
+                FROM v3.src_products
+            """,
+            "mode": "published",
+            "primary_key": ["product_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "v3.date",
+            "description": "Date dimension with time hierarchy (day->week->month->quarter->year)",
+            "query": """
+                SELECT
+                    date_id,
+                    date_value,
+                    day_of_week,
+                    week,
+                    month,
+                    quarter,
+                    year
+                FROM v3.src_dates
+            """,
+            "mode": "published",
+            "primary_key": ["date_id"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "name": "v3.location",
+            "description": "Location dimension with geographic hierarchy (postal_code->city->region->country)",
+            "query": """
+                SELECT
+                    location_id,
+                    postal_code,
+                    city,
+                    region,
+                    country
+                FROM v3.src_locations
+            """,
+            "mode": "published",
+            "primary_key": ["location_id"],
+        },
+    ),
+    # =========================================================================
+    # Dimension Links - Building the Dimension Graph
+    # =========================================================================
+    # --- order_details links ---
+    # order_details -> customer (direct)
+    (
+        "/nodes/v3.order_details/link",
+        {
+            "dimension_node": "v3.customer",
+            "join_type": "left",
+            "join_on": "v3.order_details.customer_id = v3.customer.customer_id",
+            "role": "customer",
+        },
+    ),
+    # order_details -> date (via order_date) - role: order
+    (
+        "/nodes/v3.order_details/link",
+        {
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.order_details.order_date = v3.date.date_id",
+            "role": "order",
+        },
+    ),
+    # order_details -> location (via from_location_id) - role: from
+    (
+        "/nodes/v3.order_details/link",
+        {
+            "dimension_node": "v3.location",
+            "join_type": "left",
+            "join_on": "v3.order_details.from_location_id = v3.location.location_id",
+            "role": "from",
+        },
+    ),
+    # order_details -> location (via to_location_id) - role: to
+    (
+        "/nodes/v3.order_details/link",
+        {
+            "dimension_node": "v3.location",
+            "join_type": "left",
+            "join_on": "v3.order_details.to_location_id = v3.location.location_id",
+            "role": "to",
+        },
+    ),
+    # order_details -> product (direct)
+    (
+        "/nodes/v3.order_details/link",
+        {
+            "dimension_node": "v3.product",
+            "join_type": "left",
+            "join_on": "v3.order_details.product_id = v3.product.product_id",
+        },
+    ),
+    # --- customer dimension links (for multi-hop traversal) ---
+    # customer -> date (via registration_date) - role: registration
+    (
+        "/nodes/v3.customer/link",
+        {
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.customer.registration_date = v3.date.date_id",
+            "role": "registration",
+            "join_cardinality": "many_to_one",
+        },
+    ),
+    # customer -> location (via location_id) - role: home
+    (
+        "/nodes/v3.customer/link",
+        {
+            "dimension_node": "v3.location",
+            "join_type": "left",
+            "join_on": "v3.customer.location_id = v3.location.location_id",
+            "role": "home",
+            "join_cardinality": "many_to_one",
+        },
+    ),
+    # --- page_views_enriched links ---
+    # page_views -> customer
+    (
+        "/nodes/v3.page_views_enriched/link",
+        {
+            "dimension_node": "v3.customer",
+            "join_type": "left",
+            "join_on": "v3.page_views_enriched.customer_id = v3.customer.customer_id",
+            "role": "customer",
+        },
+    ),
+    # page_views -> date (via page_date) - role: page
+    (
+        "/nodes/v3.page_views_enriched/link",
+        {
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.page_views_enriched.page_date = v3.date.date_id",
+            "role": "page",
+        },
+    ),
+    # page_views -> product (for product page views)
+    (
+        "/nodes/v3.page_views_enriched/link",
+        {
+            "dimension_node": "v3.product",
+            "join_type": "left",
+            "join_on": "v3.page_views_enriched.product_id = v3.product.product_id",
+        },
+    ),
+    # =========================================================================
+    # Base Metrics - On order_details
+    # =========================================================================
+    # Fully aggregatable metrics (SUM)
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.total_revenue",
+            "description": "Total revenue from order line items (fully aggregatable)",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.total_quantity",
+            "description": "Total quantity sold (fully aggregatable)",
+            "query": "SELECT SUM(quantity) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # Limited aggregability metrics (COUNT DISTINCT)
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.order_count",
+            "description": "Count of distinct orders (limited aggregability)",
+            "query": "SELECT COUNT(DISTINCT order_id) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.avg_unit_price",
+            "description": "Average unit price - decomposes into SUM and COUNT",
+            "query": "SELECT AVG(unit_price) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.total_unit_price",
+            "description": "Sum of unit prices - shares SUM(unit_price) component with avg_unit_price",
+            "query": "SELECT SUM(unit_price) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.customer_count",
+            "description": "Count of distinct customers (limited aggregability)",
+            "query": "SELECT APPROX_COUNT_DISTINCT(customer_id) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # Note: NONE aggregability metrics (e.g., MEDIAN) cannot be added currently because
+    # the MEDIAN function class in DJ doesn't have is_aggregation = True, which causes
+    # metric validation to fail. This should be fixed in functions.py.
+    # TODO: Add NONE aggregability metric once MEDIAN is properly registered as aggregate.
+    # =========================================================================
+    # Base Metrics - On page_views_enriched
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.page_view_count",
+            "description": "Total page views (fully aggregatable)",
+            "query": "SELECT COUNT(view_id) FROM v3.page_views_enriched",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.product_view_count",
+            "description": "Product page views (fully aggregatable)",
+            "query": "SELECT SUM(is_product_view) FROM v3.page_views_enriched",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.session_count",
+            "description": "Distinct sessions (limited aggregability)",
+            "query": "SELECT COUNT(DISTINCT session_id) FROM v3.page_views_enriched",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.visitor_count",
+            "description": "Distinct visitors (limited aggregability)",
+            "query": "SELECT COUNT(DISTINCT customer_id) FROM v3.page_views_enriched",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Same Fact Ratios
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.avg_order_value",
+            "description": "Average order value (revenue / orders)",
+            "query": "SELECT v3.total_revenue / NULLIF(v3.order_count, 0)",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.avg_items_per_order",
+            "description": "Average items per order",
+            "query": "SELECT v3.total_quantity / NULLIF(v3.order_count, 0)",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.revenue_per_customer",
+            "description": "Revenue per unique customer",
+            "query": "SELECT v3.total_revenue / NULLIF(v3.customer_count, 0)",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.pages_per_session",
+            "description": "Average pages per session",
+            "query": "SELECT v3.page_view_count / NULLIF(v3.session_count, 0)",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Cross-Fact Ratios
+    # These combine metrics from order_details and page_views
+    # Available dimensions = intersection of both facts' dimensions
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.conversion_rate",
+            "description": "Orders / Visitors (cross-fact ratio)",
+            "query": "SELECT CAST(v3.order_count AS DOUBLE) / NULLIF(v3.visitor_count, 0)",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.revenue_per_visitor",
+            "description": "Revenue / Visitors (cross-fact ratio)",
+            "query": "SELECT v3.total_revenue / NULLIF(v3.visitor_count, 0)",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.revenue_per_page_view",
+            "description": "Revenue / Page Views (cross-fact ratio)",
+            "query": "SELECT v3.total_revenue / NULLIF(v3.page_view_count, 0)",
+            "mode": "published",
+        },
+    ),
+    # Additional Base Metrics - MIN/MAX aggregations
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.max_unit_price",
+            "description": "Maximum unit price (FULL aggregability with MAX merge rule)",
+            "query": "SELECT MAX(unit_price) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.min_unit_price",
+            "description": "Minimum unit price (FULL aggregability with MIN merge rule)",
+            "query": "SELECT MIN(unit_price) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # Conditional Aggregation (SUM with CASE WHEN)
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.completed_order_revenue",
+            "description": "Revenue from completed orders only (conditional aggregation)",
+            "query": "SELECT SUM(CASE WHEN status = 'completed' THEN line_total ELSE 0 END) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # Multiple Aggregations in One Metric (MAX - MIN)
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.price_spread",
+            "description": "Difference between max and min unit price",
+            "query": "SELECT MAX(unit_price) - MIN(unit_price) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Complex Derived Metric: Combines multiple base metrics
+    # Uses price_spread (multi-component) and avg_unit_price (also multi-component)
+    # This tests derived metric that references a multi-component metric
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.price_spread_pct",
+            "description": "Price spread as percentage of average price",
+            "query": "SELECT (v3.max_unit_price - v3.min_unit_price) / NULLIF(v3.avg_unit_price, 0) * 100",
+            "mode": "published",
+        },
+    ),
+    # =========================================================================
+    # Derived Metrics - Period-over-Period (Window Functions)
+    # These have aggregability: NONE due to window functions
+    # required_dimensions specifies which dimensions MUST be in the grain
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_revenue_change",
+            "description": "Week-over-week revenue change (%) - requires week dimension",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_order_growth",
+            "description": "Week-over-week order count change (%) - requires week dimension",
+            "query": """
+                SELECT
+                    (CAST(v3.order_count AS DOUBLE) - LAG(CAST(v3.order_count AS DOUBLE), 1) OVER (ORDER BY v3.date.week[order]))
+                    / NULLIF(LAG(CAST(v3.order_count AS DOUBLE), 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.mom_revenue_change",
+            "description": "Month-over-month revenue change (%) - requires month dimension",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.month"],
+        },
+    ),
+)
 
 EXAMPLES = {  # type: ignore
     "ROADS": ROADS,
@@ -2887,6 +3556,7 @@ EXAMPLES = {  # type: ignore
     "DIMENSION_LINK": DIMENSION_LINK,
     "SIMPLE_HLL": SIMPLE_HLL,
     "DERIVED_METRICS": DERIVED_METRICS,
+    "BUILD_V3": BUILD_V3,
 }
 
 

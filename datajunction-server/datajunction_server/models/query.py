@@ -60,6 +60,23 @@ class ColumnMetadata(BaseModel):
         return hash((self.name, self.type))  # pragma: no cover
 
 
+class V3ColumnMetadata(BaseModel):
+    """
+    Simplified column metadata for V3 SQL endpoints.
+
+    This is a cleaner version without legacy fields (column, node) that
+    V3 doesn't use. Provides clear semantic identification of output columns.
+    """
+
+    name: str  # SQL alias in output (e.g., "category", "total_revenue")
+    type: str  # SQL type (e.g., "string", "number", "int")
+    semantic_entity: str  # Full semantic path (e.g., "v3.product.category")
+    semantic_type: str  # "dimension" or "metric"
+
+    def __hash__(self):
+        return hash((self.name, self.type, self.semantic_entity))  # pragma: no cover
+
+
 class StatementResults(BaseModel):
     """
     Results for a given statement.

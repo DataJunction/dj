@@ -2,6 +2,7 @@
 
 import hashlib
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -683,6 +684,11 @@ class MetricComponentExtractor:
     async def extract(
         self,
         session: AsyncSession,
+        *,
+        nodes_cache: dict[str, "Node"] | None = None,
+        parent_map: dict[str, list[str]] | None = None,
+        metric_node: "Node | None" = None,
+        parsed_query_cache: dict[str, ast.Query] | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract metric components from the query.
@@ -692,12 +698,41 @@ class MetricComponentExtractor:
 
         Args:
             session: Database session for loading metric data
+            nodes_cache: Optional dict of node_name -> Node with current revision loaded.
+                If provided along with parent_map and metric_node, avoids DB queries.
+            parent_map: Optional dict of child_name -> list of parent_names.
+                Required if nodes_cache is provided.
+            metric_node: Optional metric Node object.
+                Required if nodes_cache is provided.
+            parsed_query_cache: Optional dict of query_string -> parsed AST.
+                Used to avoid re-parsing the same query multiple times.
         """
-        # Single DB query: load this metric's query + base metrics + their queries
-        metric_data = await self._load_metric_data(session)
+        # Use cache if available, otherwise query DB
+        if (
+            nodes_cache is not None
+            and parent_map is not None
+            and metric_node is not None
+        ):
+            metric_data = self._build_metric_data_from_cache(
+                metric_node,
+                nodes_cache,
+                parent_map,
+            )
+        else:
+            metric_data = await self._load_metric_data(session)
+
+        # Helper to parse with cache
+        def cached_parse(query: str) -> ast.Query:
+            if parsed_query_cache is not None:
+                if query not in parsed_query_cache:  # pragma: no cover
+                    parsed_query_cache[query] = parse(query)
+
+                # Return a deep copy to avoid AST mutation issues
+                return deepcopy(parsed_query_cache[query])  # pragma: no cover
+            return parse(query)
 
         # Parse queries (pure computation, no DB)
-        query_ast = parse(metric_data.query)
+        query_ast = cached_parse(metric_data.query)
 
         # Extract components from each base metric (pure, no DB)
         all_components = []
@@ -705,7 +740,7 @@ class MetricComponentExtractor:
         base_metrics_data = {}
 
         for base_metric in metric_data.base_metrics:
-            base_ast = parse(base_metric.query)
+            base_ast = cached_parse(base_metric.query)
             base_components, derived_ast = self._extract_base(base_ast)
 
             for comp in base_components:
@@ -728,6 +763,64 @@ class MetricComponentExtractor:
             query_ast = derived_ast
 
         return all_components, query_ast
+
+    def _build_metric_data_from_cache(
+        self,
+        metric_node: "Node",
+        nodes_cache: dict[str, "Node"],
+        parent_map: dict[str, list[str]],
+    ) -> MetricData:
+        """
+        Build MetricData from pre-loaded nodes cache instead of querying DB.
+
+        Args:
+            metric_node: The metric node to extract from
+            nodes_cache: Dict of node_name -> Node with current revision loaded
+            parent_map: Dict of child_name -> list of parent_names
+
+        Returns:
+            MetricData with query, is_derived flag, and list of base metrics
+        """
+        if not metric_node.current or not metric_node.current.query:
+            raise ValueError(
+                f"Metric {metric_node.name} has no query",
+            )  # pragma: no cover
+
+        # Find parent metrics from cache
+        parent_names = parent_map.get(metric_node.name, [])
+        metric_parents = [
+            name
+            for name in parent_names
+            if name in nodes_cache and nodes_cache[name].type == NodeType.METRIC
+        ]
+
+        if metric_parents:
+            # Derived metric - base metrics are the parent metrics
+            return MetricData(
+                query=metric_node.current.query,
+                is_derived=True,
+                base_metrics=[
+                    BaseMetricData(
+                        name=parent_name,
+                        query=nodes_cache[parent_name].current.query,
+                    )
+                    for parent_name in metric_parents
+                    if nodes_cache[parent_name].current
+                    and nodes_cache[parent_name].current.query
+                ],
+            )
+        else:
+            # Base metric - base metric is itself
+            return MetricData(
+                query=metric_node.current.query,
+                is_derived=False,
+                base_metrics=[
+                    BaseMetricData(
+                        name=metric_node.name,
+                        query=metric_node.current.query,
+                    ),
+                ],
+            )
 
     async def _load_metric_data(self, session: AsyncSession) -> MetricData:
         """

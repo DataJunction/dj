@@ -2692,6 +2692,8 @@ class Lag(Function):
     before the current row in a window partition.
     """
 
+    dialects = [Dialect.SPARK, Dialect.DRUID]
+
 
 @Lag.register  # type: ignore
 def infer_type(
