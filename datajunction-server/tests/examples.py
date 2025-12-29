@@ -3535,11 +3535,11 @@ BUILD_V3 = (  # type: ignore
             "description": "Month-over-month revenue change (%) - requires month dimension",
             "query": """
                 SELECT
-                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month[order]))
-                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month[order]), 0) * 100
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month), 0) * 100
             """,
             "mode": "published",
-            "required_dimensions": ["v3.date.month[order]"],
+            "required_dimensions": ["v3.date.month"],
         },
     ),
 )

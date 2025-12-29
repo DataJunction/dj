@@ -295,11 +295,6 @@ class DecomposedMetricInfo:
         """True if all components have FULL aggregability."""
         return all(c.rule.type == Aggregability.FULL for c in self.components)
 
-    @property
-    def is_single_component(self) -> bool:
-        """True if metric has exactly one component (uses metric name as alias)."""
-        return len(self.components) == 1
-
     def is_derived_for_parents(
         self,
         parent_names: list[str],
