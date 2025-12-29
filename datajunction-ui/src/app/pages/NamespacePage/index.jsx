@@ -48,17 +48,20 @@ export function NamespacePage() {
   }, [djClient]);
 
   // Parse all filters from URL
-  const getFiltersFromUrl = useCallback(() => ({
-    node_type: searchParams.get('type') || '',
-    tags: searchParams.get('tags') ? searchParams.get('tags').split(',') : [],
-    edited_by: searchParams.get('editedBy') || '',
-    mode: searchParams.get('mode') || '',
-    ownedBy: searchParams.get('ownedBy') || '',
-    statuses: searchParams.get('statuses') || '',
-    missingDescription: searchParams.get('missingDescription') === 'true',
-    hasMaterialization: searchParams.get('hasMaterialization') === 'true',
-    orphanedDimension: searchParams.get('orphanedDimension') === 'true',
-  }), [searchParams]);
+  const getFiltersFromUrl = useCallback(
+    () => ({
+      node_type: searchParams.get('type') || '',
+      tags: searchParams.get('tags') ? searchParams.get('tags').split(',') : [],
+      edited_by: searchParams.get('editedBy') || '',
+      mode: searchParams.get('mode') || '',
+      ownedBy: searchParams.get('ownedBy') || '',
+      statuses: searchParams.get('statuses') || '',
+      missingDescription: searchParams.get('missingDescription') === 'true',
+      hasMaterialization: searchParams.get('hasMaterialization') === 'true',
+      orphanedDimension: searchParams.get('orphanedDimension') === 'true',
+    }),
+    [searchParams],
+  );
 
   const [filters, setFilters] = useState(getFiltersFromUrl);
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
@@ -69,30 +72,43 @@ export function NamespacePage() {
   }, [searchParams, getFiltersFromUrl]);
 
   // Update URL when filters change
-  const updateFilters = useCallback((newFilters) => {
-    const params = new URLSearchParams();
-    
-    if (newFilters.node_type) params.set('type', newFilters.node_type);
-    if (newFilters.tags?.length) params.set('tags', newFilters.tags.join(','));
-    if (newFilters.edited_by) params.set('editedBy', newFilters.edited_by);
-    if (newFilters.mode) params.set('mode', newFilters.mode);
-    if (newFilters.ownedBy) params.set('ownedBy', newFilters.ownedBy);
-    if (newFilters.statuses) params.set('statuses', newFilters.statuses);
-    if (newFilters.missingDescription) params.set('missingDescription', 'true');
-    if (newFilters.hasMaterialization) params.set('hasMaterialization', 'true');
-    if (newFilters.orphanedDimension) params.set('orphanedDimension', 'true');
-    
-    setSearchParams(params);
-  }, [setSearchParams]);
+  const updateFilters = useCallback(
+    newFilters => {
+      const params = new URLSearchParams();
+
+      if (newFilters.node_type) params.set('type', newFilters.node_type);
+      if (newFilters.tags?.length)
+        params.set('tags', newFilters.tags.join(','));
+      if (newFilters.edited_by) params.set('editedBy', newFilters.edited_by);
+      if (newFilters.mode) params.set('mode', newFilters.mode);
+      if (newFilters.ownedBy) params.set('ownedBy', newFilters.ownedBy);
+      if (newFilters.statuses) params.set('statuses', newFilters.statuses);
+      if (newFilters.missingDescription)
+        params.set('missingDescription', 'true');
+      if (newFilters.hasMaterialization)
+        params.set('hasMaterialization', 'true');
+      if (newFilters.orphanedDimension) params.set('orphanedDimension', 'true');
+
+      setSearchParams(params);
+    },
+    [setSearchParams],
+  );
 
   const clearAllFilters = () => {
     setSearchParams(new URLSearchParams());
   };
 
   // Check if any filters are active
-  const hasActiveFilters = filters.node_type || filters.tags?.length || 
-    filters.edited_by || filters.mode || filters.ownedBy || filters.statuses ||
-    filters.missingDescription || filters.hasMaterialization || filters.orphanedDimension;
+  const hasActiveFilters =
+    filters.node_type ||
+    filters.tags?.length ||
+    filters.edited_by ||
+    filters.mode ||
+    filters.ownedBy ||
+    filters.statuses ||
+    filters.missingDescription ||
+    filters.hasMaterialization ||
+    filters.orphanedDimension;
 
   // Quick presets
   const presets = [
@@ -113,7 +129,7 @@ export function NamespacePage() {
     },
   ];
 
-  const applyPreset = (preset) => {
+  const applyPreset = preset => {
     const newFilters = {
       node_type: '',
       tags: [],
@@ -129,14 +145,18 @@ export function NamespacePage() {
   };
 
   // Check if a preset is active
-  const isPresetActive = (preset) => {
+  const isPresetActive = preset => {
     const pf = preset.filters;
     return (
       (pf.ownedBy || '') === (filters.ownedBy || '') &&
       (pf.statuses || '') === (filters.statuses || '') &&
       (pf.mode || '') === (filters.mode || '') &&
-      !filters.node_type && !filters.tags?.length && !filters.edited_by &&
-      !filters.missingDescription && !filters.hasMaterialization && !filters.orphanedDimension
+      !filters.node_type &&
+      !filters.tags?.length &&
+      !filters.edited_by &&
+      !filters.missingDescription &&
+      !filters.hasMaterialization &&
+      !filters.orphanedDimension
     );
   };
 
@@ -218,7 +238,7 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       setRetrieved(false);
-      
+
       // Build extended filters for API
       const extendedFilters = {
         ownedBy: filters.ownedBy || null,
@@ -227,7 +247,7 @@ export function NamespacePage() {
         hasMaterialization: filters.hasMaterialization,
         orphanedDimension: filters.orphanedDimension,
       };
-      
+
       const nodes = await djClient.listNodesForLanding(
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
@@ -268,7 +288,15 @@ export function NamespacePage() {
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, filters, before, after, sortConfig.key, sortConfig.direction, namespace]);
+  }, [
+    djClient,
+    filters,
+    before,
+    after,
+    sortConfig.key,
+    sortConfig.direction,
+    namespace,
+  ]);
 
   const loadNext = () => {
     if (nextCursor) {
@@ -302,7 +330,10 @@ export function NamespacePage() {
     { value: 'INVALID', label: 'Invalid' },
   ];
 
-  const userOptions = users.map(u => ({ value: u.username, label: u.username }));
+  const userOptions = users.map(u => ({
+    value: u.username,
+    label: u.username,
+  }));
   const tagOptions = tags.map(t => ({ value: t.name, label: t.display_name }));
 
   const nodesList = retrieved ? (
@@ -385,7 +416,10 @@ export function NamespacePage() {
             {hasActiveFilters && (
               <a
                 href="#"
-                onClick={(e) => { e.preventDefault(); clearAllFilters(); }}
+                onClick={e => {
+                  e.preventDefault();
+                  clearAllFilters();
+                }}
                 style={{ marginLeft: '0.5rem' }}
               >
                 Clear filters
@@ -416,36 +450,39 @@ export function NamespacePage() {
     <div className="mid">
       <div className="card">
         <div className="card-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1rem',
+            }}
+          >
             <h2 style={{ margin: 0 }}>Explore</h2>
             <AddNodeDropdown namespace={namespace} />
           </div>
-          
+
           {/* Unified Filter Bar */}
-          <div style={{ 
-            marginBottom: '1rem',
-            padding: '12px',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '8px',
-          }}>
-            {/* Top row: Filter label + Quick presets + Clear all */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '12px', 
-              marginBottom: '12px',
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '6px',
-                color: '#666',
-              }}>
-                <FilterIcon />
-                <span style={{ fontSize: '14px', fontWeight: '500' }}>Filter</span>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '12px',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '8px',
+            }}
+          >
+            {/* Top row: Quick presets + Clear all */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '12px',
+              }}
+            >
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
                 <span style={{ fontSize: '12px', color: '#888' }}>Quick:</span>
                 {presets.map(preset => (
                   <button
@@ -457,7 +494,9 @@ export function NamespacePage() {
                       border: '1px solid',
                       borderColor: isPresetActive(preset) ? '#1976d2' : '#ddd',
                       borderRadius: '12px',
-                      backgroundColor: isPresetActive(preset) ? '#e3f2fd' : 'white',
+                      backgroundColor: isPresetActive(preset)
+                        ? '#e3f2fd'
+                        : 'white',
                       color: isPresetActive(preset) ? '#1976d2' : '#666',
                       cursor: 'pointer',
                       fontWeight: isPresetActive(preset) ? '600' : '400',
@@ -483,152 +522,226 @@ export function NamespacePage() {
                 )}
               </div>
             </div>
-            
+
             {/* Bottom row: Dropdowns */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'flex-end', 
-              gap: '12px', 
-            }}>
-            <CompactSelect
-              label="Type"
-              name="type"
-              options={typeOptions}
-              value={filters.node_type}
-              onChange={(e) => updateFilters({ ...filters, node_type: e?.value || '' })}
-              flex={1}
-              minWidth="80px"
-            />
-            <CompactSelect
-              label="Tags"
-              name="tags"
-              options={tagOptions}
-              value={filters.tags}
-              onChange={(e) => updateFilters({ ...filters, tags: e ? e.map(t => t.value) : [] })}
-              isMulti
-              isLoading={tagsLoading}
-              flex={1.5}
-              minWidth="100px"
-            />
-            <CompactSelect
-              label="Edited By"
-              name="editedBy"
-              options={userOptions}
-              value={filters.edited_by}
-              onChange={(e) => updateFilters({ ...filters, edited_by: e?.value || '' })}
-              isLoading={usersLoading}
-              flex={1}
-              minWidth="80px"
-            />
-            <CompactSelect
-              label="Mode"
-              name="mode"
-              options={modeOptions}
-              value={filters.mode}
-              onChange={(e) => updateFilters({ ...filters, mode: e?.value || '' })}
-              flex={1}
-              minWidth="80px"
-            />
-            <CompactSelect
-              label="Owner"
-              name="owner"
-              options={userOptions}
-              value={filters.ownedBy}
-              onChange={(e) => updateFilters({ ...filters, ownedBy: e?.value || '' })}
-              isLoading={usersLoading}
-              flex={1}
-              minWidth="80px"
-            />
-            <CompactSelect
-              label="Status"
-              name="status"
-              options={statusOptions}
-              value={filters.statuses}
-              onChange={(e) => updateFilters({ ...filters, statuses: e?.value || '' })}
-              flex={1}
-              minWidth="80px"
-            />
-            
-            {/* More Filters (Quality) */}
-            <div style={{ position: 'relative', flex: 0, minWidth: 'auto' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <label style={{ 
-                  fontSize: '10px', 
-                  fontWeight: '600', 
-                  color: '#666',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}>
-                  Quality
-                </label>
-                <button
-                  onClick={() => setMoreFiltersOpen(!moreFiltersOpen)}
-                  style={{
-                    height: '32px',
-                    padding: '0 12px',
-                    fontSize: '12px',
-                    border: '1px solid #ccc',
-                    borderRadius: '4px',
-                    backgroundColor: moreFiltersCount > 0 ? '#e3f2fd' : 'white',
-                    color: '#666',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {moreFiltersCount > 0 ? `${moreFiltersCount} active` : 'Issues'}
-                  <span style={{ fontSize: '8px' }}>{moreFiltersOpen ? '▲' : '▼'}</span>
-                </button>
-              </div>
-              
-              {moreFiltersOpen && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: '12px',
+              }}
+            >
+              <CompactSelect
+                label="Type"
+                name="type"
+                options={typeOptions}
+                value={filters.node_type}
+                onChange={e =>
+                  updateFilters({ ...filters, node_type: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Tags"
+                name="tags"
+                options={tagOptions}
+                value={filters.tags}
+                onChange={e =>
+                  updateFilters({
+                    ...filters,
+                    tags: e ? e.map(t => t.value) : [],
+                  })
+                }
+                isMulti
+                isLoading={tagsLoading}
+                flex={1.5}
+                minWidth="100px"
+              />
+              <CompactSelect
+                label="Edited By"
+                name="editedBy"
+                options={userOptions}
+                value={filters.edited_by}
+                onChange={e =>
+                  updateFilters({ ...filters, edited_by: e?.value || '' })
+                }
+                isLoading={usersLoading}
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Mode"
+                name="mode"
+                options={modeOptions}
+                value={filters.mode}
+                onChange={e =>
+                  updateFilters({ ...filters, mode: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Owner"
+                name="owner"
+                options={userOptions}
+                value={filters.ownedBy}
+                onChange={e =>
+                  updateFilters({ ...filters, ownedBy: e?.value || '' })
+                }
+                isLoading={usersLoading}
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Status"
+                name="status"
+                options={statusOptions}
+                value={filters.statuses}
+                onChange={e =>
+                  updateFilters({ ...filters, statuses: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+              />
+
+              {/* More Filters (Quality) */}
+              <div style={{ position: 'relative', flex: 0, minWidth: 'auto' }}>
                 <div
                   style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    marginTop: '4px',
-                    padding: '12px',
-                    backgroundColor: 'white',
-                    border: '1px solid #ddd',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
-                    minWidth: '200px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
                   }}
                 >
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#444', marginBottom: '8px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={filters.missingDescription}
-                      onChange={(e) => updateFilters({ ...filters, missingDescription: e.target.checked })}
-                    />
-                    Missing Description
+                  <label
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#666',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Quality
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#444', marginBottom: '8px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={filters.orphanedDimension}
-                      onChange={(e) => updateFilters({ ...filters, orphanedDimension: e.target.checked })}
-                    />
-                    Orphaned Dimensions
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#444', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={filters.hasMaterialization}
-                      onChange={(e) => updateFilters({ ...filters, hasMaterialization: e.target.checked })}
-                    />
-                    Has Materialization
-                  </label>
+                  <button
+                    onClick={() => setMoreFiltersOpen(!moreFiltersOpen)}
+                    style={{
+                      height: '32px',
+                      padding: '0 12px',
+                      fontSize: '12px',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      backgroundColor:
+                        moreFiltersCount > 0 ? '#e3f2fd' : 'white',
+                      color: '#666',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {moreFiltersCount > 0
+                      ? `${moreFiltersCount} active`
+                      : 'Issues'}
+                    <span style={{ fontSize: '8px' }}>
+                      {moreFiltersOpen ? '▲' : '▼'}
+                    </span>
+                  </button>
                 </div>
-              )}
-            </div>
+
+                {moreFiltersOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '4px',
+                      padding: '12px',
+                      backgroundColor: 'white',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      zIndex: 1000,
+                      minWidth: '200px',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.missingDescription}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            missingDescription: e.target.checked,
+                          })
+                        }
+                      />
+                      Missing Description
+                    </label>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.orphanedDimension}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            orphanedDimension: e.target.checked,
+                          })
+                        }
+                      />
+                      Orphaned Dimensions
+                    </label>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.hasMaterialization}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            hasMaterialization: e.target.checked,
+                          })
+                        }
+                      />
+                      Has Materialization
+                    </label>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          
+
           <div className="table-responsive">
             <div className={`sidebar`}>
               <div

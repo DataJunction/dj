@@ -55,6 +55,7 @@ async def find_nodes_by(
         if "edges" in fields
         else fields,
     )
+    print("statuses", statuses)
     return await DBNode.find_by(
         session,
         names,
