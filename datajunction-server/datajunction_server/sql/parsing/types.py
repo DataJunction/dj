@@ -13,7 +13,6 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 """
 
 import re
-import threading
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -38,42 +37,20 @@ DECIMAL_REGEX = re.compile(r"(?i)decimal\((?P<precision>\d+),\s*(?P<scale>\d+)\)
 FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
 VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
-# Lock for thread-safe singleton initialization
-_singleton_lock = threading.Lock()
+# Singleton caching temporarily disabled for Pydantic v2 compatibility
+# TODO: Implement proper caching that works with Pydantic v2
 
 
 class Singleton:
     """
-    Thread-safe singleton for types - each subclass gets its own singleton instance.
-
-    Uses double-checked locking with an _initialized flag to ensure we never return
-    a partially constructed instance. If another thread is still initializing the
-    singleton, we create a temporary instance to avoid the race condition.
+    Singleton for types - each subclass gets its own singleton instance
     """
 
     def __new__(cls, *args, **kwargs):
-        # Fast path: if instance exists and is fully initialized, return it
-        if hasattr(cls, "_instance") and isinstance(cls._instance, cls):
-            instance = cls._instance
-            # Check if fully initialized (set by ColumnType.__init__)
-            if getattr(instance, "_initialized", False):
-                return instance
-
-        # Slow path: acquire lock
-        with _singleton_lock:
-            # Double-check after acquiring lock
-            if hasattr(cls, "_instance") and isinstance(cls._instance, cls):
-                instance = cls._instance
-                if getattr(instance, "_initialized", False):
-                    return instance
-                # Instance exists but not initialized - another thread is initializing it
-                # Create a temporary instance to avoid the race condition
-                # This is rare and only happens during concurrent first-access
-                return super(Singleton, cls).__new__(cls)
-
-            # No instance exists yet - create the singleton
+        # Each subclass gets its own _instance attribute
+        if not hasattr(cls, "_instance") or not isinstance(cls._instance, cls):
             cls._instance = super(Singleton, cls).__new__(cls)
-            return cls._instance
+        return cls._instance
 
 
 class ColumnType(BaseModel):
@@ -102,18 +79,10 @@ class ColumnType(BaseModel):
         object.__setattr__(self, "_initialized", True)
 
     def __repr__(self):
-        # Defensive check for race condition during singleton initialization
-        try:
-            return object.__getattribute__(self, "_repr_string")
-        except AttributeError:
-            return self.__class__.__name__
+        return self._repr_string
 
     def __str__(self):
-        # Defensive check for race condition during singleton initialization
-        try:
-            return object.__getattribute__(self, "_type_string")
-        except AttributeError:
-            return self.__class__.__name__
+        return self._type_string
 
     def __deepcopy__(self, memo):
         return self
