@@ -18,13 +18,13 @@ export function SelectionPanel({
   const prevSearchRef = useRef('');
 
   // Get short name from full metric name
-  const getShortName = (fullName) => {
+  const getShortName = fullName => {
     const parts = fullName.split('.');
     return parts[parts.length - 1];
   };
 
   // Get namespace from full metric name
-  const getNamespace = (fullName) => {
+  const getNamespace = fullName => {
     const parts = fullName.split('.');
     return parts.length > 1 ? parts.slice(0, -1).join('.') : 'default';
   };
@@ -46,13 +46,13 @@ export function SelectionPanel({
   // Namespaces matching the search term appear first, then sorted by metric matches
   const { filteredGroups, sortedNamespaces } = useMemo(() => {
     const search = metricsSearch.trim().toLowerCase();
-    
+
     if (!search) {
       // No search - return original groups, sorted alphabetically
       const namespaces = Object.keys(groupedMetrics).sort();
       return { filteredGroups: groupedMetrics, sortedNamespaces: namespaces };
     }
-    
+
     // Filter to groups that have matching metrics
     const filtered = {};
     Object.entries(groupedMetrics).forEach(([namespace, items]) => {
@@ -62,44 +62,44 @@ export function SelectionPanel({
         matchingItems.sort((a, b) => {
           const aShort = getShortName(a).toLowerCase();
           const bShort = getShortName(b).toLowerCase();
-          
+
           const aPrefix = aShort.startsWith(search);
           const bPrefix = bShort.startsWith(search);
           if (aPrefix && !bPrefix) return -1;
           if (!aPrefix && bPrefix) return 1;
-          
+
           return aShort.localeCompare(bShort);
         });
         filtered[namespace] = matchingItems;
       }
     });
-    
+
     // Sort namespaces by relevance
     const namespaces = Object.keys(filtered).sort((a, b) => {
       const aLower = a.toLowerCase();
       const bLower = b.toLowerCase();
-      
+
       // Priority 1: Namespace starts with search term
       const aPrefix = aLower.startsWith(search);
       const bPrefix = bLower.startsWith(search);
       if (aPrefix && !bPrefix) return -1;
       if (!aPrefix && bPrefix) return 1;
-      
+
       // Priority 2: Namespace contains search term
       const aContains = aLower.includes(search);
       const bContains = bLower.includes(search);
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
-      
+
       // Priority 3: Has more matching metrics
       const aCount = filtered[a].length;
       const bCount = filtered[b].length;
       if (aCount !== bCount) return bCount - aCount;
-      
+
       // Priority 4: Alphabetical
       return aLower.localeCompare(bLower);
     });
-    
+
     return { filteredGroups: filtered, sortedNamespaces: namespaces };
   }, [groupedMetrics, metricsSearch]);
 
@@ -107,12 +107,12 @@ export function SelectionPanel({
   useEffect(() => {
     const currentSearch = metricsSearch.trim();
     const prevSearch = prevSearchRef.current;
-    
+
     // Only auto-expand when starting a new search or search term changes
     if (currentSearch && currentSearch !== prevSearch) {
       setExpandedNamespaces(new Set(sortedNamespaces));
     }
-    
+
     prevSearchRef.current = currentSearch;
   }, [metricsSearch, sortedNamespaces]);
 
@@ -122,7 +122,10 @@ export function SelectionPanel({
     dimensions.forEach(d => {
       if (!d.name) return;
       const existing = byName.get(d.name);
-      if (!existing || (d.path?.length || 0) < (existing.path?.length || Infinity)) {
+      if (
+        !existing ||
+        (d.path?.length || 0) < (existing.path?.length || Infinity)
+      ) {
         byName.set(d.name, d);
       }
     });
@@ -132,44 +135,42 @@ export function SelectionPanel({
   // Filter and sort dimensions by search (prefix matches first)
   const filteredDimensions = useMemo(() => {
     const search = dimensionsSearch.trim().toLowerCase();
-    const dimsToFilter = search ? dedupedDimensions : dedupedDimensions;
-    
-    if (!search) return dimsToFilter;
-    
+    if (!search) return dedupedDimensions;
+
     // Search in both full name and short display name
-    const matches = dimsToFilter.filter(d => {
+    const matches = dedupedDimensions.filter(d => {
       if (!d.name) return false;
       const fullName = d.name.toLowerCase();
       const parts = d.name.split('.');
       const shortDisplay = parts.slice(-2).join('.').toLowerCase();
       return fullName.includes(search) || shortDisplay.includes(search);
     });
-    
+
     // Sort: prefix matches on short name first
     matches.sort((a, b) => {
       const aParts = (a.name || '').split('.');
       const bParts = (b.name || '').split('.');
       const aShort = aParts.slice(-2).join('.').toLowerCase();
       const bShort = bParts.slice(-2).join('.').toLowerCase();
-      
+
       const aPrefix = aShort.startsWith(search);
       const bPrefix = bShort.startsWith(search);
       if (aPrefix && !bPrefix) return -1;
       if (!aPrefix && bPrefix) return 1;
-      
+
       return aShort.localeCompare(bShort);
     });
-    
+
     return matches;
   }, [dedupedDimensions, dimensionsSearch]);
 
   // Get display name for dimension (last 2 segments: dim_node.column)
-  const getDimDisplayName = (fullName) => {
+  const getDimDisplayName = fullName => {
     const parts = (fullName || '').split('.');
     return parts.slice(-2).join('.');
   };
 
-  const toggleNamespace = (namespace) => {
+  const toggleNamespace = namespace => {
     setExpandedNamespaces(prev => {
       const next = new Set(prev);
       if (next.has(namespace)) {
@@ -181,7 +182,7 @@ export function SelectionPanel({
     });
   };
 
-  const toggleMetric = (metric) => {
+  const toggleMetric = metric => {
     if (selectedMetrics.includes(metric)) {
       onMetricsChange(selectedMetrics.filter(m => m !== metric));
     } else {
@@ -189,7 +190,7 @@ export function SelectionPanel({
     }
   };
 
-  const toggleDimension = (dimName) => {
+  const toggleDimension = dimName => {
     if (selectedDimensions.includes(dimName)) {
       onDimensionsChange(selectedDimensions.filter(d => d !== dimName));
     } else {
@@ -212,18 +213,25 @@ export function SelectionPanel({
       <div className="selection-section">
         <div className="section-header">
           <h3>Metrics</h3>
-          <span className="selection-count">{selectedMetrics.length} selected</span>
+          <span className="selection-count">
+            {selectedMetrics.length} selected
+          </span>
         </div>
-        
+
         <div className="search-box">
           <input
             type="text"
             placeholder="Search metrics..."
             value={metricsSearch}
-            onChange={(e) => setMetricsSearch(e.target.value)}
+            onChange={e => setMetricsSearch(e.target.value)}
           />
           {metricsSearch && (
-            <button className="clear-search" onClick={() => setMetricsSearch('')}>×</button>
+            <button
+              className="clear-search"
+              onClick={() => setMetricsSearch('')}
+            >
+              ×
+            </button>
           )}
         </div>
 
@@ -231,11 +239,13 @@ export function SelectionPanel({
           {sortedNamespaces.map(namespace => {
             const items = filteredGroups[namespace];
             const isExpanded = expandedNamespaces.has(namespace);
-            const selectedInNamespace = items.filter(m => selectedMetrics.includes(m)).length;
-            
+            const selectedInNamespace = items.filter(m =>
+              selectedMetrics.includes(m),
+            ).length;
+
             return (
               <div key={namespace} className="namespace-group">
-                <div 
+                <div
                   className="namespace-header"
                   onClick={() => toggleNamespace(namespace)}
                 >
@@ -243,23 +253,25 @@ export function SelectionPanel({
                   <span className="namespace-name">{namespace}</span>
                   <span className="namespace-count">
                     {selectedInNamespace > 0 && (
-                      <span className="selected-badge">{selectedInNamespace}</span>
+                      <span className="selected-badge">
+                        {selectedInNamespace}
+                      </span>
                     )}
                     {items.length}
                   </span>
                 </div>
-                
+
                 {isExpanded && (
                   <div className="namespace-items">
                     <div className="namespace-actions">
-                      <button 
+                      <button
                         type="button"
                         className="select-all-btn"
                         onClick={() => selectAllInNamespace(namespace, items)}
                       >
                         Select all
                       </button>
-                      <button 
+                      <button
                         type="button"
                         className="select-all-btn"
                         onClick={() => deselectAllInNamespace(namespace, items)}
@@ -274,7 +286,9 @@ export function SelectionPanel({
                           checked={selectedMetrics.includes(metric)}
                           onChange={() => toggleMetric(metric)}
                         />
-                        <span className="item-name">{getShortName(metric)}</span>
+                        <span className="item-name">
+                          {getShortName(metric)}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -282,10 +296,12 @@ export function SelectionPanel({
               </div>
             );
           })}
-          
+
           {sortedNamespaces.length === 0 && (
             <div className="empty-list">
-              {metricsSearch ? 'No metrics match your search' : 'No metrics available'}
+              {metricsSearch
+                ? 'No metrics match your search'
+                : 'No metrics available'}
             </div>
           )}
         </div>
@@ -303,7 +319,7 @@ export function SelectionPanel({
             {dimensions.length > 0 && ` / ${dimensions.length} available`}
           </span>
         </div>
-        
+
         {selectedMetrics.length === 0 ? (
           <div className="empty-list hint">
             Select metrics to see available dimensions
@@ -317,10 +333,15 @@ export function SelectionPanel({
                 type="text"
                 placeholder="Search dimensions..."
                 value={dimensionsSearch}
-                onChange={(e) => setDimensionsSearch(e.target.value)}
+                onChange={e => setDimensionsSearch(e.target.value)}
               />
               {dimensionsSearch && (
-                <button className="clear-search" onClick={() => setDimensionsSearch('')}>×</button>
+                <button
+                  className="clear-search"
+                  onClick={() => setDimensionsSearch('')}
+                >
+                  ×
+                </button>
               )}
             </div>
 
@@ -333,17 +354,23 @@ export function SelectionPanel({
                     onChange={() => toggleDimension(dim.name)}
                   />
                   <div className="dimension-info">
-                    <span className="item-name">{getDimDisplayName(dim.name)}</span>
+                    <span className="item-name">
+                      {getDimDisplayName(dim.name)}
+                    </span>
                     {dim.path && dim.path.length > 1 && (
-                      <span className="dimension-path">{dim.path.slice(1).join(' ▶ ')}</span>
+                      <span className="dimension-path">
+                        {dim.path.slice(1).join(' ▶ ')}
+                      </span>
                     )}
                   </div>
                 </label>
               ))}
-              
+
               {filteredDimensions.length === 0 && (
                 <div className="empty-list">
-                  {dimensionsSearch ? 'No dimensions match your search' : 'No shared dimensions'}
+                  {dimensionsSearch
+                    ? 'No dimensions match your search'
+                    : 'No shared dimensions'}
                 </div>
               )}
             </div>
@@ -355,4 +382,3 @@ export function SelectionPanel({
 }
 
 export default SelectionPanel;
-

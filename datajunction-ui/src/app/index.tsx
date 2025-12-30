@@ -15,7 +15,7 @@ import { NodePage } from './pages/NodePage';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';
-import { MaterializationPlannerPage } from './pages/MaterializationPlannerPage/Loadable';
+import { MaterializationPlannerPage } from './pages/QueryPlannerPage/Loadable';
 import { TagPage } from './pages/TagPage/Loadable';
 import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
 import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';

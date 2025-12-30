@@ -11,7 +11,7 @@
   --planner-text: #1e293b;
   --planner-text-muted: #64748b;
   --planner-text-dim: #94a3b8;
-  
+
   --accent-primary: #3b82f6;
   --accent-preagg: #d97706;
   --accent-metric: #7c3aed;
@@ -19,14 +19,14 @@
   --accent-success: #059669;
   --accent-warning: #d97706;
   --accent-error: #dc2626;
-  
+
   --font-display: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
@@ -141,7 +141,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .graph-empty {
@@ -367,7 +369,7 @@
   background: var(--planner-surface-hover);
 }
 
-.selection-item input[type="checkbox"] {
+.selection-item input[type='checkbox'] {
   margin-top: 2px;
   accent-color: var(--accent-primary);
 }
@@ -923,7 +925,8 @@
   word-break: break-all;
 }
 
-.agg-func, .merge-func {
+.agg-func,
+.merge-func {
   font-family: var(--font-display);
   font-size: 10px;
   color: var(--planner-text-dim);
@@ -1191,41 +1194,6 @@
 
 .selection-summary-item.dimension .selection-summary-name {
   color: var(--accent-primary);
-}
-
-/* Legacy Metrics Summary (keep for backwards compat) */
-.metrics-summary-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.metric-summary-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  background: var(--planner-bg);
-  border: 1px solid var(--planner-border);
-  border-radius: var(--radius-sm);
-}
-
-.metric-summary-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-metric);
-}
-
-.metric-summary-combiner {
-  flex: 1;
-  font-size: 10px;
-  font-family: var(--font-display);
-  color: var(--planner-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
 }
 
 /* =================================
