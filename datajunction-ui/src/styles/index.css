@@ -775,9 +775,8 @@ pre {
 
 .card-header {
   align-items: center;
-  margin: 0.5rem;
   margin-left: 0;
-  padding: 0 2.25rem 0 2.25rem;
+  padding: 1.5rem 2.25rem 0 2.25rem;
 }
 
 .card-header h2 {
@@ -1000,6 +999,7 @@ pre {
   margin-top: 6px;
   box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
   min-width: 115px;
+  z-index: 1100;
 }
 
 .dropdown:hover .dropdown-content {

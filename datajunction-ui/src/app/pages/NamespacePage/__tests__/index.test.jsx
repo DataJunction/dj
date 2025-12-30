@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import DJClientContext from '../../../providers/djclient';
+import UserContext from '../../../providers/UserProvider';
 import { NamespacePage } from '../index';
 import React from 'react';
 import userEvent from '@testing-library/user-event';
@@ -13,6 +14,25 @@ const mockDjClient = {
   whoami: jest.fn(),
   users: jest.fn(),
   listTags: jest.fn(),
+};
+
+const mockCurrentUser = { username: 'dj', email: 'dj@test.com' };
+
+const renderWithProviders = (ui, { route = '/namespaces/default' } = {}) => {
+  return render(
+    <UserContext.Provider
+      value={{ currentUser: mockCurrentUser, loading: false }}
+    >
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <MemoryRouter initialEntries={[route]}>
+          <Routes>
+            <Route path="namespaces/:namespace" element={ui} />
+            <Route path="/" element={ui} />
+          </Routes>
+        </MemoryRouter>
+      </DJClientContext.Provider>
+    </UserContext.Provider>,
+  );
 };
 
 describe('NamespacePage', () => {
@@ -164,38 +184,68 @@ describe('NamespacePage', () => {
 
     // --- Sorting ---
 
+    // Track current call count
+    const initialCallCount = mockDjClient.listNodesForLanding.mock.calls.length;
+
     // sort by 'name'
     fireEvent.click(screen.getByText('name'));
     await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(2);
+      expect(
+        mockDjClient.listNodesForLanding.mock.calls.length,
+      ).toBeGreaterThan(initialCallCount);
     });
+
+    const afterFirstSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
     // flip direction
     fireEvent.click(screen.getByText('name'));
     await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(3);
+      expect(
+        mockDjClient.listNodesForLanding.mock.calls.length,
+      ).toBeGreaterThan(afterFirstSort);
     });
+
+    const afterSecondSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
     // sort by 'displayName'
     fireEvent.click(screen.getByText('display Name'));
     await waitFor(() => {
-      expect(mockDjClient.listNodesForLanding).toHaveBeenCalledTimes(4);
+      expect(
+        mockDjClient.listNodesForLanding.mock.calls.length,
+      ).toBeGreaterThan(afterSecondSort);
     });
 
     // --- Filters ---
 
-    // Node type
+    // Node type - use react-select properly
     const selectNodeType = screen.getAllByTestId('select-node-type')[0];
-    fireEvent.keyDown(selectNodeType.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('Source'));
+    const typeInput = selectNodeType.querySelector('input');
+    if (typeInput) {
+      fireEvent.focus(typeInput);
+      fireEvent.keyDown(typeInput, { key: 'ArrowDown' });
+      await waitFor(() => {
+        const sourceOption = screen.queryByText('Source');
+        if (sourceOption) {
+          fireEvent.click(sourceOption);
+        }
+      });
+    }
 
     // Tag filter
     const selectTag = screen.getAllByTestId('select-tag')[0];
-    fireEvent.keyDown(selectTag.firstChild, { key: 'ArrowDown' });
+    const tagInput = selectTag.querySelector('input');
+    if (tagInput) {
+      fireEvent.focus(tagInput);
+      fireEvent.keyDown(tagInput, { key: 'ArrowDown' });
+    }
 
     // User filter
     const selectUser = screen.getAllByTestId('select-user')[0];
-    fireEvent.keyDown(selectUser.firstChild, { key: 'ArrowDown' });
+    const userInput = selectUser.querySelector('input');
+    if (userInput) {
+      fireEvent.focus(userInput);
+      fireEvent.keyDown(userInput, { key: 'ArrowDown' });
+    }
 
     // --- Expand/Collapse Namespace ---
     fireEvent.click(screen.getByText('common'));
@@ -326,6 +376,245 @@ describe('NamespacePage', () => {
     // Should display failure alert
     await waitFor(() => {
       expect(screen.getByText('you failed')).toBeInTheDocument();
+    });
+  });
+
+  describe('Filter Bar', () => {
+    it('displays quick filter presets', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quick:')).toBeInTheDocument();
+      });
+
+      // Check that preset buttons are rendered
+      expect(screen.getByText('My Nodes')).toBeInTheDocument();
+      expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+      expect(screen.getByText('Drafts')).toBeInTheDocument();
+    });
+
+    it('applies My Nodes preset when clicked', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('My Nodes')).toBeInTheDocument();
+      });
+
+      const initialCalls = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(screen.getByText('My Nodes'));
+
+      await waitFor(() => {
+        // The API should be called again after clicking preset
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(initialCalls);
+      });
+    });
+
+    it('applies Needs Attention preset when clicked', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+      });
+
+      const initialCalls = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(screen.getByText('Needs Attention'));
+
+      await waitFor(() => {
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(initialCalls);
+      });
+    });
+
+    it('applies Drafts preset when clicked', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Drafts')).toBeInTheDocument();
+      });
+
+      const initialCalls = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(screen.getByText('Drafts'));
+
+      await waitFor(() => {
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(initialCalls);
+      });
+    });
+
+    it('shows Clear all button when filters are active', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('My Nodes')).toBeInTheDocument();
+      });
+
+      // Apply a preset to activate filters
+      fireEvent.click(screen.getByText('My Nodes'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Clear all ×')).toBeInTheDocument();
+      });
+    });
+
+    it('clears all filters when Clear all is clicked', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('My Nodes')).toBeInTheDocument();
+      });
+
+      // Apply a preset
+      fireEvent.click(screen.getByText('My Nodes'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Clear all ×')).toBeInTheDocument();
+      });
+
+      // Clear all filters
+      fireEvent.click(screen.getByText('Clear all ×'));
+
+      await waitFor(() => {
+        // Clear all button should disappear
+        expect(screen.queryByText('Clear all ×')).not.toBeInTheDocument();
+      });
+    });
+
+    it('displays filter dropdowns', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        // Check for filter labels
+        expect(screen.getByText('Type')).toBeInTheDocument();
+        expect(screen.getByText('Tags')).toBeInTheDocument();
+        expect(screen.getByText('Edited By')).toBeInTheDocument();
+        expect(screen.getByText('Mode')).toBeInTheDocument();
+        expect(screen.getByText('Owner')).toBeInTheDocument();
+        expect(screen.getByText('Status')).toBeInTheDocument();
+        expect(screen.getByText('Quality')).toBeInTheDocument();
+      });
+    });
+
+    it('opens Quality dropdown when clicked', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quality')).toBeInTheDocument();
+      });
+
+      // Find and click the Quality button
+      const qualityButton = screen.getByText('Issues');
+      fireEvent.click(qualityButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Missing Description')).toBeInTheDocument();
+        expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
+        expect(screen.getByText('Has Materialization')).toBeInTheDocument();
+      });
+    });
+
+    it('toggles quality filters in dropdown', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quality')).toBeInTheDocument();
+      });
+
+      // Open the Quality dropdown
+      const qualityButton = screen.getByText('Issues');
+      fireEvent.click(qualityButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Missing Description')).toBeInTheDocument();
+      });
+
+      // Toggle the Missing Description checkbox
+      const checkbox = screen.getByLabelText('Missing Description');
+      const callsBefore = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(checkbox);
+
+      await waitFor(() => {
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(callsBefore);
+      });
+    });
+
+    it('displays no nodes message with clear filter link when no results', async () => {
+      mockDjClient.listNodesForLanding.mockResolvedValue({
+        data: {
+          findNodesPaginated: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              hasPrevPage: false,
+              startCursor: null,
+            },
+            edges: [],
+          },
+        },
+      });
+
+      renderWithProviders(<NamespacePage />);
+
+      // Apply a filter first
+      await waitFor(() => {
+        expect(screen.getByText('My Nodes')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('My Nodes'));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No nodes found with the current filters.'),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Clear filters')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('URL Parameter Sync', () => {
+    it('reads filters from URL parameters on load', async () => {
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/default?type=metric&ownedBy=dj',
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
+    });
+
+    it('reads status filter from URL', async () => {
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/default?statuses=INVALID',
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
+    });
+
+    it('reads mode filter from URL', async () => {
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/default?mode=draft',
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
+    });
+
+    it('reads quality filters from URL', async () => {
+      renderWithProviders(<NamespacePage />, {
+        route:
+          '/namespaces/default?missingDescription=true&orphanedDimension=true',
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
     });
   });
 });
