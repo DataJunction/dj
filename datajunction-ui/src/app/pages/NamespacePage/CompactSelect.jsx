@@ -13,6 +13,7 @@ export default function CompactSelect({
   minWidth = '100px',
   flex = 1,
   isLoading = false,
+  testId = null,
 }) {
   // For single select, find the matching option
   // For multi select, filter to matching options
@@ -33,6 +34,7 @@ export default function CompactSelect({
         flex,
         minWidth,
       }}
+      data-testid={testId}
     >
       <label
         style={{

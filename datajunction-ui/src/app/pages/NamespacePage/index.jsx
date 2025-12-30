@@ -8,7 +8,6 @@ import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import LoadingIcon from '../../icons/LoadingIcon';
-import FilterIcon from '../../icons/FilterIcon';
 import CompactSelect from './CompactSelect';
 
 import 'styles/node-list.css';
@@ -125,7 +124,7 @@ export function NamespacePage() {
     {
       id: 'drafts',
       label: 'Drafts',
-      filters: { mode: 'draft' },
+      filters: { ownedBy: currentUser?.username, mode: 'draft' },
     },
   ];
 
@@ -466,7 +465,7 @@ export function NamespacePage() {
           <div
             style={{
               marginBottom: '1rem',
-              padding: '12px',
+              padding: '1rem',
               backgroundColor: '#f8f9fa',
               borderRadius: '8px',
             }}
@@ -483,7 +482,7 @@ export function NamespacePage() {
               <div
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <span style={{ fontSize: '12px', color: '#888' }}>Quick:</span>
+                <span style={{ fontSize: '12px', color: '#555' }}>Quick:</span>
                 {presets.map(preset => (
                   <button
                     key={preset.id}
@@ -541,6 +540,7 @@ export function NamespacePage() {
                 }
                 flex={1}
                 minWidth="80px"
+                testId="select-node-type"
               />
               <CompactSelect
                 label="Tags"
@@ -557,6 +557,7 @@ export function NamespacePage() {
                 isLoading={tagsLoading}
                 flex={1.5}
                 minWidth="100px"
+                testId="select-tag"
               />
               <CompactSelect
                 label="Edited By"
@@ -569,6 +570,7 @@ export function NamespacePage() {
                 isLoading={usersLoading}
                 flex={1}
                 minWidth="80px"
+                testId="select-user"
               />
               <CompactSelect
                 label="Mode"

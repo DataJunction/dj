@@ -45,6 +45,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
+from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
@@ -693,8 +694,6 @@ class Node(Base):
 
         # Filter by owner username
         if owned_by:
-            from datajunction_server.database.nodeowner import NodeOwner
-
             owned_node_subquery = (
                 select(NodeOwner.node_id)
                 .join(User, NodeOwner.user_id == User.id)
@@ -706,7 +705,7 @@ class Node(Base):
 
         # Filter nodes missing descriptions (actionable item)
         if missing_description:
-            if not join_revision:
+            if not join_revision:  # pragma: no branch
                 statement = statement.join(NodeRevisionAlias, Node.current)
                 join_revision = True
             statement = statement.where(
@@ -718,8 +717,6 @@ class Node(Base):
 
         # Filter nodes missing owners (actionable item)
         if missing_owner:
-            from datajunction_server.database.nodeowner import NodeOwner
-
             nodes_with_owners_subquery = select(NodeOwner.node_id).distinct().subquery()
             statement = statement.where(
                 ~Node.id.in_(select(nodes_with_owners_subquery)),
@@ -727,8 +724,7 @@ class Node(Base):
 
         # Filter by node statuses
         if statuses:
-            print("statuses", statuses)
-            if not join_revision:
+            if not join_revision:  # pragma: no branch
                 statement = statement.join(NodeRevisionAlias, Node.current)
                 join_revision = True
             # Strawberry enums need to be converted to their lowercase values for DB comparison
@@ -740,9 +736,7 @@ class Node(Base):
 
         # Filter to nodes with materializations configured
         if has_materialization:
-            from datajunction_server.database.materialization import Materialization
-
-            if not join_revision:
+            if not join_revision:  # pragma: no branch
                 statement = statement.join(NodeRevisionAlias, Node.current)
                 join_revision = True
             nodes_with_mat_subquery = (
