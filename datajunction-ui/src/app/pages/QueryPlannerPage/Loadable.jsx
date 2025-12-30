@@ -1,6 +1,6 @@
 import { lazyLoad } from 'utils/loadable';
 
-export const MaterializationPlannerPage = lazyLoad(
+export const QueryPlannerPage = lazyLoad(
   () => import('./index'),
-  module => module.MaterializationPlannerPage,
+  module => module.QueryPlannerPage,
 );

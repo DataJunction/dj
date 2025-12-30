@@ -9,7 +9,7 @@ import {
 } from './PreAggDetailsPanel';
 import './styles.css';
 
-export function MaterializationPlannerPage() {
+export function QueryPlannerPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   // Available options
@@ -206,4 +206,4 @@ export function MaterializationPlannerPage() {
   );
 }
 
-export default MaterializationPlannerPage;
+export default QueryPlannerPage;

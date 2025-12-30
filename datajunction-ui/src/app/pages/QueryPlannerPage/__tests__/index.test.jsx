@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DJClientContext from '../../../providers/djclient';
-import { MaterializationPlannerPage } from '../index';
+import { QueryPlannerPage } from '../index';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 
@@ -117,13 +117,13 @@ const renderPage = () => {
   return render(
     <MemoryRouter>
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <MaterializationPlannerPage />
+        <QueryPlannerPage />
       </DJClientContext.Provider>
     </MemoryRouter>,
   );
 };
 
-describe('MaterializationPlannerPage', () => {
+describe('QueryPlannerPage', () => {
   beforeEach(() => {
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
