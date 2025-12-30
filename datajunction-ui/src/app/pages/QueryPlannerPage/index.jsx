@@ -2,27 +2,31 @@ import { useContext, useEffect, useState, useCallback } from 'react';
 import DJClientContext from '../../providers/djclient';
 import MetricFlowGraph from './MetricFlowGraph';
 import SelectionPanel from './SelectionPanel';
-import { PreAggDetailsPanel, MetricDetailsPanel, QueryOverviewPanel } from './PreAggDetailsPanel';
+import {
+  PreAggDetailsPanel,
+  MetricDetailsPanel,
+  QueryOverviewPanel,
+} from './PreAggDetailsPanel';
 import './styles.css';
 
 export function MaterializationPlannerPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  
+
   // Available options
   const [metrics, setMetrics] = useState([]);
   const [commonDimensions, setCommonDimensions] = useState([]);
-  
+
   // Selection state
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [selectedDimensions, setSelectedDimensions] = useState([]);
-  
+
   // Results state
   const [measuresResult, setMeasuresResult] = useState(null);
   const [metricsResult, setMetricsResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dimensionsLoading, setDimensionsLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
   // Node selection for details panel
   const [selectedNode, setSelectedNode] = useState(null);
 
@@ -59,7 +63,9 @@ export function MaterializationPlannerPage() {
   // Clear dimension selections that are no longer valid
   useEffect(() => {
     const validDimNames = commonDimensions.map(d => d.name);
-    const validSelections = selectedDimensions.filter(d => validDimNames.includes(d));
+    const validSelections = selectedDimensions.filter(d =>
+      validDimNames.includes(d),
+    );
     if (validSelections.length !== selectedDimensions.length) {
       setSelectedDimensions(validSelections);
     }
@@ -94,17 +100,17 @@ export function MaterializationPlannerPage() {
     fetchData().catch(console.error);
   }, [djClient, selectedMetrics, selectedDimensions]);
 
-  const handleMetricsChange = useCallback((newMetrics) => {
+  const handleMetricsChange = useCallback(newMetrics => {
     setSelectedMetrics(newMetrics);
     setSelectedNode(null);
   }, []);
 
-  const handleDimensionsChange = useCallback((newDimensions) => {
+  const handleDimensionsChange = useCallback(newDimensions => {
     setSelectedDimensions(newDimensions);
     setSelectedNode(null);
   }, []);
 
-  const handleNodeSelect = useCallback((node) => {
+  const handleNodeSelect = useCallback(node => {
     setSelectedNode(node);
   }, []);
 
@@ -149,10 +155,11 @@ export function MaterializationPlannerPage() {
             <>
               <div className="graph-header">
                 <span className="graph-stats">
-                  {measuresResult.grain_groups?.length || 0} pre-aggregations → {measuresResult.metric_formulas?.length || 0} metrics
+                  {measuresResult.grain_groups?.length || 0} pre-aggregations →{' '}
+                  {measuresResult.metric_formulas?.length || 0} metrics
                 </span>
               </div>
-              <MetricFlowGraph 
+              <MetricFlowGraph
                 grainGroups={measuresResult.grain_groups}
                 metricFormulas={measuresResult.metric_formulas}
                 selectedNode={selectedNode}
@@ -164,7 +171,8 @@ export function MaterializationPlannerPage() {
               <div className="empty-icon">⊞</div>
               <h3>Select Metrics & Dimensions</h3>
               <p>
-                Choose metrics from the left panel, then select dimensions to see how they decompose into pre-aggregations.
+                Choose metrics from the left panel, then select dimensions to
+                see how they decompose into pre-aggregations.
               </p>
             </div>
           )}
@@ -173,13 +181,13 @@ export function MaterializationPlannerPage() {
         {/* Right: Details Panel */}
         <aside className="planner-details">
           {selectedNode?.type === 'preagg' ? (
-            <PreAggDetailsPanel 
+            <PreAggDetailsPanel
               preAgg={selectedNode.data}
               metricFormulas={measuresResult?.metric_formulas}
               onClose={handleClosePanel}
             />
           ) : selectedNode?.type === 'metric' ? (
-            <MetricDetailsPanel 
+            <MetricDetailsPanel
               metric={selectedNode.data}
               grainGroups={measuresResult?.grain_groups}
               onClose={handleClosePanel}

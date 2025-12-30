@@ -915,10 +915,16 @@ export const DataJunctionAPI = {
   },
 
   // V3 Measures SQL - returns pre-aggregations with components for materialization planning
-  measuresV3: async function (metricSelection, dimensionSelection, filters = '') {
+  measuresV3: async function (
+    metricSelection,
+    dimensionSelection,
+    filters = '',
+  ) {
     const params = new URLSearchParams();
     metricSelection.forEach(metric => params.append('metrics', metric));
-    dimensionSelection.forEach(dimension => params.append('dimensions', dimension));
+    dimensionSelection.forEach(dimension =>
+      params.append('dimensions', dimension),
+    );
     if (filters) {
       params.append('filters', filters);
     }
@@ -930,10 +936,16 @@ export const DataJunctionAPI = {
   },
 
   // V3 Metrics SQL - returns final combined SQL query
-  metricsV3: async function (metricSelection, dimensionSelection, filters = '') {
+  metricsV3: async function (
+    metricSelection,
+    dimensionSelection,
+    filters = '',
+  ) {
     const params = new URLSearchParams();
     metricSelection.forEach(metric => params.append('metrics', metric));
-    dimensionSelection.forEach(dimension => params.append('dimensions', dimension));
+    dimensionSelection.forEach(dimension =>
+      params.append('dimensions', dimension),
+    );
     if (filters) {
       params.append('filters', filters);
     }

@@ -20,11 +20,16 @@ function getDimensionNodeName(dimPath) {
 
 /**
  * QueryOverviewPanel - Default view showing metrics SQL and pre-agg summary
- * 
+ *
  * Shown when no node is selected in the graph
  */
-export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetrics, selectedDimensions }) {
-  const copyToClipboard = (text) => {
+export function QueryOverviewPanel({
+  measuresResult,
+  metricsResult,
+  selectedMetrics,
+  selectedDimensions,
+}) {
+  const copyToClipboard = text => {
     navigator.clipboard.writeText(text);
   };
 
@@ -35,7 +40,10 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
         <div className="empty-hint">
           <div className="empty-icon">⊞</div>
           <h4>Query Planner</h4>
-          <p>Select metrics and dimensions from the left panel to see the generated SQL and pre-aggregation plan</p>
+          <p>
+            Select metrics and dimensions from the left panel to see the
+            generated SQL and pre-aggregation plan
+          </p>
         </div>
       </div>
     );
@@ -63,7 +71,10 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
       <div className="details-header">
         <h2 className="details-title">Generated Query Overview</h2>
         <p className="details-full-name">
-          {selectedMetrics.length} metric{selectedMetrics.length !== 1 ? 's' : ''} × {selectedDimensions.length} dimension{selectedDimensions.length !== 1 ? 's' : ''}
+          {selectedMetrics.length} metric
+          {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
+          {selectedDimensions.length} dimension
+          {selectedDimensions.length !== 1 ? 's' : ''}
         </p>
       </div>
 
@@ -76,23 +87,27 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
         <div className="preagg-summary-list">
           {grainGroups.map((gg, i) => {
             const shortName = gg.parent_name?.split('.').pop() || 'Unknown';
-            const relatedMetrics = metricFormulas.filter(m => 
-              m.components?.some(comp => 
-                gg.components?.some(pc => pc.name === comp)
-              )
+            const relatedMetrics = metricFormulas.filter(m =>
+              m.components?.some(comp =>
+                gg.components?.some(pc => pc.name === comp),
+              ),
             );
             return (
               <div key={i} className="preagg-summary-card">
                 <div className="preagg-summary-header">
                   <span className="preagg-summary-name">{shortName}</span>
-                  <span className={`aggregability-pill aggregability-${gg.aggregability?.toLowerCase()}`}>
+                  <span
+                    className={`aggregability-pill aggregability-${gg.aggregability?.toLowerCase()}`}
+                  >
                     {gg.aggregability}
                   </span>
                 </div>
                 <div className="preagg-summary-details">
                   <div className="preagg-summary-row">
                     <span className="label">Grain:</span>
-                    <span className="value">{gg.grain?.join(', ') || 'None'}</span>
+                    <span className="value">
+                      {gg.grain?.join(', ') || 'None'}
+                    </span>
                   </div>
                   <div className="preagg-summary-row">
                     <span className="label">Measures:</span>
@@ -100,11 +115,16 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
                   </div>
                   <div className="preagg-summary-row">
                     <span className="label">Metrics:</span>
-                    <span className="value">{relatedMetrics.map(m => m.short_name).join(', ') || 'None'}</span>
+                    <span className="value">
+                      {relatedMetrics.map(m => m.short_name).join(', ') ||
+                        'None'}
+                    </span>
                   </div>
                 </div>
                 <div className="preagg-summary-status">
-                  <span className="status-indicator status-not-materialized">○</span>
+                  <span className="status-indicator status-not-materialized">
+                    ○
+                  </span>
                   <span>Not materialized</span>
                 </div>
               </div>
@@ -124,13 +144,15 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
             </h3>
             <div className="selection-summary-list">
               {metricFormulas.map((m, i) => (
-                <Link 
-                  key={i} 
-                  to={`/nodes/${m.name}`} 
+                <Link
+                  key={i}
+                  to={`/nodes/${m.name}`}
                   className="selection-summary-item metric clickable"
                 >
                   <span className="selection-summary-name">{m.short_name}</span>
-                  {m.is_derived && <span className="compact-node-badge">Derived</span>}
+                  {m.is_derived && (
+                    <span className="compact-node-badge">Derived</span>
+                  )}
                 </Link>
               ))}
             </div>
@@ -147,8 +169,8 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
                 const shortName = dim.split('.').pop().split('[')[0]; // Remove role suffix too
                 const nodeName = getDimensionNodeName(dim);
                 return (
-                  <Link 
-                    key={i} 
+                  <Link
+                    key={i}
                     to={`/nodes/${nodeName}`}
                     className="selection-summary-item dimension clickable"
                   >
@@ -169,7 +191,7 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
               <span className="section-icon">⌘</span>
               Generated SQL
             </h3>
-            <button 
+            <button
               className="copy-sql-btn"
               onClick={() => copyToClipboard(sql)}
               type="button"
@@ -178,8 +200,8 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
             </button>
           </div>
           <div className="sql-code-wrapper">
-            <SyntaxHighlighter 
-              language="sql" 
+            <SyntaxHighlighter
+              language="sql"
               style={atomOneLight}
               customStyle={{
                 margin: 0,
@@ -200,7 +222,7 @@ export function QueryOverviewPanel({ measuresResult, metricsResult, selectedMetr
 
 /**
  * PreAggDetailsPanel - Detailed view of a selected pre-aggregation
- * 
+ *
  * Shows comprehensive info when a preagg node is selected in the graph
  */
 export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
@@ -213,13 +235,14 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
   const shortName = sourceName.split('.').pop();
 
   // Find metrics that use this preagg's components
-  const relatedMetrics = metricFormulas?.filter(m => 
-    m.components?.some(comp => 
-      preAgg.components?.some(pc => pc.name === comp)
-    )
-  ) || [];
+  const relatedMetrics =
+    metricFormulas?.filter(m =>
+      m.components?.some(comp =>
+        preAgg.components?.some(pc => pc.name === comp),
+      ),
+    ) || [];
 
-  const copyToClipboard = (text) => {
+  const copyToClipboard = text => {
     navigator.clipboard.writeText(text);
   };
 
@@ -229,18 +252,17 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
       <div className="details-header">
         <div className="details-title-row">
           <div className="details-type-badge preagg">Pre-aggregation</div>
-          <button className="details-close" onClick={onClose} title="Close panel">×</button>
+          <button
+            className="details-close"
+            onClick={onClose}
+            title="Close panel"
+          >
+            ×
+          </button>
         </div>
         <h2 className="details-title">{shortName}</h2>
         <p className="details-full-name">{sourceName}</p>
       </div>
-
-      {/* Aggregability Badge */}
-      {/* <div className="details-section details-aggregability-section">
-        <span className={`aggregability-badge aggregability-${preAgg.aggregability?.toLowerCase()}`}>
-          {preAgg.aggregability} Aggregability
-        </span>
-      </div> */}
 
       {/* Grain Section */}
       <div className="details-section">
@@ -251,7 +273,9 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
         <div className="grain-pills">
           {preAgg.grain?.length > 0 ? (
             preAgg.grain.map(g => (
-              <code key={g} className="grain-pill">{g}</code>
+              <code key={g} className="grain-pill">
+                {g}
+              </code>
             ))
           ) : (
             <span className="empty-text">No grain columns</span>
@@ -325,7 +349,7 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
               <span className="section-icon">⌘</span>
               Pre-Aggregation SQL
             </h3>
-            <button 
+            <button
               className="copy-sql-btn"
               onClick={() => copyToClipboard(preAgg.sql)}
               type="button"
@@ -334,8 +358,8 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
             </button>
           </div>
           <div className="sql-code-wrapper">
-            <SyntaxHighlighter 
-              language="sql" 
+            <SyntaxHighlighter
+              language="sql"
               style={atomOneLight}
               customStyle={{
                 margin: 0,
@@ -361,21 +385,32 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
   if (!metric) return null;
 
   // Find preaggs that this metric depends on
-  const relatedPreaggs = grainGroups?.filter(gg => 
-    metric.components?.some(comp => 
-      gg.components?.some(pc => pc.name === comp)
-    )
-  ) || [];
+  const relatedPreaggs =
+    grainGroups?.filter(gg =>
+      metric.components?.some(comp =>
+        gg.components?.some(pc => pc.name === comp),
+      ),
+    ) || [];
 
   return (
     <div className="details-panel">
       {/* Header */}
       <div className="details-header">
         <div className="details-title-row">
-          <div className={`details-type-badge ${metric.is_derived ? 'derived' : 'metric'}`}>
+          <div
+            className={`details-type-badge ${
+              metric.is_derived ? 'derived' : 'metric'
+            }`}
+          >
             {metric.is_derived ? 'Derived Metric' : 'Metric'}
           </div>
-          <button className="details-close" onClick={onClose} title="Close panel">×</button>
+          <button
+            className="details-close"
+            onClick={onClose}
+            title="Close panel"
+          >
+            ×
+          </button>
         </div>
         <h2 className="details-title">{metric.short_name}</h2>
         <p className="details-full-name">{metric.name}</p>
@@ -400,7 +435,9 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
         </h3>
         <div className="component-tags">
           {metric.components?.map((comp, i) => (
-            <span key={i} className="component-tag">{comp}</span>
+            <span key={i} className="component-tag">
+              {comp}
+            </span>
           ))}
         </div>
       </div>
@@ -415,7 +452,9 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
           {relatedPreaggs.length > 0 ? (
             relatedPreaggs.map((gg, i) => (
               <div key={i} className="preagg-source-item">
-                <span className="preagg-source-name">{gg.parent_name?.split('.').pop()}</span>
+                <span className="preagg-source-name">
+                  {gg.parent_name?.split('.').pop()}
+                </span>
                 <span className="preagg-source-full">{gg.parent_name}</span>
               </div>
             ))
@@ -429,4 +468,3 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
 }
 
 export default PreAggDetailsPanel;
-

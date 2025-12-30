@@ -4,4 +4,3 @@ export const MaterializationPlannerPage = lazyLoad(
   () => import('./index'),
   module => module.MaterializationPlannerPage,
 );
-
