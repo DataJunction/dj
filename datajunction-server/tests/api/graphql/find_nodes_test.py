@@ -448,11 +448,11 @@ async def test_find_by_names(
                     },
                     {
                         "name": "completed_repairs",
-                        "type": "long",
+                        "type": "bigint",
                     },
                     {
                         "name": "total_repairs_dispatched",
-                        "type": "long",
+                        "type": "bigint",
                     },
                     {
                         "name": "total_amount_in_region",
@@ -468,7 +468,7 @@ async def test_find_by_names(
                     },
                     {
                         "name": "unique_contractors",
-                        "type": "long",
+                        "type": "bigint",
                     },
                 ],
             },
