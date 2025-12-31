@@ -10,7 +10,6 @@ from datajunction_server.models.node import NodeStatus
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("client", [False], indirect=True)
 async def test_update_source_node(
     client_with_roads: AsyncClient,
 ) -> None:

@@ -104,9 +104,10 @@ async def create_node_with_query(
 
 
 @pytest_asyncio.fixture
-async def primary_key_attribute(session: AsyncSession) -> AttributeType:
+async def primary_key_attribute(clean_session: AsyncSession) -> AttributeType:
     """
-    Primary key attribute entry
+    Primary key attribute entry.
+    NOTE: Uses clean_session because this test file creates its own database objects.
     """
     attribute_type = AttributeType(
         namespace="system",
@@ -119,17 +120,19 @@ async def primary_key_attribute(session: AsyncSession) -> AttributeType:
             NodeType.DIMENSION,
         ],
     )
-    session.add(attribute_type)
-    await session.commit()
-    await session.refresh(attribute_type)
+    clean_session.add(attribute_type)
+    await clean_session.commit()
+    await clean_session.refresh(attribute_type)
     return attribute_type
 
 
 @pytest_asyncio.fixture
-async def events(session: AsyncSession, current_user: User) -> Node:
+async def events(clean_session: AsyncSession, clean_current_user: User) -> Node:
     """
     Events source node
     """
+    session = clean_session
+    current_user = clean_current_user
     events_node, _ = await create_source(
         session,
         name="source.events",
@@ -156,13 +159,15 @@ async def events(session: AsyncSession, current_user: User) -> Node:
 
 @pytest_asyncio.fixture
 async def date_dim(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     primary_key_attribute,
-    current_user: User,
+    clean_current_user: User,
 ) -> Node:
     """
     Date dimension node
     """
+    session = clean_session
+    current_user = clean_current_user
     date_node, _ = await create_node_with_query(
         session,
         name="shared.date",
@@ -183,10 +188,12 @@ async def date_dim(
 
 
 @pytest_asyncio.fixture
-async def events_agg(session: AsyncSession, current_user: User) -> Node:
+async def events_agg(clean_session: AsyncSession, clean_current_user: User) -> Node:
     """
     Events aggregation transform node
     """
+    session = clean_session
+    current_user = clean_current_user
     events_agg_node, _ = await create_node_with_query(
         session,
         name="agg.events",
@@ -215,10 +222,15 @@ async def events_agg(session: AsyncSession, current_user: User) -> Node:
 
 
 @pytest_asyncio.fixture
-async def events_agg_complex(session: AsyncSession, current_user: User) -> Node:
+async def events_agg_complex(
+    clean_session: AsyncSession,
+    clean_current_user: User,
+) -> Node:
     """
     Events aggregation transform node with CTEs
     """
+    session = clean_session
+    current_user = clean_current_user
     events_agg_node, _ = await create_node_with_query(
         session,
         name="agg.events_complex",
@@ -257,13 +269,15 @@ async def events_agg_complex(session: AsyncSession, current_user: User) -> Node:
 
 @pytest_asyncio.fixture
 async def devices(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     primary_key_attribute: AttributeType,
-    current_user: User,
+    clean_current_user: User,
 ) -> Node:
     """
     Devices source node + devices dimension node
     """
+    session = clean_session
+    current_user = clean_current_user
     await create_source(
         session,
         name="source.devices",
@@ -308,13 +322,15 @@ async def devices(
 
 @pytest_asyncio.fixture
 async def manufacturers_dim(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     primary_key_attribute: AttributeType,
-    current_user: User,
+    clean_current_user: User,
 ) -> Node:
     """
     Manufacturers source node + dimension node
     """
+    session = clean_session
+    current_user = clean_current_user
     await create_source(
         session,
         name="source.manufacturers",
@@ -361,13 +377,15 @@ async def manufacturers_dim(
 
 @pytest_asyncio.fixture
 async def country_dim(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     primary_key_attribute: AttributeType,
-    current_user: User,
+    clean_current_user: User,
 ) -> Node:
     """
     Countries source node + dimension node & regions source + dim
     """
+    session = clean_session
+    current_user = clean_current_user
     await create_source(
         session,
         name="source.countries",
@@ -454,13 +472,14 @@ async def country_dim(
 
 @pytest_asyncio.fixture
 async def events_agg_countries_link(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events_agg: Node,
     country_dim: Node,
 ) -> Node:
     """
     Link between agg.events and shared.countries
     """
+    session = clean_session
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=country_dim,
@@ -475,13 +494,14 @@ async def events_agg_countries_link(
 
 @pytest_asyncio.fixture
 async def events_devices_link(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     devices: Node,
 ) -> Node:
     """
     Link between source.events and shared.devices
     """
+    session = clean_session
     link = DimensionLink(
         node_revision=events.current,
         dimension=devices,
@@ -496,7 +516,7 @@ async def events_devices_link(
 
 @pytest_asyncio.fixture
 async def events_agg_devices_link(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events_agg: Node,
     devices: Node,
     manufacturers_dim: Node,
@@ -504,6 +524,7 @@ async def events_agg_devices_link(
     """
     Link between agg.events and shared.devices
     """
+    session = clean_session
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=devices,
@@ -530,13 +551,14 @@ async def events_agg_devices_link(
 
 @pytest_asyncio.fixture
 async def events_agg_complex_devices_link(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events_agg_complex: Node,
     devices: Node,
 ) -> Node:
     """
     Link between agg.events and shared.devices
     """
+    session = clean_session
     link = DimensionLink(
         node_revision=events_agg_complex.current,
         dimension=devices,
@@ -552,13 +574,14 @@ async def events_agg_complex_devices_link(
 
 @pytest_asyncio.fixture
 async def events_agg_date_dim_link(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events_agg: Node,
     date_dim: Node,
 ) -> Node:
     """
     Link between agg.events and shared.date
     """
+    session = clean_session
     link = DimensionLink(
         node_revision=events_agg.current,
         dimension=date_dim,
@@ -573,7 +596,7 @@ async def events_agg_date_dim_link(
 
 @pytest.mark.asyncio
 async def test_dimension_join_path(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     events_agg_devices_link: Node,
@@ -581,6 +604,7 @@ async def test_dimension_join_path(
     """
     Test finding a join path between the dimension attribute and the node.
     """
+    session = clean_session
     path = await dimension_join_path(
         session,
         events_agg.current,
@@ -622,12 +646,13 @@ async def test_dimension_join_path(
 
 @pytest.mark.asyncio
 async def test_build_source_node(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
 ):
     """
     Test building a source node
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events.current,
@@ -654,12 +679,13 @@ async def test_build_source_node(
 
 @pytest.mark.asyncio
 async def test_build_source_node_with_direct_filter(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
 ):
     """
     Test building a source node with a filter on an immediate column on the source node.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events.current,
@@ -722,7 +748,7 @@ async def test_build_source_node_with_direct_filter(
 
 @pytest.mark.asyncio
 async def test_build_source_with_pushdown_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     devices: Node,
     events_devices_link: DimensionLink,
@@ -731,6 +757,7 @@ async def test_build_source_with_pushdown_filters(
     Test building a source node with a dimension attribute filter that can be
     pushed down to an immediate column on the source node.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events.current,
@@ -780,7 +807,7 @@ async def test_build_source_with_pushdown_filters(
 
 @pytest.mark.asyncio
 async def test_build_source_with_join_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     devices: Node,
     events_devices_link: DimensionLink,
@@ -789,6 +816,7 @@ async def test_build_source_with_join_filters(
     Test building a source node with a dimension attribute filter that
     requires a join to a dimension node.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events.current,
@@ -851,12 +879,13 @@ async def test_build_source_with_join_filters(
 
 @pytest.mark.asyncio
 async def test_build_dimension_node(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     devices: Node,
 ):
     """
     Test building a dimension node
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         devices.current,
@@ -881,7 +910,7 @@ async def test_build_dimension_node(
 
 @pytest.mark.asyncio
 async def test_build_dimension_node_with_direct_and_pushdown_filter(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     devices: Node,
     events_agg_devices_link: DimensionLink,
@@ -890,6 +919,7 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
     Test building a dimension node with a direct filter and a pushdown filter (the result
     in this case is the same query)
     """
+    session = clean_session
     expected = """
     WITH shared_DOT_devices AS (
       SELECT
@@ -928,7 +958,7 @@ async def test_build_dimension_node_with_direct_and_pushdown_filter(
 
 @pytest.mark.asyncio
 async def test_build_transform_with_pushdown_dimensions_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     devices: Node,
@@ -939,6 +969,7 @@ async def test_build_transform_with_pushdown_dimensions_filters(
     Test building a transform node with filters and dimensions that can be pushed down
     on to the transform's columns directly.
     """
+    session = clean_session
     # await session.refresh(events_agg.current, ["dimension_links"])
     query_builder = await QueryBuilder.create(
         session,
@@ -980,7 +1011,7 @@ async def test_build_transform_with_pushdown_dimensions_filters(
 
 @pytest.mark.asyncio
 async def test_build_transform_with_deeper_pushdown_dimensions_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     events_devices_link: DimensionLink,
@@ -992,6 +1023,7 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
     Test building a transform node with filters and dimensions that can be pushed down
     both onto the transform's columns and onto its upstream source node's columns.
     """
+    session = clean_session
     await session.refresh(events_agg.current, ["dimension_links"])
     query_builder = await QueryBuilder.create(
         session,
@@ -1043,7 +1075,7 @@ async def test_build_transform_with_deeper_pushdown_dimensions_filters(
 
 @pytest.mark.asyncio
 async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg_complex: Node,
     events_devices_link: DimensionLink,
@@ -1056,6 +1088,7 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
     filters and dimensions that can be pushed down, both immediately on the transform and
     at the upstream source node level.
     """
+    session = clean_session
     await session.refresh(events_agg_complex.current, ["dimension_links"])
     query_builder = await QueryBuilder.create(
         session,
@@ -1115,7 +1148,7 @@ async def test_build_transform_w_cte_and_pushdown_dimensions_filters(
 
 @pytest.mark.asyncio
 async def test_build_transform_with_join_dimensions_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     devices: Node,
@@ -1125,6 +1158,7 @@ async def test_build_transform_with_join_dimensions_filters(
     """
     Test building a transform node with filters and dimensions that require a join
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
@@ -1179,7 +1213,7 @@ async def test_build_transform_with_join_dimensions_filters(
 
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     devices: Node,
@@ -1193,6 +1227,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
     where dimension nodes themselves have a query that references an existing CTE
     in the query.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
@@ -1264,7 +1299,7 @@ async def test_build_transform_with_multijoin_dimensions_filters(
 
 @pytest.mark.asyncio
 async def test_build_fail_no_join_path_found(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     country_dim: Node,
@@ -1272,6 +1307,7 @@ async def test_build_fail_no_join_path_found(
     """
     Test failed node building due to not being able to find a join path to the dimension
     """
+    session = clean_session
     with pytest.raises(DJQueryBuildException) as exc_info:
         query_builder = await QueryBuilder.create(
             session,
@@ -1315,7 +1351,7 @@ async def test_build_fail_no_join_path_found(
 
 @pytest.mark.asyncio
 async def test_query_builder(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     country_dim: Node,
@@ -1323,6 +1359,7 @@ async def test_query_builder(
     """
     Test failed node building due to not being able to find a join path to the dimension
     """
+    session = clean_session
     query_builder = (
         (
             await QueryBuilder.create(
@@ -1351,7 +1388,7 @@ async def test_query_builder(
 
 @pytest.mark.asyncio
 async def test_build_transform_sql_without_materialized_tables(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     devices: Node,
@@ -1364,6 +1401,7 @@ async def test_build_transform_sql_without_materialized_tables(
     Test building a transform node with filters and dimensions that forces skipping the materialized
     tables for the dependent nodes.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events_agg.current,
@@ -1485,7 +1523,7 @@ async def test_build_transform_sql_without_materialized_tables(
 
 @pytest.mark.asyncio
 async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     devices: Node,
@@ -1500,6 +1538,7 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
     where dimension nodes themselves have a query that brings in an additional node that
     is not already a CTE on the query.
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(session, events_agg.current)
     query_ast = await (
         query_builder.filter_by("shared.manufacturers.company_name = 'Apple'")
@@ -1587,7 +1626,7 @@ async def test_build_transform_with_multijoin_dimensions_with_extra_ctes(
 
 @pytest.mark.asyncio
 async def test_build_with_source_filters(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     events: Node,
     events_agg: Node,
     date_dim: Node,
@@ -1596,6 +1635,7 @@ async def test_build_with_source_filters(
     """
     Test build node with filters on source
     """
+    session = clean_session
     query_builder = await QueryBuilder.create(
         session,
         events_agg.current,

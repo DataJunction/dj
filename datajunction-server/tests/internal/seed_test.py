@@ -8,7 +8,12 @@ from datajunction_server.utils import get_settings
 
 
 @pytest.mark.asyncio
-async def test_seed_default_catalogs_adds_missing_catalogs(session: AsyncSession):
+async def test_seed_default_catalogs_adds_missing_catalogs(clean_session: AsyncSession):
+    """
+    Test that seeding adds missing catalogs.
+    Uses clean_session because this test creates catalogs from scratch.
+    """
+    session = clean_session
     settings = get_settings()
 
     # Run the seeding function
@@ -28,7 +33,12 @@ async def test_seed_default_catalogs_adds_missing_catalogs(session: AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_seed_default_catalogs_noop_if_both_exist(session: AsyncSession):
+async def test_seed_default_catalogs_noop_if_both_exist(clean_session: AsyncSession):
+    """
+    Test that seeding is a no-op if both catalogs already exist.
+    Uses clean_session because this test creates catalogs from scratch.
+    """
+    session = clean_session
     settings = get_settings()
     virtual_catalog = Catalog(
         name=settings.seed_setup.virtual_catalog_name,
@@ -57,7 +67,12 @@ async def test_seed_default_catalogs_noop_if_both_exist(session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_seed_default_catalogs_virtual_exists(session: AsyncSession):
+async def test_seed_default_catalogs_virtual_exists(clean_session: AsyncSession):
+    """
+    Test that seeding adds missing system catalog when virtual exists.
+    Uses clean_session because this test creates catalogs from scratch.
+    """
+    session = clean_session
     settings = get_settings()
     virtual_catalog = Catalog(
         name=settings.seed_setup.virtual_catalog_name,
@@ -81,7 +96,12 @@ async def test_seed_default_catalogs_virtual_exists(session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_seed_default_catalogs_system_exists(session: AsyncSession):
+async def test_seed_default_catalogs_system_exists(clean_session: AsyncSession):
+    """
+    Test that seeding adds missing virtual catalog when system exists.
+    Uses clean_session because this test creates catalogs from scratch.
+    """
+    session = clean_session
     settings = get_settings()
     system_catalog = Catalog(
         name=settings.seed_setup.system_catalog_name,
