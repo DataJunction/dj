@@ -407,6 +407,33 @@ type Query {
     """
     dimensions: [String!] = null
 
+    """Filter to nodes edited by this user"""
+    editedBy: String = null
+
+    """Filter to nodes in this namespace"""
+    namespace: String = null
+
+    """Filter to nodes with this mode (published or draft)"""
+    mode: NodeMode = null
+
+    """Filter to nodes owned by this user"""
+    ownedBy: String = null
+
+    """Filter to nodes missing descriptions (for data quality checks)"""
+    missingDescription: Boolean! = false
+
+    """Filter to nodes without any owners (for data quality checks)"""
+    missingOwner: Boolean! = false
+
+    """Filter to nodes with these statuses (e.g., VALID, INVALID)"""
+    statuses: [NodeStatus!] = null
+
+    """Filter to nodes that have materializations configured"""
+    hasMaterialization: Boolean! = false
+
+    """Filter to dimension nodes that are not linked to by any other node"""
+    orphanedDimension: Boolean! = false
+
     """Limit nodes"""
     limit: Int = 1000
     orderBy: NodeSortField! = CREATED_AT
@@ -427,6 +454,11 @@ type Query {
     """Filter to nodes tagged with these tags"""
     tags: [String!] = null
 
+    """
+    Filter to nodes that have ALL of these dimensions. Accepts dimension node names or dimension attributes
+    """
+    dimensions: [String!] = null
+
     """Filter to nodes edited by this user"""
     editedBy: String = null
 
@@ -435,6 +467,24 @@ type Query {
 
     """Filter to nodes with this mode (published or draft)"""
     mode: NodeMode = null
+
+    """Filter to nodes owned by this user"""
+    ownedBy: String = null
+
+    """Filter to nodes missing descriptions (for data quality checks)"""
+    missingDescription: Boolean! = false
+
+    """Filter to nodes without any owners (for data quality checks)"""
+    missingOwner: Boolean! = false
+
+    """Filter to nodes with these statuses (e.g., VALID, INVALID)"""
+    statuses: [NodeStatus!] = null
+
+    """Filter to nodes that have materializations configured"""
+    hasMaterialization: Boolean! = false
+
+    """Filter to dimension nodes that are not linked to by any other node"""
+    orphanedDimension: Boolean! = false
     after: String = null
     before: String = null
 

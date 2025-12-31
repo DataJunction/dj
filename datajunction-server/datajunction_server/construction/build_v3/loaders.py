@@ -197,22 +197,24 @@ async def load_dimension_links_batch(
     Returns a dict mapping link_id to DimensionLink object.
 
     Note: Most dimension nodes should already be in ctx.nodes from query2.
-    We load current+query for pre-parsing cache, but skip heavy relationships.
+    We load current+query for pre-parsing cache, and columns for type lookups.
     """
     if not link_ids:
         return {}
 
-    # Load dimension links with minimal eager loading
-    # Need current.query for pre-parsing, but skip columns/dimension_links/etc
+    # Load dimension links with eager loading for columns (needed for type lookups)
     stmt = (
         select(DimensionLink)
         .where(DimensionLink.id.in_(link_ids))
         .options(
             joinedload(DimensionLink.dimension).options(
                 joinedload(Node.current).options(
-                    # Only load what's needed for table references and parsing
+                    # Load what's needed for table references, parsing, and type lookups
                     joinedload(NodeRevision.catalog),
                     joinedload(NodeRevision.availability),
+                    selectinload(NodeRevision.columns).options(
+                        load_only(Column.name, Column.type),
+                    ),
                 ),
             ),
         )
