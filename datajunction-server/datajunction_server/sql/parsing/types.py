@@ -37,20 +37,23 @@ DECIMAL_REGEX = re.compile(r"(?i)decimal\((?P<precision>\d+),\s*(?P<scale>\d+)\)
 FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
 VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
-# Singleton caching temporarily disabled for Pydantic v2 compatibility
-# TODO: Implement proper caching that works with Pydantic v2
+# Singleton caching disabled for Pydantic v2 compatibility
+# The singleton pattern causes issues with Pydantic v2's BaseModel initialization,
+# particularly when running tests in parallel (pytest-xdist).
+# Types are simple immutable objects, so creating new instances is acceptable.
 
 
 class Singleton:
     """
-    Singleton for types - each subclass gets its own singleton instance
+    Singleton pattern - DISABLED for Pydantic v2 compatibility.
+
+    This class is kept for backwards compatibility but no longer enforces singleton behavior.
+    Each call to a type constructor now creates a new instance.
     """
 
     def __new__(cls, *args, **kwargs):
-        # Each subclass gets its own _instance attribute
-        if not hasattr(cls, "_instance") or not isinstance(cls._instance, cls):
-            cls._instance = super(Singleton, cls).__new__(cls)
-        return cls._instance
+        # Always create a new instance (singleton disabled)
+        return super(Singleton, cls).__new__(cls)
 
 
 class ColumnType(BaseModel):
