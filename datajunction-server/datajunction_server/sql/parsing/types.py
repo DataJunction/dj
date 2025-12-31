@@ -128,22 +128,23 @@ class ColumnType(BaseModel):
             other than the highest-level ancestor types like ColumnType itself. This
             determines whether they're part of the same type group and are compatible
             with each other when performing type compatibility checks.
+
+            Uses MRO (Method Resolution Order) to find all ancestors of both types
+            and checks for meaningful common ancestors.
             """
-            base_types = (ColumnType, Singleton, PrimitiveType)
-            if type1 in base_types or type2 in base_types:
-                return False
-            if type1 == type2:
-                return True
-            current_has = False
-            for ancestor in type1.__bases__:
-                for ancestor2 in type2.__bases__:
-                    current_has = current_has or has_common_ancestor(
-                        ancestor,
-                        ancestor2,
-                    )
-                    if current_has:
-                        return current_has
-            return False
+            base_types = {ColumnType, Singleton, PrimitiveType, object}
+            # Get meaningful ancestors from MRO, excluding base types
+            ancestors1 = {cls for cls in type1.__mro__ if cls not in base_types}
+            ancestors2 = {cls for cls in type2.__mro__ if cls not in base_types}
+            # Check for common ancestors (excluding the types themselves and BaseModel)
+            common = ancestors1 & ancestors2
+            # Filter out non-type-related classes like BaseModel
+            meaningful_common = {
+                cls
+                for cls in common
+                if cls.__module__.startswith("datajunction_server")
+            }
+            return bool(meaningful_common)
 
         return has_common_ancestor(self.__class__, other.__class__)
 
