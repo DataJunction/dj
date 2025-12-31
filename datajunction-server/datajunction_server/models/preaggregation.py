@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
+from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.partition import Granularity
+from datajunction_server.models.query import ColumnMetadata
 
 
 class PlanPreAggregationsRequest(BaseModel):
@@ -171,6 +174,96 @@ class PreAggregationFilters(BaseModel):
     )
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
+
+
+class TemporalPartitionColumn(BaseModel):
+    """
+    A single temporal partition column with its format and granularity.
+
+    Used for incremental materialization to generate partition filters.
+    Supports both single-column (e.g., date_id) and multi-column (e.g., dateint + hour)
+    partition schemes.
+    """
+
+    column_name: str = Field(description="Column name in the output")
+    format: Optional[str] = Field(
+        default=None,
+        description="Format string (e.g., 'yyyyMMdd' for date, None for integer hour)",
+    )
+    granularity: Optional[Granularity] = Field(
+        default=None,
+        description="Time granularity this column represents (DAY, HOUR, etc.)",
+    )
+    expression: Optional[str] = Field(
+        default=None,
+        description="Optional SQL expression for filter generation",
+    )
+
+
+class PreAggMaterializationInput(BaseModel):
+    """
+    Input for materializing a single pre-aggregation.
+
+    Sent to the query service's POST /preaggs/materialize endpoint.
+    The query service uses `preagg_id` to callback to DJ's
+    POST /preaggs/{preagg_id}/availability/ when materialization completes.
+    """
+
+    # Pre-agg identity (for callback routing)
+    preagg_id: int = Field(description="Pre-aggregation ID for callback routing")
+
+    # Output table (derived at call time, not stored)
+    output_table: str = Field(
+        description="Target table name (e.g., 'orders_fact__preagg_abc12345')",
+    )
+
+    # Source node info
+    node: NodeNameVersion = Field(description="Source node name and version")
+
+    # Grain and measures
+    grain: List[str] = Field(description="Grain columns (fully qualified)")
+    measures: List[Dict[str, Any]] = Field(
+        description="Measures with MetricComponent info",
+    )
+
+    # The SQL query to materialize
+    query: str = Field(description="SQL query for materialization")
+
+    # Output columns metadata
+    columns: List[ColumnMetadata] = Field(description="Output column metadata")
+
+    # Partition info (for incremental materialization)
+    # Supports multi-column partitions (e.g., dateint + hour for hourly)
+    temporal_partitions: List[TemporalPartitionColumn] = Field(
+        default_factory=list,
+        description="Temporal partition columns for incremental materialization",
+    )
+
+    # Materialization config
+    strategy: MaterializationStrategy = Field(
+        description="Materialization strategy (FULL or INCREMENTAL_TIME)",
+    )
+    schedule: Optional[str] = Field(
+        default=None,
+        description="Cron schedule for recurring materialization",
+    )
+    lookback_window: Optional[str] = Field(
+        default=None,
+        description="Lookback window for incremental (e.g., '3 days')",
+    )
+
+
+class PreAggMaterializationResponse(BaseModel):
+    """Response from query service after scheduling materialization."""
+
+    urls: List[str] = Field(
+        default_factory=list,
+        description="URLs to materialization jobs/dashboards",
+    )
+    output_tables: List[str] = Field(
+        default_factory=list,
+        description="Output table names",
+    )
 
 
 # Forward reference update

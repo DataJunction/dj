@@ -323,6 +323,49 @@ class QueryServiceClient:
         )
         return MaterializationInfo(**result)  # pragma: no cover
 
+    def materialize_preagg(
+        self,
+        materialization_input: "PreAggMaterializationInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Post a request to the query service to materialize a pre-aggregation.
+
+        The query service will:
+        1. Execute the SQL query
+        2. Write results to the output table
+        3. Callback to DJ's POST /preaggs/{preagg_id}/availability/ when done
+        """
+        from datajunction_server.models.preaggregation import PreAggMaterializationInput
+
+        response = self.requests_session.post(
+            "/preaggs/materialize",
+            json=materialization_input.model_dump(),
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+            timeout=20,
+        )
+        if response.status_code not in (200, 201):  # pragma: no cover
+            _logger.exception(
+                "[DJQS] Failed to schedule pre-agg materialization for"
+                " preagg_id=%s with `POST /preaggs/materialize`: %s",
+                materialization_input.preagg_id,
+                response.text,
+                exc_info=True,
+            )
+            return MaterializationInfo(urls=[], output_tables=[])
+        result = response.json()
+        _logger.info(
+            "[DJQS] Scheduled pre-agg materialization for preagg_id=%s, output_table=%s",
+            materialization_input.preagg_id,
+            materialization_input.output_table,
+        )
+        return MaterializationInfo(**result)
+
     def deactivate_materialization(
         self,
         node_name: str,

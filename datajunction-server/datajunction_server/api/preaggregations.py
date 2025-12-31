@@ -19,15 +19,14 @@ import logging
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import Depends, Query
+from fastapi import Depends, Query, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.database import Node
 from datajunction_server.database.availabilitystate import AvailabilityState
-from datajunction_server.construction.build_v3.builder import build_measures_sql
-from datajunction_server.models.dialect import Dialect
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     VALID_PREAGG_STRATEGIES,
@@ -39,6 +38,8 @@ from datajunction_server.errors import (
     DJInvalidInputException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.preaggregation import (
     PlanPreAggregationsRequest,
     PlanPreAggregationsResponse,
@@ -46,7 +47,8 @@ from datajunction_server.models.preaggregation import (
     PreAggregationListResponse,
     UpdatePreAggregationAvailabilityRequest,
 )
-from datajunction_server.utils import get_session
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.utils import get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["preaggregations"])
@@ -389,6 +391,8 @@ async def materialize_preaggregation(
     preagg_id: int,
     *,
     session: AsyncSession = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> PreAggregationInfo:
     """
     Trigger materialization for a pre-aggregation (Flow A).
@@ -400,11 +404,18 @@ async def materialize_preaggregation(
     For user-managed materialization (Flow B), use the SQL from
     GET /preaggs/{id} and call POST /preaggs/{id}/availability/ when done.
     """
-    # Get the pre-agg
+    from datajunction_server.database.node import NodeRevision
+    from datajunction_server.models.node_type import NodeNameVersion
+    from datajunction_server.models.preaggregation import PreAggMaterializationInput
+    from datajunction_server.models.query import ColumnMetadata
+
+    # Get the pre-agg with node_revision and its columns/partitions
     stmt = (
         select(PreAggregation)
         .options(
-            joinedload(PreAggregation.node_revision),
+            joinedload(PreAggregation.node_revision).options(
+                *NodeRevision.default_load_options(),
+            ),
             joinedload(PreAggregation.availability),
         )
         .where(PreAggregation.id == preagg_id)
@@ -415,12 +426,110 @@ async def materialize_preaggregation(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    # TODO: Implement query service integration
-    # This should call the configured query service with the pre-agg's SQL
-    raise DJInvalidInputException(
-        message="POST /preaggs/{id}/materialize is not yet implemented. "
-        "This endpoint will call the query service to materialize the pre-agg.",
+    # Validate strategy is set
+    if not preagg.strategy:
+        raise DJInvalidInputException(
+            message="Strategy must be set before materialization. "
+            "Update the pre-aggregation with a strategy first.",
+        )
+
+    # Validate schedule for incremental
+    if (
+        preagg.strategy == MaterializationStrategy.INCREMENTAL_TIME
+        and not preagg.schedule
+    ):
+        raise DJInvalidInputException(
+            message="Schedule is required for INCREMENTAL_TIME strategy.",
+        )
+
+    # Derive output table name: {node_short}__preagg_{hash[:8]}
+    node_short = preagg.node_revision.name.split(".")[-1]
+    output_table = f"{node_short}__preagg_{preagg.grain_group_hash[:8]}"
+
+    # Build temporal partition columns from source node (for incremental)
+    # Supports multi-column partitions (e.g., dateint + hour for hourly)
+    from datajunction_server.models.preaggregation import TemporalPartitionColumn
+
+    temporal_partitions: list[TemporalPartitionColumn] = []
+    for temporal_col in preagg.node_revision.temporal_partition_columns():
+        temporal_partitions.append(
+            TemporalPartitionColumn(
+                column_name=temporal_col.name,
+                format=temporal_col.partition.format_ if temporal_col.partition else None,
+                granularity=(
+                    temporal_col.partition.granularity if temporal_col.partition else None
+                ),
+                expression=(
+                    temporal_col.partition.expression if temporal_col.partition else None
+                ),
+            )
+        )
+
+    # Build columns metadata from grain + measures
+    columns: list[ColumnMetadata] = []
+
+    # Add grain columns
+    for grain_col in preagg.grain_columns:
+        # grain_col is fully qualified like "default.date_dim.date_id"
+        col_name = grain_col.split(".")[-1]
+        columns.append(
+            ColumnMetadata(
+                name=col_name,
+                type="string",  # Simplified; could derive from node columns
+                semantic_entity=grain_col,
+                semantic_type="dimension",
+            )
+        )
+
+    # Add measure columns
+    for measure in preagg.measures:
+        columns.append(
+            ColumnMetadata(
+                name=measure.get("name", ""),
+                type="double",  # Simplified; could derive from expression
+                semantic_type="measure",
+            )
+        )
+
+    # Build materialization input
+    mat_input = PreAggMaterializationInput(
+        preagg_id=preagg_id,
+        output_table=output_table,
+        node=NodeNameVersion(
+            name=preagg.node_revision.name,
+            version=preagg.node_revision.version,
+        ),
+        grain=preagg.grain_columns,
+        measures=preagg.measures,
+        query=preagg.sql,
+        columns=columns,
+        temporal_partitions=temporal_partitions,
+        strategy=preagg.strategy,
+        schedule=preagg.schedule,
+        lookback_window=preagg.lookback_window,
     )
+
+    # Call query service
+    _logger.info(
+        "Triggering materialization for preagg_id=%s output_table=%s strategy=%s",
+        preagg_id,
+        output_table,
+        preagg.strategy.value,
+    )
+    request_headers = dict(request.headers)
+    mat_result = query_service_client.materialize_preagg(
+        mat_input,
+        request_headers=request_headers,
+    )
+
+    _logger.info(
+        "Materialization scheduled for preagg_id=%s, urls=%s",
+        preagg_id,
+        mat_result.urls,
+    )
+
+    # Return pre-agg info (status still "pending" until query service callbacks)
+    return _preagg_to_info(preagg)
 
 
 @router.post(

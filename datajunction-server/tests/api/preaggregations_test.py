@@ -522,3 +522,101 @@ class TestUpdatePreaggregationAvailability:
         )
 
         assert response.status_code == 404
+
+
+class TestMaterializePreaggregation:
+    """Tests for POST /preaggs/{id}/materialize endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_materialize_preagg_requires_strategy(self, client_with_preaggs):
+        """Test that materialization requires strategy to be set."""
+        client = client_with_preaggs["client"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # preagg1 has no strategy set
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+
+        assert response.status_code == 400
+        assert "strategy must be configured" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_materialize_preagg_not_found(self, client_with_preaggs):
+        """Test materializing non-existent pre-agg returns 404."""
+        client = client_with_preaggs["client"]
+
+        response = await client.post("/preaggs/99999999/materialize")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_materialize_incremental_requires_schedule(
+        self, client_with_preaggs, session
+    ):
+        """Test that incremental materialization requires a schedule."""
+        from datajunction_server.database.materialization import MaterializationStrategy
+        from datajunction_server.database.preaggregation import PreAggregation
+
+        client = client_with_preaggs["client"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # Set strategy to INCREMENTAL_TIME but no schedule
+        preagg = await session.get(PreAggregation, preagg1.id)
+        preagg.strategy = MaterializationStrategy.INCREMENTAL_TIME
+        preagg.schedule = None
+        await session.commit()
+
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+
+        assert response.status_code == 400
+        assert "schedule is required" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_materialize_preagg_success(
+        self,
+        client_with_preaggs,
+        session,
+        mocker,
+    ):
+        """Test successful materialization call to query service."""
+        from datajunction_server.database.materialization import MaterializationStrategy
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.models.materialization import MaterializationInfo
+
+        client = client_with_preaggs["client"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # Set strategy
+        preagg = await session.get(PreAggregation, preagg1.id)
+        preagg.strategy = MaterializationStrategy.FULL
+        await session.commit()
+
+        # Mock the query service client
+        mock_result = MaterializationInfo(
+            urls=["http://scheduler/job/123"],
+            output_tables=["analytics.materialized.preagg_test"],
+        )
+        mock_materialize = mocker.patch(
+            "datajunction_server.api.preaggregations.get_query_service_client"
+        )
+        mock_materialize.return_value.materialize_preagg.return_value = mock_result
+
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Response includes the pre-agg info
+        assert data["id"] == preagg1.id
+        assert data["strategy"] == "FULL"
+
+        # Verify query service was called
+        mock_materialize.return_value.materialize_preagg.assert_called_once()
+        call_args = mock_materialize.return_value.materialize_preagg.call_args
+        mat_input = call_args[0][0]  # First positional arg
+
+        # Verify the input structure
+        assert mat_input.preagg_id == preagg1.id
+        assert "preagg" in mat_input.output_table
+        assert mat_input.strategy == MaterializationStrategy.FULL
+        # temporal_partitions should be a list (may be empty if no partitions)
+        assert isinstance(mat_input.temporal_partitions, list)
