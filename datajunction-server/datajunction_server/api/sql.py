@@ -273,7 +273,7 @@ async def get_measures_sql_v3(
                 columns=[
                     V3ColumnMetadata(
                         name=col.name,
-                        type=col.type,
+                        type=str(col.type),  # Ensure string even if ColumnType object
                         semantic_entity=col.semantic_name,
                         semantic_type=col.semantic_type,
                     )
@@ -317,6 +317,7 @@ async def get_metrics_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    use_materialized: bool = Query(True),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -342,6 +343,11 @@ async def get_metrics_sql_v3(
     - Dimension references in metric expressions are resolved to their
     final column aliases.
 
+    Args:
+        use_materialized: If True (default), use materialized tables when available.
+            Set to False when generating SQL for materialization refresh to avoid
+            circular references.
+
     Returns:
         A single SQL query that:
         - Defines CTEs for each grain group (pre-aggregated component data) or
@@ -359,6 +365,7 @@ async def get_metrics_sql_v3(
         dimensions=dimensions,
         filters=filters,
         dialect=Dialect.SPARK,
+        use_materialized=use_materialized,
     )
 
     return V3TranslatedSQL(
@@ -366,7 +373,7 @@ async def get_metrics_sql_v3(
         columns=[
             V3ColumnMetadata(
                 name=col.name,
-                type=col.type,
+                type=str(col.type),  # Ensure string even if ColumnType object
                 semantic_entity=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
