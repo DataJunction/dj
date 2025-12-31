@@ -193,16 +193,23 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
 
 @pytest_asyncio.fixture
 async def construction_session(
-    session: AsyncSession,
-    current_user: User,
+    clean_session: AsyncSession,
+    clean_current_user: User,
 ) -> AsyncSession:
     """
-    Add some source nodes and transform nodes to facilitate testing of extracting dependencies
+    Add some source nodes and transform nodes to facilitate testing of extracting dependencies.
+
+    NOTE: Uses clean_session (empty database) because this fixture creates its own nodes
+    directly via SQLAlchemy. If we used a template database, we'd have conflicts.
     """
+    session = clean_session
+    current_user = clean_current_user
 
     postgres = Database(name="postgres", URI="", cost=10, id=1)
 
     gsheets = Database(name="gsheets", URI="", cost=100, id=2)
+
+    # Create primary_key attribute type (clean database has no pre-seeded data)
     primary_key = AttributeType(namespace="system", name="primary_key", description="")
     countries_dim_ref = Node(
         name="basic.dimension.countries",

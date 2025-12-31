@@ -137,6 +137,9 @@ asyncio_mode = "auto"
 testpaths = [
     "tests",
 ]
+norecursedirs = [
+    "tests/helpers",
+]
 
 [tool.pdm.dev-dependencies]
 test = [
