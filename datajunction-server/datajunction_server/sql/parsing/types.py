@@ -37,20 +37,23 @@ DECIMAL_REGEX = re.compile(r"(?i)decimal\((?P<precision>\d+),\s*(?P<scale>\d+)\)
 FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
 VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
-# Singleton caching temporarily disabled for Pydantic v2 compatibility
-# TODO: Implement proper caching that works with Pydantic v2
+# Singleton caching disabled for Pydantic v2 compatibility
+# The singleton pattern causes issues with Pydantic v2's BaseModel initialization,
+# particularly when running tests in parallel (pytest-xdist).
+# Types are simple immutable objects, so creating new instances is acceptable.
 
 
 class Singleton:
     """
-    Singleton for types - each subclass gets its own singleton instance
+    Singleton pattern - DISABLED for Pydantic v2 compatibility.
+
+    This class is kept for backwards compatibility but no longer enforces singleton behavior.
+    Each call to a type constructor now creates a new instance.
     """
 
     def __new__(cls, *args, **kwargs):
-        # Each subclass gets its own _instance attribute
-        if not hasattr(cls, "_instance") or not isinstance(cls._instance, cls):
-            cls._instance = super(Singleton, cls).__new__(cls)
-        return cls._instance
+        # Always create a new instance (singleton disabled)
+        return super(Singleton, cls).__new__(cls)
 
 
 class ColumnType(BaseModel):
@@ -125,22 +128,23 @@ class ColumnType(BaseModel):
             other than the highest-level ancestor types like ColumnType itself. This
             determines whether they're part of the same type group and are compatible
             with each other when performing type compatibility checks.
+
+            Uses MRO (Method Resolution Order) to find all ancestors of both types
+            and checks for meaningful common ancestors.
             """
-            base_types = (ColumnType, Singleton, PrimitiveType)
-            if type1 in base_types or type2 in base_types:
-                return False
-            if type1 == type2:
-                return True
-            current_has = False
-            for ancestor in type1.__bases__:
-                for ancestor2 in type2.__bases__:
-                    current_has = current_has or has_common_ancestor(
-                        ancestor,
-                        ancestor2,
-                    )
-                    if current_has:
-                        return current_has
-            return False
+            base_types = {ColumnType, Singleton, PrimitiveType, object}
+            # Get meaningful ancestors from MRO, excluding base types
+            ancestors1 = {cls for cls in type1.__mro__ if cls not in base_types}
+            ancestors2 = {cls for cls in type2.__mro__ if cls not in base_types}
+            # Check for common ancestors (excluding the types themselves and BaseModel)
+            common = ancestors1 & ancestors2
+            # Filter out non-type-related classes like BaseModel
+            meaningful_common = {
+                cls
+                for cls in common
+                if cls.__module__.startswith("datajunction_server")
+            }
+            return bool(meaningful_common)
 
         return has_common_ancestor(self.__class__, other.__class__)
 
@@ -584,10 +588,9 @@ class LongType(BigIntType):
           in Java (returns `-9223372036854775808`)
     """
 
-    def __new__(cls, *args, **kwargs):
-        self = super().__new__(BigIntType, *args, **kwargs)
-        super(BigIntType, self).__init__("long", "LongType()")
-        return self
+    def __init__(self):
+        # Call ColumnType.__init__ directly to set "long" instead of "bigint"
+        ColumnType.__init__(self, "long", "LongType()")
 
 
 class FloatingBase(NumberType, Singleton):

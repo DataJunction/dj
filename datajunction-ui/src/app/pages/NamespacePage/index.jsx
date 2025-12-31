@@ -1,19 +1,14 @@
 import * as React from 'react';
-import { useParams } from 'react-router-dom';
-import { useContext, useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { useContext, useEffect, useState, useCallback } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import { useCurrentUser } from '../../providers/UserProvider';
 import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
-import AddNamespacePopover from './AddNamespacePopover';
-import FilterIcon from '../../icons/FilterIcon';
 import LoadingIcon from '../../icons/LoadingIcon';
-import UserSelect from './UserSelect';
-import NodeTypeSelect from './NodeTypeSelect';
-import NodeModeSelect from './NodeModeSelect';
-import TagSelect from './TagSelect';
+import CompactSelect from './CompactSelect';
 
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
@@ -27,19 +22,148 @@ export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { currentUser } = useCurrentUser();
   var { namespace } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Data for select options
+  const [users, setUsers] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [tagsLoading, setTagsLoading] = useState(true);
+
+  // Load users and tags for dropdowns
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const data = await djClient.users();
+      setUsers(data || []);
+      setUsersLoading(false);
+    };
+    const fetchTags = async () => {
+      const data = await djClient.listTags();
+      setTags(data || []);
+      setTagsLoading(false);
+    };
+    fetchUsers().catch(console.error);
+    fetchTags().catch(console.error);
+  }, [djClient]);
+
+  // Parse all filters from URL
+  const getFiltersFromUrl = useCallback(
+    () => ({
+      node_type: searchParams.get('type') || '',
+      tags: searchParams.get('tags') ? searchParams.get('tags').split(',') : [],
+      edited_by: searchParams.get('editedBy') || '',
+      mode: searchParams.get('mode') || '',
+      ownedBy: searchParams.get('ownedBy') || '',
+      statuses: searchParams.get('statuses') || '',
+      missingDescription: searchParams.get('missingDescription') === 'true',
+      hasMaterialization: searchParams.get('hasMaterialization') === 'true',
+      orphanedDimension: searchParams.get('orphanedDimension') === 'true',
+    }),
+    [searchParams],
+  );
+
+  const [filters, setFilters] = useState(getFiltersFromUrl);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+
+  // Sync filters state when URL changes
+  useEffect(() => {
+    setFilters(getFiltersFromUrl());
+  }, [searchParams, getFiltersFromUrl]);
+
+  // Update URL when filters change
+  const updateFilters = useCallback(
+    newFilters => {
+      const params = new URLSearchParams();
+
+      if (newFilters.node_type) params.set('type', newFilters.node_type);
+      if (newFilters.tags?.length)
+        params.set('tags', newFilters.tags.join(','));
+      if (newFilters.edited_by) params.set('editedBy', newFilters.edited_by);
+      if (newFilters.mode) params.set('mode', newFilters.mode);
+      if (newFilters.ownedBy) params.set('ownedBy', newFilters.ownedBy);
+      if (newFilters.statuses) params.set('statuses', newFilters.statuses);
+      if (newFilters.missingDescription)
+        params.set('missingDescription', 'true');
+      if (newFilters.hasMaterialization)
+        params.set('hasMaterialization', 'true');
+      if (newFilters.orphanedDimension) params.set('orphanedDimension', 'true');
+
+      setSearchParams(params);
+    },
+    [setSearchParams],
+  );
+
+  const clearAllFilters = () => {
+    setSearchParams(new URLSearchParams());
+  };
+
+  // Check if any filters are active
+  const hasActiveFilters =
+    filters.node_type ||
+    filters.tags?.length ||
+    filters.edited_by ||
+    filters.mode ||
+    filters.ownedBy ||
+    filters.statuses ||
+    filters.missingDescription ||
+    filters.hasMaterialization ||
+    filters.orphanedDimension;
+
+  // Quick presets
+  const presets = [
+    {
+      id: 'my-nodes',
+      label: 'My Nodes',
+      filters: { ownedBy: currentUser?.username },
+    },
+    {
+      id: 'needs-attention',
+      label: 'Needs Attention',
+      filters: { ownedBy: currentUser?.username, statuses: 'INVALID' },
+    },
+    {
+      id: 'drafts',
+      label: 'Drafts',
+      filters: { ownedBy: currentUser?.username, mode: 'draft' },
+    },
+  ];
+
+  const applyPreset = preset => {
+    const newFilters = {
+      node_type: '',
+      tags: [],
+      edited_by: '',
+      mode: preset.filters.mode || '',
+      ownedBy: preset.filters.ownedBy || '',
+      statuses: preset.filters.statuses || '',
+      missingDescription: preset.filters.missingDescription || false,
+      hasMaterialization: preset.filters.hasMaterialization || false,
+      orphanedDimension: preset.filters.orphanedDimension || false,
+    };
+    updateFilters(newFilters);
+  };
+
+  // Check if a preset is active
+  const isPresetActive = preset => {
+    const pf = preset.filters;
+    return (
+      (pf.ownedBy || '') === (filters.ownedBy || '') &&
+      (pf.statuses || '') === (filters.statuses || '') &&
+      (pf.mode || '') === (filters.mode || '') &&
+      !filters.node_type &&
+      !filters.tags?.length &&
+      !filters.edited_by &&
+      !filters.missingDescription &&
+      !filters.hasMaterialization &&
+      !filters.orphanedDimension
+    );
+  };
 
   const [state, setState] = useState({
     namespace: namespace ? namespace : '',
     nodes: [],
   });
   const [retrieved, setRetrieved] = useState(false);
-
-  const [filters, setFilters] = useState({
-    tags: [],
-    node_type: '',
-    edited_by: '',
-    mode: '',
-  });
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
 
@@ -113,6 +237,16 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       setRetrieved(false);
+
+      // Build extended filters for API
+      const extendedFilters = {
+        ownedBy: filters.ownedBy || null,
+        statuses: filters.statuses ? [filters.statuses] : null,
+        missingDescription: filters.missingDescription,
+        hasMaterialization: filters.hasMaterialization,
+        orphanedDimension: filters.orphanedDimension,
+      };
+
       const nodes = await djClient.listNodesForLanding(
         namespace,
         filters.node_type ? [filters.node_type.toUpperCase()] : [],
@@ -123,6 +257,7 @@ export function NamespacePage() {
         50,
         sortConfig,
         filters.mode ? filters.mode.toUpperCase() : null,
+        extendedFilters,
       );
 
       setState({
@@ -152,7 +287,15 @@ export function NamespacePage() {
       setRetrieved(true);
     };
     fetchData().catch(console.error);
-  }, [djClient, filters, before, after, sortConfig.key, sortConfig.direction]);
+  }, [
+    djClient,
+    filters,
+    before,
+    after,
+    sortConfig.key,
+    sortConfig.direction,
+    namespace,
+  ]);
 
   const loadNext = () => {
     if (nextCursor) {
@@ -166,6 +309,31 @@ export function NamespacePage() {
       setBefore(prevCursor);
     }
   };
+
+  // Select options
+  const typeOptions = [
+    { value: 'source', label: 'Source' },
+    { value: 'transform', label: 'Transform' },
+    { value: 'dimension', label: 'Dimension' },
+    { value: 'metric', label: 'Metric' },
+    { value: 'cube', label: 'Cube' },
+  ];
+
+  const modeOptions = [
+    { value: 'published', label: 'Published' },
+    { value: 'draft', label: 'Draft' },
+  ];
+
+  const statusOptions = [
+    { value: 'VALID', label: 'Valid' },
+    { value: 'INVALID', label: 'Invalid' },
+  ];
+
+  const userOptions = users.map(u => ({
+    value: u.username,
+    label: u.username,
+  }));
+  const tagOptions = tags.map(t => ({ value: t.name, label: t.display_name }));
 
   const nodesList = retrieved ? (
     state.nodes.length > 0 ? (
@@ -234,7 +402,7 @@ export function NamespacePage() {
       ))
     ) : (
       <tr>
-        <td>
+        <td colSpan={7}>
           <span
             style={{
               display: 'block',
@@ -243,9 +411,19 @@ export function NamespacePage() {
               fontSize: '16px',
             }}
           >
-            There are no nodes in{' '}
-            <a href={`/namespaces/${namespace}`}>{namespace}</a> with the above
-            filters!
+            No nodes found with the current filters.
+            {hasActiveFilters && (
+              <a
+                href="#"
+                onClick={e => {
+                  e.preventDefault();
+                  clearAllFilters();
+                }}
+                style={{ marginLeft: '0.5rem' }}
+              >
+                Clear filters
+              </a>
+            )}
           </span>
         </td>
       </tr>
@@ -260,63 +438,312 @@ export function NamespacePage() {
     </tr>
   );
 
+  // Count active quality filters (the ones in the "More" dropdown)
+  const moreFiltersCount = [
+    filters.missingDescription,
+    filters.hasMaterialization,
+    filters.orphanedDimension,
+  ].filter(Boolean).length;
+
   return (
     <div className="mid">
       <div className="card">
         <div className="card-header">
-          <h2>Explore</h2>
-          <div className="menu" style={{ margin: '0 0 20px 0' }}>
-            <div
-              className="menu-link"
-              style={{
-                marginTop: '0.7em',
-                color: '#777',
-                fontFamily: "'Jost'",
-                fontSize: '18px',
-                marginRight: '10px',
-                marginLeft: '15px',
-              }}
-            >
-              <FilterIcon />
-            </div>
-            <div
-              className="menu-link"
-              style={{
-                marginTop: '0.6em',
-                color: '#777',
-                fontFamily: "'Jost'",
-                fontSize: '18px',
-                marginRight: '10px',
-              }}
-            >
-              Filter
-            </div>
-            <NodeTypeSelect
-              onChange={entry =>
-                setFilters({ ...filters, node_type: entry ? entry.value : '' })
-              }
-            />
-            <TagSelect
-              onChange={entry =>
-                setFilters({
-                  ...filters,
-                  tags: entry ? entry.map(tag => tag.value) : [],
-                })
-              }
-            />
-            <UserSelect
-              onChange={entry =>
-                setFilters({ ...filters, edited_by: entry ? entry.value : '' })
-              }
-              currentUser={currentUser?.username}
-            />
-            <NodeModeSelect
-              onChange={entry =>
-                setFilters({ ...filters, mode: entry ? entry.value : '' })
-              }
-            />
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1rem',
+            }}
+          >
+            <h2 style={{ margin: 0 }}>Explore</h2>
             <AddNodeDropdown namespace={namespace} />
           </div>
+
+          {/* Unified Filter Bar */}
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '1rem',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '8px',
+            }}
+          >
+            {/* Top row: Quick presets + Clear all */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '12px',
+              }}
+            >
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span style={{ fontSize: '12px', color: '#555' }}>Quick:</span>
+                {presets.map(preset => (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyPreset(preset)}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      border: '1px solid',
+                      borderColor: isPresetActive(preset) ? '#1976d2' : '#ddd',
+                      borderRadius: '12px',
+                      backgroundColor: isPresetActive(preset)
+                        ? '#e3f2fd'
+                        : 'white',
+                      color: isPresetActive(preset) ? '#1976d2' : '#666',
+                      cursor: 'pointer',
+                      fontWeight: isPresetActive(preset) ? '600' : '400',
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearAllFilters}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      color: '#dc3545',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear all ×
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom row: Dropdowns */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: '12px',
+              }}
+            >
+              <CompactSelect
+                label="Type"
+                name="type"
+                options={typeOptions}
+                value={filters.node_type}
+                onChange={e =>
+                  updateFilters({ ...filters, node_type: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+                testId="select-node-type"
+              />
+              <CompactSelect
+                label="Tags"
+                name="tags"
+                options={tagOptions}
+                value={filters.tags}
+                onChange={e =>
+                  updateFilters({
+                    ...filters,
+                    tags: e ? e.map(t => t.value) : [],
+                  })
+                }
+                isMulti
+                isLoading={tagsLoading}
+                flex={1.5}
+                minWidth="100px"
+                testId="select-tag"
+              />
+              <CompactSelect
+                label="Edited By"
+                name="editedBy"
+                options={userOptions}
+                value={filters.edited_by}
+                onChange={e =>
+                  updateFilters({ ...filters, edited_by: e?.value || '' })
+                }
+                isLoading={usersLoading}
+                flex={1}
+                minWidth="80px"
+                testId="select-user"
+              />
+              <CompactSelect
+                label="Mode"
+                name="mode"
+                options={modeOptions}
+                value={filters.mode}
+                onChange={e =>
+                  updateFilters({ ...filters, mode: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Owner"
+                name="owner"
+                options={userOptions}
+                value={filters.ownedBy}
+                onChange={e =>
+                  updateFilters({ ...filters, ownedBy: e?.value || '' })
+                }
+                isLoading={usersLoading}
+                flex={1}
+                minWidth="80px"
+              />
+              <CompactSelect
+                label="Status"
+                name="status"
+                options={statusOptions}
+                value={filters.statuses}
+                onChange={e =>
+                  updateFilters({ ...filters, statuses: e?.value || '' })
+                }
+                flex={1}
+                minWidth="80px"
+              />
+
+              {/* More Filters (Quality) */}
+              <div style={{ position: 'relative', flex: 0, minWidth: 'auto' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#666',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                  >
+                    Quality
+                  </label>
+                  <button
+                    onClick={() => setMoreFiltersOpen(!moreFiltersOpen)}
+                    style={{
+                      height: '32px',
+                      padding: '0 12px',
+                      fontSize: '12px',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      backgroundColor:
+                        moreFiltersCount > 0 ? '#e3f2fd' : 'white',
+                      color: '#666',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {moreFiltersCount > 0
+                      ? `${moreFiltersCount} active`
+                      : 'Issues'}
+                    <span style={{ fontSize: '8px' }}>
+                      {moreFiltersOpen ? '▲' : '▼'}
+                    </span>
+                  </button>
+                </div>
+
+                {moreFiltersOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '4px',
+                      padding: '12px',
+                      backgroundColor: 'white',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      zIndex: 1000,
+                      minWidth: '200px',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.missingDescription}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            missingDescription: e.target.checked,
+                          })
+                        }
+                      />
+                      Missing Description
+                    </label>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.orphanedDimension}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            orphanedDimension: e.target.checked,
+                          })
+                        }
+                      />
+                      Orphaned Dimensions
+                    </label>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '12px',
+                        color: '#444',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.hasMaterialization}
+                        onChange={e =>
+                          updateFilters({
+                            ...filters,
+                            hasMaterialization: e.target.checked,
+                          })
+                        }
+                      />
+                      Has Materialization
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="table-responsive">
             <div className={`sidebar`}>
               <div

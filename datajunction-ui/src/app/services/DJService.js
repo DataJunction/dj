@@ -19,9 +19,16 @@ export const DataJunctionAPI = {
     limit,
     sortConfig,
     mode,
+    {
+      ownedBy = null,
+      statuses = null,
+      missingDescription = false,
+      hasMaterialization = false,
+      orphanedDimension = false,
+    } = {},
   ) {
     const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean) {
+      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean) {
         findNodesPaginated(
           namespace: $namespace
           nodeTypes: $nodeTypes
@@ -31,8 +38,13 @@ export const DataJunctionAPI = {
           limit: $limit
           before: $before
           after: $after
-          orderBy: $orderBy,
+          orderBy: $orderBy
           ascending: $ascending
+          ownedBy: $ownedBy
+          statuses: $statuses
+          missingDescription: $missingDescription
+          hasMaterialization: $hasMaterialization
+          orphanedDimension: $orphanedDimension
         ) {
           pageInfo {
             hasNextPage
@@ -92,6 +104,11 @@ export const DataJunctionAPI = {
             limit: limit,
             orderBy: sortOrderMapping[sortConfig.key],
             ascending: sortConfig.direction === 'ascending',
+            ownedBy: ownedBy,
+            statuses: statuses,
+            missingDescription: missingDescription,
+            hasMaterialization: hasMaterialization,
+            orphanedDimension: orphanedDimension,
           },
         }),
       })

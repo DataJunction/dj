@@ -81,7 +81,7 @@ async def test_list_all_measures(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "long",
+                "type": "bigint",
             },
         ],
         "description": "Number of completed repairs",
@@ -117,7 +117,7 @@ async def test_create_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "long",
+                "type": "bigint",
             },
         ],
         "description": "Number of completed repairs",
@@ -169,7 +169,7 @@ async def test_edit_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "long",
+                "type": "bigint",
             },
         ],
         "description": "random description",
@@ -220,7 +220,7 @@ async def test_edit_measure(
             {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
-                "type": "long",
+                "type": "bigint",
             },
         ],
         "description": "random description",

@@ -1709,6 +1709,14 @@ class BinaryOp(Operation):
             return f"({ret})"
         return ret
 
+    # Module-level constant for numeric type ordering (avoids repeated instantiation)
+    _NUMERIC_TYPES_ORDER = {
+        "double": 0,
+        "float": 1,
+        "bigint": 2,
+        "int": 3,
+    }
+
     @property
     def type(self) -> ColumnType:
         kind = self.op
@@ -1721,17 +1729,7 @@ class BinaryOp(Operation):
                 f"{self}. Got left {left_type}, right {right_type}.",
             )
 
-        numeric_types = {
-            type_: idx
-            for idx, type_ in enumerate(
-                [
-                    str(DoubleType()),
-                    str(FloatType()),
-                    str(BigIntType()),
-                    str(IntegerType()),
-                ],
-            )
-        }
+        numeric_types = self._NUMERIC_TYPES_ORDER
 
         def resolve_numeric_types_binary_operations(
             left: ColumnType,
@@ -1747,6 +1745,11 @@ class BinaryOp(Operation):
                 return left
             return left
 
+        def check_integer_types(left, right):
+            if str(left) == "int" and str(right) == "int":
+                return IntegerType()
+            return raise_binop_exception()
+
         BINOP_TYPE_COMBO_LOOKUP: Dict[
             BinaryOpKind,
             Callable[[ColumnType, ColumnType], ColumnType],
@@ -1761,22 +1764,14 @@ class BinaryOp(Operation):
             BinaryOpKind.Lt: lambda left, right: BooleanType(),
             BinaryOpKind.GtEq: lambda left, right: BooleanType(),
             BinaryOpKind.LtEq: lambda left, right: BooleanType(),
-            BinaryOpKind.BitwiseOr: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-            BinaryOpKind.BitwiseAnd: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
-            BinaryOpKind.BitwiseXor: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
+            BinaryOpKind.BitwiseOr: check_integer_types,
+            BinaryOpKind.BitwiseAnd: check_integer_types,
+            BinaryOpKind.BitwiseXor: check_integer_types,
             BinaryOpKind.Multiply: resolve_numeric_types_binary_operations,
             BinaryOpKind.Divide: resolve_numeric_types_binary_operations,
             BinaryOpKind.Plus: resolve_numeric_types_binary_operations,
             BinaryOpKind.Minus: resolve_numeric_types_binary_operations,
-            BinaryOpKind.Modulo: lambda left, right: IntegerType()
-            if str(left) == str(IntegerType()) and str(right) == str(IntegerType())
-            else raise_binop_exception(),
+            BinaryOpKind.Modulo: check_integer_types,
         }
         return BINOP_TYPE_COMBO_LOOKUP[kind](left_type, right_type)
 

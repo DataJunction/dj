@@ -448,11 +448,11 @@ async def test_find_by_names(
                     },
                     {
                         "name": "completed_repairs",
-                        "type": "long",
+                        "type": "bigint",
                     },
                     {
                         "name": "total_repairs_dispatched",
-                        "type": "long",
+                        "type": "bigint",
                     },
                     {
                         "name": "total_amount_in_region",
@@ -468,7 +468,7 @@ async def test_find_by_names(
                     },
                     {
                         "name": "unique_contractors",
-                        "type": "long",
+                        "type": "bigint",
                     },
                 ],
             },
@@ -1630,3 +1630,563 @@ async def test_find_nodes_with_mixed_dimension_formats(
     assert len(node_names) > 0
     # All results should have both dimensions available
     assert "default.repair_orders_fact" in node_names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by owner (ownedBy).
+    """
+    # Query for nodes owned by the 'dj' user
+    query = """
+    {
+        findNodes(ownedBy: "dj") {
+            name
+            owners {
+                username
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have 'dj' as an owner
+    for node in data["data"]["findNodes"]:
+        owner_usernames = [owner["username"] for owner in node["owners"]]
+        assert "dj" in owner_usernames
+
+    # Verify we got some results
+    assert len(data["data"]["findNodes"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_by_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by owner (ownedBy) using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(ownedBy: "dj", limit: 10) {
+            edges {
+                node {
+                    name
+                    owners {
+                        username
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have 'dj' as an owner
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        owner_usernames = [owner["username"] for owner in edge["node"]["owners"]]
+        assert "dj" in owner_usernames
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_status_valid(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by status (VALID).
+    """
+    query = """
+    {
+        findNodes(statuses: [VALID]) {
+            name
+            current {
+                status
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have VALID status
+    for node in data["data"]["findNodes"]:
+        assert node["current"]["status"] == "VALID"
+
+    # Verify we got some results
+    assert len(data["data"]["findNodes"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_status_invalid(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by status (INVALID).
+    First create an invalid node, then filter for it.
+    """
+    # Create a node that references a non-existent parent (will be invalid)
+    response = await module__client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.invalid_test_node",
+            "description": "An invalid test node",
+            "query": "SELECT * FROM default.nonexistent_table",
+            "mode": "published",
+        },
+    )
+    # This should fail or create an invalid node
+
+    query = """
+    {
+        findNodes(statuses: [INVALID]) {
+            name
+            current {
+                status
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have INVALID status
+    for node in data["data"]["findNodes"]:
+        assert node["current"]["status"] == "INVALID"
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_by_status(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by status using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(statuses: [VALID], limit: 10) {
+            edges {
+                node {
+                    name
+                    current {
+                        status
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have VALID status
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        assert edge["node"]["current"]["status"] == "VALID"
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_missing_description(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that are missing descriptions.
+    """
+    # First create a node without a description
+    response = await module__client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.no_description_node",
+            "description": "",  # Empty description
+            "query": "SELECT 1 as id",
+            "mode": "published",
+        },
+    )
+
+    query = """
+    {
+        findNodes(missingDescription: true) {
+            name
+            current {
+                description
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have empty or null descriptions
+    for node in data["data"]["findNodes"]:
+        desc = node["current"]["description"]
+        assert desc is None or desc == ""
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_missing_description(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that are missing descriptions using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(missingDescription: true, limit: 10) {
+            edges {
+                node {
+                    name
+                    current {
+                        description
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have empty or null descriptions
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        desc = edge["node"]["current"]["description"]
+        assert desc is None or desc == ""
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_missing_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that are missing owners.
+    """
+    query = """
+    {
+        findNodes(missingOwner: true) {
+            name
+            owners {
+                username
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have no owners
+    for node in data["data"]["findNodes"]:
+        assert node["owners"] == [] or node["owners"] is None
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_missing_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that are missing owners using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(missingOwner: true, limit: 10) {
+            edges {
+                node {
+                    name
+                    owners {
+                        username
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have no owners
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        owners = edge["node"]["owners"]
+        assert owners == [] or owners is None
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_orphaned_dimension(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering for orphaned dimension nodes (dimensions not linked to by any other node).
+    """
+    # First, create an orphaned dimension (a dimension that no other node links to)
+    response = await module__client_with_roads.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.orphaned_dimension_test",
+            "description": "An orphaned dimension for testing",
+            "query": "SELECT 1 as orphan_id, 'test' as orphan_name",
+            "primary_key": ["orphan_id"],
+            "mode": "published",
+        },
+    )
+
+    query = """
+    {
+        findNodes(orphanedDimension: true) {
+            name
+            type
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should be dimensions
+    for node in data["data"]["findNodes"]:
+        assert node["type"] == "DIMENSION"
+
+    # The orphaned dimension we created should be in the results
+    node_names = {node["name"] for node in data["data"]["findNodes"]}
+    assert "default.orphaned_dimension_test" in node_names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_orphaned_dimension(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering for orphaned dimension nodes using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(orphanedDimension: true, limit: 10) {
+            edges {
+                node {
+                    name
+                    type
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should be dimensions
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        assert edge["node"]["type"] == "DIMENSION"
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_combined_filters(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test combining multiple filters together.
+    """
+    # Combine ownedBy with status filter
+    query = """
+    {
+        findNodes(ownedBy: "dj", statuses: [VALID], nodeTypes: [METRIC]) {
+            name
+            type
+            owners {
+                username
+            }
+            current {
+                status
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should match all filters
+    for node in data["data"]["findNodes"]:
+        assert node["type"] == "METRIC"
+        assert node["current"]["status"] == "VALID"
+        owner_usernames = [owner["username"] for owner in node["owners"]]
+        assert "dj" in owner_usernames
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_combined_filters(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test combining multiple filters together using paginated endpoint.
+    """
+    query = """
+    {
+        findNodesPaginated(ownedBy: "dj", statuses: [VALID], nodeTypes: [SOURCE], limit: 10) {
+            edges {
+                node {
+                    name
+                    type
+                    owners {
+                        username
+                    }
+                    current {
+                        status
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should match all filters
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        node = edge["node"]
+        assert node["type"] == "SOURCE"
+        assert node["current"]["status"] == "VALID"
+        owner_usernames = [owner["username"] for owner in node["owners"]]
+        assert "dj" in owner_usernames
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_by_nonexistent_owner(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that filtering by a nonexistent owner returns empty results.
+    """
+    query = """
+    {
+        findNodes(ownedBy: "nonexistent_user_12345") {
+            name
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"] == []
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_multiple_statuses(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes by multiple statuses.
+    """
+    query = """
+    {
+        findNodes(statuses: [VALID, INVALID]) {
+            name
+            current {
+                status
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # All returned nodes should have either VALID or INVALID status
+    for node in data["data"]["findNodes"]:
+        assert node["current"]["status"] in ["VALID", "INVALID"]
+
+    # Verify we got some results
+    assert len(data["data"]["findNodes"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_filter_has_materialization(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that have materializations configured.
+    """
+    # First, set up a partition column on a node so we can create a materialization
+    await module__client_with_roads.post(
+        "/nodes/default.repair_orders_fact/columns/repair_order_id/partition",
+        json={"type_": "categorical"},
+    )
+
+    # Create a materialization on a node
+    response = await module__client_with_roads.post(
+        "/nodes/default.repair_orders_fact/materialization",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "schedule": "@daily",
+            "config": {},
+        },
+    )
+    # Note: materialization creation may fail in test environment without query service,
+    # but the node should still be marked as having materialization configured
+
+    # Query for nodes with materializations
+    query = """
+    {
+        findNodesPaginated(hasMaterialization: true, limit: 10) {
+            edges {
+                node {
+                    name
+                    type
+                    current {
+                        materializations {
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # If we got results, all returned nodes should have materializations
+    for edge in data["data"]["findNodesPaginated"]["edges"]:
+        node = edge["node"]
+        materializations = node["current"]["materializations"]
+        assert materializations is not None and len(materializations) > 0
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_has_materialization(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test filtering nodes that have materializations using non-paginated endpoint.
+    """
+    query = """
+    {
+        findNodes(hasMaterialization: true) {
+            name
+            type
+            current {
+                materializations {
+                    name
+                }
+            }
+        }
+    }
+    """
+    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # If we got results, all returned nodes should have materializations
+    for node in data["data"]["findNodes"]:
+        materializations = node["current"]["materializations"]
+        assert materializations is not None and len(materializations) > 0
