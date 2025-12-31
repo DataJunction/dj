@@ -110,7 +110,7 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # Query service url (only used with "http" query client config)
     # TODO: once the `QueryClientConfig` is proven out, this can be removed.
-    query_service: Optional[str] = None
+    query_service: Optional[str] = "http://host.docker.internal:8002"
 
     # Query client configuration
     query_client: QueryClientConfig = Field(default_factory=QueryClientConfig)

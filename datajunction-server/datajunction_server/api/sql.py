@@ -273,7 +273,7 @@ async def get_measures_sql_v3(
                 columns=[
                     V3ColumnMetadata(
                         name=col.name,
-                        type=col.type,
+                        type=str(col.type),  # Ensure string even if ColumnType object
                         semantic_entity=col.semantic_name,
                         semantic_type=col.semantic_type,
                     )
@@ -366,7 +366,7 @@ async def get_metrics_sql_v3(
         columns=[
             V3ColumnMetadata(
                 name=col.name,
-                type=col.type,
+                type=str(col.type),  # Ensure string even if ColumnType object
                 semantic_entity=col.semantic_name,
                 semantic_type=col.semantic_type,
             )

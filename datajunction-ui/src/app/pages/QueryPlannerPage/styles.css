@@ -78,6 +78,56 @@
   font-size: 13px;
 }
 
+/* Materialization Error Banner */
+.materialization-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--accent-error);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.materialization-error .error-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+}
+
+.materialization-error .error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.materialization-error .error-message {
+  word-break: break-word;
+}
+
+.materialization-error .error-dismiss {
+  background: none;
+  border: none;
+  color: var(--accent-error);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.materialization-error .error-dismiss:hover {
+  opacity: 1;
+}
+
 /* =================================
    Three Column Layout
    ================================= */
@@ -937,6 +987,44 @@
   border-bottom: none;
 }
 
+/* SQL View Toggle */
+.sql-view-toggle {
+  display: flex;
+  gap: 2px;
+  background: #e2e8f0;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.sql-toggle-btn {
+  padding: 4px 10px;
+  background: transparent;
+  color: #64748b;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sql-toggle-btn:hover:not(.active):not(:disabled) {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.sql-toggle-btn.active {
+  background: white;
+  color: var(--accent-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.sql-toggle-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+/* Copy SQL button (for PreAggDetailsPanel) */
 .copy-sql-btn {
   padding: 5px 10px;
   background: var(--accent-primary);
@@ -1248,4 +1336,767 @@
 .details-panel::-webkit-scrollbar-thumb:hover,
 .planner-details::-webkit-scrollbar-thumb:hover {
   background: var(--planner-text-dim);
+}
+
+/* =================================
+   Materialization Status Section
+   ================================= */
+
+/* Status Header - Compact row with status + expand toggle */
+.materialization-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  margin-top: 8px;
+  background: var(--planner-bg);
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.materialization-header.clickable {
+  cursor: pointer;
+}
+
+.materialization-header.clickable:hover {
+  background: var(--planner-surface-hover);
+  border-color: var(--accent-primary);
+}
+
+.materialization-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.status-indicator {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.status-text {
+  font-weight: 500;
+  color: var(--planner-text);
+}
+
+.status-separator {
+  color: var(--planner-text-dim);
+  margin: 0 2px;
+}
+
+.schedule-summary {
+  color: var(--planner-text-muted);
+  font-size: 10px;
+}
+
+/* Status Colors */
+.status-not-planned {
+  color: var(--planner-text-dim);
+}
+
+.status-materialized {
+  color: var(--accent-success);
+}
+
+.status-compatible {
+  color: var(--accent-warning);
+}
+
+.status-compatible-materialized {
+  color: var(--accent-success);
+}
+
+/* Compatible pre-agg note */
+.compatible-preagg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--planner-text-muted);
+}
+
+.compatible-preagg-note .note-icon {
+  flex-shrink: 0;
+}
+
+.compatible-preagg-note strong {
+  color: var(--planner-text);
+  font-weight: 600;
+}
+
+.status-pending {
+  color: var(--accent-warning);
+}
+
+.status-running {
+  color: var(--accent-primary);
+}
+
+.status-failed {
+  color: var(--accent-error);
+}
+
+/* Expand Toggle Button */
+.expand-toggle {
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.expand-toggle:hover {
+  background: var(--planner-border);
+  color: var(--planner-text);
+}
+
+/* Expandable Materialization Details */
+.materialization-details {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--planner-surface);
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  animation: slideDown 0.15s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Config Rows */
+.materialization-config {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.config-label {
+  color: var(--planner-text-muted);
+  min-width: 70px;
+}
+
+.config-value {
+  color: var(--planner-text);
+  font-weight: 500;
+}
+
+.config-value.config-mono {
+  font-family: var(--font-display);
+  font-size: 10px;
+  background: var(--planner-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.run-status {
+  font-size: 10px;
+}
+
+.run-status.success {
+  color: var(--accent-success);
+}
+
+.run-status.failed {
+  color: var(--accent-error);
+}
+
+/* Workflow Links */
+.workflow-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.workflow-link:hover {
+  background: rgba(37, 99, 235, 0.2);
+  border-color: var(--accent-primary);
+}
+
+.workflow-link .link-icon {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* Action Buttons */
+.materialization-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--planner-border);
+}
+
+.action-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--planner-border);
+  background: var(--planner-surface);
+  color: var(--planner-text);
+}
+
+.action-btn:hover {
+  background: var(--planner-surface-hover);
+}
+
+.action-btn-primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.action-btn-primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.action-btn-primary:disabled {
+  background: #93c5fd;
+  border-color: #93c5fd;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.action-btn-secondary {
+  background: transparent;
+  border-color: var(--planner-border);
+  color: var(--planner-text-muted);
+}
+
+.action-btn-secondary:hover {
+  background: var(--planner-surface-hover);
+  color: var(--planner-text);
+}
+
+.action-btn-small {
+  padding: 4px 10px;
+  font-size: 10px;
+}
+
+/* =================================
+   Plan Materialization CTA
+   ================================= */
+
+.plan-materialization-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  margin: 12px 0;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.plan-materialization-cta:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+}
+
+.cta-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cta-icon {
+  font-size: 24px;
+  filter: grayscale(0%);
+}
+
+.cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cta-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--planner-text);
+}
+
+.cta-text span {
+  font-size: 12px;
+  color: var(--planner-text-muted);
+}
+
+.plan-materialization-cta .action-btn-primary {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* =================================
+   Materialization Config Form
+   ================================= */
+
+.materialization-config-form {
+  margin-top: 8px;
+  background: var(--planner-surface);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  animation: slideDown 0.15s ease-out;
+}
+
+.config-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border-bottom: 1px solid var(--planner-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.config-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.config-form-note {
+  padding: 8px 12px;
+  background: rgba(217, 119, 6, 0.1);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.2);
+  font-size: 10px;
+  color: var(--accent-warning);
+  line-height: 1.4;
+}
+
+.config-close-btn:hover {
+  color: var(--planner-text);
+}
+
+.config-form-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-form-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--planner-text-muted);
+}
+
+.config-form-options {
+  display: flex;
+  gap: 12px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--planner-text);
+  cursor: pointer;
+}
+
+.radio-option input[type='radio'] {
+  margin: 0;
+  accent-color: var(--accent-primary);
+}
+
+.radio-option.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.radio-option.disabled input[type='radio'] {
+  cursor: not-allowed;
+}
+
+.option-hint {
+  font-size: 10px;
+  color: var(--planner-text-dim);
+  font-style: italic;
+  margin-left: 4px;
+}
+
+.config-form-input {
+  padding: 6px 10px;
+  font-size: 11px;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: var(--planner-bg);
+  color: var(--planner-text);
+  font-family: var(--font-display);
+}
+
+.config-form-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.config-form-input::placeholder {
+  color: var(--planner-text-dim);
+}
+
+.config-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--planner-border);
+  background: var(--planner-bg);
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Loading Spinner */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-rotate 0.75s linear infinite;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+@keyframes spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Backfill Modal */
+.backfill-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.backfill-modal {
+  background: var(--planner-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 400px;
+  max-width: 90vw;
+}
+
+.backfill-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--planner-border);
+}
+
+.backfill-modal-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--planner-text);
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--planner-text);
+}
+
+.backfill-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.backfill-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backfill-form-row label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--planner-text-muted);
+}
+
+.backfill-form-row input[type='date'] {
+  padding: 8px 12px;
+  font-size: 12px;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: var(--planner-bg);
+  color: var(--planner-text);
+  font-family: var(--font-base);
+}
+
+.backfill-form-row input[type='date']:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.backfill-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--planner-border);
+  background: var(--planner-bg);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* Toast Message */
+.toast-message {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--planner-surface);
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--planner-text);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 1001;
+  animation: slideInUp 0.3s ease;
+}
+
+.toast-message a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.toast-message a:hover {
+  text-decoration: underline;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  color: var(--planner-text);
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Workflow link button style */
+a.action-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Section-level config form */
+.section-level-config {
+  margin: 12px 0;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.section-level-config .config-form-header {
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+/* Config form section (for grouped fields like Backfill) */
+.config-form-section {
+  background: var(--planner-bg);
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin: 4px 0;
+}
+
+.config-form-section-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--planner-text-muted);
+  margin-bottom: 10px;
+}
+
+/* Backfill date range */
+.backfill-range {
+  display: flex;
+  gap: 16px;
+}
+
+.backfill-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backfill-field label {
+  font-size: 10px;
+  color: var(--planner-text-muted);
+}
+
+.backfill-field input[type='date'],
+.backfill-field select {
+  padding: 6px 10px;
+  font-size: 11px;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: var(--planner-surface);
+  color: var(--planner-text);
+}
+
+.backfill-field input[type='date']:focus,
+.backfill-field select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* Checkbox option */
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--planner-text);
+  cursor: pointer;
+}
+
+.checkbox-option input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--accent-primary);
+}
+
+/* Config form select */
+.config-form-select {
+  padding: 6px 10px;
+  font-size: 11px;
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-sm);
+  background: var(--planner-surface);
+  color: var(--planner-text);
+  cursor: pointer;
+}
+
+.config-form-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* Config form hint */
+.config-form-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--planner-text-dim);
+  margin-top: 4px;
+  font-style: italic;
 }

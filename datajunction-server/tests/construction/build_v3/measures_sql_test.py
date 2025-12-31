@@ -1824,7 +1824,7 @@ class TestMeasuresSQLComponents:
         # Both components come from avg_unit_price (first encountered, multi-component)
         assert gg["columns"][1] == {
             "name": "unit_price_count_55cff00f",
-            "type": "double",
+            "type": "bigint",
             "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
             "semantic_type": "metric_component",
         }
@@ -1892,6 +1892,8 @@ class TestMetricTypesMeasuresSQL:
         assert gg["metrics"] == ["v3.customer_count"]
 
         # Validate columns
+        # Note: type is "binary" because measures SQL stores the HLL sketch,
+        # which is then converted to bigint via hll_sketch_estimate in metrics SQL
         assert gg["columns"] == [
             {
                 "name": "status",
@@ -1901,7 +1903,7 @@ class TestMetricTypesMeasuresSQL:
             },
             {
                 "name": "customer_count",
-                "type": "bigint",
+                "type": "binary",
                 "semantic_entity": "v3.customer_count",
                 "semantic_type": "metric",
             },
@@ -2114,7 +2116,7 @@ class TestMeasuresSQLDerived:
                 "name": "unit_price_count_55cff00f",
                 "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
                 "semantic_type": "metric_component",
-                "type": "double",
+                "type": "bigint",
             },
             {
                 "name": "unit_price_sum_55cff00f",

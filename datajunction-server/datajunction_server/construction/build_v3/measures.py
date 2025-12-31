@@ -7,7 +7,10 @@ which aggregates metric components to the requested dimensional grain.
 
 from __future__ import annotations
 
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+if TYPE_CHECKING:
+    from datajunction_server.database.preaggregation import PreAggregation
 
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
@@ -55,11 +58,110 @@ from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
 )
+from datajunction_server.construction.build_v3.preagg_matcher import (
+    find_matching_preagg,
+    get_preagg_measure_column,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     GrainGroupSQL,
     MetricGroup,
 )
+from datajunction_server.sql.functions import function_registry
+from datajunction_server.sql.parsing import types as ct
+import re
+
+
+# Mapping from type string to ColumnType instance
+# Used to convert stored type strings back to type objects for function inference
+_TYPE_STRING_MAP = {
+    "int": ct.IntegerType(),
+    "integer": ct.IntegerType(),
+    "tinyint": ct.TinyIntType(),
+    "smallint": ct.SmallIntType(),
+    "bigint": ct.BigIntType(),
+    "long": ct.LongType(),
+    "float": ct.FloatType(),
+    "double": ct.DoubleType(),
+    "string": ct.StringType(),
+    "boolean": ct.BooleanType(),
+    "date": ct.DateType(),
+    "timestamp": ct.TimestampType(),
+    "binary": ct.BinaryType(),
+}
+
+
+def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
+    """
+    Convert a type string to a ColumnType instance.
+
+    Args:
+        type_str: Type string like "double", "int", "bigint"
+
+    Returns:
+        ColumnType instance or None if unrecognized
+    """
+    if not type_str:
+        return None
+    # Normalize to lowercase for lookup
+    normalized = type_str.lower().strip()
+    return _TYPE_STRING_MAP.get(normalized)
+
+
+def infer_component_type(
+    component: MetricComponent,
+    metric_type: str,
+    parent_node: Node | None = None,
+) -> str:
+    """
+    Infer the SQL type of a metric component based on its aggregation function.
+
+    Uses the function registry to look up the aggregation function and infer
+    its output type based on the input expression type. Falls back to the
+    metric_type if inference fails.
+
+    Args:
+        component: The metric component
+        metric_type: The final metric's output type (fallback)
+        parent_node: Optional parent node to look up column types from
+
+    Returns:
+        The inferred SQL type string
+    """
+    if not component.aggregation:
+        return metric_type
+
+    # Extract the outermost function name from the aggregation
+    # e.g., "SUM" from "SUM", "SUM" from "SUM(POWER({}, 2))", "hll_sketch_agg" from "hll_sketch_agg"
+    agg_str = component.aggregation.strip()
+    match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)", agg_str)
+    if not match:
+        return metric_type
+
+    func_name = match.group(1).upper()
+
+    # Look up the function in the registry
+    try:
+        func_class = function_registry[func_name]
+    except KeyError:
+        return metric_type
+
+    # Get input type from parent node's columns by looking up the expression
+    input_type = None
+    if parent_node and component.expression:
+        col_type_str = get_column_type(parent_node, component.expression)
+        input_type = _parse_type_string(col_type_str)
+
+    try:
+        if input_type:
+            result_type = func_class.infer_type(input_type)
+        else:
+            # Fallback: try with a generic ColumnType
+            result_type = func_class.infer_type(ct.ColumnType("unknown", "unknown"))
+        return str(result_type)
+    except (TypeError, NotImplementedError, AttributeError):
+        # Function may require more specific types - fall back to metric type
+        return metric_type
 
 
 def _add_table_prefixes_to_filter(
@@ -383,9 +485,48 @@ def build_select_ast(
 
     from_clause = ast.From(relations=[relation])
 
+    # Inject temporal partition filters for incremental materialization
+    # This ensures partition pruning at the source level
+    all_filters = list(filters or [])
+    temporal_filter_ast: Optional[ast.Expression] = None
+
+    if ctx.include_temporal_filters and parent_node.current:
+        temporal_cols = parent_node.current.temporal_partition_columns()
+        if temporal_cols:
+            # Use the first temporal partition column
+            temporal_col = temporal_cols[0]
+            if temporal_col.partition:
+                # Generate the temporal expression using partition metadata
+                # For exact partition: dateint = CAST(DATE_FORMAT(...), 'yyyyMMdd') AS INT)
+                # For lookback: dateint BETWEEN start_expr AND end_expr
+                col_ref = make_column_ref(temporal_col.name, main_alias)
+
+                # Get the end expression (current logical timestamp)
+                end_expr = temporal_col.partition.temporal_expression(interval=None)
+
+                if ctx.lookback_window and end_expr:
+                    # For lookback, generate BETWEEN filter
+                    # Start = DJ_LOGICAL_TIMESTAMP() - interval
+                    start_expr = temporal_col.partition.temporal_expression(
+                        interval=ctx.lookback_window,
+                    )
+                    if start_expr:
+                        temporal_filter_ast = ast.Between(
+                            expr=col_ref,
+                            low=start_expr,
+                            high=end_expr,
+                        )
+                elif end_expr:
+                    # No lookback - exact partition match
+                    temporal_filter_ast = ast.BinaryOp(
+                        left=col_ref,
+                        right=end_expr,
+                        op=ast.BinaryOpKind.Eq,
+                    )
+
     # Build WHERE clause from filters
     where_clause: Optional[ast.Expression] = None
-    if filters:
+    if all_filters:
         # Build column alias mapping for filter resolution
         # Maps dimension refs to their table-qualified column names
         filter_column_aliases: dict[str, str] = {}
@@ -418,7 +559,7 @@ def build_select_ast(
         # Note: We don't pass a cte_alias because the column references are already
         # qualified with their table aliases during dimension resolution
         where_clause = parse_and_resolve_filters(
-            filters,
+            all_filters,
             filter_column_aliases,
             cte_alias=None,  # Don't add table prefix - we'll handle it per column
         )
@@ -431,6 +572,13 @@ def build_select_ast(
                 main_alias,
                 dim_aliases,
             )
+
+    # Combine user filters with temporal filter
+    if temporal_filter_ast:
+        if where_clause:
+            where_clause = ast.BinaryOp.And(where_clause, temporal_filter_ast)
+        else:
+            where_clause = temporal_filter_ast
 
     # Build SELECT
     select = ast.Select(
@@ -455,6 +603,168 @@ def build_select_ast(
     return query
 
 
+def build_grain_group_from_preagg(
+    ctx: BuildContext,
+    grain_group: GrainGroup,
+    preagg: "PreAggregation",
+    resolved_dimensions: list[ResolvedDimension],
+    components_per_metric: dict[str, int],
+) -> GrainGroupSQL:
+    """
+    Build SQL for a grain group using a pre-aggregation table.
+
+    Instead of computing from source, generates SQL that reads from the
+    pre-aggregation's materialized table and re-aggregates to the requested grain.
+
+    The generated SQL looks like:
+        SELECT dim1, dim2, SUM(measure1), SUM(measure2), ...
+        FROM catalog.schema.preagg_table
+        GROUP BY dim1, dim2
+
+    Args:
+        ctx: Build context
+        grain_group: The grain group to generate SQL for
+        preagg: The pre-aggregation to use
+        resolved_dimensions: Pre-resolved dimensions with join paths
+        components_per_metric: Metric name -> component count mapping
+
+    Returns:
+        GrainGroupSQL with SQL and metadata for this grain group
+    """
+    parent_node = grain_group.parent_node
+    avail = preagg.availability
+
+    if not avail:  # pragma: no cover
+        raise ValueError(f"Pre-agg {preagg.id} has no availability")
+
+    # Build table reference
+    table_parts = [p for p in [avail.catalog, avail.schema_, avail.table] if p]
+    table_ref = ast.Table(ast.Name(SEPARATOR.join(table_parts)))
+
+    # Build SELECT columns
+    select_items: list[ast.Expression] = []
+    columns: list[ColumnMetadata] = []
+    component_aliases: dict[str, str] = {}
+    metrics_covered: set[str] = set()
+    unique_components: list[MetricComponent] = []
+    seen_components: set[str] = set()
+
+    # Add dimension columns (grain columns)
+    grain_col_names: list[str] = []
+    for dim in resolved_dimensions:
+        col_name = dim.column_name
+        grain_col_names.append(col_name)
+
+        col_ref = ast.Column(name=ast.Name(col_name))
+        select_items.append(col_ref)
+
+        # Get type from pre-agg columns if available
+        col_type = "string"
+        if preagg.columns:
+            for pc in preagg.columns:
+                if pc.name == col_name:
+                    col_type = pc.type
+                    break
+
+        columns.append(
+            ColumnMetadata(
+                name=col_name,
+                semantic_name=dim.original_ref,
+                type=col_type,
+                semantic_type="dimension",
+            )
+        )
+
+    # Add measure columns with re-aggregation
+    for metric_node, component in grain_group.components:
+        metrics_covered.add(metric_node.name)
+
+        # Deduplicate components
+        if component.name in seen_components:
+            continue
+        seen_components.add(component.name)
+        unique_components.append(component)
+
+        # Find the measure column name in the pre-agg
+        measure_col = get_preagg_measure_column(preagg, component)
+        if not measure_col:  # pragma: no cover
+            raise ValueError(
+                f"Component {component.name} not found in pre-agg {preagg.id}"
+            )
+
+        # Determine the output alias
+        num_components = components_per_metric.get(metric_node.name, 1)
+        if num_components == 1:
+            output_alias = get_short_name(metric_node.name)
+        else:
+            output_alias = component.name
+
+        component_aliases[component.name] = output_alias
+
+        # Build re-aggregation expression using the merge function
+        col_ref = ast.Column(name=ast.Name(measure_col))
+        merge_func = component.merge or "SUM"
+        agg_expr = ast.Function(
+            name=ast.Name(merge_func),
+            args=[col_ref],
+        )
+
+        # Add alias
+        aliased = ast.Alias(
+            child=agg_expr,
+            alias=ast.Name(output_alias),
+        )
+        select_items.append(aliased)
+
+        # Get type from pre-agg columns
+        col_type = "double"  # Default
+        if preagg.columns:
+            for pc in preagg.columns:
+                if pc.name == measure_col:
+                    col_type = pc.type
+                    break
+
+        columns.append(
+            ColumnMetadata(
+                name=output_alias,
+                semantic_name=metric_node.name,
+                type=col_type,
+                semantic_type="metric",
+            )
+        )
+
+    # Build GROUP BY clause (list of column references)
+    group_by: list[ast.Expression] = []
+    if grain_col_names:
+        group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
+
+    # Build FROM clause using the helper method
+    from_clause = ast.From.Table(SEPARATOR.join(table_parts))
+
+    # Build SELECT statement
+    select = ast.Select(
+        projection=select_items,
+        from_=from_clause,
+        group_by=group_by,
+    )
+
+    # Build the query
+    query = ast.Query(select=select)
+
+    return GrainGroupSQL(
+        query=query,
+        columns=columns,
+        grain=grain_col_names,
+        aggregability=grain_group.aggregability,
+        metrics=list(metrics_covered),
+        parent_name=parent_node.name,
+        component_aliases=component_aliases,
+        is_merged=grain_group.is_merged,
+        component_aggregabilities=grain_group.component_aggregabilities,
+        components=unique_components,
+    )
+
+
 def build_grain_group_sql(
     ctx: BuildContext,
     grain_group: GrainGroup,
@@ -463,6 +773,9 @@ def build_grain_group_sql(
 ) -> GrainGroupSQL:
     """
     Build SQL for a single grain group.
+
+    First checks if a matching pre-aggregation is available. If so, uses the
+    pre-agg table. Otherwise, computes from source tables.
 
     Args:
         ctx: Build context
@@ -474,6 +787,24 @@ def build_grain_group_sql(
         GrainGroupSQL with SQL and metadata for this grain group
     """
     parent_node = grain_group.parent_node
+
+    # Check for matching pre-aggregation
+    if ctx.use_materialized and ctx.available_preaggs:
+        requested_grain = [dim.original_ref for dim in resolved_dimensions]
+        matching_preagg = find_matching_preagg(
+            ctx,
+            parent_node,
+            requested_grain,
+            grain_group,
+        )
+        if matching_preagg:
+            return build_grain_group_from_preagg(
+                ctx,
+                grain_group,
+                matching_preagg,
+                resolved_dimensions,
+                components_per_metric,
+            )
 
     # Build list of component expressions with their aliases
     component_expressions: list[tuple[str, ast.Expression]] = []
@@ -648,7 +979,7 @@ def build_grain_group_sql(
                 ColumnMetadata(
                     name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
                     semantic_name=metric_node.name,
-                    type=metric_type,
+                    type=infer_component_type(component, metric_type, parent_node),
                     semantic_type="metric",
                 ),
             )
@@ -657,7 +988,7 @@ def build_grain_group_sql(
                 ColumnMetadata(
                     name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
                     semantic_name=f"{metric_node.name}:{component.name}",
-                    type=metric_type,
+                    type=infer_component_type(component, metric_type, parent_node),
                     semantic_type="metric_component",
                 ),
             )
