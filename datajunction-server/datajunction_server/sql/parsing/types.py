@@ -587,10 +587,9 @@ class LongType(BigIntType):
           in Java (returns `-9223372036854775808`)
     """
 
-    def __new__(cls, *args, **kwargs):
-        self = super().__new__(BigIntType, *args, **kwargs)
-        super(BigIntType, self).__init__("long", "LongType()")
-        return self
+    def __init__(self):
+        # Call ColumnType.__init__ directly to set "long" instead of "bigint"
+        ColumnType.__init__(self, "long", "LongType()")
 
 
 class FloatingBase(NumberType, Singleton):

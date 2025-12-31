@@ -763,7 +763,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
                 "description": None,
                 "display_name": "Num Repair Orders",
                 "name": "default.num_repair_orders",
-                "type": "long",
+                "type": "bigint",
                 "partition": None,
             },
             {

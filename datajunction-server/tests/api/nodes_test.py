@@ -4897,7 +4897,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Completed Repairs",
                 "name": "completed_repairs",
-                "type": "long",
+                "type": "bigint",
                 "partition": None,
             },
             {
@@ -4907,7 +4907,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Total Repairs Dispatched",
                 "name": "total_repairs_dispatched",
-                "type": "long",
+                "type": "bigint",
                 "partition": None,
             },
             {
@@ -4947,7 +4947,7 @@ class TestValidateNodes:
                 "dimension_column": None,
                 "display_name": "Unique Contractors",
                 "name": "unique_contractors",
-                "type": "long",
+                "type": "bigint",
                 "partition": None,
             },
         ]
