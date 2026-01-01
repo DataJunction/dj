@@ -9,14 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
-from datajunction_server.database.user import User
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models import access
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    get_access_checker,
+)
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
-    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -36,24 +36,16 @@ async def get_data_for_djsql(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query
     """
     request_headers = dict(request.headers)
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceAction.EXECUTE,
-    )
     translated_sql, engine, catalog = await build_sql_for_dj_query(
         session,
         query,
-        access_control,
+        access_checker,
         engine_name,
         engine_version,
     )
@@ -86,24 +78,16 @@ async def get_data_stream_for_djsql(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events
     """
     request_headers = dict(request.headers)
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-        base_verb=access.ResourceAction.EXECUTE,
-    )
     translated_sql, engine, catalog = await build_sql_for_dj_query(
         session,
         query,
-        access_control,
+        access_checker,
         engine_name,
         engine_version,
     )

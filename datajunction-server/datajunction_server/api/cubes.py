@@ -14,13 +14,15 @@ from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    get_access_checker,
+)
 from datajunction_server.internal.materializations import build_cube_materialization
 from datajunction_server.internal.nodes import (
     get_all_cube_revisions_metadata,
     get_single_cube_revision_metadata,
 )
-from datajunction_server.models import access
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
@@ -208,9 +210,7 @@ async def get_cube_dimension_sql(
     include_counts: bool = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> TranslatedSQL:
     """
     Generates SQL to retrieve all unique values of a dimension for the cube
@@ -222,7 +222,7 @@ async def get_cube_dimension_sql(
         node_revision,
         dimensions,
         current_user,
-        validate_access,
+        access_checker,
         filters,
         limit,
         include_counts,
@@ -251,9 +251,7 @@ async def get_cube_dimension_values(
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DimensionValues:
     """
     All unique values of a dimension from the cube
@@ -266,7 +264,7 @@ async def get_cube_dimension_values(
         cube,
         dimensions,
         current_user,
-        validate_access,
+        access_checker,
         filters,
         limit,
         include_counts,

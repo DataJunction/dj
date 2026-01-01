@@ -5,30 +5,43 @@ Tests for the dimensions API.
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.api.main import app
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
+
+
+class RepairOnlyAuthorizationService(AuthorizationService):
+    """
+    Authorization service that only approves nodes with 'repair' in the name.
+    """
+
+    name = "repair_only"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved="repair" in request.access_object.name,
+            )
+            for request in requests
+        ]
 
 
 @pytest.mark.asyncio
 async def test_list_nodes_with_dimension_access_limited(
     module__client_with_roads: AsyncClient,
+    mocker,
 ) -> None:
     """
     Test ``GET /dimensions/{name}/nodes/``.
     """
-    from datajunction_server.internal.access.authorization import validate_access
-    from datajunction_server.models import access
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for request in access_control.requests:
-                if "repair" in request.access_object.name:
-                    request.approve()
-                else:
-                    request.deny()
+    def get_repair_only_service():
+        return RepairOnlyAuthorizationService()
 
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+        get_repair_only_service,
+    )
 
     response = await module__client_with_roads.get(
         "/dimensions/default.hard_hat/nodes/",
@@ -47,4 +60,3 @@ async def test_list_nodes_with_dimension_access_limited(
         "default.avg_repair_order_discounts",
     }
     assert {node["name"] for node in data} == roads_repair_nodes
-    app.dependency_overrides.clear()
