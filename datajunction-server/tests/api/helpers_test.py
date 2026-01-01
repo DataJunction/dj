@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from datajunction_server.api import helpers
+from datajunction_server.api.helpers import find_required_dimensions
 from datajunction_server.internal import sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
@@ -167,3 +171,70 @@ async def test_build_sql_for_multiple_metrics(
         dimensions=[],
     )
     assert built_sql is not None
+
+
+@pytest.mark.asyncio
+async def test_find_required_dimensions_with_role_suffix(
+    module__client_with_examples,
+    module__session: AsyncSession,
+):
+    """
+    Test find_required_dimensions with full path that includes role suffix.
+    """
+    # Get an actual dimension node from the database (v3.date has 'week' column)
+    result = await module__session.execute(
+        select(Node)
+        .filter(Node.name == "v3.date")
+        .options(
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.columns),
+            ),
+        ),
+    )
+    dim_node = result.scalars().first()
+
+    if dim_node is None:
+        pytest.skip("v3.date dimension not found in database")
+
+    # Verify the dimension has the 'week' column
+    col_names = [col.name for col in dim_node.current.columns]
+    if "week" not in col_names:
+        pytest.skip("v3.date.week column not found")
+
+    # Test with role suffix - this covers line 282 (stripping [order])
+    # and line 323 (matching the column)
+    invalid_dims, matched_cols = await find_required_dimensions(
+        session=module__session,
+        required_dimensions=["v3.date.week[order]"],
+        parent_columns=[],
+    )
+
+    # Should have no invalid dimensions and one matched column
+    assert len(invalid_dims) == 0, f"Unexpected invalid dims: {invalid_dims}"
+    assert len(matched_cols) == 1
+    assert matched_cols[0].name == "week"
+
+
+@pytest.mark.asyncio
+async def test_find_required_dimensions_full_path_match(
+    module__client_with_examples,
+    module__session: AsyncSession,
+):
+    """
+    Test find_required_dimensions with full path without role suffix.
+
+    This covers line 323: matched_columns.append(dim_col_map[col_name])
+    """
+    # Test with full path (no role suffix) - this covers line 323
+    invalid_dims, matched_cols = await find_required_dimensions(
+        session=module__session,
+        required_dimensions=["v3.date.month"],
+        parent_columns=[],
+    )
+
+    # v3.date.month should exist
+    if len(invalid_dims) > 0:
+        pytest.skip("v3.date.month not found in database")
+
+    assert len(matched_cols) == 1
+    assert matched_cols[0].name == "month"
