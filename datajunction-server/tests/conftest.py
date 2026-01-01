@@ -1288,6 +1288,11 @@ async def module__client(
     - All examples pre-loaded
     So we skip those initialization steps.
     """
+    # Clear caches to prevent stale database connections (important for CI)
+    app.dependency_overrides.clear()
+    get_settings.cache_clear()
+    get_session_manager.cache_clear()
+
     use_patch = getattr(request, "param", True)
 
     # NOTE: Skip these - already in template:
