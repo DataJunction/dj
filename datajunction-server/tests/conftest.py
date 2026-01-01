@@ -1413,12 +1413,16 @@ def module__settings(
     )
 
     from datajunction_server.models.dialect import register_dialect_plugin
-    from datajunction_server.transpilation import SQLTranspilationPlugin
+    from datajunction_server.transpilation import (
+        SQLTranspilationPlugin,
+        SQLGlotTranspilationPlugin,
+    )
     from datajunction_server.internal import seed as seed_module
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
     register_dialect_plugin("druid", SQLTranspilationPlugin)
+    register_dialect_plugin("postgres", SQLGlotTranspilationPlugin)
 
     module_mocker.patch(
         "datajunction_server.utils.get_settings",
