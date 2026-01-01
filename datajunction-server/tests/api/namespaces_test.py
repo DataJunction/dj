@@ -6,6 +6,7 @@ from http import HTTPStatus
 from unittest import mock
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 from datajunction_server.internal.access.authorization import (
@@ -925,3 +926,111 @@ async def test_list_all_namespaces_deny_all(
 
     assert response.status_code in (200, 201)
     assert response.json() == []
+
+
+@pytest_asyncio.fixture
+async def unique_namespace(client: AsyncClient):
+    """
+    Fixture that provides unique namespace names and auto-cleans up after test.
+    """
+    import uuid
+
+    suffix = uuid.uuid4().hex[:8]
+    created_namespaces = []
+    created_roles = []
+
+    def make_namespace(name: str) -> str:
+        """Generate a unique namespace name and track it for cleanup."""
+        full_name = f"{name}_{suffix}"
+        created_namespaces.append(full_name)
+        created_roles.append(f"{full_name}-owner")
+        return full_name
+
+    yield make_namespace
+
+    # Cleanup after test
+    for ns in reversed(created_namespaces):  # Delete children first
+        await client.delete(f"/namespaces/{ns}/hard/?cascade=true")
+    for role in created_roles:
+        await client.delete(f"/roles/{role}")
+
+
+@pytest.mark.asyncio
+async def test_create_namespace_auto_creates_owner_role(
+    client: AsyncClient,
+    unique_namespace,
+) -> None:
+    """
+    Test that creating a namespace automatically creates an owner role.
+
+    When a namespace is created, the system should:
+    1. Create a role named "{namespace}-owner"
+    2. Add a MANAGE scope on the namespace
+    3. Assign the role to the creating user
+    """
+    ns_name = unique_namespace("testrbacauto")
+    child_ns = f"{ns_name}.autorole"
+
+    # Create a new namespace with a unique name
+    response = await client.post(f"/namespaces/{child_ns}")
+    assert response.status_code in (200, 201)
+
+    # Verify the owner role was created for the parent namespace
+    response = await client.get(f"/roles/{ns_name}-owner")
+    assert response.status_code == 200
+    role_data = response.json()
+    assert role_data["name"] == f"{ns_name}-owner"
+    assert role_data["description"] == f"Owner role for namespace {ns_name}"
+
+    # Check scopes - should have MANAGE on the namespace
+    assert len(role_data["scopes"]) == 1
+    scope = role_data["scopes"][0]
+    assert scope["action"] == "manage"
+    assert scope["scope_type"] == "namespace"
+    assert scope["scope_value"] == ns_name
+
+    # Verify the child namespace also got an owner role
+    response = await client.get(f"/roles/{child_ns}-owner")
+    assert response.status_code == 200
+    child_role_data = response.json()
+    assert child_role_data["name"] == f"{child_ns}-owner"
+
+    # Check the role is assigned to the creator
+    response = await client.get(f"/roles/{ns_name}-owner/assignments")
+    assert response.status_code == 200
+    assignments = response.json()
+    assert len(assignments) >= 1
+    # The creator should be assigned this role
+    assert any(a["principal"]["username"] == "dj" for a in assignments)
+
+
+@pytest.mark.asyncio
+async def test_create_namespace_skips_existing_role(
+    client: AsyncClient,
+    unique_namespace,
+) -> None:
+    """
+    Test that creating a namespace skips role creation if role already exists.
+    """
+    ns_name = unique_namespace("preexistingns")
+    role_name = f"{ns_name}-owner"
+
+    # First, manually create a role with the expected name
+    response = await client.post(
+        "/roles/",
+        json={
+            "name": role_name,
+            "description": "Manually created role",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    # Now create a namespace with the same name
+    response = await client.post(f"/namespaces/{ns_name}")
+    assert response.status_code in (200, 201)
+
+    # The role should still be the original one (not overwritten)
+    response = await client.get(f"/roles/{role_name}")
+    assert response.status_code == 200
+    role_data = response.json()
+    assert role_data["description"] == "Manually created role"  # Original description
