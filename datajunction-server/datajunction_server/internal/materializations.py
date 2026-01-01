@@ -192,7 +192,7 @@ async def build_cube_materialization_config(
                 f"node `{current_revision.name}` and job "
                 f"`{upsert_input.job.name}` as"  # type: ignore
                 " the config does not have valid configuration for "
-                f"engine `{upsert_input.job.name}`."
+                f"engine `{upsert_input.job.name}`."  # type: ignore
             ),
         ) from exc
 
