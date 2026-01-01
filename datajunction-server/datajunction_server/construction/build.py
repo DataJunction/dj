@@ -12,7 +12,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.internal.engines import get_engine
-from datajunction_server.models import access
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
@@ -176,7 +176,7 @@ async def build_metric_nodes(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     build_criteria: Optional[BuildCriteria] = None,
-    access_control: Optional[access.AccessControlStore] = None,
+    access_checker: AccessChecker | None = None,
     ignore_errors: bool = True,
     query_parameters: Optional[dict[str, Any]] = None,
 ):
@@ -214,7 +214,7 @@ async def build_metric_nodes(
         .order_by(orderby)
         .limit(limit)
         .with_build_criteria(build_criteria)
-        .with_access_control(access_control)
+        .with_access_control(access_checker)
     )
     if ignore_errors:
         builder = builder.ignore_errors()

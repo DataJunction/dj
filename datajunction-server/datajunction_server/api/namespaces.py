@@ -15,12 +15,14 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import CubeSpec, DeploymentSpec
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access,
-    validate_access_requests,
+    AccessChecker,
+    get_access_checker,
+    AccessDenialMode,
 )
 from datajunction_server.internal.namespaces import (
     create_namespace,
@@ -109,30 +111,17 @@ async def create_node_namespace(
 )
 async def list_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NamespaceOutput]:
     """
     List namespaces with the number of nodes contained in them
     """
     results = await NodeNamespace.get_all_with_node_count(session)
-    resource_requests = [
-        access.ResourceRequest(
-            verb=access.ResourceAction.READ,
-            access_object=access.Resource.from_namespace(record.namespace),
-        )
-        for record in results
-    ]
-    approvals = validate_access_requests(
-        validate_access,
-        current_user,
-        resource_requests=resource_requests,
+    access_checker.add_namespaces(
+        [record.namespace for record in results],
+        access.ResourceAction.READ,
     )
-    approved_namespaces: List[str] = [
-        request.access_object.name for request in approvals
-    ]
+    approved_namespaces = await access_checker.approved_resource_names()
     return [
         NamespaceOutput(namespace=record.namespace, num_nodes=record.num_nodes)
         for record in results
@@ -156,16 +145,37 @@ async def list_nodes_in_namespace(
         description="Whether to include a list of users who edited each node",
     ),
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    return await NodeNamespace.list_nodes(
+    # Check that the user has namespace-level READ access
+    access_checker.add_namespace(namespace, access.ResourceAction.READ)
+    namespace_decisions = await access_checker.check(
+        on_denied=AccessDenialMode.FILTER,
+    )
+    if not namespace_decisions:
+        # User has no access to this namespace at all
+        return []
+
+    # Get all nodes in namespace
+    nodes = await NodeNamespace.list_nodes(
         session,
         namespace,
         type_,
         with_edited_by=with_edited_by,
     )
+
+    # Filter to nodes the user has READ access to
+    access_checker.add_nodes(nodes=nodes, action=access.ResourceAction.READ)
+    node_decisions = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+    approved_names = {
+        decision.request.access_object.name
+        for decision in node_decisions
+        if decision.approved
+    }
+    return [node for node in nodes if node.name in approved_names]
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
@@ -182,10 +192,14 @@ async def deactivate_a_namespace(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     background_tasks: BackgroundTasks,
     request: Request,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
     """
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node_namespace = await NodeNamespace.get(
         session,
         namespace,
@@ -266,10 +280,14 @@ async def restore_a_namespace(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Restores a node namespace
     """
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     node_namespace = await get_node_namespace(
         session=session,
         namespace=namespace,
@@ -340,6 +358,7 @@ async def hard_delete_node_namespace(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
@@ -347,6 +366,9 @@ async def hard_delete_node_namespace(
     is set to true. If cascade is set to false, we'll raise an error. This should be used
     with caution, as the impact may be large.
     """
+    access_checker.add_namespace(namespace, ResourceAction.DELETE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     impacts = await hard_delete_namespace(
         session=session,
         namespace=namespace,
@@ -371,11 +393,15 @@ async def export_a_namespace(
     namespace: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> List[Dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace
     as well as a project definition file.
     """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     return await get_project_config(
         session=session,
         nodes=await get_nodes_in_namespace_detailed(session, namespace),
@@ -400,10 +426,14 @@ async def export_namespace_spec(
     namespace: str,
     *,
     session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DeploymentSpec:
     """
     Generates a deployment spec for a namespace
     """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     nodes = await NodeNamespace.list_all_nodes(
         session,
         namespace,

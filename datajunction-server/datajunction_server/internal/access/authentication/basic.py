@@ -5,10 +5,11 @@ Basic OAuth and JWT helper functions
 import logging
 
 from passlib.context import CryptContext
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.base import ExecutableOption
+from sqlalchemy.orm import selectinload
 
+from datajunction_server.database.rbac import RoleAssignment, Role
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAuthenticationException, DJError, ErrorCode
 
@@ -33,19 +34,29 @@ def get_password_hash(password) -> str:
 async def get_user(
     username: str,
     session: AsyncSession,
-    *options: ExecutableOption,
+    options: list[ExecutableOption] | None = None,
 ) -> User:
     """
     Get a DJ user
     """
-    user = (
-        (
-            await session.execute(
-                select(User).where(User.username == username).options(*options),
-            )
-        )
-        .unique()
-        .scalar_one_or_none()
+    from datajunction_server.database.group_member import GroupMember
+
+    user = await User.get_by_username(
+        session=session,
+        username=username,
+        options=options
+        or [
+            # Load user's direct role assignments
+            selectinload(User.role_assignments)
+            .selectinload(RoleAssignment.role)
+            .selectinload(Role.scopes),
+            # Load user's group memberships and the groups' role assignments
+            selectinload(User.member_of)
+            .selectinload(GroupMember.group)
+            .selectinload(User.role_assignments)
+            .selectinload(RoleAssignment.role)
+            .selectinload(Role.scopes),
+        ],
     )
     if not user:
         raise DJAuthenticationException(

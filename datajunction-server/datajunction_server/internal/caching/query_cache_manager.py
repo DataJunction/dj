@@ -12,11 +12,14 @@ from datajunction_server.database.queryrequest import (
     QueryBuildType,
     VersionedQueryKey,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AuthContext,
+    get_access_checker,
+)
 from datajunction_server.internal.sql import build_sql_for_multiple_metrics
-from datajunction_server.database.user import User
-from datajunction_server.models import access
 from datajunction_server.models.sql import GeneratedSQL
-from datajunction_server.utils import session_context, get_settings
+from datajunction_server.utils import get_current_user, session_context, get_settings
 from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.internal.sql import build_node_sql
 from datajunction_server.internal.engines import get_engine
@@ -40,8 +43,6 @@ class QueryRequestParams:
     limit: int | None = None
     orderby: list[str] | None = None
     other_args: dict[str, Any] | None = None
-    current_user: User | None = None
-    validate_access: access.ValidateAccessFn | None = None
     include_all_columns: bool = False
     use_materialized: bool = False
     preaggregate: bool = False
@@ -56,6 +57,16 @@ class QueryRequestParams:
             f" include_all_columns={self.include_all_columns}, use_materialized={self.use_materialized},"
             f" preaggregate={self.preaggregate}, query_params={self.query_params})"
         )
+
+
+async def build_access_checker_from_request(
+    request: Request,
+    session: AsyncSession,
+) -> AccessChecker:
+    """Helper to build checker from request + session."""
+    current_user = await get_current_user(request)
+    auth_context = await AuthContext.from_user(session, current_user)
+    return get_access_checker(auth_context)
 
 
 class QueryCacheManager(RefreshAheadCacheManager):
@@ -85,18 +96,10 @@ class QueryCacheManager(RefreshAheadCacheManager):
         """
         params = deepcopy(params)
         async with session_context(request) as session:
+            access_checker = await build_access_checker_from_request(request, session)
             params.nodes = list(OrderedDict.fromkeys(params.nodes))
             query_parameters = (
                 json.loads(params.query_params) if params.query_params else {}
-            )
-            access_control_store = (
-                access.AccessControlStore(
-                    validate_access=params.validate_access,
-                    user=params.current_user,
-                    base_verb=access.ResourceAction.READ,
-                )
-                if params.validate_access
-                else None
             )
             match self.query_type:
                 case QueryBuildType.MEASURES:
@@ -104,20 +107,21 @@ class QueryCacheManager(RefreshAheadCacheManager):
                         session,
                         params,
                         query_parameters,
+                        access_checker,
                     )
                 case QueryBuildType.NODE:
                     return await self._build_node_query(
                         session,
                         params,
                         query_parameters,
-                        access_control_store,
+                        access_checker,
                     )
                 case QueryBuildType.METRICS:  # pragma: no cover
                     return await self._build_metrics_query(
                         session,
                         params,
                         query_parameters,
-                        access_control_store,
+                        access_checker,
                     )
 
     async def build_cache_key(
@@ -155,6 +159,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         session: AsyncSession,
         params: QueryRequestParams,
         query_parameters: dict[str, Any],
+        access_checker: AccessChecker,
     ) -> list[GeneratedSQL]:
         return await get_measures_query(
             session=session,
@@ -164,8 +169,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
             orderby=params.orderby or [],
             engine_name=params.engine_name,
             engine_version=params.engine_version,
-            current_user=params.current_user,
-            validate_access=params.validate_access,
+            access_checker=access_checker,
             include_all_columns=params.include_all_columns,
             use_materialized=params.use_materialized,
             preagg_requested=params.preaggregate,
@@ -177,7 +181,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         session: AsyncSession,
         params: QueryRequestParams,
         query_parameters: dict[str, Any],
-        access_control_store: access.AccessControlStore | None = None,
+        access_checker: AccessChecker,
     ) -> TranslatedSQL:
         engine = (
             await get_engine(session, params.engine_name, params.engine_version)  # type: ignore
@@ -195,7 +199,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
             ignore_errors=params.ignore_errors,
             use_materialized=params.use_materialized,
             query_parameters=query_parameters,
-            access_control=access_control_store,
+            access_checker=access_checker,
         )
         return TranslatedSQL.create(
             sql=built_sql.sql,
@@ -208,7 +212,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
         session: AsyncSession,
         params: QueryRequestParams,
         query_parameters: dict[str, Any],
-        access_control_store: access.AccessControlStore | None = None,
+        access_checker: AccessChecker,
     ) -> TranslatedSQL:
         built_sql, _, _ = await build_sql_for_multiple_metrics(
             session=session,
@@ -219,7 +223,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
             limit=params.limit,
             engine_name=params.engine_name,
             engine_version=params.engine_version,
-            access_control=access_control_store,
+            access_checker=access_checker,
             ignore_errors=params.ignore_errors,  # type: ignore
             query_parameters=query_parameters,
             use_materialized=params.use_materialized,  # type: ignore

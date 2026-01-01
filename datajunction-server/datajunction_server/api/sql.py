@@ -9,6 +9,7 @@ from typing import List, Optional
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.utils import get_current_user
 from datajunction_server.construction.build_v3 import (
     build_metrics_sql,
     build_measures_sql,
@@ -25,12 +26,10 @@ from datajunction_server.internal.caching.query_cache_manager import (
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.database import Node
-from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.database.user import User
+from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import validate_access
-from datajunction_server.models import access
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
@@ -42,7 +41,6 @@ from datajunction_server.models.sql import (
 )
 from datajunction_server.models.sql import GeneratedSQL
 from datajunction_server.utils import (
-    get_current_user,
     get_session,
     get_settings,
 )
@@ -79,13 +77,8 @@ async def get_measures_sql_for_cube_v2(
         ),
     ),
     cache: Cache = Depends(get_cache),
-    session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     use_materialized: bool = True,
     background_tasks: BackgroundTasks,
     request: Request,
@@ -119,8 +112,6 @@ async def get_measures_sql_for_cube_v2(
             include_all_columns=include_all_columns,
             preaggregate=preaggregate,
             use_materialized=use_materialized,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
 
@@ -138,13 +129,8 @@ async def get_sql(
     limit: Optional[int] = None,
     query_params: str = Query("{}", description="Query parameters"),
     *,
-    session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     background_tasks: BackgroundTasks,
     ignore_errors: Optional[bool] = True,
     use_materialized: Optional[bool] = True,
@@ -172,8 +158,6 @@ async def get_sql(
             engine_version=engine_version,
             use_materialized=use_materialized,
             ignore_errors=ignore_errors,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )
 
@@ -404,10 +388,6 @@ async def get_sql_for_metrics(
     session: AsyncSession = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
     ignore_errors: Optional[bool] = True,
     use_materialized: Optional[bool] = True,
     background_tasks: BackgroundTasks,
@@ -449,7 +429,5 @@ async def get_sql_for_metrics(
             engine_version=engine_version,
             use_materialized=use_materialized,
             ignore_errors=ignore_errors,
-            current_user=current_user,
-            validate_access=validate_access,
         ),
     )

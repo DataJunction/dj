@@ -5,6 +5,10 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     find_existing_cube,
@@ -29,7 +33,6 @@ from datajunction_server.construction.build_v2 import (
 )
 from datajunction_server.database import Engine
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.errors import DJInvalidInputException, DJException
 from datajunction_server.internal.engines import get_engine
@@ -58,7 +61,8 @@ async def build_node_sql(
     orderby: list[str] | None = None,
     limit: int | None = None,
     engine: Engine | None = None,
-    access_control: access.AccessControlStore | None = None,
+    *,
+    access_checker: AccessChecker,
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, Any] | None = None,
@@ -95,7 +99,7 @@ async def build_node_sql(
             limit=limit,
             engine_name=engine.name if engine else None,
             engine_version=engine.version if engine else None,
-            access_control=access_control,
+            access_checker=access_checker,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
         )
@@ -113,7 +117,7 @@ async def build_node_sql(
             limit,
             engine.name if engine else None,
             engine.version if engine else None,
-            access_control=access_control,
+            access_checker=access_checker,
             ignore_errors=ignore_errors,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
@@ -129,7 +133,7 @@ async def build_node_sql(
             orderby=orderby or [],
             limit=limit,
             engine=engine,
-            access_control=access_control,
+            access_checker=access_checker,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
             ignore_errors=ignore_errors,
@@ -156,7 +160,7 @@ async def build_sql_for_multiple_metrics(
     limit: int | None = None,
     engine_name: str | None = None,
     engine_version: str | None = None,
-    access_control: access.AccessControlStore | None = None,
+    access_checker: AccessChecker | None = None,
     ignore_errors: bool = True,
     use_materialized: bool = True,
     query_parameters: dict[str, str] | None = None,
@@ -184,8 +188,8 @@ async def build_sql_for_multiple_metrics(
             ),
         ],
     )
-    if access_control:
-        access_control.add_request_by_node(leading_metric_node.current)  # type: ignore
+    if access_checker:
+        access_checker.add_node(leading_metric_node.current, access.ResourceAction.READ)  # type: ignore
     available_engines = (
         leading_metric_node.current.catalog.engines  # type: ignore
         if leading_metric_node.current.catalog  # type: ignore
@@ -233,10 +237,9 @@ async def build_sql_for_multiple_metrics(
         validate_orderby(orderby, metrics, dimensions)
 
     if cube and cube.availability and use_materialized and materialized_cube_catalog:
-        if access_control:  # pragma: no cover
-            access_control.add_request_by_node(cube)
-            access_control.state = access.AccessControlState.INDIRECT
-            access_control.raise_if_invalid_requests()
+        if access_checker:  # pragma: no cover
+            access_checker.add_node(cube, access.ResourceAction.READ)
+            await access_checker.check(on_denied=AccessDenialMode.RAISE)
         query_ast = build_materialized_cube_node(
             metric_columns,
             dimension_columns,
@@ -284,10 +287,15 @@ async def build_sql_for_multiple_metrics(
         dimensions=dimensions or [],
         orderby=orderby or [],
         limit=limit,
-        access_control=access_control,
+        access_checker=access_checker,
         ignore_errors=ignore_errors,
         query_parameters=query_parameters,
     )
+
+    # Check authorization for all discovered nodes
+    if access_checker:  # pragma: no cover
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     columns = [
         assemble_column_metadata(col, use_semantic_metadata=True)  # type: ignore
         for col in query_ast.select.projection
@@ -322,8 +330,7 @@ async def get_measures_query(
     orderby: list[str] = None,
     engine_name: str | None = None,
     engine_version: str | None = None,
-    current_user: User | None = None,
-    validate_access: access.ValidateAccessFn = None,
+    access_checker: AccessChecker = None,
     include_all_columns: bool = False,
     use_materialized: bool = True,
     preagg_requested: bool = False,
@@ -342,15 +349,6 @@ async def get_measures_query(
     )
     build_criteria = BuildCriteria(
         dialect=engine.dialect if engine and engine.dialect else Dialect.SPARK,
-    )
-    access_control = (
-        access.AccessControlStore(
-            validate_access=validate_access,
-            user=current_user,
-            base_verb=access.ResourceAction.READ,
-        )
-        if validate_access
-        else None
     )
 
     if not filters:
@@ -405,7 +403,7 @@ async def get_measures_query(
         )
         parent_ast = await (
             query_builder.ignore_errors()
-            .with_access_control(access_control)
+            .with_access_control(access_checker)
             .with_build_criteria(build_criteria)
             .add_dimensions(dimensions)
             .add_filters(filters)

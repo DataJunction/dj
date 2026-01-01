@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.notification_preference import (
         NotificationPreference,
     )
+    from datajunction_server.database.rbac import RoleAssignment
     from datajunction_server.database.tag import Tag
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,7 @@ class User(Base):
     )
 
     # Group membership relationships (for kind=GROUP)
+    # Groups that this user owns (for kind=GROUP)
     group_members: Mapped[list["GroupMember"]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.group_id",
@@ -153,6 +155,13 @@ class User(Base):
     member_of: Mapped[list["GroupMember"]] = relationship(
         "GroupMember",
         foreign_keys="GroupMember.member_id",
+        viewonly=True,
+    )
+
+    # RBAC role assignments (for authorization)
+    role_assignments: Mapped[list["RoleAssignment"]] = relationship(
+        "RoleAssignment",
+        foreign_keys="RoleAssignment.principal_id",
         viewonly=True,
     )
 

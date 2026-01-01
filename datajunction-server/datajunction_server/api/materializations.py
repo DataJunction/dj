@@ -22,14 +22,16 @@ from datajunction_server.database.history import History
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    get_access_checker,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
 from datajunction_server.materialization.jobs import MaterializationJob
-from datajunction_server.models import access
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.node import AvailabilityStateInfo
@@ -97,9 +99,7 @@ async def upsert_materialization(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
-    validate_access: access.ValidateAccessFn = Depends(
-        validate_access,
-    ),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Add or update a materialization of the specified node. If a node_name is specified
@@ -136,7 +136,7 @@ async def upsert_materialization(
         session,
         current_revision,
         materialization,
-        validate_access,  # type: ignore
+        access_checker,  # type: ignore
         current_user=current_user,
     )
 

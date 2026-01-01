@@ -11,7 +11,7 @@ from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType, QueryRequest
 from datajunction_server.database.user import User
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import AuthorizationService
 from datajunction_server.models import access
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -2726,24 +2726,31 @@ async def test_get_sql_for_metrics_failures(module__client_with_examples: AsyncC
 
 
 @pytest.mark.asyncio
-async def test_get_sql_for_metrics_no_access(module__client_with_examples: AsyncClient):
+async def test_get_sql_for_metrics_no_access(
+    module__client_with_examples: AsyncClient,
+    mocker,
+):
     """
-    Test getting sql for multiple metrics.
+    Test getting sql for multiple metrics with denied access.
     """
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            if access_control.state == "direct":
-                access_control.approve_all()
-            else:
-                access_control.deny_all()
+    # Custom authorization service that denies all requests
+    class DenyAllAuthorizationService(AuthorizationService):
+        name = "deny_all"
 
-        return _validate_access
+        def authorize(self, auth_context, requests):
+            return [
+                access.AccessDecision(request=request, approved=False)
+                for request in requests
+            ]
 
-    module__client_with_examples.app.dependency_overrides[validate_access] = (
-        validate_access_override
+    def get_deny_all_service():
+        return DenyAllAuthorizationService()
+
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+        get_deny_all_service,
     )
-
     response = await module__client_with_examples.get(
         "/sql/",
         params={
@@ -2762,19 +2769,11 @@ async def test_get_sql_for_metrics_no_access(module__client_with_examples: Async
         },
     )
     data = response.json()
-    # assert "Authorization of User `dj` for this request failed.\n" in data["message"]
-    assert "The following requests were denied:\n" in data["message"]
-    assert "read:node/default.municipality_dim" in data["message"]
-    assert "read:node/default.dispatcher" in data["message"]
-    assert "read:node/default.repair_orders_fact" in data["message"]
-    assert "read:node/default.hard_hat" in data["message"]
-    assert data["errors"][0]["code"] == 500
-
-    module__client_with_examples.app.dependency_overrides[validate_access] = (
-        validate_access
+    assert data["message"] == (
+        "Access denied to 10 resource(s): default.discounted_orders_rate, "
+        "default.discounted_orders_rate, default.num_repair_orders, "
+        "default.repair_orders_fact, default.hard_hat and 5 more"
     )
-
-    module__client_with_examples.app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
@@ -3369,31 +3368,39 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions(
 @pytest.mark.asyncio
 async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
     module__client_with_examples: AsyncClient,
+    mocker,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
 
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for request in access_control.requests:
+    # Custom authorization service that denies specific nodes
+    class SelectiveDenialAuthorizationService(AuthorizationService):
+        name = "selective_denial"
+
+        def authorize(self, auth_context, requests):
+            denied_nodes = {
+                "foo.bar.avg_repair_price",
+                "default.hard_hat.city",
+            }
+            return [
+                access.AccessDecision(request=request, approved=False)
                 if (
                     request.access_object.resource_type == access.ResourceType.NODE
-                    and request.access_object.name
-                    in (
-                        "foo.bar.avg_repair_price",
-                        "default.hard_hat.city",
-                    )
-                ):
-                    request.deny()
-                else:
-                    request.approve()
+                    and request.access_object.name in denied_nodes
+                )
+                else access.AccessDecision(request=request, approved=True)
+                for request in requests
+            ]
 
-        return _validate_access
+    def get_selective_denial_service():
+        return SelectiveDenialAuthorizationService()
 
-    module__client_with_examples.app.dependency_overrides[validate_access] = (
-        validate_access_override
+    mocker.patch(
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+        return_value=SelectiveDenialAuthorizationService(),
     )
+
     response = await module__client_with_examples.get(
         "/sql/",
         params={
@@ -3410,7 +3417,6 @@ async def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
         "Columns ['default.hard_hat.city'] in order by "
         "clause must also be specified in the metrics or dimensions"
     )
-    module__client_with_examples.app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
