@@ -101,11 +101,7 @@ jobs:
           git checkout -b releases/version-$NEW_VERSION
           git push --set-upstream origin releases/version-$NEW_VERSION -f
 
-          echo "Make a tag ..."
-          git tag -a version-$NEW_VERSION -m version-$NEW_VERSION
-          git push origin version-$NEW_VERSION
-
           echo "Create a PR ..."
-          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Bump DataJunction version to $NEW_VERSION" --body "This is an automated PR triggered by the github action. Merging this PR will publish all the component for version $NEW_VERSION ."
+          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Bump DataJunction version to $NEW_VERSION" --body "This is an automated PR triggered by the github action. Merging this PR will publish all the component for version $NEW_VERSION and create the git tag."
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}          
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
