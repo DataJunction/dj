@@ -731,7 +731,7 @@ async def create_node_owner_role(
 
     # Check if role already exists (shouldn't happen, but be safe)
     existing_role = await Role.get_by_name(session, role_name)
-    if existing_role:
+    if existing_role:  # pragma: no cover
         _logger.warning(
             "Owner role `%s` already exists, skipping creation",
             role_name,
