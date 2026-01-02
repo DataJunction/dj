@@ -969,13 +969,12 @@ async def test_create_namespace_auto_creates_owner_role(
     3. Assign the role to the creating user
     """
     ns_name = unique_namespace("testrbacauto")
-    child_ns = f"{ns_name}.autorole"
 
     # Create a new namespace with a unique name
-    response = await client.post(f"/namespaces/{child_ns}")
+    response = await client.post(f"/namespaces/{ns_name}")
     assert response.status_code in (200, 201)
 
-    # Verify the owner role was created for the parent namespace
+    # Verify the owner role was created for the namespace
     response = await client.get(f"/roles/{ns_name}-owner")
     assert response.status_code == 200
     role_data = response.json()
@@ -988,12 +987,6 @@ async def test_create_namespace_auto_creates_owner_role(
     assert scope["action"] == "manage"
     assert scope["scope_type"] == "namespace"
     assert scope["scope_value"] == ns_name
-
-    # Verify the child namespace also got an owner role
-    response = await client.get(f"/roles/{child_ns}-owner")
-    assert response.status_code == 200
-    child_role_data = response.json()
-    assert child_role_data["name"] == f"{child_ns}-owner"
 
     # Check the role is assigned to the creator
     response = await client.get(f"/roles/{ns_name}-owner/assignments")

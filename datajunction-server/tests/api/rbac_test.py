@@ -92,11 +92,16 @@ async def test_create_role_duplicate_name(client_with_basic: AsyncClient):
 @pytest.mark.asyncio
 async def test_list_roles(client_with_basic: AsyncClient):
     """Test listing roles."""
+    import uuid
+
+    suffix = uuid.uuid4().hex[:8]
+    test_role_names = [f"listroles_{suffix}_{i}" for i in range(3)]
+
     # Create several roles
-    for i in range(3):
+    for name in test_role_names:
         await client_with_basic.post(
             "/roles/",
-            json={"name": f"role-{i}", "description": f"Role {i}"},
+            json={"name": name, "description": f"Test role {name}"},
         )
 
     # List roles
@@ -105,9 +110,13 @@ async def test_list_roles(client_with_basic: AsyncClient):
     data = response.json()
     assert len(data) >= 3
 
-    # Check they're ordered by name
+    # Check that our created roles are in the list
     names = [role["name"] for role in data]
-    assert sorted(names) == names
+    for test_name in test_role_names:
+        assert test_name in names
+
+    # Check they're ordered by name (case-sensitive lexicographic sort)
+    assert names == sorted(names)
 
 
 @pytest.mark.asyncio
