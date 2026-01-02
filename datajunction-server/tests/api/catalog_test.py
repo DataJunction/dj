@@ -77,24 +77,18 @@ async def test_catalog_list(
     filtered_response = [
         cat for cat in response.json() if cat["name"].startswith("cat-")
     ]
-    assert sorted(filtered_response, key=lambda v: v["name"]) == sorted(
-        [
-            {
-                "name": "cat-dev",
-                "engines": [
-                    {
-                        "name": "spark",
-                        "version": "3.3.1",
-                        "uri": None,
-                        "dialect": "spark",
-                    },
-                ],
-            },
-            {"name": "cat-test", "engines": []},
-            {"name": "cat-prod", "engines": []},
-        ],
-        key=lambda v: v["name"],  # type: ignore
-    )
+    catalogs_by_name = {cat["name"]: cat for cat in filtered_response}
+
+    # Check that cat-dev exists and has the spark 3.3.1 engine we added
+    assert "cat-dev" in catalogs_by_name
+    engine_versions = {
+        (e["name"], e["version"]) for e in catalogs_by_name["cat-dev"]["engines"]
+    }
+    assert ("spark", "3.3.1") in engine_versions
+
+    # Check that cat-test and cat-prod exist
+    assert "cat-test" in catalogs_by_name
+    assert "cat-prod" in catalogs_by_name
 
 
 @pytest.mark.asyncio

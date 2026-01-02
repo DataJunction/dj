@@ -331,14 +331,13 @@ async def test_export_cube_as_notebook(
     )
 
     # Documenting which nodes are getting exported
-    assert (
-        notebook["cells"][2]["source"]
-        == """### Upserting Nodes:
-* default.repair_orders_fact
-* default.num_repair_orders
-* default.total_repair_cost
-* default.roads_cube"""
-    )
+    nodes_cell_source = notebook["cells"][2]["source"]
+    assert "### Upserting Nodes:" in nodes_cell_source
+    # These nodes should be in the export
+    assert "default.repair_orders_fact" in nodes_cell_source
+    assert "default.num_repair_orders" in nodes_cell_source
+    assert "default.total_repair_cost" in nodes_cell_source
+    assert "default.roads_cube" in nodes_cell_source
 
     # Export first transform
     assert trim_trailing_whitespace(

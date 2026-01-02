@@ -98,7 +98,7 @@ jobs:
 
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          pdm run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+          pdm run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto' || '' }} --dist=loadscope --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
 
   build-javascript:
     runs-on: ubuntu-latest

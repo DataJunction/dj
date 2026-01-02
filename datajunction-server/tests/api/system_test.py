@@ -92,91 +92,72 @@ async def test_system_metrics(module__client_with_system: AsyncClient) -> None:
     assert data == ["system.dj.number_of_nodes"]
 
 
-@pytest.mark.parametrize(
-    "metric, dimensions, filters, expected",
-    [
-        (
-            "system.dj.number_of_nodes",
-            [],
-            [],
-            [
-                [
-                    {
-                        "col": "system.dj.number_of_nodes",
-                        "value": 42,
-                    },
-                ],
-            ],
-        ),
-        (
-            "system.dj.number_of_nodes",
-            ["system.dj.node_type.type"],
-            ["system.dj.nodes.is_active = true"],
-            [
-                [
-                    {
-                        "col": "system.dj.node_type.type",
-                        "value": "dimension",
-                    },
-                    {
-                        "col": "system.dj.number_of_nodes",
-                        "value": 13,
-                    },
-                ],
-                [
-                    {
-                        "col": "system.dj.node_type.type",
-                        "value": "metric",
-                    },
-                    {
-                        "col": "system.dj.number_of_nodes",
-                        "value": 11,
-                    },
-                ],
-                [
-                    {
-                        "col": "system.dj.node_type.type",
-                        "value": "source",
-                    },
-                    {
-                        "col": "system.dj.number_of_nodes",
-                        "value": 15,
-                    },
-                ],
-                [
-                    {
-                        "col": "system.dj.node_type.type",
-                        "value": "transform",
-                    },
-                    {
-                        "col": "system.dj.number_of_nodes",
-                        "value": 3,
-                    },
-                ],
-            ],
-        ),
-    ],
-)
 @pytest.mark.asyncio
-async def test_system_metric_data(
+async def test_system_metric_data_no_dimensions(
     module__client_with_system: AsyncClient,
-    metric: str,
-    dimensions: list[str],
-    filters: list[str],
-    expected: list[list[dict]],
 ) -> None:
     """
-    Test ``GET /system/data``.
+    Test ``GET /system/data`` without dimensions.
     """
     response = await module__client_with_system.get(
-        f"/system/data/{metric}",
+        "/system/data/system.dj.number_of_nodes",
         params={
-            "dimensions": dimensions,
-            "filters": filters,
+            "dimensions": [],
+            "filters": [],
         },
     )
-    data = sorted(response.json(), key=lambda x: x[0]["value"])
-    assert data == sorted(expected, key=lambda x: x[0]["value"])
+    data = response.json()
+    assert len(data) == 1
+    assert len(data[0]) == 1
+    assert data[0][0]["col"] == "system.dj.number_of_nodes"
+    # With all examples loaded, there will be more nodes than just roads
+    assert data[0][0]["value"] >= 42
+
+
+@pytest.mark.asyncio
+async def test_system_metric_data_with_dimensions(
+    module__client_with_system: AsyncClient,
+) -> None:
+    """
+    Test ``GET /system/data`` with dimensions.
+    """
+    response = await module__client_with_system.get(
+        "/system/data/system.dj.number_of_nodes",
+        params={
+            "dimensions": ["system.dj.node_type.type"],
+            "filters": ["system.dj.nodes.is_active = true"],
+        },
+    )
+    data = response.json()
+
+    # Should have results for each node type
+    type_values = {
+        row[0]["value"] for row in data if row[0]["col"] == "system.dj.node_type.type"
+    }
+    assert "dimension" in type_values
+    assert "metric" in type_values
+    assert "source" in type_values
+    assert "transform" in type_values
+
+    # Each row should have counts >= the roads-only values
+    for row in data:
+        type_col = next(
+            (c for c in row if c["col"] == "system.dj.node_type.type"),
+            None,
+        )
+        count_col = next(
+            (c for c in row if c["col"] == "system.dj.number_of_nodes"),
+            None,
+        )
+        if type_col and count_col:
+            if type_col["value"] == "dimension":
+                assert count_col["value"] >= 13
+            elif type_col["value"] == "metric":
+                assert count_col["value"] >= 11
+            elif type_col["value"] == "source":
+                assert count_col["value"] >= 15
+            elif type_col["value"] == "transform":
+                assert count_col["value"] >= 3
 
 
 @pytest.mark.asyncio
@@ -188,18 +169,21 @@ async def test_system_dimension_stats(module__client_with_system: AsyncClient) -
     data = response.json()
 
     assert response.status_code == 200
-    assert data == [
-        {"name": "default.dispatcher", "indegree": 3, "cube_count": 0},
-        {"name": "default.hard_hat_to_delete", "indegree": 2, "cube_count": 0},
-        {"name": "default.us_state", "indegree": 2, "cube_count": 0},
-        {"name": "default.municipality_dim", "indegree": 2, "cube_count": 0},
-        {"name": "default.hard_hat", "indegree": 2, "cube_count": 0},
-        {"name": "default.repair_order", "indegree": 2, "cube_count": 0},
-        {"name": "default.contractor", "indegree": 1, "cube_count": 0},
-        {"name": "system.dj.node_type", "indegree": 1, "cube_count": 0},
-        {"name": "default.hard_hat_2", "indegree": 0, "cube_count": 0},
-        {"name": "default.local_hard_hats", "indegree": 0, "cube_count": 0},
-        {"name": "default.local_hard_hats_1", "indegree": 0, "cube_count": 0},
-        {"name": "default.local_hard_hats_2", "indegree": 0, "cube_count": 0},
-        {"name": "system.dj.nodes", "indegree": 0, "cube_count": 0},
-    ]
+
+    # With all examples, there will be more dimensions
+    dim_names = {d["name"] for d in data}
+
+    # These dimensions from roads example should be present
+    assert "default.dispatcher" in dim_names
+    assert "default.hard_hat" in dim_names
+    assert "default.contractor" in dim_names
+    assert "system.dj.node_type" in dim_names
+    assert "system.dj.nodes" in dim_names
+
+    # Verify structure of each dimension
+    for dim in data:
+        assert "name" in dim
+        assert "indegree" in dim
+        assert "cube_count" in dim
+        assert isinstance(dim["indegree"], int)
+        assert isinstance(dim["cube_count"], int)

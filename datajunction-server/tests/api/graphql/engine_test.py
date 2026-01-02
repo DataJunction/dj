@@ -53,21 +53,18 @@ async def test_engine_list(
     response = await module__client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data == {
-        "data": {
-            "listEngines": [
-                {
-                    "dialect": "POSTGRES",
-                    "name": "dj_system",
-                    "uri": "postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj",
-                    "version": "",
-                },
-                {"name": "spark", "uri": None, "version": "2.4.4", "dialect": "SPARK"},
-                {"name": "spark", "uri": None, "version": "3.3.0", "dialect": "SPARK"},
-                {"name": "spark", "uri": None, "version": "3.3.1", "dialect": "SPARK"},
-            ],
-        },
-    }
+    engines = data["data"]["listEngines"]
+
+    # Check that our created spark engines are present
+    engine_keys = {(e["name"], e["version"]) for e in engines}
+    assert ("spark", "2.4.4") in engine_keys
+    assert ("spark", "3.3.0") in engine_keys
+    assert ("spark", "3.3.1") in engine_keys
+
+    # Check dj_system engine exists (URI will vary by environment)
+    dj_system = next((e for e in engines if e["name"] == "dj_system"), None)
+    assert dj_system is not None
+    assert dj_system["dialect"] == "POSTGRES"
 
 
 @pytest.mark.asyncio

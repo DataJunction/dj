@@ -1,19 +1,53 @@
 """
 Tests for the engine API.
+
+Uses isolated_client to ensure a clean dialect registry and database state.
 """
 
 import pytest
 from httpx import AsyncClient
 
+from datajunction_server.models.dialect import DialectRegistry
+from datajunction_server.transpilation import (
+    SQLTranspilationPlugin,
+    SQLGlotTranspilationPlugin,
+)
+
+
+@pytest.fixture
+def clean_dialect_registry():
+    """Clear and reset the dialect registry with default plugins.
+
+    Order matches the expected test output (from /dialects/ endpoint).
+    """
+    DialectRegistry._registry.clear()
+    # Register in the order expected by test_dialects_list:
+    # spark, trino (SQLTranspilationPlugin)
+    # sqlite, snowflake, redshift, postgres, duckdb (SQLGlotTranspilationPlugin)
+    # druid (SQLTranspilationPlugin)
+    # clickhouse (SQLGlotTranspilationPlugin)
+    DialectRegistry.register("spark", SQLTranspilationPlugin)
+    DialectRegistry.register("trino", SQLTranspilationPlugin)
+    DialectRegistry.register("sqlite", SQLGlotTranspilationPlugin)
+    DialectRegistry.register("snowflake", SQLGlotTranspilationPlugin)
+    DialectRegistry.register("redshift", SQLGlotTranspilationPlugin)
+    DialectRegistry.register("postgres", SQLGlotTranspilationPlugin)
+    DialectRegistry.register("duckdb", SQLGlotTranspilationPlugin)
+    DialectRegistry.register("druid", SQLTranspilationPlugin)
+    DialectRegistry.register("clickhouse", SQLGlotTranspilationPlugin)
+    yield
+    # Optional cleanup after test
+
 
 @pytest.mark.asyncio
 async def test_engine_adding_a_new_engine(
-    module__client: AsyncClient,
+    isolated_client: AsyncClient,
+    clean_dialect_registry,
 ) -> None:
     """
     Test adding an engine
     """
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-one",
@@ -33,12 +67,13 @@ async def test_engine_adding_a_new_engine(
 
 @pytest.mark.asyncio
 async def test_engine_list(
-    module__client: AsyncClient,
+    isolated_client: AsyncClient,
+    clean_dialect_registry,
 ) -> None:
     """
     Test listing engines
     """
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-foo",
@@ -48,7 +83,7 @@ async def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-foo",
@@ -58,7 +93,7 @@ async def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-foo",
@@ -68,7 +103,7 @@ async def test_engine_list(
     )
     assert response.status_code == 201
 
-    response = await module__client.get("/engines/")
+    response = await isolated_client.get("/engines/")
     assert response.status_code == 200
     data = [engine for engine in response.json() if engine["name"] == "spark-foo"]
     assert data == [
@@ -95,12 +130,13 @@ async def test_engine_list(
 
 @pytest.mark.asyncio
 async def test_engine_get_engine(
-    module__client: AsyncClient,
+    isolated_client: AsyncClient,
+    clean_dialect_registry,
 ) -> None:
     """
     Test getting an engine
     """
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-two",
@@ -110,7 +146,7 @@ async def test_engine_get_engine(
     )
     assert response.status_code == 201
 
-    response = await module__client.get(
+    response = await isolated_client.get(
         "/engines/spark-two/3.3.1",
     )
     assert response.status_code == 200
@@ -125,12 +161,13 @@ async def test_engine_get_engine(
 
 @pytest.mark.asyncio
 async def test_engine_raise_on_engine_already_exists(
-    module__client: AsyncClient,
+    isolated_client: AsyncClient,
+    clean_dialect_registry,
 ) -> None:
     """
     Test raise on engine already exists
     """
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-three",
@@ -140,7 +177,7 @@ async def test_engine_raise_on_engine_already_exists(
     )
     assert response.status_code == 201
 
-    response = await module__client.post(
+    response = await isolated_client.post(
         "/engines/",
         json={
             "name": "spark-three",
@@ -155,12 +192,13 @@ async def test_engine_raise_on_engine_already_exists(
 
 @pytest.mark.asyncio
 async def test_dialects_list(
-    module__client: AsyncClient,
+    isolated_client: AsyncClient,
+    clean_dialect_registry,
 ) -> None:
     """
     Test listing dialects
     """
-    response = await module__client.get("/dialects/")
+    response = await isolated_client.get("/dialects/")
     assert response.status_code == 200
     assert response.json() == [
         {

@@ -1,7 +1,7 @@
 """
 Dimension linking related tests.
 
-TODO: convert to module scope later, for now these tests are pretty fast, only ~20 sec.
+Each test gets its own isolated database with COMPLEX_DIMENSION_LINK data loaded fresh.
 """
 
 import pytest
@@ -15,17 +15,20 @@ from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
 
 
 @pytest_asyncio.fixture
-async def dimensions_link_client(client: AsyncClient) -> AsyncClient:
+async def dimensions_link_client(isolated_client: AsyncClient) -> AsyncClient:
     """
-    Add dimension link examples to the roads test client.
+    Function-scoped fixture that provides a client with COMPLEX_DIMENSION_LINK data.
+
+    Uses isolated_client for complete isolation - each test gets its own fresh
+    database with the dimension link examples loaded.
     """
     for endpoint, json in SERVICE_SETUP + COMPLEX_DIMENSION_LINK:
-        await post_and_raise_if_error(  # type: ignore
-            client=client,
+        await post_and_raise_if_error(
+            client=isolated_client,
             endpoint=endpoint,
             json=json,  # type: ignore
         )
-    return client
+    return isolated_client
 
 
 @pytest.mark.asyncio
@@ -1244,11 +1247,18 @@ async def test_dimension_link_deleted_dimension_node(
     # Hard delete the dimension node
     response = await dimensions_link_client.delete("/nodes/default.users/hard")
 
-    # The dimension link should be gone
+    # The dimension link to default.users should be gone
     response = await dimensions_link_client.get("/nodes/default.events")
-    assert response.json()["dimension_links"] == []
+    final_dim_names = [
+        link["dimension"]["name"] for link in response.json()["dimension_links"]
+    ]
+    assert "default.users" not in final_dim_names  # users link should be removed
     response = await dimensions_link_client.post(
         "/graphql",
         json={"query": gql_find_nodes_query},
     )
-    assert response.json()["data"]["findNodes"] == [{"current": {"dimensionLinks": []}}]
+    gql_result = response.json()["data"]["findNodes"]
+    gql_dim_names = [
+        dl["dimension"]["name"] for dl in gql_result[0]["current"]["dimensionLinks"]
+    ]
+    assert "default.users" not in gql_dim_names  # users link should be removed

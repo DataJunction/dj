@@ -3,6 +3,8 @@ Fixtures for testing.
 """
 
 import asyncio
+import subprocess
+import sys
 from collections import namedtuple
 from sqlalchemy.pool import StaticPool, NullPool
 from contextlib import ExitStack, asynccontextmanager, contextmanager
@@ -39,7 +41,8 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import insert, text
+from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
@@ -69,6 +72,7 @@ from datajunction_server.utils import (
     DatabaseSessionManager,
     get_query_service_client,
     get_session,
+    get_session_manager,
     get_settings,
 )
 
@@ -172,17 +176,84 @@ def settings(
     yield settings
 
 
+class FuncPostgresContainer:
+    """Wrapper that provides function-specific database URL from shared container."""
+
+    def __init__(self, container: PostgresContainer, db_url: str, dbname: str):
+        self._container = container
+        self._db_url = db_url
+        self._dbname = dbname
+
+    def get_connection_url(self) -> str:
+        return self._db_url
+
+    def __getattr__(self, name):
+        return getattr(self._container, name)
+
+
+@pytest.fixture
+def func__postgres_container(
+    request,
+    postgres_container: PostgresContainer,
+    template_database: str,
+) -> Generator[PostgresContainer, None, None]:
+    """
+    Function-scoped database container - clones from template for each test.
+    This provides test isolation while being fast (~100ms per clone vs 60s+ for HTTP loading).
+    """
+    # Create a unique database name for this test
+    test_name = request.node.name
+    dbname = f"test_func_{abs(hash(test_name)) % 10000000}_{id(request)}"
+
+    # Clone from template
+    db_url = clone_database_from_template(
+        postgres_container,
+        template_name=template_database,
+        target_name=dbname,
+    )
+
+    wrapper = FuncPostgresContainer(postgres_container, db_url, dbname)
+    yield wrapper  # type: ignore
+
+    # Clean up the test database
+    cleanup_database_for_module(postgres_container, dbname)
+
+
+@pytest.fixture
+def func__clean_postgres_container(
+    request,
+    postgres_container: PostgresContainer,
+) -> Generator[PostgresContainer, None, None]:
+    """
+    Function-scoped CLEAN database container - creates an empty database (no template).
+    Use this for tests that need full control over their data and don't want pre-loaded examples.
+    """
+    # Create a unique database name for this test
+    test_name = request.node.name
+    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+
+    # Create a fresh empty database (no template)
+    db_url = create_database_for_module(postgres_container, dbname)
+
+    wrapper = FuncPostgresContainer(postgres_container, db_url, dbname)
+    yield wrapper  # type: ignore
+
+    # Clean up the test database
+    cleanup_database_for_module(postgres_container, dbname)
+
+
 @pytest_asyncio.fixture
 def settings_no_qs(
     mocker: MockerFixture,
-    postgres_container: PostgresContainer,
+    func__postgres_container: PostgresContainer,
 ) -> Iterator[Settings]:
     """
     Custom settings for unit tests.
+    Uses the function-scoped database for test isolation.
     """
-    writer_db = DatabaseConfig(uri=postgres_container.get_connection_url())
+    writer_db = DatabaseConfig(uri=func__postgres_container.get_connection_url())
     reader_db = DatabaseConfig(
-        uri=postgres_container.get_connection_url().replace(
+        uri=func__postgres_container.get_connection_url().replace(
             "dj:dj@",
             "readonly_user:readonly@",
         ),
@@ -213,6 +284,8 @@ def settings_no_qs(
 
     yield settings
 
+    # Cleanup is handled by func__postgres_container fixture
+
 
 @pytest.fixture(scope="session")
 def duckdb_conn() -> duckdb.DuckDBPyConnection:
@@ -232,7 +305,12 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
 @pytest.fixture(scope="session")
 def postgres_container() -> PostgresContainer:
     """
-    Setup postgres container
+    Setup a single Postgres container for the entire test session.
+
+    This container hosts:
+    1. The 'dj' database (default)
+    2. The template database with all examples pre-loaded
+    3. Per-module databases cloned from the template
     """
     postgres = PostgresContainer(
         image="postgres:latest",
@@ -285,32 +363,246 @@ def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
 
 @pytest_asyncio.fixture
 async def session(
-    postgres_container: PostgresContainer,
+    func__postgres_container: PostgresContainer,
 ) -> AsyncGenerator[AsyncSession, None]:
     """
     Create a Postgres session to test models.
+
+    Uses the function-scoped database container for test isolation.
+    Database is cloned from template with all examples pre-loaded.
     """
     engine = create_async_engine(
-        url=postgres_container.get_connection_url(),
+        url=func__postgres_container.get_connection_url(),
         poolclass=StaticPool,
     )
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+
     async_session_factory = async_sessionmaker(
         bind=engine,
         autocommit=False,
         expire_on_commit=False,
     )
+
     async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
         yield session
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    # for AsyncEngine created in function scope, close and
-    # clean-up pooled connections
     await engine.dispose()
+    # Cleanup is handled by func__postgres_container fixture
+
+
+@pytest_asyncio.fixture
+async def clean_session(
+    func__clean_postgres_container: PostgresContainer,
+) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create a Postgres session with an empty database (no pre-loaded examples).
+
+    Use this for tests that need full control over their data state,
+    like construction tests that create their own nodes directly.
+    """
+    # Register dialect plugins
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import (
+        SQLTranspilationPlugin,
+        SQLGlotTranspilationPlugin,
+    )
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+    register_dialect_plugin("postgres", SQLGlotTranspilationPlugin)
+
+    engine = create_async_engine(
+        url=func__clean_postgres_container.get_connection_url(),
+        poolclass=StaticPool,
+    )
+
+    # Create tables in the clean database
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
+        yield session
+
+    await engine.dispose()
+    # Cleanup is handled by func__clean_postgres_container fixture
+
+
+@pytest_asyncio.fixture
+def clean_settings_no_qs(
+    mocker: MockerFixture,
+    func__clean_postgres_container: PostgresContainer,
+) -> Iterator[Settings]:
+    """
+    Custom settings for clean (empty) database tests.
+    """
+    writer_db = DatabaseConfig(uri=func__clean_postgres_container.get_connection_url())
+    reader_db = DatabaseConfig(
+        uri=func__clean_postgres_container.get_connection_url().replace(
+            "dj:dj@",
+            "readonly_user:readonly@",
+        ),
+    )
+    settings = Settings(
+        writer_db=writer_db,
+        reader_db=reader_db,
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
+    )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+
+    mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
+@pytest_asyncio.fixture
+async def clean_client(
+    request,
+    postgres_container: PostgresContainer,
+    jwt_token: str,
+    background_tasks,
+    mocker: MockerFixture,
+) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Create a client with an EMPTY database (no pre-loaded examples).
+
+    Use this for tests that need full control over their data state,
+    such as dimension_links tests that use COMPLEX_DIMENSION_LINK data
+    which conflicts with the template database.
+
+    NOTE: This fixture manages everything internally to avoid fixture dependency issues.
+    """
+    use_patch = getattr(request, "param", True)
+
+    # Create a unique database for this test
+    test_name = request.node.name
+    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    db_url = create_database_for_module(postgres_container, dbname)
+
+    # Create settings for this clean database
+    writer_db = DatabaseConfig(uri=db_url)
+    reader_db = DatabaseConfig(
+        uri=db_url.replace("dj:dj@", "readonly_user:readonly@"),
+    )
+    settings = Settings(
+        writer_db=writer_db,
+        reader_db=reader_db,
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
+    )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+
+    mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    # Create engine and session
+    engine = create_async_engine(
+        url=db_url,
+        poolclass=StaticPool,
+    )
+
+    # Create tables in the clean database
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
+
+        # Initialize the empty database with required seed data
+        from datajunction_server.api.attributes import default_attribute_types
+        from datajunction_server.internal.seed import seed_default_catalogs
+
+        await default_attribute_types(session)
+        await seed_default_catalogs(session)
+        await create_default_user(session)
+        await session.commit()
+
+        def get_session_override() -> AsyncSession:
+            return session
+
+        def get_settings_override() -> Settings:
+            return settings
+
+        def get_passthrough_auth_service():
+            """Override to approve all requests in tests."""
+            return PassthroughAuthorizationService()
+
+        if use_patch:
+            app.dependency_overrides[get_session] = get_session_override
+        app.dependency_overrides[get_settings] = get_settings_override
+        app.dependency_overrides[get_authorization_service] = (
+            get_passthrough_auth_service
+        )
+
+        async with AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
+            test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    await engine.dispose()
+    cleanup_database_for_module(postgres_container, dbname)
 
 
 @pytest.fixture(scope="module")
@@ -460,8 +752,9 @@ def query_service_client(
 
 
 @pytest.fixture
-def session_factory(postgres_container) -> Awaitable[AsyncSession]:
-    return create_session_factory(postgres_container)
+def session_factory(func__postgres_container) -> Awaitable[AsyncSession]:
+    """Function-scoped session factory using the shared function-scoped database."""
+    return create_session_factory(func__postgres_container)
 
 
 @pytest.fixture(scope="module")
@@ -512,12 +805,19 @@ async def client(
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
+
+    This is function-scoped for test isolation - each test gets a fresh
+    transactional session that rolls back at the end.
+
+    NOTE: The template database already has default attributes, catalogs,
+    and user seeded, so we skip those initialization steps.
     """
     use_patch = getattr(request, "param", True)
 
-    await default_attribute_types(session)
-    await seed_default_catalogs(session)
-    await create_default_user(session)
+    # Skip seeding - template database already has everything:
+    # - default_attribute_types
+    # - seed_default_catalogs
+    # - create_default_user
 
     def get_session_override() -> AsyncSession:
         return session
@@ -581,7 +881,9 @@ async def load_examples_in_client(
     examples_to_load: Optional[List[str]] = None,
 ):
     """
-    Load the DJ client with examples
+    Load the DJ client with examples.
+    NOTE: Uses post_and_dont_raise_if_error to handle cases where examples
+    already exist in the template database.
     """
     # Basic service setup always has to be done (i.e., create catalogs, engines, namespaces etc)
     for endpoint, json in SERVICE_SETUP:
@@ -595,7 +897,7 @@ async def load_examples_in_client(
     if examples_to_load is not None:
         for example_name in examples_to_load:
             for endpoint, json in EXAMPLES[example_name]:  # type: ignore
-                await post_and_raise_if_error(
+                await post_and_dont_raise_if_error(
                     client=client,
                     endpoint=endpoint,
                     json=json,  # type: ignore
@@ -605,7 +907,7 @@ async def load_examples_in_client(
     # Load all examples if none are specified
     for example_name, examples in EXAMPLES.items():
         for endpoint, json in examples:  # type: ignore
-            await post_and_raise_if_error(
+            await post_and_dont_raise_if_error(
                 client=client,
                 endpoint=endpoint,
                 json=json,  # type: ignore
@@ -619,10 +921,15 @@ async def client_example_loader(
 ) -> Callable[[list[str] | None], Coroutine[Any, Any, AsyncClient]]:
     """
     Provides a callable fixture for loading examples into a DJ client.
+
+    NOTE: Since function-scoped fixtures now use the module's database which
+    has all examples pre-loaded from the template, we just return the client
+    without loading any examples.
     """
 
     async def _load_examples(examples_to_load: Optional[List[str]] = None):
-        return await load_examples_in_client(client, examples_to_load)
+        # Examples are already loaded in the template database
+        return client
 
     return _load_examples
 
@@ -786,12 +1093,17 @@ async def client_qs(
     """
     Create a client for testing APIs.
     """
-    statement = insert(User).values(
-        username="dj",
-        email=None,
-        name=None,
-        oauth_provider="basic",
-        is_admin=False,
+    # Use on_conflict_do_nothing to handle case where user already exists in template
+    statement = (
+        insert(User)
+        .values(
+            username="dj",
+            email=None,
+            name=None,
+            oauth_provider="basic",
+            is_admin=False,
+        )
+        .on_conflict_do_nothing(index_elements=["username"])
     )
     await session.execute(statement)
     await default_attribute_types(session)
@@ -894,10 +1206,14 @@ async def module__client_example_loader(
 ) -> Callable[[list[str] | None], Coroutine[Any, Any, AsyncClient]]:
     """
     Provides a callable fixture for loading examples into a DJ client.
+
+    NOTE: Examples are already loaded in the template database that was cloned,
+    so this just returns the client directly.
     """
 
     async def _load_examples(examples_to_load: Optional[List[str]] = None):
-        return await load_examples_in_client(module__client, examples_to_load)
+        # Examples already loaded in template - just return the client
+        return module__client
 
     return _load_examples
 
@@ -964,12 +1280,25 @@ async def module__client(
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a client for testing APIs.
+
+    NOTE: The database is cloned from a template that already has:
+    - Default attribute types
+    - Default catalogs
+    - Default user
+    - All examples pre-loaded
+    So we skip those initialization steps.
     """
+    # Clear caches to prevent stale database connections (important for CI)
+    app.dependency_overrides.clear()
+    get_settings.cache_clear()
+    get_session_manager.cache_clear()
+
     use_patch = getattr(request, "param", True)
 
-    await default_attribute_types(module__session)
-    await seed_default_catalogs(module__session)
-    await create_default_user(module__session)
+    # NOTE: Skip these - already in template:
+    # await default_attribute_types(module__session)
+    # await seed_default_catalogs(module__session)
+    # await create_default_user(module__session)
 
     def get_query_service_client_override(
         request: Request = None,
@@ -1030,14 +1359,16 @@ async def module__session(
 ) -> AsyncGenerator[AsyncSession, None]:
     """
     Create a Postgres session to test models.
+
+    NOTE: The database is cloned from a template that already has all tables
+    and examples loaded, so we skip table creation.
     """
     engine = create_async_engine(
         url=module__postgres_container.get_connection_url(),
         poolclass=StaticPool,
     )
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+    # NOTE: Skip table creation - tables already exist from template clone
+
     async_session_factory = async_sessionmaker(
         bind=engine,
         autocommit=False,
@@ -1047,8 +1378,7 @@ async def module__session(
         session.remove = AsyncMock(return_value=None)
         yield session
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    # NOTE: Skip dropping tables - entire database is dropped by cleanup
 
     # for AsyncEngine created in function scope, close and
     # clean-up pooled connections
@@ -1083,16 +1413,23 @@ def module__settings(
     )
 
     from datajunction_server.models.dialect import register_dialect_plugin
-    from datajunction_server.transpilation import SQLTranspilationPlugin
+    from datajunction_server.transpilation import (
+        SQLTranspilationPlugin,
+        SQLGlotTranspilationPlugin,
+    )
+    from datajunction_server.internal import seed as seed_module
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
     register_dialect_plugin("druid", SQLTranspilationPlugin)
+    register_dialect_plugin("postgres", SQLGlotTranspilationPlugin)
 
     module_mocker.patch(
         "datajunction_server.utils.get_settings",
         return_value=settings,
     )
+    # Also patch the cached settings in seed module
+    seed_module.settings = settings
 
     yield settings
 
@@ -1221,6 +1558,268 @@ async def module__client_with_examples(
     return await module__client_example_loader(None)
 
 
+@pytest_asyncio.fixture(scope="module")
+async def module__clean_client(
+    request,
+    postgres_container: PostgresContainer,
+    module_mocker: MockerFixture,
+    module__background_tasks,
+) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Module-scoped client with a CLEAN database (no pre-loaded examples).
+
+    Use this for test modules that need full control over their data state,
+    such as dimension_links tests that use COMPLEX_DIMENSION_LINK data
+    which conflicts with the template database.
+    """
+    # Create a unique database for this module
+    module_name = request.module.__name__
+    dbname = f"test_mod_clean_{abs(hash(module_name)) % 10000000}"
+    db_url = create_database_for_module(postgres_container, dbname)
+
+    # Create settings for this clean database
+    writer_db = DatabaseConfig(uri=db_url)
+    reader_db = DatabaseConfig(
+        uri=db_url.replace("dj:dj@", "readonly_user:readonly@"),
+    )
+    settings = Settings(
+        writer_db=writer_db,
+        reader_db=reader_db,
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
+    )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+
+    module_mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    # Create engine and session
+    engine = create_async_engine(
+        url=db_url,
+        poolclass=StaticPool,
+    )
+
+    # Create tables in the clean database
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
+
+        # Initialize the empty database with required seed data
+        from datajunction_server.api.attributes import default_attribute_types
+        from datajunction_server.internal.seed import seed_default_catalogs
+
+        await default_attribute_types(session)
+        await seed_default_catalogs(session)
+        await create_default_user(session)
+        await session.commit()
+
+        def get_session_override() -> AsyncSession:
+            return session
+
+        def get_settings_override() -> Settings:
+            return settings
+
+        def get_passthrough_auth_service():
+            """Override to approve all requests in tests."""
+            return PassthroughAuthorizationService()
+
+        app.dependency_overrides[get_session] = get_session_override
+        app.dependency_overrides[get_settings] = get_settings_override
+        app.dependency_overrides[get_authorization_service] = (
+            get_passthrough_auth_service
+        )
+
+        # Create JWT token
+        jwt_token = create_token(
+            {"username": "dj"},
+            secret="a-fake-secretkey",
+            iss="http://localhost:8000/",
+            expires_delta=timedelta(hours=24),
+        )
+
+        async with AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
+            test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in module__background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                module__background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    await engine.dispose()
+    cleanup_database_for_module(postgres_container, dbname)
+
+
+@pytest_asyncio.fixture
+async def isolated_client(
+    request,
+    postgres_container: PostgresContainer,
+    mocker: MockerFixture,
+    background_tasks,
+) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Function-scoped client with a CLEAN database (no template, no pre-loaded examples).
+
+    Use this for tests that need complete isolation and will load their own data.
+    Each test function gets its own fresh database that is cleaned up after.
+    """
+    # Clear any stale overrides and caches from previous tests
+    app.dependency_overrides.clear()
+    get_settings.cache_clear()
+    get_session_manager.cache_clear()  # Clear the cached DatabaseSessionManager
+
+    # Create a unique database for this test function
+    test_name = request.node.name
+    dbname = f"test_isolated_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    db_url = create_database_for_module(postgres_container, dbname)
+
+    # Create settings for this clean database
+    writer_db = DatabaseConfig(uri=db_url)
+    reader_db = DatabaseConfig(
+        uri=db_url.replace("dj:dj@", "readonly_user:readonly@"),
+    )
+    settings = Settings(
+        writer_db=writer_db,
+        reader_db=reader_db,
+        repository="/path/to/repository",
+        results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
+        redis_cache=None,
+        query_service=None,
+        secret="a-fake-secretkey",
+        transpilation_plugins=["default"],
+    )
+
+    from datajunction_server.models.dialect import register_dialect_plugin
+    from datajunction_server.transpilation import SQLTranspilationPlugin
+
+    register_dialect_plugin("spark", SQLTranspilationPlugin)
+    register_dialect_plugin("trino", SQLTranspilationPlugin)
+    register_dialect_plugin("druid", SQLTranspilationPlugin)
+
+    mocker.patch(
+        "datajunction_server.utils.get_settings",
+        return_value=settings,
+    )
+
+    # Create engine and session
+    engine = create_async_engine(
+        url=db_url,
+        poolclass=StaticPool,
+    )
+
+    # Create tables in the clean database
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        await conn.run_sync(Base.metadata.create_all)
+
+    async_session_factory = async_sessionmaker(
+        bind=engine,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    async with async_session_factory() as session:
+        session.remove = AsyncMock(return_value=None)
+
+        # Initialize the empty database with required seed data
+        from datajunction_server.api.attributes import default_attribute_types
+        from datajunction_server.internal.seed import seed_default_catalogs
+
+        await default_attribute_types(session)
+        await seed_default_catalogs(session)
+        await create_default_user(session)
+        await session.commit()
+
+        def get_session_override() -> AsyncSession:
+            return session
+
+        def get_settings_override() -> Settings:
+            return settings
+
+        def get_passthrough_auth_service():
+            """Override to approve all requests in tests."""
+            return PassthroughAuthorizationService()
+
+        app.dependency_overrides[get_session] = get_session_override
+        app.dependency_overrides[get_settings] = get_settings_override
+        app.dependency_overrides[get_authorization_service] = (
+            get_passthrough_auth_service
+        )
+
+        # Create JWT token
+        jwt_token = create_token(
+            {"username": "dj"},
+            secret="a-fake-secretkey",
+            iss="http://localhost:8000/",
+            expires_delta=timedelta(hours=24),
+        )
+
+        async with AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            test_client.headers.update({"Authorization": f"Bearer {jwt_token}"})
+            test_client.app = app
+
+            # Wrap the request method to run background tasks after each request
+            original_request = test_client.request
+
+            async def wrapped_request(method, url, *args, **kwargs):
+                response = await original_request(method, url, *args, **kwargs)
+                for func, f_args, f_kwargs in background_tasks:
+                    result = func(*f_args, **f_kwargs)
+                    if asyncio.iscoroutine(result):
+                        await result
+                background_tasks.clear()
+                return response
+
+            test_client.request = wrapped_request
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    await engine.dispose()
+    cleanup_database_for_module(postgres_container, dbname)
+
+
 def create_readonly_user(postgres: PostgresContainer):
     """
     Create a read-only user in the Postgres container.
@@ -1253,29 +1852,201 @@ def create_readonly_user(postgres: PostgresContainer):
         )
 
 
-@pytest.fixture(scope="module")
-def module__postgres_container(request) -> PostgresContainer:
+def create_database_for_module(postgres: PostgresContainer, dbname: str) -> str:
     """
-    Setup postgres container
+    Create a new database within the shared postgres container for module isolation.
+    Returns the connection URL for the new database.
+    """
+    url = urlparse(postgres.get_connection_url())
+
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute(
+            f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{dbname}'
+            AND pid <> pg_backend_pid()
+            """,
+        )
+        conn.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+        conn.execute(f'CREATE DATABASE "{dbname}"')
+        conn.execute(f'GRANT CONNECT ON DATABASE "{dbname}" TO readonly_user')
+
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=dbname,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute("GRANT USAGE ON SCHEMA public TO readonly_user")
+        conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user")
+        conn.execute(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user",
+        )
+
+    base_url = postgres.get_connection_url()
+    return base_url.rsplit("/", 1)[0] + f"/{dbname}"
+
+
+def cleanup_database_for_module(postgres: PostgresContainer, dbname: str) -> None:
+    """Drop the database after module tests are complete."""
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute(
+            f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{dbname}'
+            AND pid <> pg_backend_pid()
+            """,
+        )
+        conn.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+
+
+def clone_database_from_template(
+    postgres: PostgresContainer,
+    template_name: str,
+    target_name: str,
+) -> str:
+    """
+    Clone a database from a template. This is MUCH faster than creating
+    an empty database and loading data via HTTP (~100ms vs ~30-60s).
+    """
+    url = urlparse(postgres.get_connection_url())
+
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute(
+            f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{target_name}'
+            AND pid <> pg_backend_pid()
+            """,
+        )
+        conn.execute(f'DROP DATABASE IF EXISTS "{target_name}"')
+        conn.execute(
+            f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{template_name}'
+            AND pid <> pg_backend_pid()
+            """,
+        )
+        conn.execute(f'CREATE DATABASE "{target_name}" TEMPLATE "{template_name}"')
+        conn.execute(f'GRANT CONNECT ON DATABASE "{target_name}" TO readonly_user')
+
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=target_name,
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute("GRANT USAGE ON SCHEMA public TO readonly_user")
+        conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user")
+        conn.execute(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user",
+        )
+
+    base_url = postgres.get_connection_url()
+    return base_url.rsplit("/", 1)[0] + f"/{target_name}"
+
+
+TEMPLATE_DB_NAME = "template_all_examples"
+
+
+def _populate_template_via_subprocess(template_url: str) -> None:
+    """Run template population in a subprocess."""
+    script_path = pathlib.Path(__file__).parent / "helpers" / "populate_template.py"
+    # Ensure the subprocess uses the local development version of datajunction_server
+    project_root = pathlib.Path(__file__).parent.parent
+    env = os.environ.copy()
+    # Prepend the local source to PYTHONPATH so it takes precedence over site-packages
+    env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
+
+    result = subprocess.run(
+        [sys.executable, str(script_path), template_url],
+        capture_output=True,
+        text=True,
+        cwd=str(project_root),
+        env=env,
+    )
+    if result.returncode != 0:
+        print(f"STDOUT: {result.stdout}")
+        print(f"STDERR: {result.stderr}")
+        raise RuntimeError(f"Failed to populate template: {result.stderr}")
+    print(result.stdout)
+
+
+@pytest.fixture(scope="session")
+def template_database(postgres_container: PostgresContainer) -> str:
+    """
+    Session-scoped fixture that creates a template database with ALL examples.
+    This runs ONCE per test session and then each module clones from it.
+    """
+    template_url = create_database_for_module(postgres_container, TEMPLATE_DB_NAME)
+    _populate_template_via_subprocess(template_url)
+    return TEMPLATE_DB_NAME
+
+
+@pytest.fixture(scope="module")
+def module__postgres_container(
+    request,
+    postgres_container: PostgresContainer,
+    template_database: str,
+) -> PostgresContainer:
+    """
+    Provides module-level database isolation by CLONING from the template.
+    Each module gets its own database cloned from the template with all examples.
     """
     path = pathlib.Path(request.module.__file__).resolve()
-    dbname = f"test_{hash(path)}"
-    postgres = PostgresContainer(
-        image="postgres:latest",
-        username="dj",
-        password="dj",
-        dbname=dbname,
-        port=5432,
-        driver="psycopg",
+    dbname = f"test_mod_{abs(hash(path)) % 10000000}"
+
+    module_db_url = clone_database_from_template(
+        postgres_container,
+        template_name=template_database,
+        target_name=dbname,
     )
-    with postgres:
-        wait_for_logs(
-            postgres,
-            r"UTC \[1\] LOG:  database system is ready to accept connections",
-            10,
-        )
-        create_readonly_user(postgres)
-        yield postgres
+
+    class ModulePostgresContainer:
+        def __init__(self, container: PostgresContainer, db_url: str):
+            self._container = container
+            self._db_url = db_url
+
+        def get_connection_url(self) -> str:
+            return self._db_url
+
+        def __getattr__(self, name):
+            return getattr(self._container, name)
+
+    wrapper = ModulePostgresContainer(postgres_container, module_db_url)
+    yield wrapper  # type: ignore
+
+    cleanup_database_for_module(postgres_container, dbname)
 
 
 @pytest.fixture(scope="module")
@@ -1452,3 +2223,23 @@ async def current_user(session: AsyncSession) -> User:
     else:
         user = existing_user
     return user
+
+
+@pytest_asyncio.fixture
+async def clean_current_user(clean_session: AsyncSession) -> User:
+    """
+    A user fixture for clean database tests.
+    Creates a user in the clean (empty) database.
+    """
+    new_user = User(
+        username="dj",
+        password="dj",
+        email="dj@datajunction.io",
+        name="DJ",
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+    clean_session.add(new_user)
+    await clean_session.commit()
+    await clean_session.refresh(new_user)
+    return new_user
