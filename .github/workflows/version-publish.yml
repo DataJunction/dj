@@ -41,6 +41,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install hatch
 
+      - name: Get version and create tag
+        run: |
+          cd datajunction-server
+          NEW_VERSION=$(hatch version)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          cd ..
+          
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+          
+          # Create and push the tag on main (after merge)
+          git tag -a version-$NEW_VERSION -m "version-$NEW_VERSION"
+          git push origin version-$NEW_VERSION
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+
       #
       # Publish Python / hatch
       #
