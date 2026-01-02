@@ -1,6 +1,7 @@
 """Tests for RBAC authorization logic."""
 
 from datetime import datetime, timedelta, timezone
+import uuid
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1279,12 +1280,21 @@ class TestAuthContext:
 
     async def test_auth_context_from_user_direct_assignments_only(
         self,
-        default_user: User,
         session: AsyncSession,
     ):
         """AuthContext includes user's direct role assignments."""
+        # Create a fresh user with no pre-existing assignments
+        suffix = uuid.uuid4().hex[:8]
+        fresh_user = User(
+            username=f"authctx_user_{suffix}",
+            email=f"authctx_{suffix}@example.com",
+            oauth_provider="basic",
+        )
+        session.add(fresh_user)
+        await session.flush()
+
         # Create role and assign to user
-        role = Role(name="test-role", created_by_id=default_user.id)
+        role = Role(name=f"test-role-{suffix}", created_by_id=fresh_user.id)
         session.add(role)
         await session.flush()
 
@@ -1297,15 +1307,15 @@ class TestAuthContext:
         session.add(scope)
 
         assignment = RoleAssignment(
-            principal_id=default_user.id,
+            principal_id=fresh_user.id,
             role_id=role.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         session.add(assignment)
         await session.commit()
 
         # Reload user with assignments
-        user = await get_user(username=default_user.username, session=session)
+        user = await get_user(username=fresh_user.username, session=session)
 
         # Build AuthContext
         auth_context = await AuthContext.from_user(session, user)
@@ -1313,17 +1323,29 @@ class TestAuthContext:
         assert auth_context.user_id == user.id
         assert auth_context.username == user.username
         assert len(auth_context.role_assignments) == 1
-        assert auth_context.role_assignments[0].role.name == "test-role"
+        assert auth_context.role_assignments[0].role.name == f"test-role-{suffix}"
 
     async def test_auth_context_includes_group_assignments(
         self,
-        default_user: User,
         session: AsyncSession,
     ):
         """AuthContext flattens user's + groups' assignments."""
+        import uuid
+
+        suffix = uuid.uuid4().hex[:8]
+
+        # Create a fresh user with no pre-existing assignments
+        fresh_user = User(
+            username=f"authctx_grp_user_{suffix}",
+            email=f"authctx_grp_{suffix}@example.com",
+            oauth_provider="basic",
+        )
+        session.add(fresh_user)
+        await session.flush()
+
         # Create a group
         group = User(
-            username="finance-team",
+            username=f"finance-team-{suffix}",
             kind=PrincipalKind.GROUP,
             oauth_provider="basic",
         )
@@ -1333,12 +1355,12 @@ class TestAuthContext:
         # Add user to group
         membership = GroupMember(
             group_id=group.id,
-            member_id=default_user.id,
+            member_id=fresh_user.id,
         )
         session.add(membership)
 
         # Create role for user (direct)
-        user_role = Role(name="user-role", created_by_id=default_user.id)
+        user_role = Role(name=f"user-role-{suffix}", created_by_id=fresh_user.id)
         session.add(user_role)
         await session.flush()
 
@@ -1351,14 +1373,14 @@ class TestAuthContext:
         session.add(user_scope)
 
         user_assignment = RoleAssignment(
-            principal_id=default_user.id,
+            principal_id=fresh_user.id,
             role_id=user_role.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         session.add(user_assignment)
 
         # Create role for group
-        group_role = Role(name="group-role", created_by_id=default_user.id)
+        group_role = Role(name=f"group-role-{suffix}", created_by_id=fresh_user.id)
         session.add(group_role)
         await session.flush()
 
@@ -1373,13 +1395,13 @@ class TestAuthContext:
         group_assignment = RoleAssignment(
             principal_id=group.id,
             role_id=group_role.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         session.add(group_assignment)
         await session.commit()
 
         # Reload user
-        user = await get_user(username=default_user.username, session=session)
+        user = await get_user(username=fresh_user.username, session=session)
 
         # Build AuthContext (should include both)
         auth_context = await AuthContext.from_user(session, user)
@@ -1388,22 +1410,35 @@ class TestAuthContext:
         assert len(auth_context.role_assignments) == 2  # User's + group's
 
         role_names = {a.role.name for a in auth_context.role_assignments}
-        assert role_names == {"user-role", "group-role"}
+        assert f"user-role-{suffix}" in role_names
+        assert f"group-role-{suffix}" in role_names
 
     async def test_auth_context_with_multiple_groups(
         self,
-        default_user: User,
         session: AsyncSession,
     ):
         """User in multiple groups gets all group assignments."""
+        import uuid
+
+        suffix = uuid.uuid4().hex[:8]
+
+        # Create a fresh user with no pre-existing assignments
+        fresh_user = User(
+            username=f"authctx_multi_grp_{suffix}",
+            email=f"authctx_multi_grp_{suffix}@example.com",
+            oauth_provider="basic",
+        )
+        session.add(fresh_user)
+        await session.flush()
+
         # Create two groups
         group1 = User(
-            username="finance-team",
+            username=f"finance-team-{suffix}",
             kind=PrincipalKind.GROUP,
             oauth_provider="basic",
         )
         group2 = User(
-            username="data-eng-team",
+            username=f"data-eng-team-{suffix}",
             kind=PrincipalKind.GROUP,
             oauth_provider="basic",
         )
@@ -1411,13 +1446,13 @@ class TestAuthContext:
         await session.flush()
 
         # Add user to both groups
-        membership1 = GroupMember(group_id=group1.id, member_id=default_user.id)
-        membership2 = GroupMember(group_id=group2.id, member_id=default_user.id)
+        membership1 = GroupMember(group_id=group1.id, member_id=fresh_user.id)
+        membership2 = GroupMember(group_id=group2.id, member_id=fresh_user.id)
         session.add_all([membership1, membership2])
 
         # Give each group a role
-        role1 = Role(name="finance-role", created_by_id=default_user.id)
-        role2 = Role(name="data-eng-role", created_by_id=default_user.id)
+        role1 = Role(name=f"finance-role-{suffix}", created_by_id=fresh_user.id)
+        role2 = Role(name=f"data-eng-role-{suffix}", created_by_id=fresh_user.id)
         session.add_all([role1, role2])
         await session.flush()
 
@@ -1438,18 +1473,18 @@ class TestAuthContext:
         assignment1 = RoleAssignment(
             principal_id=group1.id,
             role_id=role1.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         assignment2 = RoleAssignment(
             principal_id=group2.id,
             role_id=role2.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         session.add_all([assignment1, assignment2])
         await session.commit()
 
         # Reload user
-        user = await get_user(username=default_user.username, session=session)
+        user = await get_user(username=fresh_user.username, session=session)
 
         # Build AuthContext
         auth_context = await AuthContext.from_user(session, user)
@@ -1457,7 +1492,8 @@ class TestAuthContext:
         # Should have assignments from both groups
         assert len(auth_context.role_assignments) == 2
         role_names = {a.role.name for a in auth_context.role_assignments}
-        assert role_names == {"finance-role", "data-eng-role"}
+        assert f"finance-role-{suffix}" in role_names
+        assert f"data-eng-role-{suffix}" in role_names
 
 
 @pytest.mark.asyncio
@@ -1707,12 +1743,24 @@ class TestGetEffectiveAssignments:
 
     async def test_effective_assignments_user_only(
         self,
-        default_user: User,
         session: AsyncSession,
     ):
         """User with no groups gets only direct assignments."""
+        import uuid
+
+        suffix = uuid.uuid4().hex[:8]
+
+        # Create a fresh user with no pre-existing assignments
+        fresh_user = User(
+            username=f"eff_assign_user_{suffix}",
+            email=f"eff_assign_{suffix}@example.com",
+            oauth_provider="basic",
+        )
+        session.add(fresh_user)
+        await session.flush()
+
         # Give user a direct assignment
-        role = Role(name="personal-role", created_by_id=default_user.id)
+        role = Role(name=f"personal-role-{suffix}", created_by_id=fresh_user.id)
         session.add(role)
         await session.flush()
 
@@ -1725,20 +1773,20 @@ class TestGetEffectiveAssignments:
         session.add(scope)
 
         assignment = RoleAssignment(
-            principal_id=default_user.id,
+            principal_id=fresh_user.id,
             role_id=role.id,
-            granted_by_id=default_user.id,
+            granted_by_id=fresh_user.id,
         )
         session.add(assignment)
         await session.commit()
 
-        user = await get_user(username=default_user.username, session=session)
+        user = await get_user(username=fresh_user.username, session=session)
 
         # Get effective assignments
         assignments = await AuthContext.get_effective_assignments(session, user)
 
         assert len(assignments) == 1
-        assert assignments[0].role.name == "personal-role"
+        assert assignments[0].role.name == f"personal-role-{suffix}"
 
     async def test_effective_assignments_with_postgres_groups(
         self,

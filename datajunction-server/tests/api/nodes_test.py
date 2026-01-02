@@ -6339,11 +6339,15 @@ async def unique_node_namespace(client: AsyncClient):
         """Track a node's role for cleanup."""
         created_roles.append(f"{node_name}-owner")
 
+    # Create a simple namespace object with the helper methods
     class NamespaceHelper:
-        make = make_namespace
-        track_node = staticmethod(track_node)
+        pass
 
-    yield NamespaceHelper
+    helper = NamespaceHelper()
+    helper.make = make_namespace  # type: ignore
+    helper.track_node = track_node  # type: ignore
+
+    yield helper
 
     # Cleanup after test
     for ns in reversed(created_namespaces):
