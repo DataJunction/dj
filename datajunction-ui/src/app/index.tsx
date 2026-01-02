@@ -124,8 +124,8 @@ export function App() {
                           element={<SQLBuilderPage />}
                         />
                         <Route
-                          path="materialization-planner"
-                          key="materialization-planner"
+                          path="planner"
+                          key="planner"
                           element={<QueryPlannerPage />}
                         />
                         <Route path="tags" key="tags">
