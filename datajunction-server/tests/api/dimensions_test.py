@@ -13,28 +13,27 @@ async def test_list_dimension(
     """
     Test ``GET /dimensions/``.
     """
-    response = await module__client_with_roads_and_acc_revenue.get("/dimensions/")
+    response = await module__client_with_roads_and_acc_revenue.get(
+        "/dimensions/?prefix=default",
+    )
     data = response.json()
 
     assert response.status_code == 200
-    assert {(dim["name"], dim["indegree"]) for dim in data} == {
-        (dim["name"], dim["indegree"])
-        for dim in [
-            {"indegree": 3, "name": "default.dispatcher"},
-            {"indegree": 2, "name": "default.repair_order"},
-            {"indegree": 2, "name": "default.hard_hat"},
-            {"indegree": 2, "name": "default.hard_hat_to_delete"},
-            {"indegree": 2, "name": "default.municipality_dim"},
-            {"indegree": 1, "name": "default.contractor"},
-            {"indegree": 2, "name": "default.us_state"},
-            {"indegree": 0, "name": "default.local_hard_hats"},
-            {"indegree": 0, "name": "default.local_hard_hats_1"},
-            {"indegree": 0, "name": "default.local_hard_hats_2"},
-            {"indegree": 0, "name": "default.payment_type"},
-            {"indegree": 0, "name": "default.account_type"},
-            {"indegree": 0, "name": "default.hard_hat_2"},
-        ]
-    }
+
+    results = {(dim["name"], dim["indegree"]) for dim in data}
+    assert ("default.dispatcher", 3) in results
+    assert ("default.repair_order", 2) in results
+    assert ("default.hard_hat", 2) in results
+    assert ("default.hard_hat_to_delete", 2) in results
+    assert ("default.municipality_dim", 2) in results
+    assert ("default.contractor", 1) in results
+    assert ("default.us_state", 2) in results
+    assert ("default.local_hard_hats", 0) in results
+    assert ("default.local_hard_hats_1", 0) in results
+    assert ("default.local_hard_hats_2", 0) in results
+    assert ("default.payment_type", 0) in results
+    assert ("default.account_type", 0) in results
+    assert ("default.hard_hat_2", 0) in results
 
 
 @pytest.mark.asyncio

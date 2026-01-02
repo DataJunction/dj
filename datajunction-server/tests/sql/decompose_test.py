@@ -19,8 +19,10 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 @pytest_asyncio.fixture
-async def parent_node(session: AsyncSession, current_user):
+async def parent_node(clean_session: AsyncSession, clean_current_user):
     """Create a parent source node called 'parent_node'."""
+    session = clean_session
+    current_user = clean_current_user
     node = Node(
         name="parent_node",
         type=NodeType.SOURCE,
@@ -1390,8 +1392,14 @@ async def test_corr(session: AsyncSession, create_metric):
 
 
 @pytest_asyncio.fixture
-async def create_base_metric(session: AsyncSession, current_user, parent_node):
+async def create_base_metric(
+    clean_session: AsyncSession,
+    clean_current_user,
+    parent_node,
+):
     """Fixture to create a base metric node with a query (has non-metric parent)."""
+    session = clean_session
+    current_user = clean_current_user
     created_metrics = {}
 
     async def _create(name: str, query: str):
@@ -1427,8 +1435,10 @@ async def create_base_metric(session: AsyncSession, current_user, parent_node):
 
 
 @pytest_asyncio.fixture
-async def create_derived_metric(session: AsyncSession, current_user):
+async def create_derived_metric(clean_session: AsyncSession, clean_current_user):
     """Fixture to create a derived metric that references base metrics."""
+    session = clean_session
+    current_user = clean_current_user
 
     async def _create(name: str, query: str, base_metric_nodes: list[Node]):
         metric_node = Node(
@@ -1464,7 +1474,7 @@ async def create_derived_metric(session: AsyncSession, current_user):
 
 @pytest.mark.asyncio
 async def test_extract_derived_metric_revenue_per_order(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     create_base_metric,
     create_derived_metric,
 ):
@@ -1474,6 +1484,7 @@ async def test_extract_derived_metric_revenue_per_order(
     This tests the "same parent" pattern where both base metrics come from the
     same fact table (orders_source). The derived metric references both by name.
     """
+    session = clean_session
     # Create base metrics (both from same "orders" fact)
     revenue_node, _ = await create_base_metric(
         "default.revenue",
@@ -1515,7 +1526,7 @@ async def test_extract_derived_metric_revenue_per_order(
 
 @pytest.mark.asyncio
 async def test_extract_derived_metric_cross_fact_ratio(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     create_base_metric,
     create_derived_metric,
 ):
@@ -1525,6 +1536,7 @@ async def test_extract_derived_metric_cross_fact_ratio(
     This tests the "cross-fact" pattern where base metrics come from different
     fact tables (orders_source and events_source) that share dimensions.
     """
+    session = clean_session
     # Create base metrics from different facts
     revenue_node, _ = await create_base_metric(
         "default.revenue",
@@ -1562,7 +1574,7 @@ async def test_extract_derived_metric_cross_fact_ratio(
 
 @pytest.mark.asyncio
 async def test_extract_derived_metric_shared_components(
-    session: AsyncSession,
+    clean_session: AsyncSession,
     create_base_metric,
     create_derived_metric,
 ):
@@ -1572,6 +1584,7 @@ async def test_extract_derived_metric_shared_components(
     When two base metrics have identical aggregations (same expression + function),
     they produce the same component hash and should be deduplicated.
     """
+    session = clean_session
     # Two base metrics that both aggregate "amount" with SUM
     # They'll produce the same component: amount_sum_<hash>
     gross_revenue_node, _ = await create_base_metric(

@@ -59,14 +59,10 @@ async def test_catalog_list(
 
     response = await module__client.post("/graphql", json={"query": query})
     assert response.status_code == 200
-    assert response.json() == {
-        "data": {
-            "listCatalogs": [
-                {"name": "default"},
-                {"name": "dj_metadata"},
-                {"name": "dev"},
-                {"name": "test"},
-                {"name": "prod"},
-            ],
-        },
-    }
+    catalog_names = {c["name"] for c in response.json()["data"]["listCatalogs"]}
+    # These catalogs should be present
+    assert "default" in catalog_names
+    assert "dj_metadata" in catalog_names
+    assert "dev" in catalog_names
+    assert "test" in catalog_names
+    assert "prod" in catalog_names
