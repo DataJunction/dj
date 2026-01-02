@@ -11,18 +11,30 @@ Key features:
 - Reuses existing MaterializationStrategy enum (valid values: full, incremental_time)
 
 Revision ID: 5a6b7c8d9e0f
-Revises: 4b5c6d7e8f9a
+Revises: 2a3b4c5d6e7f
 Create Date: 2025-12-29 00:00:00.000000+00:00
 """
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "5a6b7c8d9e0f"
-down_revision = "4b5c6d7e8f9a"
+down_revision = "2a3b4c5d6e7f"
 branch_labels = None
 depends_on = None
+
+# Reference to existing enum (don't create it)
+materializationstrategy_enum = postgresql.ENUM(
+    "FULL",
+    "SNAPSHOT",
+    "SNAPSHOT_PARTITION",
+    "INCREMENTAL_TIME",
+    "VIEW",
+    name="materializationstrategy",
+    create_type=False,
+)
 
 
 def upgrade():
@@ -41,20 +53,13 @@ def upgrade():
         sa.Column("node_revision_id", sa.BigInteger(), nullable=False),
         sa.Column("grain_columns", sa.JSON(), nullable=False),
         sa.Column("measures", sa.JSON(), nullable=False),
+        sa.Column("sql", sa.Text(), nullable=False),
         sa.Column("grain_group_hash", sa.String(), nullable=False),
         # Materialization config - reuses existing MaterializationStrategy enum
-        # Valid values for pre-aggs: 'full', 'incremental_time'
+        # Valid values for pre-aggs: FULL, INCREMENTAL_TIME
         sa.Column(
             "strategy",
-            sa.Enum(
-                "full",
-                "snapshot",
-                "snapshot_partition",
-                "incremental_time",
-                "view",
-                name="materializationstrategy",
-                create_type=False,  # Don't create - already exists from materialization table
-            ),
+            materializationstrategy_enum,
             nullable=True,
         ),
         sa.Column("schedule", sa.String(), nullable=True),
