@@ -38,10 +38,8 @@ from datajunction_server.database.history import History
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import MissingParent, Node, NodeRevision
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import User
 from datajunction_server.database.measure import FrozenMeasure
-from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.errors import (
     DJActionNotAllowedException,
@@ -706,76 +704,6 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
         return frozen_measures
 
 
-async def create_node_owner_role(
-    session: AsyncSession,
-    node_name: str,
-    owner: User,
-) -> Role:
-    """
-    Create an owner role for a node with MANAGE permissions.
-
-    This auto-creates:
-    - A role named "{node_name}-owner"
-    - A scope granting MANAGE on the exact node name
-    - An assignment of the role to the creator
-
-    Args:
-        session: Database session
-        node_name: The full node name (e.g., "finance.revenue")
-        owner: The user who will own this node
-
-    Returns:
-        The created Role
-    """
-    role_name = f"{node_name}-owner"
-
-    # Check if role already exists (shouldn't happen, but be safe)
-    existing_role = await Role.get_by_name(session, role_name)
-    if existing_role:  # pragma: no cover
-        _logger.warning(
-            "Owner role `%s` already exists, skipping creation",
-            role_name,
-        )
-        return existing_role
-
-    # Create the owner role
-    role = Role(
-        name=role_name,
-        description=f"Owner role for node {node_name}",
-        created_by_id=owner.id,
-    )
-    session.add(role)
-
-    # Flush to get the role ID
-    await session.flush()
-
-    # Add MANAGE scope on the exact node
-    scope = RoleScope(
-        role_id=role.id,
-        action=ResourceAction.MANAGE,
-        scope_type=ResourceType.NODE,
-        scope_value=node_name,
-    )
-    session.add(scope)
-
-    # Assign the role to the creator
-    assignment = RoleAssignment(
-        principal_id=owner.id,
-        role_id=role.id,
-        granted_by_id=owner.id,
-    )
-    session.add(assignment)
-
-    _logger.info(
-        "Created owner role `%s` for node `%s`, assigned to user `%s`",
-        role_name,
-        node_name,
-        owner.username,
-    )
-
-    return role
-
-
 async def save_node(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -809,9 +737,6 @@ async def save_node(
         ),
         session=session,
     )
-
-    # Auto-create owner role for the new node
-    await create_node_owner_role(session, node.name, current_user)
 
     await session.commit()
     await session.refresh(node, ["current"])

@@ -1,28 +1,23 @@
 """
-Backfill owner roles for existing namespaces and nodes based on History.
+Backfill owner roles for existing namespaces based on History.
 
-This script creates owner roles for namespaces/nodes that existed before
+This script creates owner roles for namespaces that existed before
 auto-role creation was implemented. It looks up the original creator from
 the History table and creates the appropriate owner role.
+
+Note: Node-level owner roles are NOT auto-created. Fine-grained node
+permissions should be set up manually when needed. Namespace ownership
+provides implicit MANAGE access to all nodes within that namespace.
 
 Usage:
     # Dry run (see what would be created)
     python scripts/backfill-owner-roles.py --dry-run
 
-    # Backfill all namespaces and nodes
+    # Backfill all namespaces
     python scripts/backfill-owner-roles.py
 
-    # Backfill only namespaces
-    python scripts/backfill-owner-roles.py --namespaces-only
-
-    # Backfill only nodes
-    python scripts/backfill-owner-roles.py --nodes-only
-
     # Backfill specific namespace pattern
-    python scripts/backfill-owner-roles.py --namespace-pattern "finance.*"
-
-    # Backfill specific node pattern
-    python scripts/backfill-owner-roles.py --node-pattern "finance.*"
+    python scripts/backfill-owner-roles.py --pattern "finance.*"
 """
 
 import argparse
@@ -80,43 +75,6 @@ async def get_namespace_creators(
     return [(row.entity_name, row.user) for row in result.all()]
 
 
-async def get_node_creators(
-    session: AsyncSession,
-    pattern: Optional[str] = None,
-) -> list[tuple[str, str]]:
-    """
-    Get node names and their creators from History.
-
-    Returns list of (node_name, username) tuples.
-    """
-    query = (
-        sa.select(History.entity_name, History.user)
-        .where(
-            History.entity_type == EntityType.NODE,
-            History.activity_type == ActivityType.CREATE,
-            History.entity_name.isnot(None),
-            History.user.isnot(None),
-        )
-        .distinct(History.entity_name)
-        .order_by(History.entity_name, History.created_at)
-    )
-
-    if pattern:
-        if pattern.endswith("*"):
-            prefix = pattern.rstrip("*").rstrip(".")
-            query = query.where(
-                sa.or_(
-                    History.entity_name == prefix,
-                    History.entity_name.like(f"{prefix}.%"),
-                ),
-            )
-        else:
-            query = query.where(History.entity_name == pattern)
-
-    result = await session.execute(query)
-    return [(row.entity_name, row.user) for row in result.all()]
-
-
 async def role_exists(session: AsyncSession, role_name: str) -> bool:
     """Check if a role already exists."""
     result = await session.execute(
@@ -136,17 +94,16 @@ async def get_user_by_username(
 
 async def create_owner_role(
     session: AsyncSession,
-    name: str,
-    resource_type: ResourceType,
+    namespace: str,
     owner: User,
     dry_run: bool = False,
 ) -> bool:
     """
-    Create an owner role for a namespace or node.
+    Create an owner role for a namespace.
 
     Returns True if role was created, False if it already exists.
     """
-    role_name = f"{name}-owner"
+    role_name = f"{namespace}-owner"
 
     if await role_exists(session, role_name):
         return False
@@ -160,18 +117,18 @@ async def create_owner_role(
     # Create the role
     role = Role(
         name=role_name,
-        description=f"Owner role for {resource_type.value} {name}",
+        description=f"Owner role for namespace {namespace}",
         created_by_id=owner.id,
     )
     session.add(role)
     await session.flush()
 
-    # Add MANAGE scope
+    # Add MANAGE scope on the namespace
     scope = RoleScope(
         role_id=role.id,
         action=ResourceAction.MANAGE,
-        scope_type=resource_type,
-        scope_value=name,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value=namespace,
     )
     session.add(scope)
 
@@ -212,13 +169,7 @@ async def backfill_namespace_roles(
             skipped += 1
             continue
 
-        if await create_owner_role(
-            session,
-            namespace,
-            ResourceType.NAMESPACE,
-            user,
-            dry_run,
-        ):
+        if await create_owner_role(session, namespace, user, dry_run):
             created += 1
         else:
             print(f"  Skipping '{namespace}': role already exists")
@@ -227,56 +178,13 @@ async def backfill_namespace_roles(
     return created, skipped
 
 
-async def backfill_node_roles(
-    session: AsyncSession,
-    pattern: Optional[str] = None,
-    dry_run: bool = False,
-) -> tuple[int, int]:
-    """
-    Backfill owner roles for nodes.
-
-    Returns (created_count, skipped_count).
-    """
-    print("\n=== Backfilling Node Owner Roles ===")
-
-    creators = await get_node_creators(session, pattern)
-    print(f"Found {len(creators)} node creation events in History")
-
-    created = 0
-    skipped = 0
-
-    for node_name, username in creators:
-        user = await get_user_by_username(session, username)
-        if not user:
-            print(f"  Skipping '{node_name}': user '{username}' not found")
-            skipped += 1
-            continue
-
-        if await create_owner_role(
-            session,
-            node_name,
-            ResourceType.NODE,
-            user,
-            dry_run,
-        ):
-            created += 1
-        else:
-            print(f"  Skipping '{node_name}': role already exists")
-            skipped += 1
-
-    return created, skipped
-
-
 async def main(
     dry_run: bool = False,
-    namespaces_only: bool = False,
-    nodes_only: bool = False,
-    namespace_pattern: Optional[str] = None,
-    node_pattern: Optional[str] = None,
+    pattern: Optional[str] = None,
 ):
     """Main backfill function."""
     print("=" * 60)
-    print("RBAC Owner Role Backfill Script")
+    print("RBAC Namespace Owner Role Backfill Script")
     print("=" * 60)
 
     if dry_run:
@@ -287,22 +195,11 @@ async def main(
 
     async with async_session() as session:
         async with session.begin():
-            ns_created, ns_skipped = 0, 0
-            node_created, node_skipped = 0, 0
-
-            if not nodes_only:
-                ns_created, ns_skipped = await backfill_namespace_roles(
-                    session,
-                    namespace_pattern,
-                    dry_run,
-                )
-
-            if not namespaces_only:
-                node_created, node_skipped = await backfill_node_roles(
-                    session,
-                    node_pattern,
-                    dry_run,
-                )
+            created, skipped = await backfill_namespace_roles(
+                session,
+                pattern,
+                dry_run,
+            )
 
             if not dry_run:
                 await session.commit()
@@ -310,11 +207,7 @@ async def main(
             print("\n" + "=" * 60)
             print("Summary")
             print("=" * 60)
-            if not nodes_only:
-                print(f"Namespaces: {ns_created} created, {ns_skipped} skipped")
-            if not namespaces_only:
-                print(f"Nodes: {node_created} created, {node_skipped} skipped")
-            print(f"Total: {ns_created + node_created} roles created")
+            print(f"Namespaces: {created} roles created, {skipped} skipped")
 
             if dry_run:
                 print("\n*** DRY RUN - No changes were made ***")
@@ -322,7 +215,7 @@ async def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Backfill owner roles for existing namespaces and nodes",
+        description="Backfill owner roles for existing namespaces",
     )
     parser.add_argument(
         "--dry-run",
@@ -330,24 +223,9 @@ if __name__ == "__main__":
         help="Show what would be created without making changes",
     )
     parser.add_argument(
-        "--namespaces-only",
-        action="store_true",
-        help="Only backfill namespace roles",
-    )
-    parser.add_argument(
-        "--nodes-only",
-        action="store_true",
-        help="Only backfill node roles",
-    )
-    parser.add_argument(
-        "--namespace-pattern",
+        "--pattern",
         type=str,
         help="Only backfill namespaces matching pattern (e.g., 'finance.*')",
-    )
-    parser.add_argument(
-        "--node-pattern",
-        type=str,
-        help="Only backfill nodes matching pattern (e.g., 'finance.*')",
     )
 
     args = parser.parse_args()
@@ -355,9 +233,6 @@ if __name__ == "__main__":
     asyncio.run(
         main(
             dry_run=args.dry_run,
-            namespaces_only=args.namespaces_only,
-            nodes_only=args.nodes_only,
-            namespace_pattern=args.namespace_pattern,
-            node_pattern=args.node_pattern,
+            pattern=args.pattern,
         ),
     )
