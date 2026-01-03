@@ -17,12 +17,14 @@ from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.namespace import (
     ImpactedNode,
     HardDeleteResponse,
@@ -206,6 +208,76 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
+async def create_namespace_owner_role(
+    session: AsyncSession,
+    namespace: str,
+    owner: User,
+) -> Role:
+    """
+    Create an owner role for a namespace with MANAGE permissions.
+
+    This auto-creates:
+    - A role named "{namespace}-owner"
+    - A scope granting MANAGE on "{namespace}.*"
+    - An assignment of the role to the creator
+
+    Args:
+        session: Database session
+        namespace: The namespace name (e.g., "finance")
+        owner: The user who will own this namespace
+
+    Returns:
+        The created Role
+    """
+    role_name = f"{namespace}-owner"
+
+    # Check if role already exists (shouldn't happen, but be safe)
+    existing_role = await Role.get_by_name(session, role_name)
+    if existing_role:
+        logger.warning(
+            "Owner role `%s` already exists, skipping creation",
+            role_name,
+        )
+        return existing_role
+
+    # Create the owner role
+    role = Role(
+        name=role_name,
+        description=f"Owner role for namespace {namespace}",
+        created_by_id=owner.id,
+    )
+    session.add(role)
+
+    # Flush to get the role ID
+    await session.flush()
+
+    # Add MANAGE scope on namespace
+    scope = RoleScope(
+        role_id=role.id,
+        action=ResourceAction.MANAGE,
+        scope_type=ResourceType.NAMESPACE,
+        scope_value=namespace,
+    )
+    session.add(scope)
+
+    # Assign the role to the creator
+    assignment = RoleAssignment(
+        principal_id=owner.id,
+        role_id=role.id,
+        granted_by_id=owner.id,
+    )
+    session.add(assignment)
+
+    logger.info(
+        "Created owner role `%s` for namespace `%s`, assigned to user `%s`",
+        role_name,
+        namespace,
+        owner.username,
+    )
+
+    return role
+
+
 async def create_namespace(
     session: AsyncSession,
     namespace: str,
@@ -215,6 +287,9 @@ async def create_namespace(
 ) -> List[str]:
     """
     Creates a namespace entry in the database table.
+
+    When a namespace is created, an owner role is automatically created and
+    assigned to the creator. This makes new namespaces protected by default.
     """
     logger.info("Creating namespace `%s` and any parent namespaces", namespace)
 
@@ -224,6 +299,7 @@ async def create_namespace(
         if include_parents
         else [namespace]
     )
+    created_namespaces = []
     for parent_namespace in parents:
         if not await get_node_namespace(  # pragma: no cover
             session=session,
@@ -233,16 +309,22 @@ async def create_namespace(
             logger.info("Created namespace `%s`", parent_namespace)
             node_namespace = NodeNamespace(namespace=parent_namespace)
             session.add(node_namespace)
+            created_namespaces.append(parent_namespace)
             await save_history(
                 event=History(
                     entity_type=EntityType.NAMESPACE,
-                    entity_name=namespace,
+                    entity_name=parent_namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
                     user=current_user.username,
                 ),
                 session=session,
             )
+
+    # Auto-create owner roles for newly created namespaces
+    for ns in created_namespaces:
+        await create_namespace_owner_role(session, ns, current_user)
+
     await session.commit()
     return parents
 

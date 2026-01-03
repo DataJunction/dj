@@ -820,6 +820,7 @@ async def client(
     # - create_default_user
 
     def get_session_override() -> AsyncSession:
+        print(f"DEBUG get_session_override called! Returning session {id(session)}")
         return session
 
     def get_settings_override() -> Settings:
