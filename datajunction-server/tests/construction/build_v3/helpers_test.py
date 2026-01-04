@@ -486,7 +486,7 @@ class TestBuildComponentExpression:
         )
         result = build_component_expression(component)
         assert isinstance(result, ast.Function)
-        assert str(result).upper().startswith("SUM")
+        assert str(result) == "SUM(line_total)"
 
     def test_build_count(self):
         """Test building a COUNT aggregation."""
@@ -498,7 +498,7 @@ class TestBuildComponentExpression:
         )
         result = build_component_expression(component)
         assert isinstance(result, ast.Function)
-        assert "COUNT" in str(result).upper()
+        assert str(result) == "COUNT(order_id)"
 
     def test_build_no_aggregation(self):
         """Test building expression without aggregation."""
@@ -510,6 +510,7 @@ class TestBuildComponentExpression:
         )
         result = build_component_expression(component)
         assert isinstance(result, ast.Column)
+        assert str(result) == "line_total"
 
     def test_build_template_aggregation(self):
         """Test building expression with template aggregation like SUM(POWER({}, 2))."""
@@ -520,10 +521,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        # Should expand the template
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "POWER" in result_str
+        assert str(result) == "SUM(POWER(value, 2))"
 
     def test_build_pre_expanded_template_simple(self):
         """Test building expression with pre-expanded template (already contains expression)."""
@@ -536,11 +534,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "POWER" in result_str
-        assert "MATCH_SCORE" in result_str
-        assert "2" in str(result)
+        assert str(result) == "SUM(POWER(match_score, 2))"
 
     def test_build_pre_expanded_template_nested_functions(self):
         """Test pre-expanded template with multiple nested functions."""
@@ -551,26 +545,18 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "ABS" in result_str
-        assert "POWER" in result_str
+        assert str(result) == "SUM(ABS(POWER(value, 3)))"
 
     def test_build_pre_expanded_template_with_alias(self):
-        """Test pre-expanded template where parsed result has an alias."""
-        # When parsing "SELECT expr AS alias", the result is an Alias node
-        # The function should extract the child expression
+        """Test pre-expanded template with COUNT DISTINCT."""
         component = MetricComponent(
-            name="aliased_sum",
+            name="count_distinct",
             expression="col",
             aggregation="COUNT(DISTINCT user_id)",
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "COUNT" in result_str
-        assert "DISTINCT" in result_str
-        assert "USER_ID" in result_str
+        assert str(result) == "COUNT( DISTINCT user_id)"
 
     def test_build_pre_expanded_template_arithmetic(self):
         """Test pre-expanded template with arithmetic operations."""
@@ -581,10 +567,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "PRICE" in result_str
-        assert "QUANTITY" in result_str
+        assert str(result) == "SUM(price * quantity)"
 
     def test_build_pre_expanded_template_case_expression(self):
         """Test pre-expanded template with CASE expression."""
@@ -595,10 +578,12 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "CASE" in result_str
-        assert "WHEN" in result_str
+        # CASE expressions are formatted with newlines by the AST
+        expected = """SUM(CASE
+        WHEN status = 'active' THEN 1
+        ELSE 0
+    END)"""
+        assert str(result) == expected
 
     def test_build_pre_expanded_vs_simple_function_name(self):
         """Test distinction between pre-expanded 'SUM(x)' and simple 'SUM'."""
@@ -610,7 +595,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result_pre = build_component_expression(pre_expanded)
-        assert "SPECIFIC_COLUMN" in str(result_pre).upper()
+        assert str(result_pre) == "SUM(specific_column)"
 
         # Simple: no parentheses - wraps expression
         simple = MetricComponent(
@@ -620,7 +605,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result_simple = build_component_expression(simple)
-        assert "MY_COLUMN" in str(result_simple).upper()
+        assert str(result_simple) == "SUM(my_column)"
 
     def test_build_pre_expanded_template_coalesce(self):
         """Test pre-expanded template with COALESCE function."""
@@ -631,9 +616,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "COALESCE" in result_str
+        assert str(result) == "SUM(COALESCE(value, 0))"
 
     def test_build_pre_expanded_template_multiple_args(self):
         """Test pre-expanded template with function having multiple arguments."""
@@ -644,9 +627,7 @@ class TestBuildComponentExpression:
             rule=AggregationRule(type=Aggregability.FULL),
         )
         result = build_component_expression(component)
-        result_str = str(result).upper()
-        assert "SUM" in result_str
-        assert "IF" in result_str
+        assert str(result) == "SUM(IF(condition, value1, value2))"
 
 
 class TestTopologicalSortNodes:
