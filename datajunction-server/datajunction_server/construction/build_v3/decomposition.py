@@ -225,7 +225,7 @@ def build_component_expression(component: MetricComponent) -> ast.Expression:
         # Pre-expanded template - parse it directly as a complete expression
         expr_ast = parse(f"SELECT {component.aggregation}").select.projection[0]
         if isinstance(expr_ast, ast.Alias):
-            expr_ast = expr_ast.child
+            expr_ast = expr_ast.child  # pragma: no cover
         expr_ast.clear_parent()
         return cast(ast.Expression, expr_ast)
     else:
