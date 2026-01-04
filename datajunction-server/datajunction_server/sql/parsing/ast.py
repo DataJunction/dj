@@ -1120,10 +1120,11 @@ class Column(Aliasable, Named, Expression):
                     parent_query is not None and parent_query.select.from_ is not None
                 )
 
-                # Metric references have exactly ONE namespace part (e.g., default.metric_name)
-                # Columns with 2+ namespace parts are table.column refs (e.g., default.table.column)
-                if self.namespace and len(self.namespace) == 1 and not has_from_clause:
-                    # Try to resolve as a metric node reference
+                # Column with any namespace and no FROM clause could be:
+                # 1. A metric reference: default.metric_a or ns.subns.metric_b
+                # 2. A dimension attribute reference: default.dim.column
+                if self.namespace and not has_from_clause:
+                    # First, try to resolve as a metric node reference
                     node_name = self.identifier()
                     try:
                         dj_node = await get_dj_node(
@@ -1142,11 +1143,40 @@ class Column(Aliasable, Named, Expression):
                                 return
                             else:
                                 # Metric found but no columns - this shouldn't happen
-                                # Fall through to error
+                                # Fall through to try as dimension attribute
                                 pass
                     except DJErrorException:
-                        # Not a metric, fall through to normal error
-                        pass
+                        pass  # Not a metric, try as dimension attribute
+
+                    # If not a metric, try as a dimension attribute reference
+                    # e.g., common.dimensions.time.date.week_code -> dimension is
+                    # common.dimensions.time.date, column is week_code
+                    if len(self.namespace) >= 1:
+                        namespace_parts = [n.name for n in self.namespace]
+                        column_name = self.alias_or_name.name
+                        potential_dim_name = ".".join(namespace_parts)
+
+                        try:
+                            dim_node = await get_dj_node(
+                                ctx.session,
+                                potential_dim_name,
+                                {DJNodeType.DIMENSION},
+                            )
+                            if dim_node:
+                                # Found a dimension - get the column type
+                                await refresh_if_needed(
+                                    ctx.session,
+                                    dim_node,
+                                    ["columns"],
+                                )
+                                for dim_col in dim_node.columns:
+                                    if dim_col.name == column_name:
+                                        self._type = dim_col.type
+                                        self._is_compiled = True
+                                        return
+                                # Dimension found but column not on it - fall through
+                        except DJErrorException:
+                            pass  # Not a dimension either, fall through to error
 
                 ctx.exception.errors.append(
                     DJError(
@@ -3141,32 +3171,57 @@ class Query(TableExpression, UnNamed):
                 )
 
             for col in self.find_all(Column):
-                # Metric references have exactly ONE namespace part (e.g., default.metric_name)
-                # Columns with 2+ namespace parts are table.column refs (e.g., default.table.column)
-                if col.namespace and len(col.namespace) == 1:
-                    # Column with single namespace is a node reference (e.g., default.metric_a)
+                # No FROM clause means this is a derived metric query
+                # Column references with namespaces could be:
+                # 1. Metric references: default.metric_a, ns.subns.metric_b
+                # 2. Dimension attribute refs: default.dim.column, ns.subns.dim.column
+                #
+                # IMPORTANT: Only METRIC references should be added as dependencies/parents.
+                # Dimension attribute references are just for ordering/filtering and should
+                # NOT be treated as parents (which would incorrectly limit available dimensions).
+                if col.namespace:
                     node_name = col.identifier()
                     if node_name in [d.name for d in deps.keys()]:
                         continue  # Already found this dependency
 
-                    # Look up the node - for derived metrics, we expect metric references
+                    # First, try looking up the full identifier as a METRIC node
+                    # Only metrics should be added as parents for derived metrics
                     try:
                         dj_node = await get_dj_node(
                             context.session,
                             node_name,
-                            {
-                                DJNodeType.SOURCE,
-                                DJNodeType.TRANSFORM,
-                                DJNodeType.DIMENSION,
-                                DJNodeType.METRIC,
-                            },
+                            {DJNodeType.METRIC},
                         )
                         if dj_node:
                             deps[dj_node] = deps.get(dj_node, [])
-                            # Store None for table since there's no Table AST node
+                            continue  # Found as a metric, move to next column
                     except DJErrorException:
-                        # Node doesn't exist - add to danglers
-                        danglers[node_name] = danglers.get(node_name, [])
+                        pass  # Not a metric, check if it's a valid dimension attribute
+
+                    # If not a metric, check if it's a dimension attribute reference
+                    # e.g., common.dimensions.time.date.week_code -> dimension is
+                    # common.dimensions.time.date, column is week_code
+                    # We validate these exist but do NOT add them as dependencies
+                    if len(col.namespace) >= 1:
+                        namespace_parts = [n.name for n in col.namespace]
+                        column_name = col.alias_or_name.name
+                        potential_dim_name = ".".join(namespace_parts)
+
+                        try:
+                            dim_node = await get_dj_node(
+                                context.session,
+                                potential_dim_name,
+                                {DJNodeType.DIMENSION},
+                            )
+                            if dim_node:
+                                # Dimension attribute reference is valid, but don't add
+                                # as a dependency - it's just used for ordering/filtering
+                                continue
+                        except DJErrorException:
+                            pass  # Not a dimension either
+
+                    # Neither a metric nor a valid dimension attribute - add to danglers
+                    danglers[node_name] = danglers.get(node_name, [])
 
             # Also compile the query to resolve column types for derived metrics
             # This triggers Column.compile which handles metric reference type resolution
