@@ -139,6 +139,16 @@ export const renderEditTransformNode = element => {
   );
 };
 
+export const renderEditDerivedMetricNode = element => {
+  return render(
+    <MemoryRouter initialEntries={['/nodes/default.revenue_per_order/edit']}>
+      <Routes>
+        <Route path="nodes/:name/edit" element={element} />
+      </Routes>
+    </MemoryRouter>,
+  );
+};
+
 describe('AddEditNodePage', () => {
   beforeEach(() => {
     fetchMock.resetMocks();
@@ -226,4 +236,85 @@ describe('AddEditNodePage', () => {
       ).toBeInTheDocument();
     });
   }, 60000);
+
+  it('Edit page renders correctly for derived metric (metric parent)', async () => {
+    const mockDjClient = initializeMockDJClient();
+    mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue(
+      mocks.mockGetDerivedMetricNode,
+    );
+
+    const element = testElement(mockDjClient);
+    renderEditDerivedMetricNode(element);
+
+    await waitFor(() => {
+      // Should be an edit node page
+      expect(screen.getByText('Edit')).toBeInTheDocument();
+
+      // The node name should be loaded onto the page
+      expect(screen.getByText('default.revenue_per_order')).toBeInTheDocument();
+
+      // The node type should be loaded onto the page
+      expect(screen.getByText('metric')).toBeInTheDocument();
+
+      // The description should be populated
+      expect(
+        screen.getByText('Average revenue per order (derived metric)'),
+      ).toBeInTheDocument();
+
+      // For derived metrics, the upstream node select should show the placeholder
+      // (indicating no upstream node is selected - derived metrics have metric parents)
+      expect(
+        screen.getByText('Select Upstream Node (optional for derived metrics)'),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('Create metric page renders correctly', async () => {
+    const mockDjClient = initializeMockDJClient();
+    const element = testElement(mockDjClient);
+    renderCreateMetric(element);
+
+    await waitFor(() => {
+      // Should be a create metric page
+      expect(screen.getByText('Create')).toBeInTheDocument();
+
+      // The metric form should show the derived metric expression label
+      // (when no upstream is selected, we're in derived metric mode)
+      expect(
+        screen.getByText('Derived Metric Expression *'),
+      ).toBeInTheDocument();
+
+      // The help text for derived metrics should be visible
+      expect(
+        screen.getByText(/Reference other metrics using their full names/),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('Metric page handles error loading metrics gracefully', async () => {
+    const mockDjClient = initializeMockDJClient();
+    // Make metrics() throw an error
+    mockDjClient.DataJunctionAPI.metrics.mockRejectedValue(
+      new Error('Network error'),
+    );
+
+    const consoleSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const element = testElement(mockDjClient);
+    renderCreateMetric(element);
+
+    await waitFor(() => {
+      // The page should still render despite the error
+      expect(screen.getByText('Create')).toBeInTheDocument();
+      // The error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to load metrics for autocomplete:',
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
 });

@@ -579,10 +579,9 @@ class TestBuildComponentExpression:
         )
         result = build_component_expression(component)
         # CASE expressions are formatted with newlines by the AST
-        expected = """SUM(CASE
-        WHEN status = 'active' THEN 1
-        ELSE 0
-    END)"""
+        expected = (
+            "SUM(CASE \n        WHEN status = 'active' THEN 1\n        ELSE 0\n    END)"
+        )
         assert str(result) == expected
 
     def test_build_pre_expanded_vs_simple_function_name(self):
