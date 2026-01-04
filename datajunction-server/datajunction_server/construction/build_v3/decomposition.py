@@ -199,17 +199,31 @@ def build_component_expression(component: MetricComponent) -> ast.Expression:
 
     For simple aggregations like SUM, this is: SUM(expression)
     For templates like "SUM(POWER({}, 2))", expands to: SUM(POWER(expression, 2))
+
+    Note: Templates may be pre-expanded (e.g., "SUM(POWER(match_score, 2))")
+    by the decomposition phase, so we detect this by checking for parentheses
+    without template placeholders.
     """
     if not component.aggregation:  # pragma: no cover
         # No aggregation - just return the expression as a column
         return ast.Column(name=ast.Name(component.expression))
 
-    # Check if it's a template with {}
+    # Check if it's an unexpanded template with {}
     if "{" in component.aggregation:  # pragma: no cover
         # Template like "SUM(POWER({}, 2))" - expand it
         expanded = component.aggregation.replace("{}", component.expression)
         # Parse as expression
         expr_ast = parse(f"SELECT {expanded}").select.projection[0]
+        if isinstance(expr_ast, ast.Alias):
+            expr_ast = expr_ast.child
+        expr_ast.clear_parent()
+        return cast(ast.Expression, expr_ast)
+
+    # Check if it's a pre-expanded template (contains parentheses, like "SUM(POWER(x, 2))")
+    # vs a simple function name (like "SUM")
+    if "(" in component.aggregation:
+        # Pre-expanded template - parse it directly as a complete expression
+        expr_ast = parse(f"SELECT {component.aggregation}").select.projection[0]
         if isinstance(expr_ast, ast.Alias):
             expr_ast = expr_ast.child
         expr_ast.clear_parent()
