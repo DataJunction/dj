@@ -120,6 +120,19 @@ export function AddEditNodePage({ extensions = {} }) {
     }
   };
 
+  /**
+   * Build the metric query based on whether an upstream node is provided.
+   * - With upstream node: `SELECT <expression> FROM <upstream_node>` (regular metric)
+   * - Without upstream node: `SELECT <expression>` (derived metric referencing other metrics)
+   */
+  const buildMetricQuery = (aggregateExpression, upstreamNode) => {
+    if (upstreamNode && upstreamNode.trim() !== '') {
+      return `SELECT ${aggregateExpression} \n FROM ${upstreamNode}`;
+    }
+    // Derived metric - no FROM clause needed, expression references other metrics directly
+    return `SELECT ${aggregateExpression}`;
+  };
+
   const createNode = async (values, setStatus) => {
     const { status, json } = await djClient.createNode(
       nodeType,
@@ -127,7 +140,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.display_name,
       values.description,
       values.type === 'metric'
-        ? `SELECT ${values.aggregate_expression} \n FROM ${values.upstream_node}`
+        ? buildMetricQuery(values.aggregate_expression, values.upstream_node)
         : values.query,
       values.mode,
       values.namespace,
@@ -162,7 +175,7 @@ export function AddEditNodePage({ extensions = {} }) {
       values.display_name,
       values.description,
       values.type === 'metric'
-        ? `SELECT ${values.aggregate_expression} \n FROM ${values.upstream_node}`
+        ? buildMetricQuery(values.aggregate_expression, values.upstream_node)
         : values.query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
@@ -224,17 +237,46 @@ export function AddEditNodePage({ extensions = {} }) {
     };
 
     if (node.type === 'METRIC') {
-      return {
-        ...baseData,
-        metric_direction: node.current.metricMetadata?.direction?.toLowerCase(),
-        metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
-        significant_digits: node.current.metricMetadata?.significantDigits,
-        required_dimensions: node.current.requiredDimensions.map(
-          dim => dim.name,
-        ),
-        upstream_node: node.current.parents[0]?.name,
-        aggregate_expression: node.current.metricMetadata?.expression,
-      };
+      // Check if this is a derived metric (parent is another metric)
+      const firstParent = node.current.parents[0];
+      const isDerivedMetric = firstParent?.type === 'METRIC';
+
+      if (isDerivedMetric) {
+        // Derived metric: no upstream node, expression is the full query projection
+        // Parse the expression from the query (format: "SELECT <expression>")
+        const query = node.current.query || '';
+        const selectMatch = query.match(/SELECT\s+(.+)/is);
+        const derivedExpression = selectMatch
+          ? selectMatch[1].trim()
+          : node.current.metricMetadata?.expression || '';
+
+        return {
+          ...baseData,
+          metric_direction:
+            node.current.metricMetadata?.direction?.toLowerCase(),
+          metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
+          significant_digits: node.current.metricMetadata?.significantDigits,
+          required_dimensions: node.current.requiredDimensions.map(
+            dim => dim.name,
+          ),
+          upstream_node: '', // Derived metrics have no upstream node
+          aggregate_expression: derivedExpression,
+        };
+      } else {
+        // Regular metric: has upstream node
+        return {
+          ...baseData,
+          metric_direction:
+            node.current.metricMetadata?.direction?.toLowerCase(),
+          metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
+          significant_digits: node.current.metricMetadata?.significantDigits,
+          required_dimensions: node.current.requiredDimensions.map(
+            dim => dim.name,
+          ),
+          upstream_node: firstParent?.name || '',
+          aggregate_expression: node.current.metricMetadata?.expression,
+        };
+      }
     }
     return baseData;
   };
@@ -329,12 +371,14 @@ export function AddEditNodePage({ extensions = {} }) {
         />,
       );
     }
+    // For derived metrics, upstream_node is empty - pass null to clear the select
     setSelectUpstreamNode(
       <UpstreamNodeField
-        defaultValue={{
-          value: data.upstream_node,
-          label: data.upstream_node,
-        }}
+        defaultValue={
+          data.upstream_node
+            ? { value: data.upstream_node, label: data.upstream_node }
+            : null
+        }
       />,
     );
     if (data.owners) {
