@@ -4,12 +4,26 @@ Derived metrics are metrics that reference other metrics.
 """
 
 from typing import Any, Callable, Coroutine, List, Optional
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+import datajunction_server.sql.parsing.ast as ast_module
+from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
+from datajunction_server.errors import (
+    DJError,
+    DJErrorException,
+    DJException,
+    ErrorCode,
+)
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing.ast import Column, CompileContext, Query, Table
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
 class TestDerivedMetricHelpers:
@@ -102,9 +116,6 @@ class TestExtractDependenciesForDerivedMetrics:
         """
         Base metrics have a FROM clause, so extract_dependencies should find Table refs.
         """
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
-        from datajunction_server.sql.parsing.ast import Table
-
         # Base metric query with FROM clause
         query = parse("SELECT SUM(amount) FROM default.orders")
 
@@ -120,12 +131,6 @@ class TestExtractDependenciesForDerivedMetrics:
         Derived metrics have no FROM clause - metric references are Column nodes.
         extract_dependencies should find these Column references.
         """
-        from unittest.mock import AsyncMock, MagicMock
-
-        from datajunction_server.errors import DJException
-        from datajunction_server.sql.parsing.ast import CompileContext
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
-
         # Derived metric query - NO FROM clause, metrics are column references
         query = parse("SELECT default.metric_a / default.metric_b")
 
@@ -140,8 +145,6 @@ class TestExtractDependenciesForDerivedMetrics:
         mock_metric_b.name = "default.metric_b"
 
         # Patch get_dj_node to return our mock nodes
-        import datajunction_server.sql.parsing.ast as ast_module
-
         original_get_dj_node = ast_module.get_dj_node
 
         async def mock_get_dj_node(session, name, types):
@@ -171,17 +174,6 @@ class TestExtractDependenciesForDerivedMetrics:
         """
         For derived metrics with unknown references, they should appear in danglers.
         """
-        from unittest.mock import AsyncMock
-
-        from datajunction_server.errors import (
-            DJError,
-            DJErrorException,
-            DJException,
-            ErrorCode,
-        )
-        from datajunction_server.sql.parsing.ast import CompileContext
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
-
         # Derived metric query with unknown references
         query = parse("SELECT unknown.metric_x / unknown.metric_y")
 
@@ -190,8 +182,6 @@ class TestExtractDependenciesForDerivedMetrics:
         mock_context = CompileContext(session=mock_session, exception=DJException())
 
         # Patch get_dj_node to raise DJErrorException (node not found)
-        import datajunction_server.sql.parsing.ast as ast_module
-
         original_get_dj_node = ast_module.get_dj_node
 
         async def mock_get_dj_node(session, name, types):
@@ -219,9 +209,6 @@ class TestExtractDependenciesForDerivedMetrics:
         """
         Test that _get_parent_query correctly finds the parent Query node.
         """
-        from datajunction_server.sql.parsing.ast import Column, Query
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
-
         # Derived metric query - no FROM
         query = parse("SELECT default.metric_a / default.metric_b")
 
@@ -248,13 +235,6 @@ class TestExtractDependenciesForDerivedMetrics:
         When a Column references a metric (has namespace, no table source),
         Column.compile should resolve the metric and get its output type.
         """
-        from unittest.mock import AsyncMock, MagicMock
-
-        from datajunction_server.errors import DJException
-        from datajunction_server.sql.parsing.ast import Column, CompileContext
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
-        from datajunction_server.sql.parsing.types import IntegerType
-
         # Derived metric query
         query = parse("SELECT default.metric_a + default.metric_b")
 
@@ -274,8 +254,6 @@ class TestExtractDependenciesForDerivedMetrics:
         mock_metric_b.columns = [mock_col_b]
 
         # Patch get_dj_node
-        import datajunction_server.sql.parsing.ast as ast_module
-
         original_get_dj_node = ast_module.get_dj_node
 
         async def mock_get_dj_node(session, name, types):
@@ -302,6 +280,250 @@ class TestExtractDependenciesForDerivedMetrics:
                     assert isinstance(col._type, IntegerType)
         finally:
             ast_module.get_dj_node = original_get_dj_node
+
+
+@pytest.mark.asyncio
+class TestColumnCompileWithRealNodes:
+    """
+    Tests for Column.compile metric and dimension resolution using real database objects.
+
+    These tests create actual Node/NodeRevision objects in the database and test
+    the Column.compile code path that resolves metric references and dimension
+    attributes in derived metric queries.
+    """
+
+    @pytest.fixture
+    async def column_compile_test_graph(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        Creates a test graph with metrics, dimensions, and source nodes for testing
+        Column.compile's metric and dimension reference resolution.
+
+        Graph structure:
+        - coltest.source (SOURCE) with columns: id, amount, customer_id
+        - coltest.customer (DIMENSION) with columns: id, name, email
+        - coltest.revenue (METRIC) -> parent: coltest.source
+        - coltest.orders (METRIC) -> parent: coltest.source
+        """
+        # Create source node
+        source = Node(
+            name="coltest.source",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source_rev = NodeRevision(
+            node=source,
+            name=source.name,
+            type=source.type,
+            version="1",
+            display_name="Source",
+            created_by_id=current_user.id,
+            columns=[
+                DBColumn(name="id", type=IntegerType(), order=0),
+                DBColumn(name="amount", type=IntegerType(), order=1),
+                DBColumn(name="customer_id", type=IntegerType(), order=2),
+            ],
+        )
+        source.current = source_rev
+
+        # Create dimension node
+        customer_dim = Node(
+            name="coltest.customer",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        customer_dim_rev = NodeRevision(
+            node=customer_dim,
+            name=customer_dim.name,
+            type=customer_dim.type,
+            version="1",
+            display_name="Customer",
+            created_by_id=current_user.id,
+            columns=[
+                DBColumn(name="id", type=IntegerType(), order=0),
+                DBColumn(name="name", type=StringType(), order=1),
+                DBColumn(name="email", type=StringType(), order=2),
+            ],
+        )
+        customer_dim.current = customer_dim_rev
+
+        session.add_all([source, source_rev, customer_dim, customer_dim_rev])
+        await session.flush()
+
+        # Create base metric: revenue
+        revenue_metric = Node(
+            name="coltest.revenue",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        revenue_metric_rev = NodeRevision(
+            node=revenue_metric,
+            name=revenue_metric.name,
+            type=revenue_metric.type,
+            version="1",
+            display_name="Revenue",
+            query="SELECT SUM(amount) FROM coltest.source",
+            parents=[source],
+            created_by_id=current_user.id,
+            columns=[DBColumn(name="coltest_DOT_revenue", type=IntegerType(), order=0)],
+        )
+        revenue_metric.current = revenue_metric_rev
+
+        # Create base metric: orders
+        orders_metric = Node(
+            name="coltest.orders",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        orders_metric_rev = NodeRevision(
+            node=orders_metric,
+            name=orders_metric.name,
+            type=orders_metric.type,
+            version="1",
+            display_name="Orders",
+            query="SELECT COUNT(*) FROM coltest.source",
+            parents=[source],
+            created_by_id=current_user.id,
+            columns=[DBColumn(name="coltest_DOT_orders", type=IntegerType(), order=0)],
+        )
+        orders_metric.current = orders_metric_rev
+
+        session.add_all(
+            [
+                revenue_metric,
+                revenue_metric_rev,
+                orders_metric,
+                orders_metric_rev,
+            ],
+        )
+        await session.flush()
+
+        return {
+            "source": source,
+            "customer_dim": customer_dim,
+            "revenue_metric": revenue_metric,
+            "orders_metric": orders_metric,
+        }
+
+    @pytest.mark.asyncio
+    async def test_column_compile_resolves_metric_reference(
+        self,
+        session: AsyncSession,
+        column_compile_test_graph,
+    ):
+        """
+        Test that Column.compile resolves a metric reference (coltest.revenue)
+        and gets its output type.
+        """
+        # Parse a derived metric query that references base metrics
+        query = parse("SELECT coltest.revenue + coltest.orders")
+        ctx = CompileContext(session=session, exception=DJException())
+
+        await query.compile(ctx)
+
+        # Find columns with namespace (metric references)
+        columns = [c for c in query.find_all(Column) if c.namespace]
+        assert len(columns) == 2
+
+        # Both should be compiled with IntegerType
+        for col in columns:
+            assert col.is_compiled(), f"Column {col} should be compiled"
+            assert isinstance(col._type, IntegerType), (
+                f"Column {col} should have IntegerType"
+            )
+
+    @pytest.mark.asyncio
+    async def test_column_compile_resolves_dimension_attribute(
+        self,
+        session: AsyncSession,
+        column_compile_test_graph,
+    ):
+        """
+        Test that Column.compile resolves a dimension attribute reference
+        (coltest.customer.name) and gets the column's type.
+        """
+        # Parse a query referencing a dimension attribute (no FROM clause)
+        query = parse("SELECT coltest.customer.name")
+        ctx = CompileContext(session=session, exception=DJException())
+
+        await query.compile(ctx)
+
+        # Find the column with namespace
+        columns = [c for c in query.find_all(Column) if c.namespace]
+        assert len(columns) == 1
+
+        col = columns[0]
+        assert col.is_compiled()
+        assert isinstance(col._type, StringType)
+
+    @pytest.mark.asyncio
+    async def test_column_compile_metric_ratio_expression(
+        self,
+        session: AsyncSession,
+        column_compile_test_graph,
+    ):
+        """
+        Test that Column.compile handles a derived metric expression with division.
+        """
+        # Parse a ratio metric query
+        query = parse("SELECT coltest.revenue / coltest.orders")
+        ctx = CompileContext(session=session, exception=DJException())
+
+        await query.compile(ctx)
+
+        # Both metric references should be resolved
+        columns = [c for c in query.find_all(Column) if c.namespace]
+        assert len(columns) == 2
+        for col in columns:
+            assert col.is_compiled()
+
+    @pytest.mark.asyncio
+    async def test_column_compile_nonexistent_metric_errors(
+        self,
+        session: AsyncSession,
+        column_compile_test_graph,
+    ):
+        """
+        Test that Column.compile adds an error when referencing a non-existent metric.
+        """
+        # Parse a query referencing a metric that doesn't exist
+        query = parse("SELECT coltest.nonexistent_metric")
+        ctx = CompileContext(session=session, exception=DJException())
+
+        await query.compile(ctx)
+
+        # Should have an error
+        assert len(ctx.exception.errors) > 0
+        error_messages = [e.message for e in ctx.exception.errors]
+        assert any("does not exist" in msg for msg in error_messages)
+
+    @pytest.mark.asyncio
+    async def test_column_compile_nonexistent_dimension_column_errors(
+        self,
+        session: AsyncSession,
+        column_compile_test_graph,
+    ):
+        """
+        Test that Column.compile adds an error when referencing a non-existent
+        column on an existing dimension.
+        """
+        # Parse a query referencing a column that doesn't exist on the dimension
+        query = parse("SELECT coltest.customer.nonexistent_column")
+        ctx = CompileContext(session=session, exception=DJException())
+
+        await query.compile(ctx)
+
+        # Should have an error
+        assert len(ctx.exception.errors) > 0
+        error_messages = [e.message for e in ctx.exception.errors]
+        assert any("does not exist" in msg for msg in error_messages)
 
 
 @pytest.mark.integration
