@@ -34,7 +34,12 @@ export const initializeMockDJClient = () => {
           },
         ];
       },
-      metrics: {},
+      metrics: jest
+        .fn()
+        .mockReturnValue([
+          'default.num_repair_orders',
+          'default.some_other_metric',
+        ]),
       getNodeForEditing: jest.fn(),
       namespaces: () => {
         return [
