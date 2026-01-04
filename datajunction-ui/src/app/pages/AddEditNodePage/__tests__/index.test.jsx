@@ -268,4 +268,53 @@ describe('AddEditNodePage', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('Create metric page renders correctly', async () => {
+    const mockDjClient = initializeMockDJClient();
+    const element = testElement(mockDjClient);
+    renderCreateMetric(element);
+
+    await waitFor(() => {
+      // Should be a create metric page
+      expect(screen.getByText('Create')).toBeInTheDocument();
+
+      // The metric form should show the derived metric expression label
+      // (when no upstream is selected, we're in derived metric mode)
+      expect(
+        screen.getByText('Derived Metric Expression *'),
+      ).toBeInTheDocument();
+
+      // The help text for derived metrics should be visible
+      expect(
+        screen.getByText(/Reference other metrics using their full names/),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('Metric page handles error loading metrics gracefully', async () => {
+    const mockDjClient = initializeMockDJClient();
+    // Make metrics() throw an error
+    mockDjClient.DataJunctionAPI.metrics.mockRejectedValue(
+      new Error('Network error'),
+    );
+
+    const consoleSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const element = testElement(mockDjClient);
+    renderCreateMetric(element);
+
+    await waitFor(() => {
+      // The page should still render despite the error
+      expect(screen.getByText('Create')).toBeInTheDocument();
+      // The error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to load metrics for autocomplete:',
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
 });
