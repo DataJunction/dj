@@ -15,9 +15,12 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
+    get_common_dimensions,
     get_dimensions,
     get_downstream_nodes,
+    get_metric_parents_map,
     get_nodes_with_common_dimensions,
+    get_shared_dimensions,
     topological_sort,
     get_dimension_dag_indegree,
 )
@@ -1178,3 +1181,1161 @@ class TestGetNodesWithCommonDimensions:
 
         # dim_c is after dim_b in the chain, so shouldn't be found
         assert "default.dim_c" not in result_names
+
+
+@pytest.mark.asyncio
+class TestGetMetricParentsMap:
+    """
+    Tests for ``get_metric_parents_map``.
+    """
+
+    @pytest.fixture
+    async def metric_parents_test_graph(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        Creates a test graph with metrics and their parent nodes.
+
+        Graph structure:
+        - source1 (SOURCE) <- metric1 (regular metric with single parent)
+        - source2, source3 (SOURCE) <- metric2 (regular metric with multiple parents)
+        - source4 (SOURCE) <- base_metric (base metric)
+        - base_metric <- derived_metric1 (derived metric referencing a base metric)
+        - base_metric <- derived_metric2 (another derived metric referencing the same base)
+        - source5, source6 (SOURCE) <- base_metric2 (base metric with multiple parents)
+        - base_metric2 <- derived_metric3 (derived metric with multi-parent base)
+        """
+        # Create source nodes
+        source1 = Node(
+            name="default.source1",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source1_rev = NodeRevision(
+            node=source1,
+            type=source1.type,
+            name=source1.name,
+            version="1",
+            display_name="Source 1",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="value", type=IntegerType(), order=1),
+            ],
+        )
+        source1.current = source1_rev
+
+        source2 = Node(
+            name="default.source2",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source2_rev = NodeRevision(
+            node=source2,
+            type=source2.type,
+            name=source2.name,
+            version="1",
+            display_name="Source 2",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="amount", type=IntegerType(), order=1),
+            ],
+        )
+        source2.current = source2_rev
+
+        source3 = Node(
+            name="default.source3",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source3_rev = NodeRevision(
+            node=source3,
+            type=source3.type,
+            name=source3.name,
+            version="1",
+            display_name="Source 3",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="count", type=IntegerType(), order=1),
+            ],
+        )
+        source3.current = source3_rev
+
+        source4 = Node(
+            name="default.source4",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source4_rev = NodeRevision(
+            node=source4,
+            type=source4.type,
+            name=source4.name,
+            version="1",
+            display_name="Source 4",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="metric_value", type=IntegerType(), order=1),
+            ],
+        )
+        source4.current = source4_rev
+
+        source5 = Node(
+            name="default.source5",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source5_rev = NodeRevision(
+            node=source5,
+            type=source5.type,
+            name=source5.name,
+            version="1",
+            display_name="Source 5",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="data", type=IntegerType(), order=1),
+            ],
+        )
+        source5.current = source5_rev
+
+        source6 = Node(
+            name="default.source6",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        source6_rev = NodeRevision(
+            node=source6,
+            type=source6.type,
+            name=source6.name,
+            version="1",
+            display_name="Source 6",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="info", type=IntegerType(), order=1),
+            ],
+        )
+        source6.current = source6_rev
+
+        session.add_all(
+            [
+                source1,
+                source1_rev,
+                source2,
+                source2_rev,
+                source3,
+                source3_rev,
+                source4,
+                source4_rev,
+                source5,
+                source5_rev,
+                source6,
+                source6_rev,
+            ],
+        )
+        await session.flush()
+
+        # Create metric1: single source parent
+        metric1 = Node(
+            name="default.metric1",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        metric1_rev = NodeRevision(
+            node=metric1,
+            type=metric1.type,
+            name=metric1.name,
+            version="1",
+            display_name="Metric 1",
+            query="SELECT SUM(value) FROM default.source1",
+            parents=[source1],
+            created_by_id=current_user.id,
+            columns=[Column(name="total", type=IntegerType(), order=0)],
+        )
+        metric1.current = metric1_rev
+
+        # Create metric2: multiple source parents
+        metric2 = Node(
+            name="default.metric2",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        metric2_rev = NodeRevision(
+            node=metric2,
+            type=metric2.type,
+            name=metric2.name,
+            version="1",
+            display_name="Metric 2",
+            query="SELECT SUM(amount) + SUM(count) FROM default.source2, default.source3",
+            parents=[source2, source3],
+            created_by_id=current_user.id,
+            columns=[Column(name="combined", type=IntegerType(), order=0)],
+        )
+        metric2.current = metric2_rev
+
+        # Create base_metric: used by derived metrics
+        base_metric = Node(
+            name="default.base_metric",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        base_metric_rev = NodeRevision(
+            node=base_metric,
+            type=base_metric.type,
+            name=base_metric.name,
+            version="1",
+            display_name="Base Metric",
+            query="SELECT SUM(metric_value) FROM default.source4",
+            parents=[source4],
+            created_by_id=current_user.id,
+            columns=[Column(name="base_total", type=IntegerType(), order=0)],
+        )
+        base_metric.current = base_metric_rev
+
+        # Create derived_metric1: references base_metric
+        derived_metric1 = Node(
+            name="default.derived_metric1",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        derived_metric1_rev = NodeRevision(
+            node=derived_metric1,
+            type=derived_metric1.type,
+            name=derived_metric1.name,
+            version="1",
+            display_name="Derived Metric 1",
+            query="SELECT default.base_metric * 2",
+            parents=[base_metric],
+            created_by_id=current_user.id,
+            columns=[Column(name="doubled", type=IntegerType(), order=0)],
+        )
+        derived_metric1.current = derived_metric1_rev
+
+        # Create derived_metric2: also references base_metric
+        derived_metric2 = Node(
+            name="default.derived_metric2",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        derived_metric2_rev = NodeRevision(
+            node=derived_metric2,
+            type=derived_metric2.type,
+            name=derived_metric2.name,
+            version="1",
+            display_name="Derived Metric 2",
+            query="SELECT default.base_metric / 100",
+            parents=[base_metric],
+            created_by_id=current_user.id,
+            columns=[Column(name="percentage", type=IntegerType(), order=0)],
+        )
+        derived_metric2.current = derived_metric2_rev
+
+        # Create base_metric2: has multiple parents
+        base_metric2 = Node(
+            name="default.base_metric2",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        base_metric2_rev = NodeRevision(
+            node=base_metric2,
+            type=base_metric2.type,
+            name=base_metric2.name,
+            version="1",
+            display_name="Base Metric 2",
+            query="SELECT SUM(data) + SUM(info) FROM default.source5, default.source6",
+            parents=[source5, source6],
+            created_by_id=current_user.id,
+            columns=[Column(name="multi_base", type=IntegerType(), order=0)],
+        )
+        base_metric2.current = base_metric2_rev
+
+        # Create derived_metric3: references base_metric2 (which has multiple parents)
+        derived_metric3 = Node(
+            name="default.derived_metric3",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        derived_metric3_rev = NodeRevision(
+            node=derived_metric3,
+            type=derived_metric3.type,
+            name=derived_metric3.name,
+            version="1",
+            display_name="Derived Metric 3",
+            query="SELECT default.base_metric2 * 10",
+            parents=[base_metric2],
+            created_by_id=current_user.id,
+            columns=[Column(name="scaled", type=IntegerType(), order=0)],
+        )
+        derived_metric3.current = derived_metric3_rev
+
+        session.add_all(
+            [
+                metric1,
+                metric1_rev,
+                metric2,
+                metric2_rev,
+                base_metric,
+                base_metric_rev,
+                derived_metric1,
+                derived_metric1_rev,
+                derived_metric2,
+                derived_metric2_rev,
+                base_metric2,
+                base_metric2_rev,
+                derived_metric3,
+                derived_metric3_rev,
+            ],
+        )
+        await session.commit()
+
+        return {
+            "source1": source1,
+            "source2": source2,
+            "source3": source3,
+            "source4": source4,
+            "source5": source5,
+            "source6": source6,
+            "metric1": metric1,
+            "metric2": metric2,
+            "base_metric": base_metric,
+            "derived_metric1": derived_metric1,
+            "derived_metric2": derived_metric2,
+            "base_metric2": base_metric2,
+            "derived_metric3": derived_metric3,
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_input(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test that an empty input list returns an empty dict.
+        """
+        result = await get_metric_parents_map(session, [])
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_single_metric_single_parent(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test a metric with a single non-metric parent.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(session, [graph["metric1"]])
+
+        assert "default.metric1" in result
+        parent_names = {p.name for p in result["default.metric1"]}
+        assert parent_names == {"default.source1"}
+
+    @pytest.mark.asyncio
+    async def test_single_metric_multiple_parents(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test a metric with multiple non-metric parents.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(session, [graph["metric2"]])
+
+        assert "default.metric2" in result
+        parent_names = {p.name for p in result["default.metric2"]}
+        assert parent_names == {"default.source2", "default.source3"}
+
+    @pytest.mark.asyncio
+    async def test_multiple_regular_metrics(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test multiple regular metrics (each with non-metric parents).
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(
+            session,
+            [graph["metric1"], graph["metric2"]],
+        )
+
+        assert len(result) == 2
+
+        metric1_parents = {p.name for p in result["default.metric1"]}
+        assert metric1_parents == {"default.source1"}
+
+        metric2_parents = {p.name for p in result["default.metric2"]}
+        assert metric2_parents == {"default.source2", "default.source3"}
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_single_parent_base(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test a derived metric that references a base metric with a single parent.
+        Should return the base metric's non-metric parent.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(session, [graph["derived_metric1"]])
+
+        assert "default.derived_metric1" in result
+        parent_names = {p.name for p in result["default.derived_metric1"]}
+        # derived_metric1 -> base_metric -> source4
+        assert parent_names == {"default.source4"}
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_multiple_parent_base(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test a derived metric that references a base metric with multiple parents.
+        Should return all of the base metric's non-metric parents.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(session, [graph["derived_metric3"]])
+
+        assert "default.derived_metric3" in result
+        parent_names = {p.name for p in result["default.derived_metric3"]}
+        # derived_metric3 -> base_metric2 -> source5, source6
+        assert parent_names == {"default.source5", "default.source6"}
+
+    @pytest.mark.asyncio
+    async def test_multiple_derived_metrics_same_base(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test multiple derived metrics that reference the same base metric.
+        Both should get the same base metric's parents.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(
+            session,
+            [graph["derived_metric1"], graph["derived_metric2"]],
+        )
+
+        assert len(result) == 2
+
+        # Both derived metrics reference base_metric, which has source4 as parent
+        dm1_parents = {p.name for p in result["default.derived_metric1"]}
+        dm2_parents = {p.name for p in result["default.derived_metric2"]}
+
+        assert dm1_parents == {"default.source4"}
+        assert dm2_parents == {"default.source4"}
+
+    @pytest.mark.asyncio
+    async def test_mix_of_regular_and_derived_metrics(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test a mix of regular and derived metrics.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(
+            session,
+            [graph["metric1"], graph["derived_metric1"], graph["derived_metric3"]],
+        )
+
+        assert len(result) == 3
+
+        # metric1 -> source1
+        metric1_parents = {p.name for p in result["default.metric1"]}
+        assert metric1_parents == {"default.source1"}
+
+        # derived_metric1 -> base_metric -> source4
+        dm1_parents = {p.name for p in result["default.derived_metric1"]}
+        assert dm1_parents == {"default.source4"}
+
+        # derived_metric3 -> base_metric2 -> source5, source6
+        dm3_parents = {p.name for p in result["default.derived_metric3"]}
+        assert dm3_parents == {"default.source5", "default.source6"}
+
+    @pytest.mark.asyncio
+    async def test_base_metric_directly(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test querying a base metric directly (not as a derived metric).
+        Should return its direct non-metric parents.
+        """
+        graph = metric_parents_test_graph
+        result = await get_metric_parents_map(session, [graph["base_metric"]])
+
+        assert "default.base_metric" in result
+        parent_names = {p.name for p in result["default.base_metric"]}
+        assert parent_names == {"default.source4"}
+
+    @pytest.mark.asyncio
+    async def test_all_metrics(
+        self,
+        session: AsyncSession,
+        metric_parents_test_graph,
+    ):
+        """
+        Test querying all metrics at once.
+        """
+        graph = metric_parents_test_graph
+        all_metrics = [
+            graph["metric1"],
+            graph["metric2"],
+            graph["base_metric"],
+            graph["derived_metric1"],
+            graph["derived_metric2"],
+            graph["base_metric2"],
+            graph["derived_metric3"],
+        ]
+        result = await get_metric_parents_map(session, all_metrics)
+
+        assert len(result) == 7
+
+        # Verify each metric's parents
+        assert {p.name for p in result["default.metric1"]} == {"default.source1"}
+        assert {p.name for p in result["default.metric2"]} == {
+            "default.source2",
+            "default.source3",
+        }
+        assert {p.name for p in result["default.base_metric"]} == {"default.source4"}
+        assert {p.name for p in result["default.derived_metric1"]} == {
+            "default.source4",
+        }
+        assert {p.name for p in result["default.derived_metric2"]} == {
+            "default.source4",
+        }
+        assert {p.name for p in result["default.base_metric2"]} == {
+            "default.source5",
+            "default.source6",
+        }
+        assert {p.name for p in result["default.derived_metric3"]} == {
+            "default.source5",
+            "default.source6",
+        }
+
+
+class TestGetSharedDimensions:
+    """
+    Tests for ``get_shared_dimensions`` with derived metrics.
+
+    This test class creates a graph with dimension links to properly test
+    how shared dimensions are computed for derived metrics.
+    """
+
+    @pytest.fixture
+    async def shared_dims_test_graph(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        Creates a test graph with metrics, dimensions, and dimension links.
+
+        Graph structure:
+        Dimensions:
+        - dim_date (DIMENSION): id, day, week, month
+        - dim_customer (DIMENSION): id, name, region
+        - dim_warehouse (DIMENSION): id, location (NO overlap with date/customer)
+
+        Sources with dimension links:
+        - orders_source (SOURCE): id, amount, date_id->dim_date, customer_id->dim_customer
+        - events_source (SOURCE): id, count, date_id->dim_date, customer_id->dim_customer
+        - inventory_source (SOURCE): id, quantity, warehouse_id->dim_warehouse (different dims!)
+
+        Metrics:
+        - revenue (METRIC): SUM(amount) FROM orders_source
+        - orders_count (METRIC): COUNT(*) FROM orders_source
+        - page_views (METRIC): SUM(count) FROM events_source
+        - inventory_total (METRIC): SUM(quantity) FROM inventory_source
+
+        Derived Metrics:
+        - revenue_per_order: revenue / orders_count (same source - full dim intersection)
+        - revenue_per_pageview: revenue / page_views (cross-source with shared dims)
+        - derived_from_inventory: inventory_total * 2 (different dims than orders/events)
+        """
+        # Create dimension nodes
+        dim_date = Node(
+            name="shared_dims.dim_date",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_date_rev = NodeRevision(
+            node=dim_date,
+            type=dim_date.type,
+            name=dim_date.name,
+            version="1",
+            display_name="Date Dimension",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="day", type=StringType(), order=1),
+                Column(name="week", type=StringType(), order=2),
+                Column(name="month", type=StringType(), order=3),
+            ],
+        )
+        dim_date.current = dim_date_rev
+
+        dim_customer = Node(
+            name="shared_dims.dim_customer",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_customer_rev = NodeRevision(
+            node=dim_customer,
+            type=dim_customer.type,
+            name=dim_customer.name,
+            version="1",
+            display_name="Customer Dimension",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="name", type=StringType(), order=1),
+                Column(name="region", type=StringType(), order=2),
+            ],
+        )
+        dim_customer.current = dim_customer_rev
+
+        dim_warehouse = Node(
+            name="shared_dims.dim_warehouse",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim_warehouse_rev = NodeRevision(
+            node=dim_warehouse,
+            type=dim_warehouse.type,
+            name=dim_warehouse.name,
+            version="1",
+            display_name="Warehouse Dimension",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="location", type=StringType(), order=1),
+            ],
+        )
+        dim_warehouse.current = dim_warehouse_rev
+
+        session.add_all(
+            [
+                dim_date,
+                dim_date_rev,
+                dim_customer,
+                dim_customer_rev,
+                dim_warehouse,
+                dim_warehouse_rev,
+            ],
+        )
+        await session.flush()
+
+        # Create source nodes with dimension links
+        orders_source = Node(
+            name="shared_dims.orders_source",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        orders_source_rev = NodeRevision(
+            node=orders_source,
+            type=orders_source.type,
+            name=orders_source.name,
+            version="1",
+            display_name="Orders Source",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="amount", type=IntegerType(), order=1),
+                Column(name="date_id", type=IntegerType(), dimension=dim_date, order=2),
+                Column(
+                    name="customer_id",
+                    type=IntegerType(),
+                    dimension=dim_customer,
+                    order=3,
+                ),
+            ],
+        )
+        orders_source.current = orders_source_rev
+
+        events_source = Node(
+            name="shared_dims.events_source",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        events_source_rev = NodeRevision(
+            node=events_source,
+            type=events_source.type,
+            name=events_source.name,
+            version="1",
+            display_name="Events Source",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="count", type=IntegerType(), order=1),
+                Column(name="date_id", type=IntegerType(), dimension=dim_date, order=2),
+                Column(
+                    name="customer_id",
+                    type=IntegerType(),
+                    dimension=dim_customer,
+                    order=3,
+                ),
+            ],
+        )
+        events_source.current = events_source_rev
+
+        inventory_source = Node(
+            name="shared_dims.inventory_source",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        inventory_source_rev = NodeRevision(
+            node=inventory_source,
+            type=inventory_source.type,
+            name=inventory_source.name,
+            version="1",
+            display_name="Inventory Source",
+            created_by_id=current_user.id,
+            columns=[
+                Column(name="id", type=IntegerType(), order=0),
+                Column(name="quantity", type=IntegerType(), order=1),
+                Column(
+                    name="warehouse_id",
+                    type=IntegerType(),
+                    dimension=dim_warehouse,
+                    order=2,
+                ),
+            ],
+        )
+        inventory_source.current = inventory_source_rev
+
+        session.add_all(
+            [
+                orders_source,
+                orders_source_rev,
+                events_source,
+                events_source_rev,
+                inventory_source,
+                inventory_source_rev,
+            ],
+        )
+        await session.flush()
+
+        # Create base metrics
+        revenue = Node(
+            name="shared_dims.revenue",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        revenue_rev = NodeRevision(
+            node=revenue,
+            type=revenue.type,
+            name=revenue.name,
+            version="1",
+            display_name="Revenue",
+            query="SELECT SUM(amount) FROM shared_dims.orders_source",
+            parents=[orders_source],
+            created_by_id=current_user.id,
+            columns=[Column(name="total_revenue", type=IntegerType(), order=0)],
+        )
+        revenue.current = revenue_rev
+
+        orders_count = Node(
+            name="shared_dims.orders_count",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        orders_count_rev = NodeRevision(
+            node=orders_count,
+            type=orders_count.type,
+            name=orders_count.name,
+            version="1",
+            display_name="Orders Count",
+            query="SELECT COUNT(*) FROM shared_dims.orders_source",
+            parents=[orders_source],
+            created_by_id=current_user.id,
+            columns=[Column(name="order_count", type=IntegerType(), order=0)],
+        )
+        orders_count.current = orders_count_rev
+
+        page_views = Node(
+            name="shared_dims.page_views",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        page_views_rev = NodeRevision(
+            node=page_views,
+            type=page_views.type,
+            name=page_views.name,
+            version="1",
+            display_name="Page Views",
+            query="SELECT SUM(count) FROM shared_dims.events_source",
+            parents=[events_source],
+            created_by_id=current_user.id,
+            columns=[Column(name="total_views", type=IntegerType(), order=0)],
+        )
+        page_views.current = page_views_rev
+
+        inventory_total = Node(
+            name="shared_dims.inventory_total",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        inventory_total_rev = NodeRevision(
+            node=inventory_total,
+            type=inventory_total.type,
+            name=inventory_total.name,
+            version="1",
+            display_name="Inventory Total",
+            query="SELECT SUM(quantity) FROM shared_dims.inventory_source",
+            parents=[inventory_source],
+            created_by_id=current_user.id,
+            columns=[Column(name="total_inventory", type=IntegerType(), order=0)],
+        )
+        inventory_total.current = inventory_total_rev
+
+        session.add_all(
+            [
+                revenue,
+                revenue_rev,
+                orders_count,
+                orders_count_rev,
+                page_views,
+                page_views_rev,
+                inventory_total,
+                inventory_total_rev,
+            ],
+        )
+        await session.flush()
+
+        # Create derived metrics
+        revenue_per_order = Node(
+            name="shared_dims.revenue_per_order",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        revenue_per_order_rev = NodeRevision(
+            node=revenue_per_order,
+            type=revenue_per_order.type,
+            name=revenue_per_order.name,
+            version="1",
+            display_name="Revenue Per Order",
+            query="SELECT shared_dims.revenue / shared_dims.orders_count",
+            parents=[revenue, orders_count],
+            created_by_id=current_user.id,
+            columns=[Column(name="avg_revenue", type=IntegerType(), order=0)],
+        )
+        revenue_per_order.current = revenue_per_order_rev
+
+        revenue_per_pageview = Node(
+            name="shared_dims.revenue_per_pageview",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        revenue_per_pageview_rev = NodeRevision(
+            node=revenue_per_pageview,
+            type=revenue_per_pageview.type,
+            name=revenue_per_pageview.name,
+            version="1",
+            display_name="Revenue Per Pageview",
+            query="SELECT shared_dims.revenue / shared_dims.page_views",
+            parents=[revenue, page_views],
+            created_by_id=current_user.id,
+            columns=[Column(name="revenue_per_view", type=IntegerType(), order=0)],
+        )
+        revenue_per_pageview.current = revenue_per_pageview_rev
+
+        derived_from_inventory = Node(
+            name="shared_dims.derived_inventory",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        derived_from_inventory_rev = NodeRevision(
+            node=derived_from_inventory,
+            type=derived_from_inventory.type,
+            name=derived_from_inventory.name,
+            version="1",
+            display_name="Derived Inventory",
+            query="SELECT shared_dims.inventory_total * 2",
+            parents=[inventory_total],
+            created_by_id=current_user.id,
+            columns=[Column(name="doubled_inventory", type=IntegerType(), order=0)],
+        )
+        derived_from_inventory.current = derived_from_inventory_rev
+
+        session.add_all(
+            [
+                revenue_per_order,
+                revenue_per_order_rev,
+                revenue_per_pageview,
+                revenue_per_pageview_rev,
+                derived_from_inventory,
+                derived_from_inventory_rev,
+            ],
+        )
+        await session.flush()
+
+        return {
+            "dim_date": dim_date,
+            "dim_customer": dim_customer,
+            "dim_warehouse": dim_warehouse,
+            "orders_source": orders_source,
+            "events_source": events_source,
+            "inventory_source": inventory_source,
+            "revenue": revenue,
+            "orders_count": orders_count,
+            "page_views": page_views,
+            "inventory_total": inventory_total,
+            "revenue_per_order": revenue_per_order,
+            "revenue_per_pageview": revenue_per_pageview,
+            "derived_inventory": derived_from_inventory,
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_input(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that an empty list of metrics returns an empty list.
+        """
+        result = await get_shared_dimensions(session, [])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_single_base_metric_returns_all_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that a single base metric returns all its dimensions.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(session, [graph["revenue"]])
+
+        dim_names = {d.name for d in result}
+        # revenue comes from orders_source which has date and customer dimensions
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_date.day" in dim_names
+        assert "shared_dims.dim_date.week" in dim_names
+        assert "shared_dims.dim_date.month" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+        assert "shared_dims.dim_customer.name" in dim_names
+        assert "shared_dims.dim_customer.region" in dim_names
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_same_source_inherits_all_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that a derived metric from same-source base metrics has all dimensions.
+        revenue_per_order = revenue / orders_count, both from orders_source.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(session, [graph["revenue_per_order"]])
+
+        dim_names = {d.name for d in result}
+        # Both base metrics come from orders_source -> date + customer dims
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_cross_source_with_shared_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that a derived metric from different sources with shared dims
+        returns the intersection.
+        revenue_per_pageview = revenue (orders) / page_views (events).
+        Both sources share date and customer dimensions.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(session, [graph["revenue_per_pageview"]])
+
+        dim_names = {d.name for d in result}
+        # Both orders and events sources have date and customer dims
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+        # Warehouse should NOT be present (only inventory has it)
+        assert "shared_dims.dim_warehouse.id" not in dim_names
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_with_no_shared_dimensions_with_other_metric(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that querying metrics with no shared dimensions returns empty list.
+        revenue (date + customer) vs derived_inventory (warehouse only)
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(
+            session,
+            [graph["revenue"], graph["derived_inventory"]],
+        )
+
+        # No shared dimensions between orders-based and inventory-based metrics
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_metrics_from_same_source(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that multiple metrics from the same source share all dimensions.
+        revenue and orders_count both come from orders_source.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(
+            session,
+            [graph["revenue"], graph["orders_count"]],
+        )
+
+        dim_names = {d.name for d in result}
+        # Both from orders_source -> should have all date + customer dims
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_date.day" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+        assert "shared_dims.dim_customer.name" in dim_names
+
+    @pytest.mark.asyncio
+    async def test_multiple_metrics_from_different_sources_with_overlap(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that multiple metrics from different sources return intersection.
+        revenue (orders) and page_views (events) share date + customer.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(
+            session,
+            [graph["revenue"], graph["page_views"]],
+        )
+
+        dim_names = {d.name for d in result}
+        # Intersection of orders and events dimensions
+        assert "shared_dims.dim_date.id" in dim_names
+        assert "shared_dims.dim_customer.id" in dim_names
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_inherits_union_of_base_metric_dimensions(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that a single derived metric's dimensions are the union of its
+        base metrics' dimensions (which happens to be intersection for same dims).
+
+        revenue_per_pageview has parents: revenue (orders) and page_views (events).
+        Both share date and customer dimensions.
+        """
+        graph = shared_dims_test_graph
+
+        # Get dims for derived metric alone
+        derived_dims = await get_shared_dimensions(
+            session,
+            [graph["revenue_per_pageview"]],
+        )
+
+        # Get dims for each base metric
+        revenue_dims = await get_shared_dimensions(session, [graph["revenue"]])
+        pageviews_dims = await get_shared_dimensions(session, [graph["page_views"]])
+
+        derived_dim_names = {d.name for d in derived_dims}
+        revenue_dim_names = {d.name for d in revenue_dims}
+        pageviews_dim_names = {d.name for d in pageviews_dims}
+
+        # Derived metric should have union of its base metrics' dimensions
+        # Since both have the same dims, the union equals each individual set
+        assert derived_dim_names == revenue_dim_names
+        assert derived_dim_names == pageviews_dim_names
+
+    @pytest.mark.asyncio
+    async def test_inventory_metric_has_only_warehouse_dimension(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that inventory-based metric only has warehouse dimension.
+        """
+        graph = shared_dims_test_graph
+        result = await get_shared_dimensions(session, [graph["inventory_total"]])
+
+        dim_names = {d.name for d in result}
+        # Only warehouse dimension
+        assert "shared_dims.dim_warehouse.id" in dim_names
+        assert "shared_dims.dim_warehouse.location" in dim_names
+        # No date or customer
+        assert "shared_dims.dim_date.id" not in dim_names
+        assert "shared_dims.dim_customer.id" not in dim_names
+
+    @pytest.mark.asyncio
+    async def test_get_common_dimensions_no_overlap_returns_empty(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that get_common_dimensions returns empty list when nodes
+        have no overlapping dimensions during iteration.
+
+        orders_source has date + customer dimensions.
+        inventory_source has warehouse dimension (no overlap).
+        """
+        graph = shared_dims_test_graph
+        result = await get_common_dimensions(
+            session,
+            [graph["orders_source"], graph["inventory_source"]],
+        )
+
+        # No common dimensions between orders (date/customer) and inventory (warehouse)
+        assert result == []

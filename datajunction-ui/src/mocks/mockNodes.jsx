@@ -362,6 +362,42 @@ export const mocks = {
     owners: [{ username: 'dj' }],
   },
 
+  // Derived metric - parent is another metric (no FROM clause in query)
+  mockGetDerivedMetricNode: {
+    name: 'default.revenue_per_order',
+    type: 'METRIC',
+    current: {
+      displayName: 'Default: Revenue Per Order',
+      description: 'Average revenue per order (derived metric)',
+      primaryKey: [],
+      query: 'SELECT default.total_revenue / default.num_orders',
+      parents: [
+        {
+          name: 'default.total_revenue',
+          type: 'METRIC',
+        },
+        {
+          name: 'default.num_orders',
+          type: 'METRIC',
+        },
+      ],
+      metricMetadata: {
+        direction: 'HIGHER_IS_BETTER',
+        unit: {
+          name: 'DOLLAR',
+        },
+        expression: null, // Derived metrics don't have a simple expression
+        significantDigits: 2,
+        incompatibleDruidFunctions: [],
+      },
+      requiredDimensions: [],
+      mode: 'PUBLISHED',
+      customMetadata: null,
+    },
+    tags: [],
+    owners: [{ username: 'dj' }],
+  },
+
   attributes: [
     {
       uniqueness_scope: [],
