@@ -15,6 +15,7 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
+    get_common_dimensions,
     get_dimensions,
     get_downstream_nodes,
     get_metric_parents_map,
@@ -2316,3 +2317,25 @@ class TestGetSharedDimensions:
         # No date or customer
         assert "shared_dims.dim_date.id" not in dim_names
         assert "shared_dims.dim_customer.id" not in dim_names
+
+    @pytest.mark.asyncio
+    async def test_get_common_dimensions_no_overlap_returns_empty(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Test that get_common_dimensions returns empty list when nodes
+        have no overlapping dimensions during iteration.
+
+        orders_source has date + customer dimensions.
+        inventory_source has warehouse dimension (no overlap).
+        """
+        graph = shared_dims_test_graph
+        result = await get_common_dimensions(
+            session,
+            [graph["orders_source"], graph["inventory_source"]],
+        )
+
+        # No common dimensions between orders (date/customer) and inventory (warehouse)
+        assert result == []
