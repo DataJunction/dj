@@ -85,45 +85,21 @@ async def test_list_dialects(
     response = await module__client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data == {
-        "data": {
-            "listDialects": [
-                {
-                    "name": "spark",
-                    "pluginClass": "SQLTranspilationPlugin",
-                },
-                {
-                    "name": "trino",
-                    "pluginClass": "SQLTranspilationPlugin",
-                },
-                {
-                    "name": "sqlite",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-                {
-                    "name": "snowflake",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-                {
-                    "name": "redshift",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-                {
-                    "name": "postgres",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-                {
-                    "name": "duckdb",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-                {
-                    "name": "druid",
-                    "pluginClass": "SQLTranspilationPlugin",
-                },
-                {
-                    "name": "clickhouse",
-                    "pluginClass": "SQLGlotTranspilationPlugin",
-                },
-            ],
-        },
-    }
+
+    # Check that all expected dialects are present (other tests may register additional ones)
+    expected_dialects = [
+        {"name": "spark", "pluginClass": "SQLTranspilationPlugin"},
+        {"name": "trino", "pluginClass": "SQLTranspilationPlugin"},
+        {"name": "sqlite", "pluginClass": "SQLGlotTranspilationPlugin"},
+        {"name": "snowflake", "pluginClass": "SQLGlotTranspilationPlugin"},
+        {"name": "redshift", "pluginClass": "SQLGlotTranspilationPlugin"},
+        {"name": "postgres", "pluginClass": "SQLGlotTranspilationPlugin"},
+        {"name": "duckdb", "pluginClass": "SQLGlotTranspilationPlugin"},
+        {"name": "druid", "pluginClass": "SQLTranspilationPlugin"},
+        {"name": "clickhouse", "pluginClass": "SQLGlotTranspilationPlugin"},
+    ]
+    actual_dialects = data["data"]["listDialects"]
+    for expected in expected_dialects:
+        assert expected in actual_dialects, (
+            f"Expected dialect {expected['name']} not found"
+        )
