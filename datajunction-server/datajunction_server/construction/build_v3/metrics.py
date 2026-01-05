@@ -15,6 +15,7 @@ from typing import Any, Optional
 from datajunction_server.construction.build_v3.cte import (
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
+    replace_metric_refs_in_ast,
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -343,6 +344,8 @@ def generate_metrics_sql(
         all_grain_group_metrics.update(gg.metrics)
 
     # Build expressions for all metrics
+    # Also track metric -> (cte_alias, column_name) for derived metric resolution
+    metric_column_refs: dict[str, tuple[str, str]] = {}
 
     # Process base metrics from each grain group
     for i, gg in enumerate(grain_groups):
@@ -360,6 +363,7 @@ def generate_metrics_sql(
                 )
                 expr_ast: ast.Expression = make_column_ref(col_name, alias)
                 metric_expr_asts[metric_name] = (expr_ast, short_name)
+                metric_column_refs[metric_name] = (alias, col_name)
                 continue
 
             # Build expression using unified function (handles merged + non-merged)
@@ -372,6 +376,8 @@ def generate_metrics_sql(
             component_columns.update(comp_mappings)
             replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
             metric_expr_asts[metric_name] = (expr_ast, short_name)
+            # Track the metric's output column for derived metric resolution
+            metric_column_refs[metric_name] = (alias, short_name)
 
     # Process derived metrics (not in any grain group)
     for metric_name in ctx.metrics:
@@ -384,6 +390,9 @@ def generate_metrics_sql(
 
         short_name = metric_name.split(SEPARATOR)[-1]
         expr_ast = deepcopy(decomposed.combiner_ast)
+        # Replace metric name references (e.g., v3.total_revenue -> cte.total_revenue)
+        replace_metric_refs_in_ast(expr_ast, metric_column_refs)
+        # Also try component refs (for backward compatibility)
         replace_component_refs_in_ast(expr_ast, component_columns)
         replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
         metric_expr_asts[metric_name] = (expr_ast, short_name)
@@ -412,6 +421,16 @@ def generate_metrics_sql(
 
     # Build FROM clause with JOINs as AST
     dim_col_aliases = [col_alias for _, col_alias in dim_info]
+
+    # Validate: cross-fact metrics require at least one shared dimension to join on
+    # Without shared dimensions, the join would be a CROSS JOIN which produces
+    # semantically meaningless results (dividing unrelated populations)
+    if len(cte_aliases) > 1 and not dim_col_aliases:
+        parent_names = [gg.parent_name for gg in grain_groups]
+        raise DJInvalidInputException(
+            f"Cross-fact metrics from different parent nodes ({', '.join(parent_names)}) "
+            f"require at least one shared dimension to join on. ",
+        )
 
     # Build JOIN extensions for the Relation
     join_extensions: list[ast.Join] = []
