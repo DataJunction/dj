@@ -541,6 +541,38 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     run_backfill_result = client.run_backfill("node", "v1", NodeType.SOURCE, "mat", [])
     assert run_backfill_result == mock_mat_result
 
+    # Test materialize_preagg
+    mock_preagg_result = {"workflow_url": "http://test/workflow", "status": "SCHEDULED"}
+    mock_client.materialize_preagg.return_value = mock_preagg_result
+    mock_preagg_input = mocker.MagicMock()
+    materialize_preagg_result = client.materialize_preagg(mock_preagg_input)
+    assert materialize_preagg_result == mock_preagg_result
+    mock_client.materialize_preagg.assert_called_once_with(
+        materialization_input=mock_preagg_input,
+        request_headers=None,
+    )
+
+    # Test deactivate_preagg_workflow
+    mock_deactivate_result = {"status": "DEACTIVATED"}
+    mock_client.deactivate_preagg_workflow.return_value = mock_deactivate_result
+    deactivate_preagg_result = client.deactivate_preagg_workflow(preagg_id=123)
+    assert deactivate_preagg_result == mock_deactivate_result
+    mock_client.deactivate_preagg_workflow.assert_called_once_with(
+        preagg_id=123,
+        request_headers=None,
+    )
+
+    # Test run_preagg_backfill
+    mock_backfill_result = {"job_url": "http://test/backfill/123"}
+    mock_client.run_preagg_backfill.return_value = mock_backfill_result
+    mock_backfill_input = mocker.MagicMock()
+    run_preagg_backfill_result = client.run_preagg_backfill(mock_backfill_input)
+    assert run_preagg_backfill_result == mock_backfill_result
+    mock_client.run_preagg_backfill.assert_called_once_with(
+        backfill_input=mock_backfill_input,
+        request_headers=None,
+    )
+
 
 def test_snowflake_client_initialization_with_mock(mocker: MockerFixture) -> None:
     """

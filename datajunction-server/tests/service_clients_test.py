@@ -839,3 +839,204 @@ class TestQueryServiceClient:
             urls=["http://fake.url/job"],
             output_tables=["common.a", "common.b"],
         )
+
+    def test_materialize_preagg(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize_preagg via query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "workflow_url": "http://fake.url/workflow/123",
+            "status": "SCHEDULED",
+            "output_tables": ["common.preagg_table"],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        # Create a mock materialization input
+        mock_input = MagicMock()
+        mock_input.preagg_id = 123
+        mock_input.output_table = "common.preagg_table"
+        mock_input.model_dump.return_value = {
+            "preagg_id": 123,
+            "output_table": "common.preagg_table",
+            "query": "SELECT * FROM test",
+            "schedule": "0 * * * *",
+        }
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.materialize_preagg(mock_input)
+
+        mock_request.assert_called_with(
+            "/preaggs/materialize",
+            json={
+                "preagg_id": 123,
+                "output_table": "common.preagg_table",
+                "query": "SELECT * FROM test",
+                "schedule": "0 * * * *",
+            },
+            headers=ANY,
+            timeout=30,
+        )
+        assert response == {
+            "workflow_url": "http://fake.url/workflow/123",
+            "status": "SCHEDULED",
+            "output_tables": ["common.preagg_table"],
+        }
+
+    def test_materialize_preagg_with_error(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize_preagg error handling.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal server error"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        mock_input = MagicMock()
+        mock_input.preagg_id = 123
+        mock_input.output_table = "common.preagg_table"
+        mock_input.model_dump.return_value = {"preagg_id": 123}
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(Exception) as exc_info:
+            query_service_client.materialize_preagg(mock_input)
+        assert "Query service error" in str(exc_info.value)
+
+    def test_deactivate_preagg_workflow(self, mocker: MockerFixture) -> None:
+        """
+        Test deactivate_preagg_workflow via query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"status": "DEACTIVATED"}'
+        mock_response.json.return_value = {"status": "DEACTIVATED"}
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.deactivate_preagg_workflow(preagg_id=123)
+
+        mock_request.assert_called_with(
+            "/preaggs/123/workflow",
+            headers=ANY,
+            timeout=20,
+        )
+        assert response == {"status": "DEACTIVATED"}
+
+    def test_deactivate_preagg_workflow_empty_response(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test deactivate_preagg_workflow with empty response body (204).
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 204
+        mock_response.text = ""
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.deactivate_preagg_workflow(preagg_id=456)
+
+        assert response == {}
+
+    def test_deactivate_preagg_workflow_with_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test deactivate_preagg_workflow error handling.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Workflow not found"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(Exception) as exc_info:
+            query_service_client.deactivate_preagg_workflow(preagg_id=999)
+        assert "Query service error" in str(exc_info.value)
+
+    def test_run_preagg_backfill(self, mocker: MockerFixture) -> None:
+        """
+        Test run_preagg_backfill via query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "job_url": "http://fake.url/job/backfill/123",
+            "status": "RUNNING",
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        mock_input = MagicMock()
+        mock_input.preagg_id = 123
+        mock_input.model_dump.return_value = {
+            "preagg_id": 123,
+            "partitions": [{"column_name": "date", "range": ["20230101", "20230201"]}],
+        }
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.run_preagg_backfill(mock_input)
+
+        mock_request.assert_called_with(
+            "/preaggs/backfill",
+            json={
+                "preagg_id": 123,
+                "partitions": [
+                    {"column_name": "date", "range": ["20230101", "20230201"]},
+                ],
+            },
+            headers=ANY,
+            timeout=30,
+        )
+        assert response == {
+            "job_url": "http://fake.url/job/backfill/123",
+            "status": "RUNNING",
+        }
+
+    def test_run_preagg_backfill_with_error(self, mocker: MockerFixture) -> None:
+        """
+        Test run_preagg_backfill error handling.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "Invalid partition range"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        mock_input = MagicMock()
+        mock_input.preagg_id = 123
+        mock_input.model_dump.return_value = {"preagg_id": 123}
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(Exception) as exc_info:
+            query_service_client.run_preagg_backfill(mock_input)
+        assert "Query service error" in str(exc_info.value)
