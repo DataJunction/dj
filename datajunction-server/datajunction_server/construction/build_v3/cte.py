@@ -7,12 +7,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Optional
 
-from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
 )
 from datajunction_server.construction.build_v3.types import BuildContext
+from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast

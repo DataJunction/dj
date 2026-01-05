@@ -904,3 +904,38 @@ class TestMetricsSQLCrossFact:
                 "type": "double",
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_cross_fact_metrics_without_shared_dimensions_raises_error(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that cross-fact metrics without shared dimensions raises an error.
+
+        When requesting metrics from different parent nodes (e.g., order_details
+        and page_views) without any dimensions, the system cannot join the results
+        because there are no shared columns. This would produce a CROSS JOIN which
+        is semantically meaningless.
+
+        This test covers metrics.py lines 428-434.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                # These metrics come from different parent nodes:
+                # - total_revenue: from v3.order_details
+                # - page_view_count: from v3.page_views_enriched
+                "metrics": ["v3.total_revenue", "v3.page_view_count"],
+                # No dimensions means no columns to join on
+                "dimensions": [],
+            },
+        )
+
+        # Should return an error because cross-fact requires shared dimensions
+        assert response.status_code == 422 or response.status_code == 400
+        error_detail = response.json()
+        assert (
+            "Cross-fact metrics" in str(error_detail)
+            or "shared dimension" in str(error_detail).lower()
+        )

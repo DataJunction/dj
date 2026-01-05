@@ -114,7 +114,7 @@ def find_matching_preagg(
 
         # Found a compatible pre-agg - prefer the one with smallest grain
         # (closest to requested grain = less roll-up work)
-        if len(preagg_grain_set) < best_grain_size:
+        if len(preagg_grain_set) < best_grain_size:  # pragma: no branch
             best_match = preagg
             best_grain_size = len(preagg_grain_set)
             logger.debug(

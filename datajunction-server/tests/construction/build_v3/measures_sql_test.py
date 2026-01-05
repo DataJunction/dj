@@ -2426,3 +2426,40 @@ class TestTemporalFilters:
             GROUP BY t1.status
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_temporal_filter_with_user_filter(
+        self,
+        session,
+        client_with_build_v3,
+        setup_temporal_partition,
+    ):
+        """
+        Test that temporal filter is combined with user filters.
+
+        The filter should be:
+        (order_date = CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)) AND (status = 'active')
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            filters=["status = 'active'"],
+            include_temporal_filters=True,
+        )
+
+        # Should have AND between temporal and user filters
+        assert_sql_equal(
+            result.grain_groups[0].sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            WHERE t1.status = 'active' AND t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.status
+            """,
+        )
