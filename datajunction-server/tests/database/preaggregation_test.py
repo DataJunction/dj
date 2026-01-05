@@ -364,8 +364,8 @@ class TestComputePreAggHash:
         assert hash1 == hash2
 
 
-@pytest_asyncio.fixture(scope="module")
-async def minimal_node_revision(module__session):
+@pytest_asyncio.fixture
+async def minimal_node_revision(session):
     """Create a minimal node revision for testing PreAggregation."""
     # Create user
     user = User(
@@ -373,8 +373,8 @@ async def minimal_node_revision(module__session):
         email="test_preagg@test.com",
         oauth_provider=OAuthProvider.BASIC,
     )
-    module__session.add(user)
-    await module__session.flush()
+    session.add(user)
+    await session.commit()
 
     # Create node
     node = Node(
@@ -383,8 +383,8 @@ async def minimal_node_revision(module__session):
         created_by_id=user.id,
         namespace="test.preagg",
     )
-    module__session.add(node)
-    await module__session.flush()
+    session.add(node)
+    await session.commit()
 
     # Create node revision
     node_revision = NodeRevision(
@@ -394,8 +394,8 @@ async def minimal_node_revision(module__session):
         created_by_id=user.id,
         version="v1.0",
     )
-    module__session.add(node_revision)
-    await module__session.flush()
+    session.add(node_revision)
+    await session.commit()
 
     return node_revision
 
@@ -406,7 +406,7 @@ class TestPreAggregationDBMethods:
 
     async def test_get_by_grain_group_hash(
         self,
-        module__session,
+        session,
         minimal_node_revision,
     ):
         """Test get_by_grain_group_hash returns matching pre-aggs."""
@@ -441,31 +441,31 @@ class TestPreAggregationDBMethods:
             grain_group_hash=other_hash,
         )
 
-        module__session.add_all([preagg1, preagg2, preagg3])
-        await module__session.flush()
+        session.add_all([preagg1, preagg2, preagg3])
+        await session.flush()
 
         # Should find exactly 2 with matching hash
         results = await PreAggregation.get_by_grain_group_hash(
-            module__session,
+            session,
             grain_hash,
         )
         assert len(results) == 2
 
         # Should find 1 with other hash
         results = await PreAggregation.get_by_grain_group_hash(
-            module__session,
+            session,
             other_hash,
         )
         assert len(results) == 1
 
         # Should find 0 with non-existent hash
         results = await PreAggregation.get_by_grain_group_hash(
-            module__session,
+            session,
             "nonexistent",
         )
         assert len(results) == 0
 
-    async def test_get_by_id(self, module__session, minimal_node_revision):
+    async def test_get_by_id(self, session, minimal_node_revision):
         """Test get_by_id returns pre-agg when found, None when not."""
         preagg = PreAggregation(
             node_revision_id=minimal_node_revision.id,
@@ -475,21 +475,21 @@ class TestPreAggregationDBMethods:
             sql="SELECT x FROM t",
             grain_group_hash="hash123",
         )
-        module__session.add(preagg)
-        await module__session.flush()
+        session.add(preagg)
+        await session.flush()
 
         # Found
-        result = await PreAggregation.get_by_id(module__session, preagg.id)
+        result = await PreAggregation.get_by_id(session, preagg.id)
         assert result is not None
         assert result.id == preagg.id
 
         # Not found
-        result = await PreAggregation.get_by_id(module__session, 999999)
+        result = await PreAggregation.get_by_id(session, 999999)
         assert result is None
 
     async def test_find_matching_with_superset(
         self,
-        module__session,
+        session,
         minimal_node_revision,
     ):
         """Test find_matching returns pre-agg with superset of measures."""
@@ -509,12 +509,12 @@ class TestPreAggregationDBMethods:
                 grain_columns,
             ),
         )
-        module__session.add(preagg)
-        await module__session.flush()
+        session.add(preagg)
+        await session.flush()
 
         # Request subset - should match
         result = await PreAggregation.find_matching(
-            module__session,
+            session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
             measure_expr_hashes={compute_expression_hash("price")},
@@ -522,7 +522,7 @@ class TestPreAggregationDBMethods:
         assert result is not None
         assert result.id == preagg.id
 
-    async def test_find_matching_no_match(self, module__session, minimal_node_revision):
+    async def test_find_matching_no_match(self, session, minimal_node_revision):
         """Test find_matching returns None when no candidate has superset."""
         grain_columns = ["test.dim.col"]
 
@@ -537,12 +537,12 @@ class TestPreAggregationDBMethods:
                 grain_columns,
             ),
         )
-        module__session.add(preagg)
-        await module__session.flush()
+        session.add(preagg)
+        await session.flush()
 
         # Request non-existent measure - should not match
         result = await PreAggregation.find_matching(
-            module__session,
+            session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
             measure_expr_hashes={compute_expression_hash("nonexistent")},
@@ -551,12 +551,12 @@ class TestPreAggregationDBMethods:
 
     async def test_find_matching_no_candidates(
         self,
-        module__session,
+        session,
         minimal_node_revision,
     ):
         """Test find_matching returns None when no candidates exist."""
         result = await PreAggregation.find_matching(
-            module__session,
+            session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=["completely.different.grain"],
             measure_expr_hashes={compute_expression_hash("anything")},
