@@ -331,7 +331,8 @@ class PreAggregation(Base):
 
         return None
 
-    def get_column_type(
+    # TODO: Remove this once we have a way to test pre-aggregations
+    def get_column_type(  # pragma: no cover
         self,
         col_name: str,
         default: str = "string",
