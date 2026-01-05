@@ -16,6 +16,7 @@ __all__ = [
     "NodeRevision",
     "NotificationPreference",
     "Partition",
+    "PreAggregation",
     "QueryRequest",
     "Role",
     "RoleAssignment",
@@ -39,6 +40,7 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.database.queryrequest import QueryRequest
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.tag import Tag
