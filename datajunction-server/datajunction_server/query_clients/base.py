@@ -2,7 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -13,12 +13,14 @@ from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationInfo,
 )
+from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
+    from datajunction_server.models.preaggregation import BackfillInput
 
 _logger = logging.getLogger(__name__)
 
@@ -168,6 +170,51 @@ class BaseQueryServiceClient(ABC):
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support cube materialization",
+        )
+
+    def materialize_preagg(
+        self,
+        materialization_input: PreAggMaterializationInput,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create/update a scheduled workflow for a pre-aggregation materialization.
+
+        This creates or updates the recurring workflow that materializes the pre-agg
+        on the configured schedule.
+
+        Default implementation raises NotImplementedError.
+        Override in subclasses that support pre-aggregation materialization.
+
+        Args:
+            materialization_input: Pre-aggregation materialization configuration
+            request_headers: Optional HTTP headers
+
+        Returns:
+            Dict with 'workflow_url', 'status', and optionally other details
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support pre-aggregation materialization",
+        )
+
+    def deactivate_preagg_workflow(
+        self,
+        preagg_id: int,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Deactivate a pre-aggregation's scheduled workflow."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support pre-aggregation workflows",
+        )
+
+    def run_preagg_backfill(
+        self,
+        backfill_input: "BackfillInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Run a backfill for a pre-aggregation."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support pre-aggregation backfill",
         )
 
     def deactivate_materialization(
