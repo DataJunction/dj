@@ -38,7 +38,7 @@ def make_measure(
 
 
 @pytest_asyncio.fixture
-async def minimal_node_revision(session: AsyncSession):
+async def minimal_node_revision(clean_session: AsyncSession):
     """Create a minimal node revision for testing PreAggregation."""
     # Create user
     user = User(
@@ -46,8 +46,8 @@ async def minimal_node_revision(session: AsyncSession):
         email="test_loader@test.com",
         oauth_provider=OAuthProvider.BASIC,
     )
-    session.add(user)
-    await session.flush()
+    clean_session.add(user)
+    await clean_session.flush()
 
     # Create node
     node = Node(
@@ -55,8 +55,8 @@ async def minimal_node_revision(session: AsyncSession):
         type=NodeType.SOURCE,
         created_by_id=user.id,
     )
-    session.add(node)
-    await session.flush()
+    clean_session.add(node)
+    await clean_session.flush()
 
     # Create node revision
     revision = NodeRevision(
@@ -67,8 +67,8 @@ async def minimal_node_revision(session: AsyncSession):
         columns=[Column(name="col1", type=IntegerType(), order=0)],
         created_by_id=user.id,
     )
-    session.add(revision)
-    await session.flush()
+    clean_session.add(revision)
+    await clean_session.flush()
 
     return revision
 
@@ -119,7 +119,7 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_loads_preaggs_with_valid_availability(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Pre-aggs with valid availability should be loaded."""
@@ -130,8 +130,8 @@ class TestLoadAvailablePreaggs:
             table="preagg_test",
             valid_through_ts=9999999999,
         )
-        session.add(availability)
-        await session.flush()
+        clean_session.add(availability)
+        await clean_session.flush()
 
         # Create pre-agg with availability
         preagg = PreAggregation(
@@ -143,11 +143,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash123",
             availability_id=availability.id,
         )
-        session.add(preagg)
-        await session.flush()
+        clean_session.add(preagg)
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -163,7 +163,7 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_ignores_preaggs_without_availability(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Pre-aggs without availability_id should not be loaded."""
@@ -176,11 +176,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash_no_avail",
             # No availability_id
         )
-        session.add(preagg)
-        await session.flush()
+        clean_session.add(preagg)
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -195,7 +195,7 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_ignores_preaggs_with_unavailable_status(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Pre-aggs where is_available() returns False should not be loaded."""
@@ -205,8 +205,8 @@ class TestLoadAvailablePreaggs:
             table="preagg_unavail",
             valid_through_ts=9999999999,
         )
-        session.add(availability)
-        await session.flush()
+        clean_session.add(availability)
+        await clean_session.flush()
 
         preagg = PreAggregation(
             node_revision_id=minimal_node_revision.id,
@@ -217,11 +217,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash_unavail",
             availability_id=availability.id,
         )
-        session.add(preagg)
-        await session.flush()
+        clean_session.add(preagg)
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -237,7 +237,7 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_multiple_preaggs_same_revision_id(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Multiple pre-aggs for same node_revision_id should all be loaded."""
@@ -253,8 +253,8 @@ class TestLoadAvailablePreaggs:
             table="preagg2",
             valid_through_ts=9999999999,
         )
-        session.add_all([availability1, availability2])
-        await session.flush()
+        clean_session.add_all([availability1, availability2])
+        await clean_session.flush()
 
         preagg1 = PreAggregation(
             node_revision_id=minimal_node_revision.id,
@@ -274,11 +274,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash_multi_2",
             availability_id=availability2.id,
         )
-        session.add_all([preagg1, preagg2])
-        await session.flush()
+        clean_session.add_all([preagg1, preagg2])
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -293,19 +293,19 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_preaggs_indexed_by_different_revision_ids(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Pre-aggs for different revisions should be indexed separately."""
         # Create a second node revision
-        user = await session.get(User, minimal_node_revision.created_by_id)
+        user = await clean_session.get(User, minimal_node_revision.created_by_id)
         node2 = Node(
             name="test.loader.source_node_2",
             type=NodeType.SOURCE,
             created_by_id=user.id,
         )
-        session.add(node2)
-        await session.flush()
+        clean_session.add(node2)
+        await clean_session.flush()
 
         revision2 = NodeRevision(
             name=node2.name,
@@ -315,8 +315,8 @@ class TestLoadAvailablePreaggs:
             columns=[Column(name="col1", type=IntegerType(), order=0)],
             created_by_id=user.id,
         )
-        session.add(revision2)
-        await session.flush()
+        clean_session.add(revision2)
+        await clean_session.flush()
 
         # Create availabilities
         avail1 = AvailabilityState(
@@ -331,8 +331,8 @@ class TestLoadAvailablePreaggs:
             table="preagg_rev2",
             valid_through_ts=9999999999,
         )
-        session.add_all([avail1, avail2])
-        await session.flush()
+        clean_session.add_all([avail1, avail2])
+        await clean_session.flush()
 
         # Create pre-aggs for different revisions
         preagg1 = PreAggregation(
@@ -353,11 +353,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash_rev2",
             availability_id=avail2.id,
         )
-        session.add_all([preagg1, preagg2])
-        await session.flush()
+        clean_session.add_all([preagg1, preagg2])
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -375,12 +375,12 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_no_matching_preaggs_in_db(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """When no pre-aggs match the revision IDs, available_preaggs should be empty."""
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
@@ -395,19 +395,19 @@ class TestLoadAvailablePreaggs:
     @pytest.mark.asyncio
     async def test_only_loads_preaggs_for_requested_revision_ids(
         self,
-        session: AsyncSession,
+        clean_session: AsyncSession,
         minimal_node_revision: NodeRevision,
     ):
         """Should only load pre-aggs for revision IDs in _parent_revision_ids."""
         # Create a second revision that we won't request
-        user = await session.get(User, minimal_node_revision.created_by_id)
+        user = await clean_session.get(User, minimal_node_revision.created_by_id)
         node2 = Node(
             name="test.loader.other_node",
             type=NodeType.SOURCE,
             created_by_id=user.id,
         )
-        session.add(node2)
-        await session.flush()
+        clean_session.add(node2)
+        await clean_session.flush()
 
         other_revision = NodeRevision(
             name=node2.name,
@@ -417,8 +417,8 @@ class TestLoadAvailablePreaggs:
             columns=[Column(name="col1", type=IntegerType(), order=0)],
             created_by_id=user.id,
         )
-        session.add(other_revision)
-        await session.flush()
+        clean_session.add(other_revision)
+        await clean_session.flush()
 
         # Create availabilities
         avail1 = AvailabilityState(
@@ -433,8 +433,8 @@ class TestLoadAvailablePreaggs:
             table="preagg_unwanted",
             valid_through_ts=9999999999,
         )
-        session.add_all([avail1, avail2])
-        await session.flush()
+        clean_session.add_all([avail1, avail2])
+        await clean_session.flush()
 
         # Create pre-aggs - one for each revision
         wanted_preagg = PreAggregation(
@@ -455,11 +455,11 @@ class TestLoadAvailablePreaggs:
             grain_group_hash="hash_unwanted",
             availability_id=avail2.id,
         )
-        session.add_all([wanted_preagg, unwanted_preagg])
-        await session.flush()
+        clean_session.add_all([wanted_preagg, unwanted_preagg])
+        await clean_session.flush()
 
         ctx = BuildContext(
-            session=session,
+            session=clean_session,
             metrics=["test.metric"],
             dimensions=[],
             use_materialized=True,
