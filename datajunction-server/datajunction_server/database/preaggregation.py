@@ -330,3 +330,15 @@ class PreAggregation(Base):
                 return candidate
 
         return None
+
+    def get_column_type(
+        self,
+        col_name: str,
+        default: str = "string",
+    ) -> str:
+        """Look up column type from pre-aggregation metadata."""
+        if self.columns:
+            for col in self.columns:
+                if col.name == col_name:
+                    return col.type
+        return default

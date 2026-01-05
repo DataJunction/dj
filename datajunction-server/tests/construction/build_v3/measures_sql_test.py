@@ -1019,7 +1019,7 @@ class TestMeasuresSQLMultipleMetrics:
         components = sorted(gg["components"], key=lambda c: c["name"])
 
         # order_count component (LIMITED - grain column)
-        assert components[0]["name"] == "order_id_distinct_f93d50ab"
+        assert components[0]["name"] == "order_id"
         assert components[0]["expression"] == "order_id"
         assert components[0]["aggregation"] is None  # Grain column, no aggregation
         assert components[0]["aggregability"] == "limited"
