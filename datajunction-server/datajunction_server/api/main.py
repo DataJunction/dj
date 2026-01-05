@@ -38,6 +38,7 @@ from datajunction_server.api import (
     namespaces,
     nodes,
     notifications,
+    preaggregations,
     rbac,
     sql,
     system,
@@ -127,6 +128,7 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(rbac.router)
     app.include_router(basic.router)
     app.include_router(notifications.router)
+    app.include_router(preaggregations.router)
     app.include_router(service_account.secure_router)
     app.include_router(service_account.router)
     app.include_router(system.router)
