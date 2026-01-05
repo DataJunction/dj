@@ -169,6 +169,7 @@ class PreAggregation(Base):
             name="fk_pre_aggregation_node_revision_id_noderevision",
         ),
         nullable=False,
+        index=True,
     )
 
     # Grain columns are fully qualified dimension/column references:
@@ -189,7 +190,7 @@ class PreAggregation(Base):
     # - Validation of materialized data
     columns: Mapped[Optional[List[V3ColumnMetadata]]] = mapped_column(
         PydanticListType(V3ColumnMetadata),
-        nullable=False,
+        nullable=True,
     )
 
     # The SQL for materializing this pre-agg (always DJ-generated)
