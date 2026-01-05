@@ -65,6 +65,16 @@ def test_base_client_abstract_methods():
     with pytest.raises(NotImplementedError):
         client.run_backfill("node", "v1", "SOURCE", "mat", [])
 
+    # Pre-aggregation methods should raise NotImplementedError
+    with pytest.raises(NotImplementedError):
+        client.materialize_preagg(None)
+
+    with pytest.raises(NotImplementedError):
+        client.deactivate_preagg_workflow(123)
+
+    with pytest.raises(NotImplementedError):
+        client.run_preagg_backfill(None)
+
 
 def test_base_client_error_messages():
     """Test that error messages include class name."""
@@ -88,6 +98,29 @@ def test_base_client_error_messages():
     except NotImplementedError as e:
         assert "MockQueryServiceClient" in str(e)
         assert "does not support query submission" in str(e)
+
+
+def test_preagg_error_messages():
+    """Test that preagg error messages include class name."""
+    client = MockQueryServiceClient()
+
+    try:
+        client.materialize_preagg(None)
+    except NotImplementedError as e:
+        assert "MockQueryServiceClient" in str(e)
+        assert "does not support pre-aggregation materialization" in str(e)
+
+    try:
+        client.deactivate_preagg_workflow(123)
+    except NotImplementedError as e:
+        assert "MockQueryServiceClient" in str(e)
+        assert "does not support pre-aggregation workflows" in str(e)
+
+    try:
+        client.run_preagg_backfill(None)
+    except NotImplementedError as e:
+        assert "MockQueryServiceClient" in str(e)
+        assert "does not support pre-aggregation backfill" in str(e)
 
 
 def test_abstract_method_coverage():

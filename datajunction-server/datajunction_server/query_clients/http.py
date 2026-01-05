@@ -1,6 +1,6 @@
 """HTTP query service client - wrapper around the original QueryServiceClient."""
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -11,6 +11,7 @@ from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationInfo,
 )
+from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -19,6 +20,7 @@ from datajunction_server.service_clients import QueryServiceClient
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
+    from datajunction_server.models.preaggregation import BackfillInput
 
 
 class HttpQueryServiceClient(BaseQueryServiceClient):
@@ -114,6 +116,39 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         """Set up a scheduled cube materialization via HTTP query service."""
         return self._client.materialize_cube(
             materialization_input=materialization_input,
+            request_headers=request_headers,
+        )
+
+    def materialize_preagg(
+        self,
+        materialization_input: PreAggMaterializationInput,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Create/update a scheduled workflow for pre-aggregation materialization via HTTP query service."""
+        return self._client.materialize_preagg(
+            materialization_input=materialization_input,
+            request_headers=request_headers,
+        )
+
+    def deactivate_preagg_workflow(
+        self,
+        preagg_id: int,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Deactivate a pre-aggregation's workflow via HTTP query service."""
+        return self._client.deactivate_preagg_workflow(
+            preagg_id=preagg_id,
+            request_headers=request_headers,
+        )
+
+    def run_preagg_backfill(
+        self,
+        backfill_input: "BackfillInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Run a backfill for a pre-aggregation via HTTP query service."""
+        return self._client.run_preagg_backfill(
+            backfill_input=backfill_input,
             request_headers=request_headers,
         )
 
