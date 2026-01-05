@@ -25,6 +25,7 @@ def assert_sql_equal(
         actual_sql = re.sub(hash_pattern, "_HASH", actual_sql)
         expected_sql = re.sub(hash_pattern, "_HASH", expected_sql)
 
+    actual_sql = actual_sql.replace("${dj_logical_timestamp}", "DJ_LOGICAL_TIMESTAMP()")
     actual_parsed = str(parse_sql(actual_sql))
     expected_parsed = str(parse_sql(expected_sql))
 

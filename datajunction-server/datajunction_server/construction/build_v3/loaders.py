@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload, joinedload, load_only
 
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision, Column
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
@@ -414,3 +415,53 @@ async def load_nodes(ctx: BuildContext) -> None:
 
     # Preload join paths for ALL parent nodes in a single batch
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
+
+    # Store parent_revision_ids for pre-agg loading (if needed)
+    ctx._parent_revision_ids = parent_revision_ids
+
+
+async def load_available_preaggs(ctx: BuildContext) -> None:
+    """
+    Load pre-aggregations that could satisfy the current query.
+
+    Queries for pre-aggs that:
+    1. Have availability state (materialized)
+    2. Match the parent nodes of requested metrics
+
+    Results are indexed by node_revision_id for fast lookup during grain group
+    processing. The grain and measure matching is done at query time since
+    we need to compare against the specific grain group requirements.
+
+    This function is only called when ctx.use_materialized=True.
+    """
+    if not ctx.use_materialized:
+        return
+
+    # Get parent revision IDs from the load_nodes step
+    parent_revision_ids: set[int] = ctx._parent_revision_ids
+    if not parent_revision_ids:
+        return
+
+    # Query for available pre-aggs with their availability state
+    stmt = (
+        select(PreAggregation)
+        .options(joinedload(PreAggregation.availability))
+        .where(
+            PreAggregation.node_revision_id.in_(parent_revision_ids),
+            PreAggregation.availability_id.isnot(None),  # Has availability
+        )
+    )
+    result = await ctx.session.execute(stmt)
+    preaggs = result.scalars().unique().all()
+
+    # Index by node_revision_id for fast lookup
+    for preagg in preaggs:
+        if preagg.availability and preagg.availability.is_available():
+            if preagg.node_revision_id not in ctx.available_preaggs:
+                ctx.available_preaggs[preagg.node_revision_id] = []
+            ctx.available_preaggs[preagg.node_revision_id].append(preagg)
+
+    logger.debug(
+        f"[BuildV3] Loaded {sum(len(v) for v in ctx.available_preaggs.values())} "
+        f"available pre-aggs for {len(ctx.available_preaggs)} parent nodes",
+    )

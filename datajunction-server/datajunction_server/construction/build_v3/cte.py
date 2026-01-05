@@ -89,6 +89,35 @@ def replace_component_refs_in_ast(
             col._table = ast.Table(ast.Name(table_alias))
 
 
+def replace_metric_refs_in_ast(
+    expr_ast: ast.Node,
+    metric_aliases: dict[str, tuple[str, str]],
+) -> None:
+    """
+    Replace metric name references in an AST with qualified column references.
+
+    For derived metrics like `avg_order_value = total_revenue / order_count`,
+    the combiner AST contains references to metric names like `v3.total_revenue`.
+    This function replaces them with proper CTE column references like `cte.total_revenue`.
+
+    Args:
+        expr_ast: The AST expression to modify (mutated in place)
+        metric_aliases: Mapping from metric name to (cte_alias, column_name)
+            e.g., {"v3.total_revenue": ("order_details_0", "total_revenue")}
+    """
+    for col in expr_ast.find_all(ast.Column):
+        # Get the full metric name (e.g., "v3.total_revenue")
+        full_name = get_column_full_name(col)
+        if not full_name:  # pragma: no cover
+            continue
+
+        # Check if this matches a metric name
+        if full_name in metric_aliases:
+            cte_alias, col_name = metric_aliases[full_name]
+            col.name = ast.Name(col_name)
+            col._table = ast.Table(ast.Name(cte_alias))
+
+
 def replace_dimension_refs_in_ast(
     expr_ast: ast.Node,
     dimension_aliases: dict[str, str],

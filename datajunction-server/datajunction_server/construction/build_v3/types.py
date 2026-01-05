@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,9 @@ from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+if TYPE_CHECKING:
+    from datajunction_server.database.preaggregation import PreAggregation
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,11 @@ class BuildContext:
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
 
+    # Temporal filter settings for incremental materialization
+    # When True, adds DJ_LOGICAL_TIMESTAMP() filters on temporal partition columns
+    include_temporal_filters: bool = False
+    lookback_window: str | None = None
+
     # Loaded data (populated by load_nodes)
     nodes: dict[str, Node] = field(default_factory=dict)
 
@@ -56,8 +64,15 @@ class BuildContext:
     # Table alias counter for generating unique aliases
     _table_alias_counter: int = field(default=0)
 
+    # Parent revision IDs from load_nodes, used by load_available_preaggs
+    _parent_revision_ids: set[int] = field(default_factory=set)
+
     # AST cache: node_name -> parsed query AST (avoids re-parsing same query)
     _parsed_query_cache: dict[str, ast.Query] = field(default_factory=dict)
+
+    # Pre-aggregation cache: maps node_revision_id to list of available PreAggregation records
+    # Populated by load_available_preaggs() when use_materialized=True
+    available_preaggs: dict[int, list["PreAggregation"]] = field(default_factory=dict)
 
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""

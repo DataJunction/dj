@@ -1,5 +1,7 @@
 import pytest
 from . import assert_sql_equal, get_first_grain_group
+from datajunction_server.construction.build_v3.builder import build_measures_sql
+
 
 # All base metrics from order_details
 ORDER_DETAILS_BASE_METRICS = [
@@ -1824,7 +1826,7 @@ class TestMeasuresSQLComponents:
         # Both components come from avg_unit_price (first encountered, multi-component)
         assert gg["columns"][1] == {
             "name": "unit_price_count_55cff00f",
-            "type": "double",
+            "type": "bigint",
             "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
             "semantic_type": "metric_component",
         }
@@ -1892,6 +1894,8 @@ class TestMetricTypesMeasuresSQL:
         assert gg["metrics"] == ["v3.customer_count"]
 
         # Validate columns
+        # Note: type is "binary" because measures SQL stores the HLL sketch,
+        # which is then converted to bigint via hll_sketch_estimate in metrics SQL
         assert gg["columns"] == [
             {
                 "name": "status",
@@ -1901,7 +1905,7 @@ class TestMetricTypesMeasuresSQL:
             },
             {
                 "name": "customer_count",
-                "type": "bigint",
+                "type": "binary",
                 "semantic_entity": "v3.customer_count",
                 "semantic_type": "metric",
             },
@@ -2114,7 +2118,7 @@ class TestMeasuresSQLDerived:
                 "name": "unit_price_count_55cff00f",
                 "semantic_entity": "v3.avg_unit_price:unit_price_count_55cff00f",
                 "semantic_type": "metric_component",
-                "type": "double",
+                "type": "bigint",
             },
             {
                 "name": "unit_price_sum_55cff00f",
@@ -2298,3 +2302,127 @@ class TestBaseMetricCaching:
         assert "v3.total_revenue" in gg["metrics"]
         assert "v3.total_quantity" in gg["metrics"]
         assert "v3.order_count" in gg["metrics"]
+
+
+class TestTemporalFilters:
+    """Tests for include_temporal_filters and lookback_window functionality."""
+
+    @pytest.fixture
+    async def setup_temporal_partition(self, client_with_build_v3):
+        """Set up temporal partition on order_date column."""
+        # Ensure the temporal partition is configured (may already exist in template)
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/columns/order_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        assert response.status_code in (200, 201, 409)  # 409 = already exists
+
+    @pytest.mark.asyncio
+    async def test_temporal_filter_exact_partition(
+        self,
+        session,
+        client_with_build_v3,
+        setup_temporal_partition,
+    ):
+        """
+        Test that include_temporal_filters=True adds exact partition filter.
+
+        Uses v3.order_details which has order_date configured as a temporal partition.
+        The filter should be: order_date = CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            include_temporal_filters=True,
+        )
+
+        # Should have DJ_LOGICAL_TIMESTAMP in the SQL for exact partition match
+        assert_sql_equal(
+            result.grain_groups[0].sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_temporal_filter_with_lookback(
+        self,
+        session,
+        client_with_build_v3,
+        setup_temporal_partition,
+    ):
+        """
+        Test that lookback_window generates BETWEEN filter.
+
+        The filter should be:
+        order_date BETWEEN CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP() - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
+                    AND CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            include_temporal_filters=True,
+            lookback_window="3 DAY",
+        )
+
+        # Should have BETWEEN for lookback window
+        assert_sql_equal(
+            result.grain_groups[0].sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
+                                    AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_temporal_filter_when_disabled(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        Test that temporal filters are NOT added when include_temporal_filters=False.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+            include_temporal_filters=False,  # Default, but explicit
+        )
+
+        # No temporal filter should be present
+        assert_sql_equal(
+            result.grain_groups[0].sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
