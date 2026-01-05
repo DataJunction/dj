@@ -88,6 +88,18 @@ class MetricComponent(BaseModel):
     rule: AggregationRule
 
 
+class PreAggMeasure(MetricComponent):
+    """
+    A metric component stored in a pre-aggregation.
+
+    Extends MetricComponent with an expression hash for identity matching.
+    This allows finding pre-aggs that contain the same measure even if
+    the component name differs.
+    """
+
+    expr_hash: str | None = None  # Hash of expression for identity matching
+
+
 class DecomposedMetric(BaseModel):
     """
     A metric decomposed into its constituent components with a combining expression.
