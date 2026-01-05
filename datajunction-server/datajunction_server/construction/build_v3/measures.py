@@ -686,13 +686,7 @@ def build_grain_group_from_preagg(
         select_items.append(col_ref)
 
         # Get type from pre-agg columns if available
-        col_type = "string"
-        if preagg.columns:
-            for pc in preagg.columns:
-                if pc.name == col_name:
-                    col_type = pc.type
-                    break
-
+        col_type = preagg.get_column_type(col_name, default="string")
         columns.append(
             ColumnMetadata(
                 name=col_name,
@@ -749,13 +743,7 @@ def build_grain_group_from_preagg(
             component_aliases[component.name] = output_alias
 
         # Get type from pre-agg columns
-        col_type = "double"  # Default
-        if preagg.columns:
-            for pc in preagg.columns:
-                if pc.name == measure_col:
-                    col_type = pc.type
-                    break
-
+        col_type = preagg.get_column_type(measure_col, default="double")
         columns.append(
             ColumnMetadata(
                 name=output_alias,
