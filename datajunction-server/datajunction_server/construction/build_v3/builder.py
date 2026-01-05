@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
-from datajunction_server.construction.build_v3.loaders import load_nodes
+from datajunction_server.construction.build_v3.loaders import (
+    load_nodes,
+    load_available_preaggs,
+)
 from datajunction_server.construction.build_v3.measures import (
     process_metric_group,
 )
@@ -38,6 +41,8 @@ async def build_measures_sql(
     filters: list[str] | None = None,
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
+    include_temporal_filters: bool = False,
+    lookback_window: str | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -56,6 +61,11 @@ async def build_measures_sql(
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
+        include_temporal_filters: If True, adds DJ_LOGICAL_TIMESTAMP() filters on
+            temporal partition columns of source nodes. Used for incremental
+            materialization to ensure partition pruning.
+        lookback_window: Lookback window for temporal filters (e.g., "3 DAY").
+            If not provided, filters to exactly the logical timestamp partition.
 
     Returns:
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
@@ -68,10 +78,15 @@ async def build_measures_sql(
         filters=filters or [],
         dialect=dialect,
         use_materialized=use_materialized,
+        include_temporal_filters=include_temporal_filters,
+        lookback_window=lookback_window,
     )
 
     # Load all required nodes (single DB round trip)
     await load_nodes(ctx)
+
+    # Load available pre-aggregations (if use_materialized=True)
+    await load_available_preaggs(ctx)
 
     # Validate we have at least one metric
     if not ctx.metrics:
@@ -122,6 +137,7 @@ async def build_metrics_sql(
     dimensions: list[str],
     filters: list[str] | None = None,
     dialect: Dialect = Dialect.SPARK,
+    use_materialized: bool = True,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -147,6 +163,7 @@ async def build_metrics_sql(
         dimensions=dimensions,
         filters=filters,
         dialect=dialect,
+        use_materialized=use_materialized,
     )
 
     if not measures_result.grain_groups:  # pragma: no cover
