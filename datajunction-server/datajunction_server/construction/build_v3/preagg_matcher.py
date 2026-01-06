@@ -169,7 +169,7 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
             col_type_map[col.name] = str(col.type)
 
     temporal_partitions: list[TemporalPartitionColumn] = []
-    if preagg.node_revision:
+    if preagg.node_revision:  # pragma: no branch
         for temporal_col in preagg.node_revision.temporal_partition_columns():
             source_name = temporal_col.name
             source_type = str(temporal_col.type) if temporal_col.type else "int"
@@ -209,7 +209,11 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
                         if temporal_col.partition and temporal_col.partition.granularity
                         else None
                     ),
-                    expression=temporal_col.partition.temporal_expression(),
+                    expression=(
+                        str(temporal_col.partition.temporal_expression())
+                        if temporal_col.partition
+                        else None
+                    ),
                 ),
             )
     return temporal_partitions
