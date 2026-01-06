@@ -548,23 +548,23 @@ class TestCrossFactMetrics:
             SELECT  customer_id
             FROM default.v3.page_views
             ),
-            page_views_enriched_0 AS (
-            SELECT  t1.customer_id,
-                t1.customer_id
-            FROM v3_page_views_enriched t1
-            GROUP BY  t1.customer_id, t1.customer_id
-            ),
             order_details_0 AS (
             SELECT  customer_id,
                 SUM(total_revenue) total_revenue
             FROM warehouse.preaggs.v3_revenue_by_customer
             GROUP BY  customer_id
+            ),
+            page_views_enriched_0 AS (
+            SELECT  t1.customer_id,
+                t1.customer_id
+            FROM v3_page_views_enriched t1
+            GROUP BY  t1.customer_id, t1.customer_id
             )
 
-            SELECT  COALESCE(page_views_enriched_0.customer_id, order_details_0.customer_id) AS customer_id,
+            SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
                 SUM(order_details_0.total_revenue) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
-            FROM page_views_enriched_0 FULL OUTER JOIN order_details_0 ON page_views_enriched_0.customer_id = order_details_0.customer_id
-            GROUP BY  page_views_enriched_0.customer_id
+            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            GROUP BY  order_details_0.customer_id
             """,
         )
 
