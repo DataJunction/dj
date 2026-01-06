@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
@@ -14,6 +15,18 @@ from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.query import V3ColumnMetadata
+
+
+class GrainMode(StrEnum):
+    """
+    Grain matching mode for pre-aggregation lookup.
+
+    - EXACT: Pre-agg grain must match requested grain exactly
+    - SUPERSET: Pre-agg grain must contain all requested columns (and possibly more)
+    """
+
+    EXACT = "exact"
+    SUPERSET = "superset"
 
 
 class PlanPreAggregationsRequest(BaseModel):
@@ -112,9 +125,6 @@ class PreAggregationInfo(BaseModel):
     """Response model for a pre-aggregation."""
 
     id: int
-    slug: Optional[str] = (
-        None  # Human-readable unique identifier (e.g., "node.name-abc12345")
-    )
     node_revision_id: int
     node_name: str  # Derived from node_revision relationship
     node_version: str  # Derived from node_revision relationship

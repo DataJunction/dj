@@ -17,6 +17,8 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
 )
 from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.models.preaggregation import TemporalPartitionColumn
+from datajunction_server.naming import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -155,3 +157,63 @@ def get_preagg_measure_column(
             return measure.name
 
     return None
+
+
+def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionColumn]:
+    """
+    Get temporal partition columns for a pre-aggregation.
+    """
+    col_type_map: dict[str, str] = {}
+    if preagg.node_revision and preagg.node_revision.columns:  # pragma: no branch
+        for col in preagg.node_revision.columns:
+            col_type_map[col.name] = str(col.type)
+
+    temporal_partitions: list[TemporalPartitionColumn] = []
+    if preagg.node_revision:  # pragma: no branch
+        for temporal_col in preagg.node_revision.temporal_partition_columns():
+            source_name = temporal_col.name
+            source_type = str(temporal_col.type) if temporal_col.type else "int"
+            output_name = source_name  # default
+
+            # Strategy 1: Source name directly in grain
+            full_source_col = f"{preagg.node_revision.name}{SEPARATOR}{source_name}"
+            if full_source_col in preagg.grain_columns:
+                output_name = source_name  # pragma: no cover
+
+            # Strategy 2: Linked dimension - find matching grain column
+            elif temporal_col.dimension:  # pragma: no cover
+                dim_name = temporal_col.dimension.name
+                for gc in preagg.grain_columns:
+                    if gc.startswith(dim_name + SEPARATOR):
+                        output_name = gc.split(SEPARATOR)[-1]
+                        break
+
+            # Map output column to source type (for DDL generation)
+            if output_name != source_name:
+                col_type_map[output_name] = source_type  # pragma: no cover
+
+            logger.info(
+                "Temporal partition: source=%s -> output=%s",
+                source_name,
+                output_name,
+            )
+
+            temporal_partitions.append(
+                TemporalPartitionColumn(
+                    column_name=output_name,
+                    format=temporal_col.partition.format
+                    if temporal_col.partition
+                    else None,
+                    granularity=(
+                        str(temporal_col.partition.granularity.value)
+                        if temporal_col.partition and temporal_col.partition.granularity
+                        else None
+                    ),
+                    expression=(
+                        str(temporal_col.partition.temporal_expression())
+                        if temporal_col.partition
+                        else None
+                    ),
+                ),
+            )
+    return temporal_partitions

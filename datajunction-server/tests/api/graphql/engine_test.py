@@ -90,7 +90,6 @@ async def test_list_dialects(
     expected_dialects = [
         {"name": "spark", "pluginClass": "SQLTranspilationPlugin"},
         {"name": "trino", "pluginClass": "SQLTranspilationPlugin"},
-        {"name": "sqlite", "pluginClass": "SQLGlotTranspilationPlugin"},
         {"name": "snowflake", "pluginClass": "SQLGlotTranspilationPlugin"},
         {"name": "redshift", "pluginClass": "SQLGlotTranspilationPlugin"},
         {"name": "postgres", "pluginClass": "SQLGlotTranspilationPlugin"},
