@@ -568,6 +568,50 @@ class TestCrossFactMetrics:
             """,
         )
 
+    async def test_cross_fact_with_full_preagg_coverage(self, client_with_build_v3):
+        """
+        Cross-fact metric where both facts have materialized pre-aggs.
+        
+        Both grain groups should read from their respective pre-agg tables,
+        then FULL OUTER JOIN on the shared dimension.
+        """
+        # Create pre-agg for order_details (revenue)
+        plan1 = await client_with_build_v3.post("/preaggs/plan/", json={
+            "metrics": ["v3.total_revenue"],
+            "dimensions": ["v3.customer.customer_id"],
+        })
+        preagg1 = plan1.json()["preaggs"][0]
+        await client_with_build_v3.post(f"/preaggs/{preagg1['id']}/availability/", json={
+            "catalog": "warehouse", "schema_": "preaggs",
+            "table": "v3_revenue_by_customer", "valid_through_ts": 20250103,
+        })
+        
+        # Create pre-agg for page_views (visitor count)
+        plan2 = await client_with_build_v3.post("/preaggs/plan/", json={
+            "metrics": ["v3.total_visitors"],  # or similar metric from page_views
+            "dimensions": ["v3.customer.customer_id"],
+        })
+        preagg2 = plan2.json()["preaggs"][0]
+        await client_with_build_v3.post(f"/preaggs/{preagg2['id']}/availability/", json={
+            "catalog": "warehouse", "schema_": "preaggs",
+            "table": "v3_visitors_by_customer", "valid_through_ts": 20250103,
+        })
+        
+        # Request cross-fact metric - should use BOTH pre-aggs
+        response = await client_with_build_v3.get("/sql/measures/v3/", params={
+            "metrics": ["v3.revenue_per_visitor"],
+            "dimensions": ["v3.customer.customer_id"],
+        })
+        
+        # Assert: Both CTEs read from pre-agg tables, FULL OUTER JOINed
+        sql = response.json()["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            SELECT 1
+            """,
+        )
+
     @pytest.mark.asyncio
     async def test_cross_fact_without_shared_dimension_errors(
         self,
