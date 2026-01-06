@@ -4,6 +4,8 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from unittest import mock
+
 
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -1618,10 +1620,37 @@ class TestIncrementalTimeMaterialization:
         data = response.json()
 
         # Verify response structure
-        assert data["status"] == "pending"
-        assert "workflow_url" in data
-        assert data["workflow_url"] == "http://scheduler/workflow/incremental.main"
-        assert data["output_tables"] == ["analytics.preaggs.incremental_test"]
+        assert data == {
+            "id": mock.ANY,
+            "node_revision_id": mock.ANY,
+            "node_name": "default.repair_orders_fact",
+            "node_version": mock.ANY,
+            "grain_columns": ["default.date_dim.date_id"],
+            "measures": [
+                {
+                    "name": "sum_repair_cost",
+                    "expression": "repair_cost",
+                    "aggregation": "SUM",
+                    "merge": "SUM",
+                    "rule": {"type": "full", "level": None},
+                    "expr_hash": "008f874cc293",
+                },
+            ],
+            "columns": None,
+            "sql": "SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+            "grain_group_hash": "test_incremental_hash",
+            "strategy": "incremental_time",
+            "schedule": "0 0 * * *",
+            "lookback_window": "3 days",
+            "scheduled_workflow_url": "http://scheduler/workflow/incremental.main",
+            "workflow_status": "active",
+            "status": "pending",
+            "materialized_table_ref": None,
+            "max_partition": None,
+            "workflow_urls": ["http://scheduler/workflow/incremental.main"],
+            "created_at": mock.ANY,
+            "updated_at": mock.ANY,
+        }
 
     @pytest.mark.asyncio
     async def test_materialize_incremental_passes_temporal_partition_to_query_service(

@@ -125,9 +125,6 @@ class PreAggregationInfo(BaseModel):
     """Response model for a pre-aggregation."""
 
     id: int
-    slug: Optional[str] = (
-        None  # Human-readable unique identifier (e.g., "node.name-abc12345")
-    )
     node_revision_id: int
     node_name: str  # Derived from node_revision relationship
     node_version: str  # Derived from node_revision relationship
