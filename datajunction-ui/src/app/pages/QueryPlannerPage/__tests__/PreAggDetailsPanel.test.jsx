@@ -223,9 +223,10 @@ describe('QueryOverviewPanel', () => {
       expect(screen.getByText('Generated SQL')).toBeInTheDocument();
     });
 
-    it('shows copy SQL button', () => {
+    it('shows SQL view toggle with Optimized and Raw options', () => {
       renderWithRouter(<QueryOverviewPanel {...defaultProps} />);
-      expect(screen.getByText('Copy SQL')).toBeInTheDocument();
+      expect(screen.getByText('Optimized')).toBeInTheDocument();
+      expect(screen.getByText('Raw')).toBeInTheDocument();
     });
 
     it('renders SQL in syntax highlighter', () => {
@@ -234,16 +235,10 @@ describe('QueryOverviewPanel', () => {
       expect(screen.getByText(mockMetricsResult.sql)).toBeInTheDocument();
     });
 
-    it('copies SQL to clipboard when copy button clicked', () => {
-      const mockClipboard = { writeText: jest.fn() };
-      Object.assign(navigator, { clipboard: mockClipboard });
-
+    it('defaults to Optimized view', () => {
       renderWithRouter(<QueryOverviewPanel {...defaultProps} />);
-
-      fireEvent.click(screen.getByText('Copy SQL'));
-      expect(mockClipboard.writeText).toHaveBeenCalledWith(
-        mockMetricsResult.sql,
-      );
+      const optimizedBtn = screen.getByText('Optimized');
+      expect(optimizedBtn).toHaveClass('active');
     });
   });
 });

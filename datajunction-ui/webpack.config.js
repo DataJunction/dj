@@ -34,6 +34,10 @@ module.exports = {
     historyApiFallback: {
       disableDotRule: true,
     },
+    host: '0.0.0.0', // Allow connections from outside container
+    port: 3000,
+    hot: true, // Enable hot module replacement
+    watchFiles: ['src/**/*'], // Watch for changes
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json', '.ts', '.tsx', '.scss'],

@@ -115,6 +115,43 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  // Lightweight GraphQL query for listing cubes with display names (for preset dropdown)
+  listCubesForPreset: async function () {
+    const query = `
+      query ListCubes {
+        findNodes(nodeTypes: [CUBE]) {
+          name
+          current {
+            displayName
+          }
+        }
+      }
+    `;
+
+    try {
+      const result = await (
+        await fetch(DJ_GQL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ query }),
+        })
+      ).json();
+
+      // Transform to simple array: [{name, display_name}]
+      const nodes = result?.data?.findNodes || [];
+      return nodes.map(node => ({
+        name: node.name,
+        display_name: node.current?.displayName || null,
+      }));
+    } catch (err) {
+      console.error('Failed to fetch cubes via GraphQL:', err);
+      return [];
+    }
+  },
+
   whoami: async function () {
     return await (
       await fetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
@@ -1656,6 +1693,8 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     if (filters.node_name) params.append('node_name', filters.node_name);
     if (filters.grain) params.append('grain', filters.grain);
+    if (filters.grain_mode) params.append('grain_mode', filters.grain_mode);
+    if (filters.measures) params.append('measures', filters.measures);
     if (filters.status) params.append('status', filters.status);
 
     return await (
@@ -1761,28 +1800,6 @@ export const DataJunctionAPI = {
         _error: true,
         _status: response.status,
         message: result.message || result.detail || 'Failed to update config',
-      };
-    }
-    return result;
-  },
-
-  // Create a scheduled workflow for a pre-aggregation
-  createPreaggWorkflow: async function (preaggId, activate = true) {
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/workflow`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ activate }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      return {
-        ...result,
-        _error: true,
-        _status: response.status,
-        message: result.message || result.detail || 'Failed to create workflow',
       };
     }
     return result;

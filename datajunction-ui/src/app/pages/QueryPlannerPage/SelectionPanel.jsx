@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 
 /**
  * SelectionPanel - Browse and select metrics and dimensions
+ * Features selected items as chips at the top for visibility
+ * Includes cube preset loading for quick configuration
  */
 export function SelectionPanel({
   metrics,
@@ -11,11 +13,59 @@ export function SelectionPanel({
   selectedDimensions,
   onDimensionsChange,
   loading,
+  cubes = [],
+  onLoadCubePreset,
+  loadedCubeName = null, // Managed by parent for URL persistence
+  onClearSelection,
 }) {
   const [metricsSearch, setMetricsSearch] = useState('');
   const [dimensionsSearch, setDimensionsSearch] = useState('');
   const [expandedNamespaces, setExpandedNamespaces] = useState(new Set());
+  const [showCubeDropdown, setShowCubeDropdown] = useState(false);
+  const [cubeSearch, setCubeSearch] = useState('');
+  const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
+  const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
   const prevSearchRef = useRef('');
+  const cubeDropdownRef = useRef(null);
+
+  // Threshold for showing expand/collapse button
+  const CHIPS_COLLAPSE_THRESHOLD = 8;
+
+  // Find the loaded cube object from the name
+  const loadedCube = useMemo(() => {
+    if (!loadedCubeName) return null;
+    return (
+      cubes.find(c => c.name === loadedCubeName) || { name: loadedCubeName }
+    );
+  }, [loadedCubeName, cubes]);
+
+  // Close cube dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = event => {
+      if (
+        cubeDropdownRef.current &&
+        !cubeDropdownRef.current.contains(event.target)
+      ) {
+        setShowCubeDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter cubes by search (GraphQL returns display_name)
+  const filteredCubes = useMemo(() => {
+    const search = cubeSearch.toLowerCase().trim();
+    if (!search) return cubes;
+    return cubes.filter(cube => {
+      const name = cube.name || '';
+      const displayName = cube.display_name || '';
+      return (
+        name.toLowerCase().includes(search) ||
+        displayName.toLowerCase().includes(search)
+      );
+    });
+  }, [cubes, cubeSearch]);
 
   // Get short name from full metric name
   const getShortName = fullName => {
@@ -43,60 +93,45 @@ export function SelectionPanel({
   }, [metrics]);
 
   // Filter and sort namespaces/metrics by search relevance
-  // Namespaces matching the search term appear first, then sorted by metric matches
   const { filteredGroups, sortedNamespaces } = useMemo(() => {
     const search = metricsSearch.trim().toLowerCase();
 
     if (!search) {
-      // No search - return original groups, sorted alphabetically
       const namespaces = Object.keys(groupedMetrics).sort();
       return { filteredGroups: groupedMetrics, sortedNamespaces: namespaces };
     }
 
-    // Filter to groups that have matching metrics
     const filtered = {};
     Object.entries(groupedMetrics).forEach(([namespace, items]) => {
       const matchingItems = items.filter(m => m.toLowerCase().includes(search));
       if (matchingItems.length > 0) {
-        // Sort metrics within namespace: prefix matches first
         matchingItems.sort((a, b) => {
           const aShort = getShortName(a).toLowerCase();
           const bShort = getShortName(b).toLowerCase();
-
           const aPrefix = aShort.startsWith(search);
           const bPrefix = bShort.startsWith(search);
           if (aPrefix && !bPrefix) return -1;
           if (!aPrefix && bPrefix) return 1;
-
           return aShort.localeCompare(bShort);
         });
         filtered[namespace] = matchingItems;
       }
     });
 
-    // Sort namespaces by relevance
     const namespaces = Object.keys(filtered).sort((a, b) => {
       const aLower = a.toLowerCase();
       const bLower = b.toLowerCase();
-
-      // Priority 1: Namespace starts with search term
       const aPrefix = aLower.startsWith(search);
       const bPrefix = bLower.startsWith(search);
       if (aPrefix && !bPrefix) return -1;
       if (!aPrefix && bPrefix) return 1;
-
-      // Priority 2: Namespace contains search term
       const aContains = aLower.includes(search);
       const bContains = bLower.includes(search);
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
-
-      // Priority 3: Has more matching metrics
       const aCount = filtered[a].length;
       const bCount = filtered[b].length;
       if (aCount !== bCount) return bCount - aCount;
-
-      // Priority 4: Alphabetical
       return aLower.localeCompare(bLower);
     });
 
@@ -107,16 +142,13 @@ export function SelectionPanel({
   useEffect(() => {
     const currentSearch = metricsSearch.trim();
     const prevSearch = prevSearchRef.current;
-
-    // Only auto-expand when starting a new search or search term changes
     if (currentSearch && currentSearch !== prevSearch) {
       setExpandedNamespaces(new Set(sortedNamespaces));
     }
-
     prevSearchRef.current = currentSearch;
   }, [metricsSearch, sortedNamespaces]);
 
-  // Dedupe dimensions by name, keeping shortest path for each
+  // Dedupe dimensions by name
   const dedupedDimensions = useMemo(() => {
     const byName = new Map();
     dimensions.forEach(d => {
@@ -132,12 +164,11 @@ export function SelectionPanel({
     return Array.from(byName.values());
   }, [dimensions]);
 
-  // Filter and sort dimensions by search (prefix matches first)
+  // Filter and sort dimensions by search
   const filteredDimensions = useMemo(() => {
     const search = dimensionsSearch.trim().toLowerCase();
     if (!search) return dedupedDimensions;
 
-    // Search in both full name and short display name
     const matches = dedupedDimensions.filter(d => {
       if (!d.name) return false;
       const fullName = d.name.toLowerCase();
@@ -146,25 +177,22 @@ export function SelectionPanel({
       return fullName.includes(search) || shortDisplay.includes(search);
     });
 
-    // Sort: prefix matches on short name first
     matches.sort((a, b) => {
       const aParts = (a.name || '').split('.');
       const bParts = (b.name || '').split('.');
       const aShort = aParts.slice(-2).join('.').toLowerCase();
       const bShort = bParts.slice(-2).join('.').toLowerCase();
-
       const aPrefix = aShort.startsWith(search);
       const bPrefix = bShort.startsWith(search);
       if (aPrefix && !bPrefix) return -1;
       if (!aPrefix && bPrefix) return 1;
-
       return aShort.localeCompare(bShort);
     });
 
     return matches;
   }, [dedupedDimensions, dimensionsSearch]);
 
-  // Get display name for dimension (last 2 segments: dim_node.column)
+  // Get display name for dimension (last 2 segments)
   const getDimDisplayName = fullName => {
     const parts = (fullName || '').split('.');
     return parts.slice(-2).join('.');
@@ -190,12 +218,20 @@ export function SelectionPanel({
     }
   };
 
+  const removeMetric = metric => {
+    onMetricsChange(selectedMetrics.filter(m => m !== metric));
+  };
+
   const toggleDimension = dimName => {
     if (selectedDimensions.includes(dimName)) {
       onDimensionsChange(selectedDimensions.filter(d => d !== dimName));
     } else {
       onDimensionsChange([...selectedDimensions, dimName]);
     }
+  };
+
+  const removeDimension = dimName => {
+    onDimensionsChange(selectedDimensions.filter(d => d !== dimName));
   };
 
   const selectAllInNamespace = (namespace, items) => {
@@ -207,8 +243,92 @@ export function SelectionPanel({
     onMetricsChange(selectedMetrics.filter(m => !items.includes(m)));
   };
 
+  const handleCubeSelect = cube => {
+    if (onLoadCubePreset) {
+      onLoadCubePreset(cube.name);
+    }
+    // loadedCubeName is now managed by parent via onLoadCubePreset
+    setShowCubeDropdown(false);
+    setCubeSearch('');
+  };
+
+  const clearSelection = () => {
+    if (onClearSelection) {
+      onClearSelection(); // Parent handles clearing metrics, dimensions, and cube
+    } else {
+      onMetricsChange([]);
+      onDimensionsChange([]);
+    }
+  };
+
   return (
     <div className="selection-panel">
+      {/* Cube Preset Dropdown */}
+      {cubes.length > 0 && (
+        <div className="cube-preset-section" ref={cubeDropdownRef}>
+          <div className="preset-row">
+            <button
+              className={`preset-button ${loadedCube ? 'has-preset' : ''}`}
+              onClick={() => setShowCubeDropdown(!showCubeDropdown)}
+            >
+              <span className="preset-icon">{loadedCube ? '📦' : '📂'}</span>
+              <span className="preset-label">
+                {loadedCube
+                  ? loadedCube.display_name ||
+                    (loadedCube.name
+                      ? loadedCube.name.split('.').pop()
+                      : 'Cube')
+                  : 'Load from Cube'}
+              </span>
+              <span className="dropdown-arrow">
+                {showCubeDropdown ? '▲' : '▼'}
+              </span>
+            </button>
+            {(selectedMetrics.length > 0 || selectedDimensions.length > 0) && (
+              <button className="clear-all-btn" onClick={clearSelection}>
+                Clear all
+              </button>
+            )}
+          </div>
+
+          {showCubeDropdown && (
+            <div className="cube-dropdown">
+              <input
+                type="text"
+                className="cube-search"
+                placeholder="Search cubes..."
+                value={cubeSearch}
+                onChange={e => setCubeSearch(e.target.value)}
+                autoFocus
+              />
+              <div className="cube-list">
+                {filteredCubes.length === 0 ? (
+                  <div className="cube-empty">
+                    {cubeSearch
+                      ? 'No cubes match your search'
+                      : 'No cubes available'}
+                  </div>
+                ) : (
+                  filteredCubes.map(cube => (
+                    <button
+                      key={cube.name}
+                      className="cube-option"
+                      onClick={() => handleCubeSelect(cube)}
+                    >
+                      <span className="cube-name">
+                        {cube.display_name ||
+                          (cube.name ? cube.name.split('.').pop() : 'Unknown')}
+                      </span>
+                      <span className="cube-info">{cube.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Metrics Section */}
       <div className="selection-section">
         <div className="section-header">
@@ -217,6 +337,47 @@ export function SelectionPanel({
             {selectedMetrics.length} selected
           </span>
         </div>
+
+        {/* Selected Metrics Chips */}
+        {selectedMetrics.length > 0 && (
+          <div className="selected-chips-container">
+            <div
+              className={`selected-chips-wrapper ${
+                metricsChipsExpanded ? 'expanded' : ''
+              }`}
+            >
+              <div className="selected-chips">
+                {selectedMetrics.map(metric => (
+                  <span key={metric} className="selected-chip metric-chip">
+                    <span className="chip-label">{getShortName(metric)}</span>
+                    <button
+                      className="chip-remove"
+                      onClick={() => removeMetric(metric)}
+                      title={`Remove ${getShortName(metric)}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+            {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
+              <button
+                className="chips-toggle"
+                onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
+              >
+                <span>
+                  {metricsChipsExpanded
+                    ? 'Show less'
+                    : `Show all ${selectedMetrics.length}`}
+                </span>
+                <span className="chips-toggle-icon">
+                  {metricsChipsExpanded ? '▲' : '▼'}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="search-box">
           <input
@@ -328,6 +489,54 @@ export function SelectionPanel({
           <div className="empty-list">Loading dimensions...</div>
         ) : (
           <>
+            {/* Selected Dimensions Chips */}
+            {selectedDimensions.length > 0 && (
+              <div className="selected-chips-container">
+                <div
+                  className={`selected-chips-wrapper ${
+                    dimensionsChipsExpanded ? 'expanded' : ''
+                  }`}
+                >
+                  <div className="selected-chips">
+                    {selectedDimensions.map(dimName => (
+                      <span
+                        key={dimName}
+                        className="selected-chip dimension-chip"
+                      >
+                        <span className="chip-label">
+                          {getDimDisplayName(dimName)}
+                        </span>
+                        <button
+                          className="chip-remove"
+                          onClick={() => removeDimension(dimName)}
+                          title={`Remove ${getDimDisplayName(dimName)}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
+                  <button
+                    className="chips-toggle"
+                    onClick={() =>
+                      setDimensionsChipsExpanded(!dimensionsChipsExpanded)
+                    }
+                  >
+                    <span>
+                      {dimensionsChipsExpanded
+                        ? 'Show less'
+                        : `Show all ${selectedDimensions.length}`}
+                    </span>
+                    <span className="chips-toggle-icon">
+                      {dimensionsChipsExpanded ? '▲' : '▼'}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="search-box">
               <input
                 type="text"
