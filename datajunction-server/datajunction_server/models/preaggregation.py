@@ -3,11 +3,11 @@ Models for pre-aggregation API requests and responses.
 """
 
 from datetime import date, datetime
-from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
