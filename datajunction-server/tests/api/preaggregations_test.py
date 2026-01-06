@@ -120,7 +120,105 @@ async def client_with_preaggs(
         schedule=None,
     )
 
-    module__session.add_all([preagg1, preagg2, preagg3, preagg4])
+    # Additional preaggs for tests that modify state (to avoid conflicts)
+    # preagg5: for test_deactivate_workflow_success
+    preagg5 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.date_dim.date_id"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.date_dim.date_id"],
+        ),
+        strategy=MaterializationStrategy.FULL,
+        schedule="0 0 * * *",
+    )
+
+    # preagg6: for test_backfill_success
+    preagg6 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.date_dim.date_id"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.date_dim.date_id"],
+        ),
+        strategy=MaterializationStrategy.FULL,
+        schedule="0 0 * * *",
+    )
+
+    # preagg7: for test_materialize_incremental_no_temporal_columns
+    preagg7 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.hard_hat.country"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.hard_hat.country"],
+        ),
+        strategy=None,
+        schedule=None,
+    )
+
+    # preagg8: for test_deactivate_workflow_query_service_failure
+    preagg8 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.date_dim.date_id"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.date_dim.date_id"],
+        ),
+        strategy=MaterializationStrategy.FULL,
+        schedule="0 0 * * *",
+    )
+
+    # preagg9: for test_backfill_query_service_failure
+    preagg9 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.date_dim.date_id"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.date_dim.date_id"],
+        ),
+        strategy=MaterializationStrategy.FULL,
+        schedule="0 0 * * *",
+    )
+
+    # preagg10: for test_materialize_sets_default_schedule_when_none
+    preagg10 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.hard_hat.country"],
+        measures=[make_measure("sum_repair_cost", "repair_cost")],
+        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.hard_hat.country"],
+        ),
+        strategy=None,
+        schedule=None,
+    )
+
+    module__session.add_all(
+        [
+            preagg1,
+            preagg2,
+            preagg3,
+            preagg4,
+            preagg5,
+            preagg6,
+            preagg7,
+            preagg8,
+            preagg9,
+            preagg10,
+        ],
+    )
     await module__session.commit()
 
     # Store the pre-agg IDs for later use
@@ -128,6 +226,12 @@ async def client_with_preaggs(
     await module__session.refresh(preagg2)
     await module__session.refresh(preagg3)
     await module__session.refresh(preagg4)
+    await module__session.refresh(preagg5)
+    await module__session.refresh(preagg6)
+    await module__session.refresh(preagg7)
+    await module__session.refresh(preagg8)
+    await module__session.refresh(preagg9)
+    await module__session.refresh(preagg10)
 
     yield {
         "client": module__client_with_roads,
@@ -136,6 +240,12 @@ async def client_with_preaggs(
         "preagg2": preagg2,
         "preagg3": preagg3,
         "preagg4": preagg4,
+        "preagg5": preagg5,
+        "preagg6": preagg6,
+        "preagg7": preagg7,
+        "preagg8": preagg8,
+        "preagg9": preagg9,
+        "preagg10": preagg10,
         "node_revision_id": node_revision_id,
     }
 
@@ -771,10 +881,10 @@ class TestDeletePreaggWorkflow:
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg1 = client_with_preaggs["preagg1"]
+        preagg5 = client_with_preaggs["preagg5"]  # Use dedicated preagg
 
-        # Set up workflow URL on preagg1
-        preagg = await session.get(PreAggregation, preagg1.id)
+        # Set up workflow URL on preagg5
+        preagg = await session.get(PreAggregation, preagg5.id)
         preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
         preagg.workflow_status = "active"
         await session.commit()
@@ -787,7 +897,7 @@ class TestDeletePreaggWorkflow:
             return_value={"status": "paused"},
         )
 
-        response = await client.delete(f"/preaggs/{preagg1.id}/workflow")
+        response = await client.delete(f"/preaggs/{preagg5.id}/workflow")
 
         assert response.status_code == 200
         data = response.json()
@@ -840,10 +950,10 @@ class TestRunPreaggBackfill:
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg1 = client_with_preaggs["preagg1"]
+        preagg6 = client_with_preaggs["preagg6"]  # Use dedicated preagg
 
-        # Set up workflow URL on preagg1
-        preagg = await session.get(PreAggregation, preagg1.id)
+        # Set up workflow URL on preagg6
+        preagg = await session.get(PreAggregation, preagg6.id)
         preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
         await session.commit()
 
@@ -856,7 +966,7 @@ class TestRunPreaggBackfill:
         )
 
         response = await client.post(
-            f"/preaggs/{preagg1.id}/backfill",
+            f"/preaggs/{preagg6.id}/backfill",
             json={
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
@@ -874,7 +984,7 @@ class TestRunPreaggBackfill:
         mock_backfill.assert_called_once()
         call_args = mock_backfill.call_args
         backfill_input = call_args[0][0]
-        assert backfill_input.preagg_id == preagg1.id
+        assert backfill_input.preagg_id == preagg6.id
         assert "preagg" in backfill_input.output_table
 
     @pytest.mark.asyncio
@@ -909,9 +1019,11 @@ class TestListPreaggregationsGrainSuperset:
         """
         client = client_with_preaggs["client"]
 
+        # Filter by node_name to isolate our test preaggs
         response = await client.get(
             "/preaggs/",
             params={
+                "node_name": "default.repair_orders_fact",
                 "grain": "default.date_dim.date_id",
                 "grain_mode": "superset",
             },
@@ -942,10 +1054,11 @@ class TestListPreaggregationsGrainSuperset:
         """
         client = client_with_preaggs["client"]
 
-        # Exact mode
+        # Exact mode - filter by node_name to isolate our test preaggs
         exact_response = await client.get(
             "/preaggs/",
             params={
+                "node_name": "default.repair_orders_fact",
                 "grain": "default.date_dim.date_id",
                 "grain_mode": "exact",
             },
@@ -957,6 +1070,7 @@ class TestListPreaggregationsGrainSuperset:
         superset_response = await client.get(
             "/preaggs/",
             params={
+                "node_name": "default.repair_orders_fact",
                 "grain": "default.date_dim.date_id",
                 "grain_mode": "superset",
             },
@@ -1137,18 +1251,18 @@ class TestIncrementalTimeValidation:
         """
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg4 = client_with_preaggs["preagg4"]
+        preagg7 = client_with_preaggs["preagg7"]  # Use dedicated preagg
 
-        # Set strategy to INCREMENTAL_TIME on preagg4
+        # Set strategy to INCREMENTAL_TIME on preagg7
         from datajunction_server.database.preaggregation import PreAggregation
 
-        preagg = await session.get(PreAggregation, preagg4.id)
+        preagg = await session.get(PreAggregation, preagg7.id)
         preagg.strategy = MaterializationStrategy.INCREMENTAL_TIME
         preagg.schedule = "0 0 * * *"
         await session.commit()
 
         # Try to materialize - should fail
-        response = await client.post(f"/preaggs/{preagg4.id}/materialize")
+        response = await client.post(f"/preaggs/{preagg7.id}/materialize")
 
         assert response.status_code == 422
         data = response.json()
@@ -1198,10 +1312,10 @@ class TestQueryServiceExceptionHandling:
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg1 = client_with_preaggs["preagg1"]
+        preagg8 = client_with_preaggs["preagg8"]  # Use dedicated preagg
 
         # Set up workflow URL
-        preagg = await session.get(PreAggregation, preagg1.id)
+        preagg = await session.get(PreAggregation, preagg8.id)
         preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
         preagg.workflow_status = "active"
         await session.commit()
@@ -1214,7 +1328,7 @@ class TestQueryServiceExceptionHandling:
             side_effect=Exception("Service unavailable"),
         )
 
-        response = await client.delete(f"/preaggs/{preagg1.id}/workflow")
+        response = await client.delete(f"/preaggs/{preagg8.id}/workflow")
 
         assert response.status_code == 500
         data = response.json()
@@ -1233,10 +1347,10 @@ class TestQueryServiceExceptionHandling:
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg1 = client_with_preaggs["preagg1"]
+        preagg9 = client_with_preaggs["preagg9"]  # Use dedicated preagg
 
         # Set up workflow URL
-        preagg = await session.get(PreAggregation, preagg1.id)
+        preagg = await session.get(PreAggregation, preagg9.id)
         preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
         await session.commit()
 
@@ -1249,7 +1363,7 @@ class TestQueryServiceExceptionHandling:
         )
 
         response = await client.post(
-            f"/preaggs/{preagg1.id}/backfill",
+            f"/preaggs/{preagg9.id}/backfill",
             json={"start_date": "2024-01-01"},
         )
 
@@ -1354,10 +1468,10 @@ class TestWorkflowUrlExtraction:
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
-        preagg4 = client_with_preaggs["preagg4"]
+        preagg10 = client_with_preaggs["preagg10"]  # Use dedicated preagg
 
         # Set strategy but leave schedule as None
-        preagg = await session.get(PreAggregation, preagg4.id)
+        preagg = await session.get(PreAggregation, preagg10.id)
         preagg.strategy = MaterializationStrategy.FULL
         preagg.schedule = None  # Explicitly None
         await session.commit()
@@ -1374,13 +1488,13 @@ class TestWorkflowUrlExtraction:
             return_value=mock_result,
         )
 
-        response = await client.post(f"/preaggs/{preagg4.id}/materialize")
+        response = await client.post(f"/preaggs/{preagg10.id}/materialize")
 
         assert response.status_code == 200
 
         # Check that schedule was set to default
-        await session.refresh(preagg4)
-        preagg = await session.get(PreAggregation, preagg4.id)
+        await session.refresh(preagg10)
+        preagg = await session.get(PreAggregation, preagg10.id)
         assert preagg.schedule is not None
         # Default schedule from API is "0 0 * * *"
         assert preagg.schedule == "0 0 * * *"
@@ -1422,3 +1536,158 @@ class TestWorkflowUrlExtraction:
         # Response should include all workflow URLs
         assert "workflow_urls" in data
         assert data["workflow_urls"] == all_urls
+
+
+class TestIncrementalTimeMaterialization:
+    """
+    Tests for INCREMENTAL_TIME materialization with temporal partition columns.
+
+    These tests verify that the materialize endpoint correctly handles
+    incremental time strategies when the upstream node has temporal partitions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_materialize_incremental_time_with_temporal_partition(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__session: AsyncSession,
+        module_mocker,
+    ):
+        """
+        Test INCREMENTAL_TIME materialization succeeds when node has temporal partitions.
+
+        This test:
+        1. Sets up a temporal partition on order_date column
+        2. Creates a preagg with INCREMENTAL_TIME strategy
+        3. Verifies materialize returns correct temporal partition info
+        """
+        from datajunction_server.database import Node
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.database.materialization import MaterializationStrategy
+        from datajunction_server.utils import get_query_service_client
+
+        client = module__client_with_roads
+        session = module__session
+
+        # Set temporal partition on order_date column
+        partition_response = await client.post(
+            "/nodes/default.repair_orders_fact/columns/order_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        assert partition_response.status_code == 201, (
+            f"Failed to set partition: {partition_response.text}"
+        )
+
+        # Create a preagg with INCREMENTAL_TIME strategy
+        node = await Node.get_by_name(session, "default.repair_orders_fact")
+        node_revision_id = node.current.id  # type: ignore
+
+        preagg = PreAggregation(
+            node_revision_id=node_revision_id,
+            grain_columns=["default.date_dim.date_id"],
+            measures=[make_measure("sum_repair_cost", "repair_cost")],
+            sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
+            grain_group_hash="test_incremental_hash",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            schedule="0 0 * * *",
+            lookback_window="3 days",
+        )
+        session.add(preagg)
+        await session.commit()
+        await session.refresh(preagg)
+
+        # Mock query service and call materialize
+        mock_result = {
+            "urls": ["http://scheduler/workflow/incremental.main"],
+            "output_tables": ["analytics.preaggs.incremental_test"],
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
+        )
+
+        response = await client.post(f"/preaggs/{preagg.id}/materialize")
+
+        assert response.status_code == 200, f"Materialize failed: {response.text}"
+        data = response.json()
+
+        # Verify response structure
+        assert data["status"] == "pending"
+        assert "workflow_url" in data
+        assert data["workflow_url"] == "http://scheduler/workflow/incremental.main"
+        assert data["output_tables"] == ["analytics.preaggs.incremental_test"]
+
+    @pytest.mark.asyncio
+    async def test_materialize_incremental_passes_temporal_partition_to_query_service(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__session: AsyncSession,
+        module_mocker,
+    ):
+        """
+        Test that temporal partition info is passed to query service during materialization.
+
+        Verifies the PreAggMaterializationInput contains temporal_partitions.
+        """
+        from datajunction_server.database import Node
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.database.materialization import MaterializationStrategy
+        from datajunction_server.utils import get_query_service_client
+
+        client = module__client_with_roads
+        session = module__session
+
+        # Get node (temporal partition should already be set from previous test)
+        node = await Node.get_by_name(session, "default.repair_orders_fact")
+        node_revision_id = node.current.id  # type: ignore
+
+        # Create a new preagg for this test
+        preagg = PreAggregation(
+            node_revision_id=node_revision_id,
+            grain_columns=["default.hard_hat.state"],
+            measures=[make_measure("count_orders", "1", "COUNT", "SUM")],
+            sql="SELECT state, COUNT(1) FROM ... GROUP BY state",
+            grain_group_hash="test_incremental_hash_2",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            schedule="0 * * * *",
+            lookback_window="1 day",
+        )
+        session.add(preagg)
+        await session.commit()
+        await session.refresh(preagg)
+
+        # Mock query service and capture the call
+        mock_result = {
+            "urls": ["http://scheduler/workflow/test.main"],
+            "output_tables": ["analytics.preaggs.test"],
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        mock_materialize = module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
+        )
+
+        response = await client.post(f"/preaggs/{preagg.id}/materialize")
+        assert response.status_code == 200
+
+        # Verify the query service was called with temporal partition info
+        mock_materialize.assert_called_once()
+        call_args = mock_materialize.call_args
+        mat_input = call_args[0][0]  # First positional argument
+
+        # Check temporal partitions are included in the input
+        assert hasattr(mat_input, "temporal_partitions")
+        assert len(mat_input.temporal_partitions) > 0
+
+        # Verify the temporal partition has expected properties
+        temporal_partition = mat_input.temporal_partitions[0]
+        assert temporal_partition.column_name is not None
+        assert temporal_partition.format == "yyyyMMdd"
+        assert temporal_partition.granularity == "day"
