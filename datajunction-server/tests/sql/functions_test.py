@@ -2027,11 +2027,26 @@ async def test_hll_sketch_agg(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_hll_union_agg(session: AsyncSession):
+    """
+    Test the `hll_union_agg` function
+    """
+    query = parse("SELECT hll_union_agg(col) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.BinaryType)  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_hll_union(session: AsyncSession):
     """
     Test the `hll_union` function
     """
-    query = parse("SELECT hll_union(col) FROM (SELECT (1), (2) AS col)")
+    query = parse(
+        "SELECT hll_union(col1, col2) FROM (SELECT (1), (2) AS col1, (3), (4) AS col2)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     await query.compile(ctx)

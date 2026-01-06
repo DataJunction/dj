@@ -262,7 +262,7 @@ async def validate_node_data(
             node_validator.columns.append(column)
 
     # Find required dimension columns from full dimension paths
-    # e.g., "common.dimensions.date.dateint" -> find column "dateint" on node "common.dimensions.date"
+    # e.g., "dimensions.date.dateint" -> find column "dateint" on node "dimensions.date"
     try:
         # Get parent columns for short name lookups
         parent_columns = [

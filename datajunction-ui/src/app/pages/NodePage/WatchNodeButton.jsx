@@ -7,10 +7,7 @@ import CollapsedIcon from '../../icons/CollapsedIcon';
 const EVENT_TYPES = ['delete', 'update'];
 
 export default function WatchButton({ node }) {
-  if (!node || !node.name || !node.type) {
-    return null;
-  }
-
+  // All hooks must be called before any early returns
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [selectedEvents, setSelectedEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -19,6 +16,10 @@ export default function WatchButton({ node }) {
 
   // Load existing preferences
   useEffect(() => {
+    if (!node || !node.name || !node.type) {
+      return;
+    }
+
     const loadPreferences = async () => {
       try {
         const preferences = await djClient.getNotificationPreferences({
@@ -38,7 +39,7 @@ export default function WatchButton({ node }) {
     };
 
     loadPreferences();
-  }, [djClient, node.name, node.type]);
+  }, [djClient, node?.name, node?.type]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -51,6 +52,12 @@ export default function WatchButton({ node }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Early return after all hooks are called
+  if (!node || !node.name || !node.type) {
+    return null;
+  }
+
   const toggleEvent = async event => {
     const isSelected = selectedEvents.includes(event);
 

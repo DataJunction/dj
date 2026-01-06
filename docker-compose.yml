@@ -99,7 +99,7 @@ services:
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true
     mem_limit: 6g
-    command: sh -c "yarn && yarn start --host 0.0.0.0 --port 3000"
+    command: sh -c "yarn && yarn webpack-start --host 0.0.0.0 --port 3000"
 
   djqs:
     container_name: djqs

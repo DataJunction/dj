@@ -5,6 +5,8 @@ import decimal
 import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -12,6 +14,7 @@ from functools import reduce
 from itertools import chain, zip_longest
 import re
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -26,6 +29,9 @@ from typing import (
     Union,
     cast,
 )
+
+if TYPE_CHECKING:
+    from datajunction_server.models.dialect import Dialect
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -76,6 +82,56 @@ from datajunction_server.utils import SEPARATOR, refresh_if_needed
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Dialect-Aware Rendering
+# =============================================================================
+# Thread-safe context variable for rendering SQL to a specific dialect.
+# When set, Function.__str__ will use dialect-specific function names.
+# Default is None (use canonical/Spark names).
+
+_render_dialect: ContextVar[Optional["Dialect"]] = ContextVar(
+    "_render_dialect",
+    default=None,
+)
+
+
+def get_render_dialect() -> Optional["Dialect"]:
+    """Get the current render dialect from context."""
+    return _render_dialect.get()
+
+
+@contextmanager
+def render_for_dialect(dialect: "Dialect"):
+    """
+    Context manager to render AST for a specific dialect.
+
+    Usage:
+        with render_for_dialect(Dialect.DRUID):
+            druid_sql = str(query)
+    """
+    token = _render_dialect.set(dialect)
+    try:
+        yield
+    finally:
+        _render_dialect.reset(token)
+
+
+def to_sql(query: "Query", dialect: Optional["Dialect"] = None) -> str:
+    """
+    Render a query AST to SQL for a specific dialect.
+
+    Args:
+        query: The Query AST to render
+        dialect: Target dialect (None = use canonical/Spark names)
+
+    Returns:
+        SQL string for the target dialect
+    """
+    if dialect is None:
+        return str(query)
+    with render_for_dialect(dialect):
+        return str(query)
 
 
 def flatten(maybe_iterables: Any) -> Iterator:
@@ -1149,8 +1205,8 @@ class Column(Aliasable, Named, Expression):
                         pass  # Not a metric, try as dimension attribute
 
                     # If not a metric, try as a dimension attribute reference
-                    # e.g., common.dimensions.time.date.week_code -> dimension is
-                    # common.dimensions.time.date, column is week_code
+                    # e.g., dimensions.date.week -> dimension node is dimensions.date,
+                    # column is week
                     if len(self.namespace) >= 1:
                         namespace_parts = [n.name for n in self.namespace]
                         column_name = self.alias_or_name.name
@@ -1927,10 +1983,21 @@ class Function(Named, Operation):
         if self.name.name.upper() in function_registry and self.is_runtime():
             return self.function().substitute()
 
+        # Get dialect-specific function name if rendering for a specific dialect
+        func_name = str(self.name)
+        dialect = get_render_dialect()
+        if dialect is not None and self.name.name.upper() in function_registry:
+            func_class = function_registry[self.name.name.upper()]
+            if (
+                hasattr(func_class, "dialect_names")
+                and dialect in func_class.dialect_names
+            ):
+                func_name = func_class.dialect_names[dialect]
+
         over = f" {self.over} " if self.over else ""
         quantifier = f" {self.quantifier} " if self.quantifier else ""
         ret = (
-            f"{self.name}({quantifier}{', '.join(str(arg) for arg in self.args)}){over}"
+            f"{func_name}({quantifier}{', '.join(str(arg) for arg in self.args)}){over}"
         )
         if self.parenthesized:
             ret = f"({ret})"
@@ -3199,9 +3266,7 @@ class Query(TableExpression, UnNamed):
                         pass  # Not a metric, check if it's a valid dimension attribute
 
                     # If not a metric, check if it's a dimension attribute reference
-                    # e.g., common.dimensions.time.date.week_code -> dimension is
-                    # common.dimensions.time.date, column is week_code
-                    # We validate these exist but do NOT add them as dependencies
+                    # We validate these exist but do not add them as dependencies
                     if len(col.namespace) >= 1:
                         namespace_parts = [n.name for n in col.namespace]
                         column_name = col.alias_or_name.name

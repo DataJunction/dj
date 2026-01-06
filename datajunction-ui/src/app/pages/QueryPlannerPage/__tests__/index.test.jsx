@@ -1,17 +1,19 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from '@testing-library/react';
 import DJClientContext from '../../../providers/djclient';
 import { QueryPlannerPage } from '../index';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import React from 'react';
 
 // Mock the MetricFlowGraph component to avoid dagre dependency issues
 jest.mock('../MetricFlowGraph', () => ({
-  MetricFlowGraph: ({
-    grainGroups,
-    metricFormulas,
-    selectedNode,
-    onNodeSelect,
-  }) => {
+  __esModule: true,
+  default: ({ grainGroups, metricFormulas, selectedNode, onNodeSelect }) => {
     if (!grainGroups?.length || !metricFormulas?.length) {
       return <div data-testid="graph-empty">Select metrics and dimensions</div>;
     }
@@ -21,6 +23,30 @@ jest.mock('../MetricFlowGraph', () => ({
           {grainGroups.length} pre-aggregations → {metricFormulas.length}{' '}
           metrics
         </span>
+        <button
+          data-testid="select-preagg"
+          onClick={() =>
+            onNodeSelect?.({
+              type: 'preagg',
+              index: 0,
+              data: grainGroups[0],
+            })
+          }
+        >
+          Select Pre-agg
+        </button>
+        <button
+          data-testid="select-metric"
+          onClick={() =>
+            onNodeSelect?.({
+              type: 'metric',
+              index: 0,
+              data: metricFormulas[0],
+            })
+          }
+        >
+          Select Metric
+        </button>
       </div>
     );
   },
@@ -31,6 +57,21 @@ const mockDjClient = {
   commonDimensions: jest.fn(),
   measuresV3: jest.fn(),
   metricsV3: jest.fn(),
+  listCubesForPreset: jest.fn(),
+  cubeForPlanner: jest.fn(),
+  planPreaggs: jest.fn(),
+  updatePreaggConfig: jest.fn(),
+  materializePreagg: jest.fn(),
+  runPreaggBackfill: jest.fn(),
+  deactivatePreaggWorkflow: jest.fn(),
+  deactivateCubeWorkflow: jest.fn(),
+  createCube: jest.fn(),
+  materializeCubeV2: jest.fn(),
+  refreshCubeWorkflow: jest.fn(),
+  runCubeBackfill: jest.fn(),
+  listPreaggs: jest.fn(),
+  getNodeColumnsWithPartitions: jest.fn(),
+  setPartition: jest.fn(),
 };
 
 const mockMetrics = [
@@ -107,18 +148,42 @@ const mockMeasuresResult = {
       components: ['sum_revenue', 'count_orders'],
     },
   ],
+  requested_dimensions: ['default.date_dim.dateint'],
 };
 
 const mockMetricsResult = {
   sql: 'SELECT date_id, SUM(revenue) as total_revenue FROM orders GROUP BY 1',
 };
 
-const renderPage = () => {
+const mockCubes = [
+  { name: 'default.test_cube', display_name: 'Test Cube' },
+  { name: 'sales.revenue_cube', display_name: 'Revenue Cube' },
+];
+
+const mockCubeData = {
+  cube_node_metrics: ['default.num_repair_orders', 'default.avg_repair_price'],
+  cube_node_dimensions: ['default.date_dim.dateint'],
+  cubeMaterialization: {
+    schedule: '0 6 * * *',
+    strategy: 'incremental_time',
+    lookbackWindow: '1 DAY',
+    workflowUrls: ['http://workflow.example.com/1'],
+  },
+};
+
+const renderPage = (initialEntries = ['/query-planner']) => {
   return render(
-    <MemoryRouter>
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <QueryPlannerPage />
-      </DJClientContext.Provider>
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route
+          path="/query-planner"
+          element={
+            <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+              <QueryPlannerPage />
+            </DJClientContext.Provider>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 };
@@ -129,6 +194,13 @@ describe('QueryPlannerPage', () => {
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.measuresV3.mockResolvedValue(mockMeasuresResult);
     mockDjClient.metricsV3.mockResolvedValue(mockMetricsResult);
+    mockDjClient.listCubesForPreset.mockResolvedValue(mockCubes);
+    mockDjClient.cubeForPlanner.mockResolvedValue(null);
+    mockDjClient.listPreaggs.mockResolvedValue({ items: [] });
+    mockDjClient.getNodeColumnsWithPartitions.mockResolvedValue({
+      columns: [{ name: 'date_id', type: 'int' }],
+      temporalPartitions: [],
+    });
   });
 
   afterEach(() => {
@@ -136,25 +208,26 @@ describe('QueryPlannerPage', () => {
   });
 
   describe('Initial Render', () => {
-    it('renders the page header', () => {
+    it('renders the page header', async () => {
       renderPage();
       // Page has "Query Planner" text in multiple places (header and empty state)
-      expect(screen.getAllByText('Query Planner').length).toBeGreaterThan(0);
-      expect(
-        screen.getByText(
-          'Explore metrics and dimensions and plan materializations',
-        ),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getAllByText('Query Planner').length).toBeGreaterThan(0);
+      });
     });
 
-    it('renders the metrics section', () => {
+    it('renders the metrics section', async () => {
       renderPage();
-      expect(screen.getByText('Metrics')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText('Metrics')).toBeInTheDocument();
+      });
     });
 
-    it('renders the dimensions section', () => {
+    it('renders the dimensions section', async () => {
       renderPage();
-      expect(screen.getByText('Dimensions')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText('Dimensions')).toBeInTheDocument();
+      });
     });
 
     it('fetches metrics on mount', async () => {
@@ -164,11 +237,20 @@ describe('QueryPlannerPage', () => {
       });
     });
 
-    it('shows empty state when no metrics/dimensions selected', () => {
+    it('fetches cube list on mount', async () => {
       renderPage();
-      expect(
-        screen.getByText('Select Metrics & Dimensions'),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('shows empty state when no metrics/dimensions selected', async () => {
+      renderPage();
+      await waitFor(() => {
+        expect(
+          screen.getByText('Select Metrics & Dimensions'),
+        ).toBeInTheDocument();
+      });
     });
   });
 
@@ -275,43 +357,386 @@ describe('QueryPlannerPage', () => {
     });
   });
 
-  describe('Graph Rendering', () => {
-    // Note: Graph rendering with full data flow is tested in MetricFlowGraph.test.jsx
-    // The integration between selecting metrics/dimensions and graph updates
-    // is better suited for E2E tests due to complex async dependencies
-    it('page structure includes graph container', () => {
-      // MetricFlowGraph component is rendered within the page structure
-      // Direct testing of graph rendering is in MetricFlowGraph.test.jsx
-      expect(true).toBe(true);
+  describe('Cube Preset Loading', () => {
+    it('displays cube dropdown button when cubes are available', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      expect(screen.getByText('Load from Cube')).toBeInTheDocument();
+    });
+
+    it('opens cube dropdown when clicked', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      const cubeButton = screen.getByText('Load from Cube');
+      fireEvent.click(cubeButton);
+
+      expect(
+        screen.getByPlaceholderText('Search cubes...'),
+      ).toBeInTheDocument();
+    });
+
+    it('loads cube data when a cube is selected', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Open dropdown
+      const cubeButton = screen.getByText('Load from Cube');
+      fireEvent.click(cubeButton);
+
+      // Select a cube
+      const cubeOption = screen.getByText('Test Cube');
+      fireEvent.click(cubeOption);
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith(
+          'default.test_cube',
+        );
+      });
     });
   });
 
-  describe('Query Overview Panel', () => {
-    // Note: QueryOverviewPanel display is tested in PreAggDetailsPanel.test.jsx
-    // which directly tests the component with mocked data.
-    // Full integration testing of the data flow requires more complex setup
-    // and is better suited for E2E tests.
-    it('component structure includes query overview panel', () => {
-      // The page renders QueryOverviewPanel when data is loaded
-      // This is a structural test - actual rendering is tested in PreAggDetailsPanel.test.jsx
-      expect(true).toBe(true);
+  describe('URL Parameter Handling', () => {
+    it('initializes from URL with metrics parameter', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage([
+        '/query-planner?metrics=default.num_repair_orders,default.avg_repair_price',
+      ]);
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+    });
+
+    it('initializes from URL with cube parameter', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage(['/query-planner?cube=default.test_cube']);
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith(
+          'default.test_cube',
+        );
+      });
+    });
+  });
+
+  describe('Graph Interactions', () => {
+    it('displays graph when metrics and dimensions are selected', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Expand and select metric
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      // Wait for dimensions and select one
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      const dimCheckbox = screen.getByRole('checkbox', { name: /dateint/i });
+      fireEvent.click(dimCheckbox);
+
+      // Wait for measures to be fetched
+      await waitFor(() => {
+        expect(mockDjClient.measuresV3).toHaveBeenCalled();
+      });
+
+      // Graph should now be displayed
+      await waitFor(() => {
+        expect(screen.getByTestId('metric-flow-graph')).toBeInTheDocument();
+      });
+    });
+
+    it('shows loading state while building data flow', async () => {
+      // Delay the measures response
+      mockDjClient.measuresV3.mockImplementation(
+        () =>
+          new Promise(resolve =>
+            setTimeout(() => resolve(mockMeasuresResult), 100),
+          ),
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension quickly
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Should show loading state
+      await waitFor(() => {
+        expect(screen.getByText('Building data flow...')).toBeInTheDocument();
+      });
+    });
+
+    it('shows pre-agg details when preagg node is selected', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Wait for graph to appear
+      await waitFor(() => {
+        expect(screen.getByTestId('metric-flow-graph')).toBeInTheDocument();
+      });
+
+      // Click on preagg node
+      fireEvent.click(screen.getByTestId('select-preagg'));
+
+      // Should show pre-agg details
+      await waitFor(() => {
+        expect(screen.getByText('Pre-aggregation')).toBeInTheDocument();
+      });
+    });
+
+    it('shows metric details when metric node is selected', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Wait for graph to appear
+      await waitFor(() => {
+        expect(screen.getByTestId('metric-flow-graph')).toBeInTheDocument();
+      });
+
+      // Click on metric node
+      fireEvent.click(screen.getByTestId('select-metric'));
+
+      // Should show metric details (badge shows "Metric" for non-derived)
+      await waitFor(() => {
+        expect(screen.getByText('Metric')).toBeInTheDocument();
+      });
     });
   });
 
   describe('Error Handling', () => {
-    it('handles API errors gracefully', () => {
-      // Error handling is tested implicitly through the component structure
-      // The component catches errors from measuresV3/metricsV3 and displays them
-      // Full integration testing requires a more complex setup
-      expect(true).toBe(true);
+    it('displays error when API call fails', async () => {
+      mockDjClient.measuresV3.mockRejectedValue(new Error('API Error'));
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Should show error
+      await waitFor(() => {
+        expect(screen.getByText('API Error')).toBeInTheDocument();
+      });
+    });
+
+    it('handles commonDimensions API error gracefully', async () => {
+      mockDjClient.commonDimensions.mockRejectedValue(
+        new Error('Dimensions fetch failed'),
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select a metric
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      // Should handle gracefully (empty dimensions)
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
     });
   });
 
-  describe('Dimension Deduplication', () => {
-    // Note: Dimension deduplication is tested in SelectionPanel.test.jsx
-    // which directly tests the deduplication logic with controlled test data
-    it('deduplication logic is tested in SelectionPanel tests', () => {
-      expect(true).toBe(true);
+  describe('Dimension Selection', () => {
+    it('clears invalid dimension selections when dimensions change', async () => {
+      // First commonDimensions call returns 2 dimensions
+      mockDjClient.commonDimensions.mockResolvedValueOnce(mockCommonDimensions);
+      // Second call returns only 1 dimension
+      mockDjClient.commonDimensions.mockResolvedValueOnce([
+        mockCommonDimensions[0],
+      ]);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select first metric
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      // Wait for dimensions
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      // Select a dimension
+      const dimCheckbox = screen.getByRole('checkbox', { name: /dateint/i });
+      fireEvent.click(dimCheckbox);
+
+      // Select another metric (triggers new commonDimensions call)
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /avg_repair_price/i }),
+        );
+      });
+
+      // Invalid dimensions should be cleared automatically
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
+  describe('Clear Selection', () => {
+    it('clears all selections when Clear all is clicked', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Load a cube
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+
+      // Wait for common dimensions to load after cube selection
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      // Click Clear all
+      const clearButton = screen.getByText('Clear all');
+      fireEvent.click(clearButton);
+
+      // Should show "Load from Cube" again (cube unloaded)
+      await waitFor(() => {
+        expect(screen.getByText('Load from Cube')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Pre-aggregation Lookup', () => {
+    it('fetches existing pre-aggregations when measures result changes', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Should fetch existing pre-aggs
+      await waitFor(() => {
+        expect(mockDjClient.listPreaggs).toHaveBeenCalled();
+      });
     });
   });
 });

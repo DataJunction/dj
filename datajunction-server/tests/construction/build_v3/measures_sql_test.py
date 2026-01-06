@@ -2520,3 +2520,317 @@ class TestNonDecomposableMetrics:
             FROM v3_order_details t1
             """,
         )
+
+
+class TestCombinedMeasuresSQLEndpoint:
+    """Tests for the /sql/measures/v3/combined endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_combined_single_grain_group(self, client_with_build_v3):
+        """
+        Test combined endpoint with metrics from a single parent node.
+        When there's only one grain group, no JOIN is needed.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Single grain group means no JOIN needed
+        assert data["grain_groups_combined"] == 1
+        assert "status" in data["grain"]
+
+        # Verify SQL structure - single grain group, no JOIN
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+        # Verify columns include dimensions and measures
+        column_names = [col["name"] for col in data["columns"]]
+        assert "status" in column_names
+        assert "total_revenue" in column_names
+
+    @pytest.mark.asyncio
+    async def test_combined_cross_fact_metrics(self, client_with_build_v3):
+        """
+        Test combined endpoint with metrics from different parent nodes.
+        Should produce FULL OUTER JOIN with COALESCE.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": ["v3.total_revenue", "v3.page_view_count"],
+                "dimensions": ["v3.date_dim.date_id"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Cross-fact metrics mean multiple grain groups
+        assert data["grain_groups_combined"] >= 2
+        assert "date_id" in data["grain"]
+
+        # Verify SQL structure - FULL OUTER JOIN with COALESCE
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+            SELECT  oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_page_views_enriched AS (
+            SELECT  view_id
+            FROM default.v3.page_views
+            ),
+            gg1 AS (
+            SELECT  t1.date_id,
+                SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            GROUP BY  t1.date_id
+            ),
+            gg2 AS (
+            SELECT  t1.date_id,
+                COUNT(t1.view_id) page_view_count
+            FROM v3_page_views_enriched t1
+            GROUP BY  t1.date_id
+            )
+            SELECT  COALESCE(gg1.date_id, gg2.date_id) date_id,
+                gg1.total_revenue,
+                gg2.page_view_count
+            FROM gg1 FULL OUTER JOIN gg2 ON gg1.date_id = gg2.date_id
+            """,
+        )
+
+        # Verify columns include measures from both sources
+        column_names = [col["name"] for col in data["columns"]]
+        assert "date_id" in column_names
+        assert "total_revenue" in column_names
+        assert "page_view_count" in column_names
+
+    @pytest.mark.asyncio
+    async def test_combined_endpoint_returns_correct_metadata(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that column metadata is correctly populated.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify SQL matches expected structure
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
+
+        # Check semantic types in columns
+        columns = {col["name"]: col for col in data["columns"]}
+
+        # Status should be a dimension
+        assert columns["status"]["semantic_type"] == "dimension"
+
+        # Revenue should be a metric component (semantic type varies based on single-component)
+        assert columns["total_revenue"]["semantic_type"] in (
+            "metric",
+            "metric_component",
+        )
+
+    @pytest.mark.asyncio
+    async def test_combined_empty_metrics_returns_error(self, client_with_build_v3):
+        """
+        Test that empty metrics list returns an error.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": [],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        # Should return error for empty metrics
+        assert response.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_combined_source_tables_default(self, client_with_build_v3):
+        """
+        Test that source=source_tables (default) returns source info.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["grain_groups_combined"] == 1
+        assert data["use_preagg_tables"] is False
+        assert data["columns"] == [
+            {
+                "name": "status",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+                "type": "string",
+            },
+            {
+                "name": "total_revenue",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+                "type": "double",
+            },
+        ]
+        assert data["grain"] == ["status"]
+        assert data["source_tables"] == ["v3.order_details"]
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+            SELECT  o.status,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+
+            SELECT  t1.status,
+                SUM(t1.line_total) total_revenue
+            FROM v3_order_details t1
+            GROUP BY  t1.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_combined_source_preagg_tables(self, client_with_build_v3):
+        """
+        Test that source=preagg_tables generates SQL reading from pre-agg tables.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "use_preagg_tables": "true",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should indicate preagg_tables source
+        assert data["use_preagg_tables"] is True
+
+        # Source tables should be pre-agg table references
+        assert len(data["source_tables"]) >= 1
+        assert data["source_tables"] == [
+            "default.dj_preaggs.v3_order_details_preagg_b18e32ec",
+        ]
+
+        # Extract the preagg table name for SQL comparison
+        # The SQL should read from the pre-agg table with re-aggregation
+        assert_sql_equal(
+            data["sql"],
+            """
+            SELECT status, SUM(total_revenue) total_revenue
+            FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
+            GROUP BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_combined_preagg_uses_configured_catalog_schema(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that preagg_tables source uses configured catalog and schema.
+        """
+        # The default settings are:
+        # preagg_catalog = "default"
+        # preagg_schema = "dj_preaggs"
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/combined",
+            params={
+                "use_preagg_tables": "true",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Source tables should include the default catalog.schema prefix
+        assert len(data["source_tables"]) >= 1
+        assert data["source_tables"] == [
+            "default.dj_preaggs.v3_order_details_preagg_b18e32ec",
+        ]
+
+        # Verify the SQL also references this table
+        assert_sql_equal(
+            data["sql"],
+            """
+            SELECT status, SUM(total_revenue) total_revenue
+            FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
+            GROUP BY status
+            """,
+        )
+
+
+class TestCubeMaterializeEndpoint:
+    """Tests for the POST /cubes/{name}/materialize endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_cube_materialize_nonexistent_cube_returns_error(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that materialize endpoint returns error for nonexistent cube.
+        """
+        response = await client_with_build_v3.post(
+            "/cubes/nonexistent.cube/materialize",
+            json={
+                "schedule": "0 0 * * *",
+            },
+        )
+        # Should get 404 or 422 because cube not found
+        assert response.status_code in (404, 422)

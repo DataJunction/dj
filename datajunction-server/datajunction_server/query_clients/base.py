@@ -20,7 +20,10 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
-    from datajunction_server.models.preaggregation import BackfillInput
+    from datajunction_server.models.preaggregation import (
+        BackfillInput,
+        CubeBackfillInput,
+    )
 
 _logger = logging.getLogger(__name__)
 
@@ -199,10 +202,10 @@ class BaseQueryServiceClient(ABC):
 
     def deactivate_preagg_workflow(
         self,
-        preagg_id: int,
+        output_table: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Deactivate a pre-aggregation's scheduled workflow."""
+        """Deactivate a pre-aggregation's workflows by output table name."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support pre-aggregation workflows",
         )
@@ -215,6 +218,16 @@ class BaseQueryServiceClient(ABC):
         """Run a backfill for a pre-aggregation."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support pre-aggregation backfill",
+        )
+
+    def run_cube_backfill(
+        self,
+        backfill_input: "CubeBackfillInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Run a backfill for a cube."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support cube backfill",
         )
 
     def deactivate_materialization(

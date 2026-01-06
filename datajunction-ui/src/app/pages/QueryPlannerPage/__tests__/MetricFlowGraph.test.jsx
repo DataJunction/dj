@@ -1,65 +1,66 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 
-// Mock the entire MetricFlowGraph module since dagre is difficult to mock
-jest.mock('../MetricFlowGraph', () => ({
-  MetricFlowGraph: ({
-    grainGroups,
-    metricFormulas,
-    selectedNode,
-    onNodeSelect,
-  }) => {
-    if (!grainGroups?.length || !metricFormulas?.length) {
-      return (
-        <div data-testid="graph-empty">
-          Select metrics and dimensions above to visualize the data flow
-        </div>
-      );
-    }
-    return (
-      <div data-testid="metric-flow-graph">
-        <div data-testid="nodes-count">
-          {grainGroups.length + metricFormulas.length}
-        </div>
-        {grainGroups.map((gg, i) => (
-          <div
-            key={`preagg-${i}`}
-            data-testid={`preagg-node-${i}`}
-            onClick={() =>
-              onNodeSelect?.({ type: 'preagg', index: i, data: gg })
-            }
-          >
-            {gg.parent_name?.split('.').pop()}
-          </div>
-        ))}
-        {metricFormulas.map((m, i) => (
-          <div
-            key={`metric-${i}`}
-            data-testid={`metric-node-${i}`}
-            onClick={() =>
-              onNodeSelect?.({ type: 'metric', index: i, data: m })
-            }
-          >
-            {m.short_name}
-          </div>
-        ))}
-        <div data-testid="legend">
-          <span>Pre-agg</span>
-          <span>Metric</span>
-          <span>Derived</span>
-        </div>
-      </div>
-    );
-  },
-}));
+// Mock dagre module with inline class definition
+jest.mock('dagre', () => {
+  // Define mock graph class inside the mock factory
+  function MockGraph() {
+    this.setDefaultEdgeLabel = jest.fn().mockReturnValue(this);
+    this.setGraph = jest.fn().mockReturnValue(this);
+    this.setNode = jest.fn().mockReturnValue(this);
+    this.setEdge = jest.fn().mockReturnValue(this);
+    this.node = jest.fn().mockReturnValue({ x: 100, y: 100 });
+  }
 
-// Import after mock
-const { MetricFlowGraph } = require('../MetricFlowGraph');
+  return {
+    graphlib: {
+      Graph: MockGraph,
+    },
+    layout: jest.fn(),
+  };
+});
+
+// Mock ReactFlow and related components
+jest.mock('reactflow', () => {
+  return {
+    __esModule: true,
+    default: ({ children, nodes, edges, onNodeClick, onPaneClick }) => (
+      <div data-testid="react-flow" onClick={onPaneClick}>
+        {nodes?.map(node => (
+          <div
+            key={node.id}
+            data-testid={`node-${node.id}`}
+            className={`flow-node ${node.type}`}
+            onClick={e => {
+              e.stopPropagation();
+              onNodeClick?.(e, node);
+            }}
+          >
+            {/* For metrics, use shortName; for preaggs, use name */}
+            {node.data.shortName || node.data.name}
+          </div>
+        ))}
+        {children}
+      </div>
+    ),
+    Background: () => <div data-testid="background" />,
+    Controls: () => <div data-testid="controls" />,
+    MarkerType: { ArrowClosed: 'arrowclosed' },
+    useNodesState: nodes => [nodes, jest.fn(), jest.fn()],
+    useEdgesState: edges => [edges, jest.fn(), jest.fn()],
+    Handle: ({ type, position }) => (
+      <div data-testid={`handle-${type}-${position}`} />
+    ),
+    Position: { Left: 'left', Right: 'right' },
+  };
+});
+
+// Import the component after mocks are set up
+import { MetricFlowGraph } from '../MetricFlowGraph';
 
 const mockGrainGroups = [
   {
     parent_name: 'default.repair_orders',
-    aggregability: 'FULL',
     grain: ['date_id', 'customer_id'],
     components: [
       { name: 'sum_revenue', expression: 'SUM(revenue)' },
@@ -68,7 +69,6 @@ const mockGrainGroups = [
   },
   {
     parent_name: 'inventory.stock',
-    aggregability: 'LIMITED',
     grain: ['warehouse_id'],
     components: [{ name: 'sum_quantity', expression: 'SUM(quantity)' }],
   },
@@ -76,164 +76,357 @@ const mockGrainGroups = [
 
 const mockMetricFormulas = [
   {
-    name: 'default.total_revenue',
-    short_name: 'total_revenue',
-    combiner: 'SUM(sum_revenue)',
-    is_derived: false,
-    components: ['sum_revenue'],
-  },
-  {
-    name: 'default.order_count',
-    short_name: 'order_count',
+    name: 'default.num_repair_orders',
+    short_name: 'num_repair_orders',
     combiner: 'SUM(count_orders)',
     is_derived: false,
     components: ['count_orders'],
   },
   {
-    name: 'default.avg_order_value',
-    short_name: 'avg_order_value',
+    name: 'default.avg_repair_price',
+    short_name: 'avg_repair_price',
     combiner: 'SUM(sum_revenue) / SUM(count_orders)',
     is_derived: true,
     components: ['sum_revenue', 'count_orders'],
   },
+  {
+    name: 'inventory.total_stock',
+    short_name: 'total_stock',
+    combiner: 'SUM(sum_quantity)',
+    is_derived: false,
+    components: ['sum_quantity'],
+  },
 ];
 
 describe('MetricFlowGraph', () => {
-  const defaultProps = {
-    grainGroups: mockGrainGroups,
-    metricFormulas: mockMetricFormulas,
-    selectedNode: null,
-    onNodeSelect: jest.fn(),
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
   describe('Empty State', () => {
-    it('shows empty state when no grain groups', () => {
-      render(<MetricFlowGraph {...defaultProps} grainGroups={[]} />);
-      expect(screen.getByTestId('graph-empty')).toBeInTheDocument();
+    it('shows empty state when no grain groups provided', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={[]}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
       expect(
         screen.getByText(
-          'Select metrics and dimensions above to visualize the data flow',
+          /Select metrics and dimensions above to visualize the data flow/i,
         ),
       ).toBeInTheDocument();
     });
 
-    it('shows empty state when no metric formulas', () => {
-      render(<MetricFlowGraph {...defaultProps} metricFormulas={[]} />);
-      expect(screen.getByTestId('graph-empty')).toBeInTheDocument();
+    it('shows empty state when no metric formulas provided', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={[]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          /Select metrics and dimensions above to visualize the data flow/i,
+        ),
+      ).toBeInTheDocument();
     });
 
     it('shows empty state when both are null', () => {
       render(
         <MetricFlowGraph
-          {...defaultProps}
           grainGroups={null}
           metricFormulas={null}
+          onNodeSelect={jest.fn()}
         />,
       );
-      expect(screen.getByTestId('graph-empty')).toBeInTheDocument();
+
+      expect(
+        screen.getByText(
+          /Select metrics and dimensions above to visualize the data flow/i,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows empty icon in empty state', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={[]}
+          metricFormulas={[]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText('◎')).toBeInTheDocument();
     });
   });
 
   describe('Graph Rendering', () => {
-    it('renders graph container when data is provided', () => {
-      render(<MetricFlowGraph {...defaultProps} />);
-      expect(screen.getByTestId('metric-flow-graph')).toBeInTheDocument();
+    it('renders ReactFlow when data is provided', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
     });
 
-    it('renders correct number of nodes', () => {
-      render(<MetricFlowGraph {...defaultProps} />);
-      // 2 pre-agg nodes + 3 metric nodes = 5 total
-      expect(screen.getByTestId('nodes-count')).toHaveTextContent('5');
+    it('renders background and controls', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('background')).toBeInTheDocument();
+      expect(screen.getByTestId('controls')).toBeInTheDocument();
     });
 
-    it('displays pre-aggregation short names', () => {
-      render(<MetricFlowGraph {...defaultProps} />);
+    it('renders pre-aggregation nodes', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
       expect(screen.getByText('repair_orders')).toBeInTheDocument();
       expect(screen.getByText('stock')).toBeInTheDocument();
     });
 
-    it('displays metric short names', () => {
-      render(<MetricFlowGraph {...defaultProps} />);
-      expect(screen.getByText('total_revenue')).toBeInTheDocument();
-      expect(screen.getByText('order_count')).toBeInTheDocument();
-      expect(screen.getByText('avg_order_value')).toBeInTheDocument();
+    it('renders metric nodes', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+      expect(screen.getByText('avg_repair_price')).toBeInTheDocument();
+      expect(screen.getByText('total_stock')).toBeInTheDocument();
     });
   });
 
   describe('Node Selection', () => {
-    it('calls onNodeSelect when preagg node is clicked', () => {
+    it('calls onNodeSelect with preagg data when preagg node is clicked', () => {
       const onNodeSelect = jest.fn();
-      render(<MetricFlowGraph {...defaultProps} onNodeSelect={onNodeSelect} />);
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={onNodeSelect}
+        />,
+      );
 
-      const preaggNode = screen.getByTestId('preagg-node-0');
-      preaggNode.click();
+      const preaggNode = screen.getByText('repair_orders');
+      fireEvent.click(preaggNode);
 
       expect(onNodeSelect).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'preagg',
           index: 0,
+          data: mockGrainGroups[0],
         }),
       );
     });
 
-    it('calls onNodeSelect when metric node is clicked', () => {
+    it('calls onNodeSelect with metric data when metric node is clicked', () => {
       const onNodeSelect = jest.fn();
-      render(<MetricFlowGraph {...defaultProps} onNodeSelect={onNodeSelect} />);
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={onNodeSelect}
+        />,
+      );
 
-      const metricNode = screen.getByTestId('metric-node-0');
-      metricNode.click();
+      const metricNode = screen.getByText('num_repair_orders');
+      fireEvent.click(metricNode);
 
       expect(onNodeSelect).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'metric',
           index: 0,
+          data: mockMetricFormulas[0],
         }),
       );
     });
 
-    it('passes grain data when preagg is selected', () => {
+    it('calls onNodeSelect with null when pane is clicked', () => {
       const onNodeSelect = jest.fn();
-      render(<MetricFlowGraph {...defaultProps} onNodeSelect={onNodeSelect} />);
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={onNodeSelect}
+        />,
+      );
 
-      const preaggNode = screen.getByTestId('preagg-node-0');
-      preaggNode.click();
+      const flowPane = screen.getByTestId('react-flow');
+      fireEvent.click(flowPane);
+
+      expect(onNodeSelect).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('Legend', () => {
+    it('renders legend with Pre-agg, Metric, and Derived labels', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText('Pre-agg')).toBeInTheDocument();
+      expect(screen.getByText('Metric')).toBeInTheDocument();
+      expect(screen.getByText('Derived')).toBeInTheDocument();
+    });
+  });
+
+  describe('Node Types', () => {
+    it('creates preagg nodes for each grain group', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      // 2 grain groups = 2 preagg nodes
+      const preaggNodes = document.querySelectorAll('.flow-node.preagg');
+      expect(preaggNodes.length).toBe(2);
+    });
+
+    it('creates metric nodes for each metric formula', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      // 3 metric formulas = 3 metric nodes
+      const metricNodes = document.querySelectorAll('.flow-node.metric');
+      expect(metricNodes.length).toBe(3);
+    });
+  });
+
+  describe('Node Selection by Index', () => {
+    it('selects correct preagg when second preagg is clicked', () => {
+      const onNodeSelect = jest.fn();
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={onNodeSelect}
+        />,
+      );
+
+      const stockNode = screen.getByText('stock');
+      fireEvent.click(stockNode);
 
       expect(onNodeSelect).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            grain: ['date_id', 'customer_id'],
-          }),
+          type: 'preagg',
+          index: 1,
+          data: mockGrainGroups[1],
         }),
       );
     });
 
-    it('passes combiner data when metric is selected', () => {
+    it('selects correct metric when derived metric is clicked', () => {
       const onNodeSelect = jest.fn();
-      render(<MetricFlowGraph {...defaultProps} onNodeSelect={onNodeSelect} />);
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={onNodeSelect}
+        />,
+      );
 
-      const metricNode = screen.getByTestId('metric-node-0');
-      metricNode.click();
+      const derivedMetric = screen.getByText('avg_repair_price');
+      fireEvent.click(derivedMetric);
 
       expect(onNodeSelect).toHaveBeenCalledWith(
         expect.objectContaining({
+          type: 'metric',
+          index: 1,
           data: expect.objectContaining({
-            combiner: 'SUM(sum_revenue)',
+            is_derived: true,
+            short_name: 'avg_repair_price',
           }),
         }),
       );
     });
   });
 
-  describe('Legend', () => {
-    it('renders graph legend', () => {
-      render(<MetricFlowGraph {...defaultProps} />);
-      expect(screen.getByText('Pre-agg')).toBeInTheDocument();
-      expect(screen.getByText('Metric')).toBeInTheDocument();
-      expect(screen.getByText('Derived')).toBeInTheDocument();
+  describe('Graph Layout', () => {
+    it('uses dagre for layout computation', () => {
+      const dagre = require('dagre');
+
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      // dagre.layout should have been called
+      expect(dagre.layout).toHaveBeenCalled();
     });
+  });
+});
+
+describe('MetricFlowGraph Node Display', () => {
+  it('shows parent name without namespace prefix', () => {
+    render(
+      <MetricFlowGraph
+        grainGroups={[
+          {
+            parent_name: 'default.namespace.my_table',
+            grain: ['id'],
+            components: [{ name: 'comp1' }],
+          },
+        ]}
+        metricFormulas={[
+          {
+            name: 'default.metric',
+            short_name: 'metric',
+            components: ['comp1'],
+          },
+        ]}
+        onNodeSelect={jest.fn()}
+      />,
+    );
+
+    // Should show just 'my_table', not the full path
+    expect(screen.getByText('my_table')).toBeInTheDocument();
+  });
+
+  it('shows short name for metric', () => {
+    render(
+      <MetricFlowGraph
+        grainGroups={mockGrainGroups}
+        metricFormulas={mockMetricFormulas}
+        onNodeSelect={jest.fn()}
+      />,
+    );
+
+    // Should show short_name
+    expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+    expect(screen.getByText('avg_repair_price')).toBeInTheDocument();
   });
 });

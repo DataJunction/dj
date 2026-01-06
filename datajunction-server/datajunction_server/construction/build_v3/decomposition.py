@@ -263,6 +263,11 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
             if parent.type == NodeType.METRIC:
                 # Parent is also a metric - recurse
                 collect_bases(parent)
+            elif parent.type == NodeType.DIMENSION:
+                # Skip dimension nodes - they're for required dimensions (e.g., in window
+                # functions), not the actual data source. Don't treat the derived metric
+                # as a base metric just because it references a dimension.
+                continue  # pragma: no cover
             else:
                 # Parent is a fact/transform - this is a base metric
                 base_metrics.append(node)
@@ -278,8 +283,14 @@ def is_derived_metric(ctx: BuildContext, metric_node: Node) -> bool:
     if not parent_names:  # pragma: no cover
         return False
 
-    first_parent = ctx.nodes.get(parent_names[0])
-    return first_parent is not None and first_parent.type == NodeType.METRIC
+    # Check if ANY parent is a metric (not just the first one)
+    # This handles cases where a dimension (for required dimensions in window functions)
+    # appears before the metric parent in the parent list
+    for parent_name in parent_names:
+        parent = ctx.nodes.get(parent_name)
+        if parent is not None and parent.type == NodeType.METRIC:
+            return True
+    return False
 
 
 def get_native_grain(node: Node) -> list[str]:
