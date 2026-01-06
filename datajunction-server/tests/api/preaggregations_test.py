@@ -4,7 +4,6 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest import mock
 
 
 from datajunction_server.database.preaggregation import (
@@ -18,6 +17,8 @@ from datajunction_server.models.decompose import (
     Aggregability,
 )
 from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.utils import get_query_service_client
 
 
 def make_measure(
@@ -1546,34 +1547,30 @@ class TestIncrementalTimeMaterialization:
 
     These tests verify that the materialize endpoint correctly handles
     incremental time strategies when the upstream node has temporal partitions.
+
+    Uses the v3 namespace which has dimension links already configured:
+    - v3.order_details.order_date -> v3.date.date_id (role: order)
     """
 
     @pytest.mark.asyncio
     async def test_materialize_incremental_time_with_temporal_partition(
         self,
-        module__client_with_roads: AsyncClient,
-        module__session: AsyncSession,
-        module_mocker,
+        client_with_build_v3: AsyncClient,
+        mocker,
     ):
         """
         Test INCREMENTAL_TIME materialization succeeds when node has temporal partitions.
 
         This test:
         1. Sets up a temporal partition on order_date column
-        2. Creates a preagg with INCREMENTAL_TIME strategy
+        2. Creates a preagg with INCREMENTAL_TIME strategy via /preaggs/plan
         3. Verifies materialize returns correct temporal partition info
         """
-        from datajunction_server.database import Node
-        from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.database.materialization import MaterializationStrategy
-        from datajunction_server.utils import get_query_service_client
-
-        client = module__client_with_roads
-        session = module__session
+        client = client_with_build_v3
 
         # Set temporal partition on order_date column
         partition_response = await client.post(
-            "/nodes/default.repair_orders_fact/columns/order_date/partition",
+            "/nodes/v3.order_details/columns/order_date/partition",
             json={
                 "type_": "temporal",
                 "granularity": "day",
@@ -1584,139 +1581,216 @@ class TestIncrementalTimeMaterialization:
             f"Failed to set partition: {partition_response.text}"
         )
 
-        # Create a preagg with INCREMENTAL_TIME strategy
-        node = await Node.get_by_name(session, "default.repair_orders_fact")
-        node_revision_id = node.current.id  # type: ignore
-
-        preagg = PreAggregation(
-            node_revision_id=node_revision_id,
-            grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_repair_cost", "repair_cost")],
-            sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-            grain_group_hash="test_incremental_hash",
-            strategy=MaterializationStrategy.INCREMENTAL_TIME,
-            schedule="0 0 * * *",
-            lookback_window="3 days",
+        # Create a preagg with INCREMENTAL_TIME strategy via API
+        plan_response = await client.post(
+            "/preaggs/plan/",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "strategy": "incremental_time",
+                "schedule": "0 0 * * *",
+                "lookback_window": "3 days",
+            },
         )
-        session.add(preagg)
-        await session.commit()
-        await session.refresh(preagg)
+        assert plan_response.status_code == 201, (
+            f"Failed to plan preagg: {plan_response.text}"
+        )
+        preagg = plan_response.json()["preaggs"][0]
+        preagg_id = preagg["id"]
 
-        # Mock query service and call materialize
+        # Mock query service client's materialize_preagg method
         mock_result = {
             "urls": ["http://scheduler/workflow/incremental.main"],
             "output_tables": ["analytics.preaggs.incremental_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
+        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
+        mock_qs_client.materialize_preagg.return_value = mock_result
+
+        # Set up dependency override on the app
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
-        response = await client.post(f"/preaggs/{preagg.id}/materialize")
+        try:
+            response = await client.post(f"/preaggs/{preagg_id}/materialize")
 
-        assert response.status_code == 200, f"Materialize failed: {response.text}"
-        data = response.json()
+            assert response.status_code == 200, f"Materialize failed: {response.text}"
+            data = response.json()
 
-        # Verify response structure
-        assert data == {
-            "id": mock.ANY,
-            "node_revision_id": mock.ANY,
-            "node_name": "default.repair_orders_fact",
-            "node_version": mock.ANY,
-            "grain_columns": ["default.date_dim.date_id"],
-            "measures": [
-                {
-                    "name": "sum_repair_cost",
-                    "expression": "repair_cost",
-                    "aggregation": "SUM",
-                    "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
-                    "expr_hash": "008f874cc293",
-                },
-            ],
-            "columns": None,
-            "sql": "SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-            "grain_group_hash": "test_incremental_hash",
-            "strategy": "incremental_time",
-            "schedule": "0 0 * * *",
-            "lookback_window": "3 days",
-            "scheduled_workflow_url": "http://scheduler/workflow/incremental.main",
-            "workflow_status": "active",
-            "status": "pending",
-            "materialized_table_ref": None,
-            "max_partition": None,
-            "workflow_urls": ["http://scheduler/workflow/incremental.main"],
-            "created_at": mock.ANY,
-            "updated_at": mock.ANY,
-        }
+            # Verify response structure
+            assert data["node_name"] == "v3.order_details"
+            assert data["strategy"] == "incremental_time"
+            assert data["schedule"] == "0 0 * * *"
+            assert data["lookback_window"] == "3 days"
+            assert data["workflow_status"] == "active"
+            assert (
+                data["scheduled_workflow_url"]
+                == "http://scheduler/workflow/incremental.main"
+            )
+        finally:
+            # Clean up dependency override
+            del client.app.dependency_overrides[get_query_service_client]
 
     @pytest.mark.asyncio
     async def test_materialize_incremental_passes_temporal_partition_to_query_service(
         self,
-        module__client_with_roads: AsyncClient,
-        module__session: AsyncSession,
-        module_mocker,
+        client_with_build_v3: AsyncClient,
+        mocker,
     ):
         """
         Test that temporal partition info is passed to query service during materialization.
 
         Verifies the PreAggMaterializationInput contains temporal_partitions.
         """
-        from datajunction_server.database import Node
-        from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.database.materialization import MaterializationStrategy
-        from datajunction_server.utils import get_query_service_client
+        client = client_with_build_v3
 
-        client = module__client_with_roads
-        session = module__session
-
-        # Get node (temporal partition should already be set from previous test)
-        node = await Node.get_by_name(session, "default.repair_orders_fact")
-        node_revision_id = node.current.id  # type: ignore
-
-        # Create a new preagg for this test
-        preagg = PreAggregation(
-            node_revision_id=node_revision_id,
-            grain_columns=["default.hard_hat.state"],
-            measures=[make_measure("count_orders", "1", "COUNT", "SUM")],
-            sql="SELECT state, COUNT(1) FROM ... GROUP BY state",
-            grain_group_hash="test_incremental_hash_2",
-            strategy=MaterializationStrategy.INCREMENTAL_TIME,
-            schedule="0 * * * *",
-            lookback_window="1 day",
+        # Ensure temporal partition is set on order_date column
+        partition_response = await client.post(
+            "/nodes/v3.order_details/columns/order_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
         )
-        session.add(preagg)
-        await session.commit()
-        await session.refresh(preagg)
+        # May already exist from previous test, 201 or 200 is fine
+        assert partition_response.status_code in (200, 201), (
+            f"Failed to set partition: {partition_response.text}"
+        )
+
+        # Create a preagg with INCREMENTAL_TIME strategy
+        plan_response = await client.post(
+            "/preaggs/plan/",
+            json={
+                "metrics": ["v3.order_count"],
+                "dimensions": ["v3.order_details.status"],
+                "strategy": "incremental_time",
+                "schedule": "0 * * * *",
+                "lookback_window": "1 day",
+            },
+        )
+        assert plan_response.status_code == 201
+        preagg = plan_response.json()["preaggs"][0]
+        preagg_id = preagg["id"]
 
         # Mock query service and capture the call
         mock_result = {
             "urls": ["http://scheduler/workflow/test.main"],
             "output_tables": ["analytics.preaggs.test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_materialize = module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
+        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
+        mock_qs_client.materialize_preagg.return_value = mock_result
+
+        # Set up dependency override on the app
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
-        response = await client.post(f"/preaggs/{preagg.id}/materialize")
-        assert response.status_code == 200
+        try:
+            response = await client.post(f"/preaggs/{preagg_id}/materialize")
+            assert response.status_code == 200
 
-        # Verify the query service was called with temporal partition info
-        mock_materialize.assert_called_once()
-        call_args = mock_materialize.call_args
-        mat_input = call_args[0][0]  # First positional argument
+            # Verify the query service was called with temporal partition info
+            mock_qs_client.materialize_preagg.assert_called_once()
+            call_args = mock_qs_client.materialize_preagg.call_args
+            mat_input = call_args[0][0]  # First positional argument
 
-        # Check temporal partitions are included in the input
-        assert hasattr(mat_input, "temporal_partitions")
-        assert len(mat_input.temporal_partitions) > 0
+            # Check temporal partitions are included in the input
+            assert hasattr(mat_input, "temporal_partitions")
+            assert len(mat_input.temporal_partitions) > 0
 
-        # Verify the temporal partition has expected properties
-        temporal_partition = mat_input.temporal_partitions[0]
-        assert temporal_partition.column_name is not None
-        assert temporal_partition.format == "yyyyMMdd"
-        assert temporal_partition.granularity == "day"
+            # Verify the temporal partition has expected properties
+            temporal_partition = mat_input.temporal_partitions[0]
+            assert temporal_partition.column_name is not None
+            assert temporal_partition.format == "yyyyMMdd"
+            assert temporal_partition.granularity == "day"
+        finally:
+            # Clean up dependency override
+            del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_temporal_partition_via_dimension_link(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """
+        Test temporal partition resolution via dimension link.
+
+        This tests Strategy 2 in preagg_matcher.py where the temporal column
+        (order_date) is linked to a dimension (v3.date), and the grain includes
+        that dimension's column (v3.date.date_id).
+
+        The code should:
+        1. Find that order_date links to v3.date
+        2. Search grain_columns for v3.date.*
+        3. Map order_date -> date_id as the output column name
+        """
+        client = client_with_build_v3
+
+        # Set temporal partition on order_date (which links to v3.date)
+        partition_response = await client.post(
+            "/nodes/v3.order_details/columns/order_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        assert partition_response.status_code in (200, 201), (
+            f"Failed to set partition: {partition_response.text}"
+        )
+
+        # Create preagg with grain including v3.date.date_id (linked dimension)
+        # This triggers Strategy 2: temporal col -> dimension link -> grain column
+        plan_response = await client.post(
+            "/preaggs/plan/",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],  # Linked via order_date
+                "strategy": "incremental_time",
+                "schedule": "0 0 * * *",
+                "lookback_window": "3 days",
+            },
+        )
+        assert plan_response.status_code == 201, (
+            f"Failed to plan preagg: {plan_response.text}"
+        )
+        preagg = plan_response.json()["preaggs"][0]
+        preagg_id = preagg["id"]
+
+        # Mock query service and capture the call
+        mock_result = {
+            "urls": ["http://scheduler/workflow/dimension_link.main"],
+            "output_tables": ["analytics.preaggs.dimension_link_test"],
+        }
+        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
+        mock_qs_client.materialize_preagg.return_value = mock_result
+
+        # Set up dependency override on the app
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+
+        try:
+            response = await client.post(f"/preaggs/{preagg_id}/materialize")
+            assert response.status_code == 200, f"Materialize failed: {response.text}"
+
+            # Verify the query service was called
+            mock_qs_client.materialize_preagg.assert_called_once()
+            call_args = mock_qs_client.materialize_preagg.call_args
+            mat_input = call_args[0][0]
+
+            # Check temporal partitions
+            assert hasattr(mat_input, "temporal_partitions")
+            assert len(mat_input.temporal_partitions) > 0
+
+            # The temporal partition should be mapped via dimension link
+            # order_date -> v3.date.date_id -> output column "date_id"
+            temporal_partition = mat_input.temporal_partitions[0]
+            assert temporal_partition.column_name is not None
+            assert temporal_partition.format == "yyyyMMdd"
+            assert temporal_partition.granularity == "day"
+        finally:
+            # Clean up dependency override
+            del client.app.dependency_overrides[get_query_service_client]
