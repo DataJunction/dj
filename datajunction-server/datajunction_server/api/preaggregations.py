@@ -24,7 +24,7 @@ from fastapi import Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.database.node import Node, NodeRevision
@@ -216,17 +216,26 @@ async def list_preaggregations(
 
     # Filter by node_name (and optionally version)
     if node_name:
-        node = await Node.get_by_name(session, node_name)
+        # Minimal load: only need node.id and node.current.id for filtering
+        node = await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                load_only(Node.id),
+                joinedload(Node.current).load_only(NodeRevision.id),
+            ],
+        )
         if not node:
             raise DJDoesNotExistException(f"Node '{node_name}' not found")
 
         if node_version:
-            # Find specific revision
-            target_revision = None
-            for rev in node.revisions:
-                if rev.version == node_version:
-                    target_revision = rev
-                    break
+            # Find specific revision using async-safe query instead of iterating node.revisions
+            revision_stmt = select(NodeRevision).where(
+                NodeRevision.node_id == node.id,
+                NodeRevision.version == node_version,
+            )
+            revision_result = await session.execute(revision_stmt)
+            target_revision = revision_result.scalar_one_or_none()
             if not target_revision:
                 raise DJDoesNotExistException(
                     f"Version '{node_version}' not found for node '{node_name}'",
