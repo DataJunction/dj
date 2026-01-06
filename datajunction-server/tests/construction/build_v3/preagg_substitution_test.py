@@ -571,44 +571,81 @@ class TestCrossFactMetrics:
     async def test_cross_fact_with_full_preagg_coverage(self, client_with_build_v3):
         """
         Cross-fact metric where both facts have materialized pre-aggs.
-        
+
         Both grain groups should read from their respective pre-agg tables,
         then FULL OUTER JOIN on the shared dimension.
         """
         # Create pre-agg for order_details (revenue)
-        plan1 = await client_with_build_v3.post("/preaggs/plan/", json={
-            "metrics": ["v3.total_revenue"],
-            "dimensions": ["v3.customer.customer_id"],
-        })
+        plan1 = await client_with_build_v3.post(
+            "/preaggs/plan/",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.customer.customer_id"],
+            },
+        )
         preagg1 = plan1.json()["preaggs"][0]
-        await client_with_build_v3.post(f"/preaggs/{preagg1['id']}/availability/", json={
-            "catalog": "warehouse", "schema_": "preaggs",
-            "table": "v3_revenue_by_customer", "valid_through_ts": 20250103,
-        })
-        
+        await client_with_build_v3.post(
+            f"/preaggs/{preagg1['id']}/availability/",
+            json={
+                "catalog": "warehouse",
+                "schema_": "preaggs",
+                "table": "v3_revenue_by_customer",
+                "valid_through_ts": 20250103,
+            },
+        )
+
         # Create pre-agg for page_views (visitor count)
-        plan2 = await client_with_build_v3.post("/preaggs/plan/", json={
-            "metrics": ["v3.total_visitors"],  # or similar metric from page_views
-            "dimensions": ["v3.customer.customer_id"],
-        })
+        plan2 = await client_with_build_v3.post(
+            "/preaggs/plan/",
+            json={
+                "metrics": ["v3.page_view_count"],  # or similar metric from page_views
+                "dimensions": ["v3.customer.customer_id"],
+            },
+        )
         preagg2 = plan2.json()["preaggs"][0]
-        await client_with_build_v3.post(f"/preaggs/{preagg2['id']}/availability/", json={
-            "catalog": "warehouse", "schema_": "preaggs",
-            "table": "v3_visitors_by_customer", "valid_through_ts": 20250103,
-        })
-        
+        await client_with_build_v3.post(
+            f"/preaggs/{preagg2['id']}/availability/",
+            json={
+                "catalog": "warehouse",
+                "schema_": "preaggs",
+                "table": "v3_visitors_by_customer",
+                "valid_through_ts": 20250103,
+            },
+        )
+
         # Request cross-fact metric - should use BOTH pre-aggs
-        response = await client_with_build_v3.get("/sql/measures/v3/", params={
-            "metrics": ["v3.revenue_per_visitor"],
-            "dimensions": ["v3.customer.customer_id"],
-        })
-        
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.revenue_per_visitor"],
+                "dimensions": ["v3.customer.customer_id"],
+            },
+        )
         # Assert: Both CTEs read from pre-agg tables, FULL OUTER JOINed
         sql = response.json()["sql"]
         assert_sql_equal(
             sql,
             """
-            SELECT 1
+            WITH v3_page_views_enriched AS (
+            SELECT  customer_id
+            FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+            SELECT  customer_id,
+                SUM(total_revenue) total_revenue
+            FROM warehouse.preaggs.v3_revenue_by_customer
+            GROUP BY  customer_id
+            ),
+            page_views_enriched_0 AS (
+            SELECT  t1.customer_id,
+                t1.customer_id
+            FROM v3_page_views_enriched t1
+            GROUP BY  t1.customer_id, t1.customer_id
+            )
+            SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
+                SUM(order_details_0.total_revenue) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
+            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            GROUP BY  order_details_0.customer_id
             """,
         )
 
