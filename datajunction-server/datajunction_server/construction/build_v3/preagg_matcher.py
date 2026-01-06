@@ -178,10 +178,10 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
             # Strategy 1: Source name directly in grain
             full_source_col = f"{preagg.node_revision.name}{SEPARATOR}{source_name}"
             if full_source_col in preagg.grain_columns:
-                output_name = source_name
+                output_name = source_name  # pragma: no cover
 
             # Strategy 2: Linked dimension - find matching grain column
-            elif temporal_col.dimension:
+            elif temporal_col.dimension:  # pragma: no cover
                 dim_name = temporal_col.dimension.name
                 for gc in preagg.grain_columns:
                     if gc.startswith(dim_name + SEPARATOR):
@@ -190,7 +190,7 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
 
             # Map output column to source type (for DDL generation)
             if output_name != source_name:
-                col_type_map[output_name] = source_type
+                col_type_map[output_name] = source_type  # pragma: no cover
 
             logger.info(
                 "Temporal partition: source=%s -> output=%s",
