@@ -124,6 +124,8 @@ async def decompose_and_group_metrics(
         MetricGroup(parent_node=parent_nodes[name], decomposed_metrics=metrics)
         for name, metrics in parent_groups.items()
     ]
+    # Sort by parent node name for deterministic ordering in generated SQL
+    metric_groups.sort(key=lambda g: g.parent_node.name)
     return metric_groups, all_decomposed
 
 
