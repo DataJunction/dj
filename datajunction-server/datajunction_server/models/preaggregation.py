@@ -3,6 +3,7 @@ Models for pre-aggregation API requests and responses.
 """
 
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -14,6 +15,18 @@ from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.query import V3ColumnMetadata
+
+
+class GrainMode(StrEnum):
+    """
+    Grain matching mode for pre-aggregation lookup.
+
+    - EXACT: Pre-agg grain must match requested grain exactly
+    - SUPERSET: Pre-agg grain must contain all requested columns (and possibly more)
+    """
+
+    EXACT = "exact"
+    SUPERSET = "superset"
 
 
 class PlanPreAggregationsRequest(BaseModel):

@@ -48,6 +48,7 @@ from datajunction_server.models.preaggregation import (
     BackfillRequest,
     BackfillInput,
     BackfillResponse,
+    GrainMode,
     DEFAULT_SCHEDULE,
     PlanPreAggregationsRequest,
     PlanPreAggregationsResponse,
@@ -173,8 +174,8 @@ async def list_preaggregations(
         default=None,
         description="Comma-separated grain columns to match",
     ),
-    grain_mode: Optional[str] = Query(
-        default="exact",
+    grain_mode: GrainMode = Query(
+        default=GrainMode.EXACT,
         description="Grain matching mode: 'exact' (default) or 'superset' (pre-agg contains all requested + maybe more)",
     ),
     grain_group_hash: Optional[str] = Query(
@@ -239,12 +240,6 @@ async def list_preaggregations(
     if grain_group_hash:
         stmt = stmt.where(PreAggregation.grain_group_hash == grain_group_hash)
 
-    # Validate grain_mode
-    if grain_mode not in ("exact", "superset"):
-        raise DJInvalidInputException(
-            f"Invalid grain_mode '{grain_mode}'. Must be 'exact' or 'superset'",
-        )
-
     # Parse grain columns for filtering
     grain_cols: Optional[List[str]] = None
     if grain:
@@ -278,7 +273,7 @@ async def list_preaggregations(
         )
 
         before_count = len(preaggs)
-        if grain_mode == "exact":
+        if grain_mode == GrainMode.EXACT:
             # Exact match: pre-agg grain must match exactly
             filtered = []
             for p in preaggs:

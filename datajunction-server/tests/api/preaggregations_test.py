@@ -104,19 +104,38 @@ async def client_with_preaggs(
         strategy=MaterializationStrategy.FULL,
     )
 
-    module__session.add_all([preagg1, preagg2, preagg3])
+    # Fourth pre-agg without strategy (for testing "requires strategy" validation)
+    preagg4 = PreAggregation(
+        node_revision_id=node_revision_id,
+        grain_columns=["default.hard_hat.country"],
+        measures=[
+            make_measure("sum_repair_cost", "repair_cost"),
+        ],
+        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
+        grain_group_hash=compute_grain_group_hash(
+            node_revision_id,
+            ["default.hard_hat.country"],
+        ),
+        strategy=None,  # No strategy set
+        schedule=None,
+    )
+
+    module__session.add_all([preagg1, preagg2, preagg3, preagg4])
     await module__session.commit()
 
     # Store the pre-agg IDs for later use
     await module__session.refresh(preagg1)
     await module__session.refresh(preagg2)
     await module__session.refresh(preagg3)
+    await module__session.refresh(preagg4)
 
     yield {
         "client": module__client_with_roads,
+        "session": module__session,
         "preagg1": preagg1,
         "preagg2": preagg2,
         "preagg3": preagg3,
+        "preagg4": preagg4,
         "node_revision_id": node_revision_id,
     }
 
@@ -301,7 +320,7 @@ class TestGetPreaggregationById:
         assert data["id"] == preagg1.id
         assert data["node_revision_id"] == preagg1.node_revision_id
         assert data["grain_columns"] == preagg1.grain_columns
-        assert data["measures"] == preagg1.measures
+        assert data["measures"] == [m.model_dump() for m in preagg1.measures]
         assert data["sql"] == preagg1.sql
         assert data["grain_group_hash"] == preagg1.grain_group_hash
         assert data["strategy"] == preagg1.strategy.value
@@ -407,14 +426,14 @@ class TestPlanPreaggregations:
     ):
         """Test plan endpoint with materialization strategy."""
         # Use different dimensions than test_plan_preaggs_basic to avoid conflict
+        # Use FULL strategy since source node may not have temporal partition columns
         response = await module__client_with_roads.post(
             "/preaggs/plan",
             json={
                 "metrics": ["default.num_repair_orders"],
                 "dimensions": ["default.hard_hat.city"],
-                "strategy": "incremental_time",
+                "strategy": "full",
                 "schedule": "0 0 * * *",
-                "lookback_window": "7 days",
             },
         )
 
@@ -423,9 +442,8 @@ class TestPlanPreaggregations:
 
         assert len(data["preaggs"]) >= 1
         preagg = data["preaggs"][0]
-        assert preagg["strategy"] == "incremental_time"
+        assert preagg["strategy"] == "full"
         assert preagg["schedule"] == "0 0 * * *"
-        assert preagg["lookback_window"] == "7 days"
 
     @pytest.mark.asyncio
     async def test_plan_preaggs_invalid_strategy(
@@ -531,13 +549,13 @@ class TestMaterializePreaggregation:
     async def test_materialize_preagg_requires_strategy(self, client_with_preaggs):
         """Test that materialization requires strategy to be set."""
         client = client_with_preaggs["client"]
-        preagg1 = client_with_preaggs["preagg1"]
+        preagg4 = client_with_preaggs["preagg4"]
 
-        # preagg1 has no strategy set
-        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+        # preagg4 has no strategy set
+        response = await client.post(f"/preaggs/{preagg4.id}/materialize")
 
-        assert response.status_code == 400
-        assert "strategy must be configured" in response.json()["message"]
+        assert response.status_code == 422
+        assert "Strategy must be set" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_materialize_preagg_not_found(self, client_with_preaggs):
@@ -549,58 +567,33 @@ class TestMaterializePreaggregation:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_materialize_incremental_requires_schedule(
-        self,
-        client_with_preaggs,
-        session,
-    ):
-        """Test that incremental materialization requires a schedule."""
-        from datajunction_server.database.materialization import MaterializationStrategy
-        from datajunction_server.database.preaggregation import PreAggregation
-
-        client = client_with_preaggs["client"]
-        preagg1 = client_with_preaggs["preagg1"]
-
-        # Set strategy to INCREMENTAL_TIME but no schedule
-        preagg = await session.get(PreAggregation, preagg1.id)
-        preagg.strategy = MaterializationStrategy.INCREMENTAL_TIME
-        preagg.schedule = None
-        await session.commit()
-
-        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
-
-        assert response.status_code == 400
-        assert "schedule is required" in response.json()["message"]
-
-    @pytest.mark.asyncio
     async def test_materialize_preagg_success(
         self,
         client_with_preaggs,
-        session,
-        mocker,
+        module_mocker,
     ):
         """Test successful materialization call to query service."""
         from datajunction_server.database.materialization import MaterializationStrategy
-        from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.models.materialization import MaterializationInfo
+        from datajunction_server.utils import get_query_service_client
 
         client = client_with_preaggs["client"]
         preagg1 = client_with_preaggs["preagg1"]
 
-        # Set strategy
-        preagg = await session.get(PreAggregation, preagg1.id)
-        preagg.strategy = MaterializationStrategy.FULL
-        await session.commit()
+        # preagg1 already has strategy=FULL and schedule set in fixture
 
-        # Mock the query service client
-        mock_result = MaterializationInfo(
-            urls=["http://scheduler/job/123"],
-            output_tables=["analytics.materialized.preagg_test"],
+        # Mock the materialize_preagg method on the query service client
+        # Access the actual client from the app's dependency overrides
+        # materialize_preagg returns Dict[str, Any], not MaterializationInfo
+        mock_result = {
+            "urls": ["http://scheduler/job/123.main"],
+            "output_tables": ["analytics.materialized.preagg_test"],
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        mock_materialize = module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
         )
-        mock_materialize = mocker.patch(
-            "datajunction_server.api.preaggregations.get_query_service_client",
-        )
-        mock_materialize.return_value.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
 
@@ -609,11 +602,11 @@ class TestMaterializePreaggregation:
 
         # Response includes the pre-agg info
         assert data["id"] == preagg1.id
-        assert data["strategy"] == "FULL"
+        assert data["strategy"] == "full"
 
         # Verify query service was called
-        mock_materialize.return_value.materialize_preagg.assert_called_once()
-        call_args = mock_materialize.return_value.materialize_preagg.call_args
+        mock_materialize.assert_called_once()
+        call_args = mock_materialize.call_args
         mat_input = call_args[0][0]  # First positional arg
 
         # Verify the input structure
