@@ -555,10 +555,12 @@ def test_http_query_service_client_wrapper(mocker: MockerFixture) -> None:
     # Test deactivate_preagg_workflow
     mock_deactivate_result = {"status": "DEACTIVATED"}
     mock_client.deactivate_preagg_workflow.return_value = mock_deactivate_result
-    deactivate_preagg_result = client.deactivate_preagg_workflow(preagg_id=123)
+    deactivate_preagg_result = client.deactivate_preagg_workflow(
+        output_table="test_preagg_table",
+    )
     assert deactivate_preagg_result == mock_deactivate_result
     mock_client.deactivate_preagg_workflow.assert_called_once_with(
-        preagg_id=123,
+        output_table="test_preagg_table",
         request_headers=None,
     )
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useCallback, useContext, useRef } from 'react';
 import DJClientContext from '../providers/djclient';
 import Fuse from 'fuse.js';
 
@@ -8,6 +8,8 @@ export default function Search() {
   const [fuse, setFuse] = useState();
   const [searchValue, setSearchValue] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
@@ -18,35 +20,40 @@ export default function Search() {
     return str.length > 100 ? str.substring(0, 90) + '...' : str;
   };
 
-  useEffect(() => {
-    const fetchNodes = async () => {
-      try {
-        const [data, tags] = await Promise.all([
-          djClient.nodeDetails(),
-          djClient.listTags(),
-        ]);
-        const allEntities = data.concat(
-          (tags || []).map(tag => {
-            tag.type = 'tag';
-            return tag;
-          }),
-        );
-        const fuse = new Fuse(allEntities || [], {
-          keys: [
-            'name', // will be assigned a `weight` of 1
-            { name: 'description', weight: 2 },
-            { name: 'display_name', weight: 3 },
-            { name: 'type', weight: 4 },
-            { name: 'tag_type', weight: 5 },
-          ],
-        });
-        setFuse(fuse);
-      } catch (error) {
-        console.error('Error fetching nodes or tags:', error);
-      }
-    };
-    fetchNodes();
-  }, []);
+  // Lazy load search data only when user focuses on search input
+  const loadSearchData = useCallback(async () => {
+    if (hasLoadedRef.current || isLoading) return;
+    hasLoadedRef.current = true;
+    setIsLoading(true);
+
+    try {
+      const [data, tags] = await Promise.all([
+        djClient.nodeDetails(),
+        djClient.listTags(),
+      ]);
+      const allEntities = data.concat(
+        (tags || []).map(tag => {
+          tag.type = 'tag';
+          return tag;
+        }),
+      );
+      const fuseInstance = new Fuse(allEntities || [], {
+        keys: [
+          'name', // will be assigned a `weight` of 1
+          { name: 'description', weight: 2 },
+          { name: 'display_name', weight: 3 },
+          { name: 'type', weight: 4 },
+          { name: 'tag_type', weight: 5 },
+        ],
+      });
+      setFuse(fuseInstance);
+    } catch (error) {
+      console.error('Error fetching nodes or tags:', error);
+      hasLoadedRef.current = false; // Allow retry on error
+    } finally {
+      setIsLoading(false);
+    }
+  }, [djClient, isLoading]);
 
   const handleChange = e => {
     setSearchValue(e.target.value);
@@ -65,10 +72,11 @@ export default function Search() {
       >
         <input
           type="text"
-          placeholder="Search"
+          placeholder={isLoading ? 'Loading...' : 'Search'}
           name="search"
           value={searchValue}
           onChange={handleChange}
+          onFocus={loadSearchData}
         />
       </form>
       <div className="search-results">
@@ -76,8 +84,8 @@ export default function Search() {
           const itemUrl =
             item.type !== 'tag' ? `/nodes/${item.name}` : `/tags/${item.name}`;
           return (
-            <a href={itemUrl}>
-              <div key={item.name} className="search-result-item">
+            <a key={item.name} href={itemUrl}>
+              <div className="search-result-item">
                 <span className={`node_type__${item.type} badge node_type`}>
                   {item.type}
                 </span>

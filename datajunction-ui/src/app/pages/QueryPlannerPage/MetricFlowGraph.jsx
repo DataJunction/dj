@@ -60,8 +60,32 @@ function MetricNode({ data, selected }) {
   );
 }
 
+/**
+ * Component node - shows metric building blocks (e.g., SUM, COUNT)
+ */
+function ComponentNode({ data, selected }) {
+  return (
+    <div
+      className={`compact-node compact-node-component ${
+        selected ? 'selected' : ''
+      }`}
+    >
+      <Handle type="target" position={Position.Left} />
+      <div className="compact-node-icon">●</div>
+      <div className="compact-node-content">
+        <div className="compact-node-name">{data.shortName}</div>
+        <div className="compact-node-meta">
+          <span className="meta-item">{data.aggregation || 'RAW'}</span>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
 const nodeTypes = {
   preagg: PreAggNode,
+  component: ComponentNode,
   metric: MetricNode,
 };
 
@@ -132,6 +156,7 @@ export function MetricFlowGraph({
 
     // Track mappings
     const preAggNodesMap = new Map();
+    const componentNodeIds = new Map();
     const componentToPreAgg = new Map();
 
     let nodeId = 0;
@@ -167,6 +192,37 @@ export function MetricFlowGraph({
       });
     });
 
+    // Create component nodes (building blocks for metrics)
+    grainGroups.forEach((gg, ggIdx) => {
+      gg.components?.forEach(comp => {
+        if (!componentNodeIds.has(comp.name)) {
+          const id = getNextId();
+          componentNodeIds.set(comp.name, id);
+          // Shorten name for display (e.g., "unit_price_sum" -> "price_sum")
+          const shortName =
+            comp.name.length > 20
+              ? comp.name.split('_').slice(-2).join('_')
+              : comp.name;
+
+          rawNodes.push({
+            id,
+            type: 'component',
+            position: { x: 0, y: 0 },
+            data: {
+              name: comp.name,
+              shortName,
+              aggregation: comp.aggregation,
+              merge: comp.merge,
+              grainGroupIndex: ggIdx,
+            },
+            selected:
+              selectedNode?.type === 'component' &&
+              selectedNode?.name === comp.name,
+          });
+        }
+      });
+    });
+
     // Create metric nodes
     const metricNodeIds = new Map();
 
@@ -191,26 +247,38 @@ export function MetricFlowGraph({
       });
     });
 
-    // Create edges
-    metricFormulas.forEach(metric => {
-      const metricId = metricNodeIds.get(metric.name);
-      const connectedPreAggs = new Set();
-
-      metric.components?.forEach(compName => {
-        const preAggIdx = componentToPreAgg.get(compName);
-        if (preAggIdx !== undefined) {
-          connectedPreAggs.add(preAggIdx);
+    // Create edges: PreAgg -> Component
+    grainGroups.forEach((gg, ggIdx) => {
+      const preAggId = preAggNodesMap.get(ggIdx);
+      gg.components?.forEach(comp => {
+        const compId = componentNodeIds.get(comp.name);
+        if (preAggId && compId) {
+          rawEdges.push({
+            id: `edge-preagg-${preAggId}-${compId}`,
+            source: preAggId,
+            target: compId,
+            style: { stroke: '#64748b', strokeWidth: 2 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: '#64748b',
+              width: 16,
+              height: 16,
+            },
+          });
         }
       });
+    });
 
-      connectedPreAggs.forEach(preAggIdx => {
-        const preAggId = preAggNodesMap.get(preAggIdx);
-        if (preAggId && metricId) {
+    // Create edges: Component -> Metric
+    metricFormulas.forEach(metric => {
+      const metricId = metricNodeIds.get(metric.name);
+      metric.components?.forEach(compName => {
+        const compId = componentNodeIds.get(compName);
+        if (compId && metricId) {
           rawEdges.push({
-            id: `edge-${preAggId}-${metricId}`,
-            source: preAggId,
+            id: `edge-comp-${compId}-${metricId}`,
+            source: compId,
             target: metricId,
-            type: 'default', // Straight/bezier edges
             style: { stroke: '#64748b', strokeWidth: 2 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
@@ -243,6 +311,12 @@ export function MetricFlowGraph({
           type: 'preagg',
           index: node.data.grainGroupIndex,
           data: grainGroups[node.data.grainGroupIndex],
+        });
+      } else if (node.type === 'component') {
+        onNodeSelect?.({
+          type: 'component',
+          name: node.data.name,
+          data: node.data,
         });
       } else if (node.type === 'metric') {
         onNodeSelect?.({
@@ -294,6 +368,10 @@ export function MetricFlowGraph({
         <div className="legend-item">
           <span className="legend-dot preagg"></span>
           <span>Pre-agg</span>
+        </div>
+        <div className="legend-item">
+          <span className="legend-dot component"></span>
+          <span>Component</span>
         </div>
         <div className="legend-item">
           <span className="legend-dot metric"></span>

@@ -421,3 +421,218 @@ class DruidCubeMaterializationInput(BaseModel):
     # Druid queries, there should ideally only be a single one, but this may not be
     # possible for metrics at different levels.
     combiners: list[CombineMaterialization]
+
+
+# =============================================================================
+# V2: Pre-agg based cube materialization
+# =============================================================================
+
+
+class CubeMaterializeRequest(BaseModel):
+    """
+    Request for creating a cube materialization workflow.
+
+    This creates a Druid workflow that:
+    1. Waits for pre-agg tables to be available (VTTS)
+    2. Runs combined SQL that reads from pre-agg tables
+    3. Ingests the combined data into Druid
+    """
+
+    schedule: str = Field(
+        description="Cron schedule for the materialization (e.g., '0 0 * * *' for daily)",
+    )
+    strategy: MaterializationStrategy = Field(
+        default=MaterializationStrategy.INCREMENTAL_TIME,
+        description="Materialization strategy (FULL or INCREMENTAL_TIME)",
+    )
+    lookback_window: str = Field(
+        default="1 DAY",
+        description="Lookback window for incremental materialization",
+    )
+    druid_datasource: Optional[str] = Field(
+        default=None,
+        description="Custom Druid datasource name. Defaults to 'dj__{cube_name}'",
+    )
+    run_backfill: bool = Field(
+        default=True,
+        description="Whether to run an initial backfill",
+    )
+
+
+class PreAggTableInfo(BaseModel):
+    """Information about a pre-agg table used by the cube."""
+
+    table_ref: str = Field(
+        description="Full table reference (catalog.schema.table)",
+    )
+    parent_node: str = Field(
+        description="Parent node name this pre-agg is derived from",
+    )
+    grain: List[str] = Field(
+        description="Grain columns for this pre-agg",
+    )
+
+
+class CubeMaterializeResponse(BaseModel):
+    """
+    Response from cube materialization endpoint.
+
+    Contains all information needed to create and execute the Druid cube workflow:
+    - Pre-agg table dependencies for VTTS waits
+    - Combined SQL for Druid ingestion
+    - Druid spec for ingestion configuration
+    """
+
+    # Cube info
+    cube: NodeNameVersion
+    druid_datasource: str
+
+    # Pre-agg dependencies - the Druid workflow should wait for these
+    preagg_tables: List[PreAggTableInfo]
+
+    # Combined SQL that reads from pre-agg tables
+    combined_sql: str
+    combined_columns: List[ColumnMetadata]
+    combined_grain: List[str]
+
+    # Druid ingestion spec
+    druid_spec: Dict
+
+    # Materialization config
+    strategy: MaterializationStrategy
+    schedule: str
+    lookback_window: str
+
+    # Workflow info
+    workflow_urls: List[str] = Field(
+        default_factory=list,
+        description="URLs to the created workflows (if any)",
+    )
+
+    # Status
+    message: str
+
+
+class CubeMaterializationV2Input(BaseModel):
+    """
+    Input for creating a v2 cube materialization workflow (sent to query service).
+
+    This creates a workflow that:
+    1. Waits for pre-agg tables to be available (via VTTS)
+    2. Runs combined SQL that reads from pre-agg tables
+    3. Ingests the result to Druid
+    """
+
+    # Cube identity
+    cube_name: str = Field(description="Full cube name (e.g., 'default.my_cube')")
+    cube_version: str = Field(description="Cube version")
+
+    # Pre-agg table dependencies
+    preagg_tables: List[PreAggTableInfo] = Field(
+        description="List of pre-agg tables the Druid ingestion depends on",
+    )
+
+    # Combined SQL
+    combined_sql: str = Field(
+        description="SQL that combines pre-agg tables (FULL OUTER JOIN + COALESCE)",
+    )
+    combined_columns: List[ColumnMetadata] = Field(
+        description="Output columns of the combined SQL",
+    )
+    combined_grain: List[str] = Field(
+        description="Shared grain of the combined query",
+    )
+
+    # Druid config
+    druid_datasource: str = Field(
+        description="Target Druid datasource name",
+    )
+    druid_spec: Dict = Field(
+        description="Druid ingestion spec",
+    )
+
+    # Temporal partition info (for incremental)
+    timestamp_column: str = Field(
+        description="Name of the timestamp/partition column",
+    )
+    timestamp_format: str = Field(
+        default="yyyyMMdd",
+        description="Format of the timestamp column",
+    )
+
+    # Materialization config
+    strategy: MaterializationStrategy = Field(
+        default=MaterializationStrategy.INCREMENTAL_TIME,
+    )
+    schedule: str = Field(
+        description="Cron schedule (e.g., '0 0 * * *' for daily)",
+    )
+    lookback_window: str = Field(
+        default="1 DAY",
+        description="Lookback window for incremental",
+    )
+
+
+class DruidCubeV3Config(BaseModel):
+    """
+    V3 Druid cube materialization config.
+
+    This config is stored in Materialization.config for cubes using the V3
+    build path (pre-aggregation based). It's distinct from V2's DruidMeasuresCubeConfig.
+
+    Key differences from V2:
+    - Uses pre-aggregation tables as intermediate storage
+    - Stores metric components with their merge functions
+    - Includes the combined SQL that joins pre-agg tables
+    """
+
+    version: Literal["v3"] = Field(
+        default="v3",
+        description="Config version discriminator",
+    )
+
+    # Druid target
+    druid_datasource: str = Field(
+        description="Target Druid datasource name",
+    )
+
+    # Pre-agg table dependencies
+    preagg_tables: List[PreAggTableInfo] = Field(
+        description="Pre-agg tables the Druid ingestion reads from",
+    )
+
+    # Combined SQL info
+    combined_sql: str = Field(
+        description="SQL that combines pre-agg tables",
+    )
+    combined_columns: List[ColumnMetadata] = Field(
+        description="Output columns of the combined SQL",
+    )
+    combined_grain: List[str] = Field(
+        description="Shared grain columns of the cube",
+    )
+
+    # Metric components for Druid metricsSpec
+    measure_components: List[MetricComponent] = Field(
+        default_factory=list,
+        description="Metric components with aggregation/merge info",
+    )
+    component_aliases: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping from component name to output column alias",
+    )
+
+    # Temporal partition info
+    timestamp_column: str = Field(
+        description="Name of the timestamp/partition column",
+    )
+    timestamp_format: str = Field(
+        default="yyyyMMdd",
+        description="Format of the timestamp column",
+    )
+
+    # Workflow tracking
+    workflow_urls: List[str] = Field(
+        default_factory=list,
+        description="URLs for the materialization workflow",
+    )

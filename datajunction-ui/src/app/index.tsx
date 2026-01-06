@@ -11,7 +11,7 @@ import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
-import { NodePage } from './pages/NodePage';
+import { NodePage } from './pages/NodePage/Loadable';
 import RevisionDiff from './pages/NodePage/RevisionDiff';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { CubeBuilderPage } from './pages/CubeBuilderPage/Loadable';

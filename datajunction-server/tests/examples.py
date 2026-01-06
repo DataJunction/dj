@@ -3555,6 +3555,57 @@ BUILD_V3 = (  # type: ignore
             "required_dimensions": ["v3.date.month"],
         },
     ),
+    # =========================================================================
+    # Rolling/Trailing Period Metrics
+    # These compute rolling sums and compare periods using frame clauses
+    # Output: one row per day (not per week/month)
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.trailing_7d_revenue",
+            "description": "Trailing 7-day revenue (rolling sum of last 7 days)",
+            "query": """
+                SELECT
+                    SUM(v3.total_revenue) OVER (
+                        ORDER BY v3.date.date_id[order]
+                        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                    )
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.trailing_wow_revenue_change",
+            "description": (
+                "Trailing week-over-week revenue change (%). "
+                "Compares last 7 days to previous 7 days. Output: one row per day."
+            ),
+            "query": """
+                SELECT
+                    (
+                        SUM(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                        )
+                        - SUM(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING
+                        )
+                    ) / NULLIF(
+                        SUM(v3.total_revenue) OVER (
+                            ORDER BY v3.date.date_id[order]
+                            ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING
+                        ), 0
+                    ) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
 )
 
 EXAMPLES = {  # type: ignore

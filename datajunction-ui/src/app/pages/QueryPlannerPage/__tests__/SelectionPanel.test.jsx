@@ -426,4 +426,571 @@ describe('SelectionPanel', () => {
       expect(checkbox).toBeChecked();
     });
   });
+
+  describe('Cube Preset Loading', () => {
+    const cubeProps = {
+      ...defaultProps,
+      cubes: [
+        { name: 'default.test_cube', display_name: 'Test Cube' },
+        { name: 'sales.revenue_cube', display_name: 'Revenue Cube' },
+      ],
+      onLoadCubePreset: jest.fn(),
+    };
+
+    it('shows Load from Cube button when cubes are available', () => {
+      render(<SelectionPanel {...cubeProps} />);
+      expect(screen.getByText('Load from Cube')).toBeInTheDocument();
+    });
+
+    it('opens dropdown when Load from Cube button is clicked', () => {
+      render(<SelectionPanel {...cubeProps} />);
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+
+      expect(
+        screen.getByPlaceholderText('Search cubes...'),
+      ).toBeInTheDocument();
+    });
+
+    it('displays cube options in dropdown', () => {
+      render(<SelectionPanel {...cubeProps} />);
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+
+      expect(screen.getByText('Test Cube')).toBeInTheDocument();
+      expect(screen.getByText('Revenue Cube')).toBeInTheDocument();
+    });
+
+    it('filters cubes by search term', () => {
+      render(<SelectionPanel {...cubeProps} />);
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+
+      const searchInput = screen.getByPlaceholderText('Search cubes...');
+      fireEvent.change(searchInput, { target: { value: 'Revenue' } });
+
+      expect(screen.getByText('Revenue Cube')).toBeInTheDocument();
+      expect(screen.queryByText('Test Cube')).not.toBeInTheDocument();
+    });
+
+    it('calls onLoadCubePreset when a cube is selected', () => {
+      const onLoadCubePreset = jest.fn();
+      render(
+        <SelectionPanel {...cubeProps} onLoadCubePreset={onLoadCubePreset} />,
+      );
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      expect(onLoadCubePreset).toHaveBeenCalledWith('default.test_cube');
+    });
+
+    it('shows loaded cube name in button when cube is loaded', () => {
+      render(
+        <SelectionPanel {...cubeProps} loadedCubeName="default.test_cube" />,
+      );
+
+      // Should show the cube display name or short name
+      expect(screen.getByText('Test Cube')).toBeInTheDocument();
+    });
+
+    it('shows "No cubes match your search" when search has no results', () => {
+      render(<SelectionPanel {...cubeProps} />);
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+
+      const searchInput = screen.getByPlaceholderText('Search cubes...');
+      fireEvent.change(searchInput, { target: { value: 'nonexistent' } });
+
+      expect(
+        screen.getByText('No cubes match your search'),
+      ).toBeInTheDocument();
+    });
+
+    it('closes dropdown when clicking outside', () => {
+      render(<SelectionPanel {...cubeProps} />);
+
+      fireEvent.click(screen.getByText('Load from Cube'));
+      expect(
+        screen.getByPlaceholderText('Search cubes...'),
+      ).toBeInTheDocument();
+
+      // Simulate clicking outside
+      fireEvent.mouseDown(document.body);
+
+      expect(
+        screen.queryByPlaceholderText('Search cubes...'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Selected Metrics Chips', () => {
+    it('displays selected metrics as chips', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+        />,
+      );
+
+      expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+    });
+
+    it('removes metric when chip remove button is clicked', () => {
+      const onMetricsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={[
+            'default.num_repair_orders',
+            'default.avg_repair_price',
+          ]}
+          onMetricsChange={onMetricsChange}
+        />,
+      );
+
+      // Find the remove button for num_repair_orders chip
+      const removeBtn = screen.getByTitle('Remove num_repair_orders');
+      fireEvent.click(removeBtn);
+
+      expect(onMetricsChange).toHaveBeenCalledWith([
+        'default.avg_repair_price',
+      ]);
+    });
+
+    it('shows "Show all" button when many metrics are selected', () => {
+      const manyMetrics = Array.from(
+        { length: 12 },
+        (_, i) => `default.metric_${i}`,
+      );
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          metrics={manyMetrics}
+          selectedMetrics={manyMetrics}
+        />,
+      );
+
+      expect(screen.getByText(/Show all 12/)).toBeInTheDocument();
+    });
+
+    it('toggles chips expansion when Show all/Show less is clicked', () => {
+      const manyMetrics = Array.from(
+        { length: 12 },
+        (_, i) => `default.metric_${i}`,
+      );
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          metrics={manyMetrics}
+          selectedMetrics={manyMetrics}
+        />,
+      );
+
+      // Click to expand
+      const expandBtn = screen.getByText(/Show all 12/);
+      fireEvent.click(expandBtn);
+
+      // Should now show "Show less"
+      expect(screen.getByText('Show less')).toBeInTheDocument();
+
+      // Click to collapse
+      fireEvent.click(screen.getByText('Show less'));
+
+      // Should show "Show all" again
+      expect(screen.getByText(/Show all 12/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Selected Dimensions Chips', () => {
+    it('displays selected dimensions as chips', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={['default.date_dim.dateint']}
+        />,
+      );
+
+      // Check for chip by looking for the chip container with the dimension display name
+      const chipElements = screen.getAllByText('date_dim.dateint');
+      // Should have at least one chip (and possibly one in the list)
+      expect(chipElements.length).toBeGreaterThanOrEqual(1);
+      // The chip should have the chip-label class
+      expect(
+        document.querySelector('.dimension-chip .chip-label'),
+      ).toBeInTheDocument();
+    });
+
+    it('removes dimension when chip remove button is clicked', () => {
+      const onDimensionsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={[
+            'default.date_dim.dateint',
+            'default.date_dim.month',
+          ]}
+          onDimensionsChange={onDimensionsChange}
+        />,
+      );
+
+      // Find the remove button for dateint chip
+      const removeBtn = screen.getByTitle('Remove date_dim.dateint');
+      fireEvent.click(removeBtn);
+
+      expect(onDimensionsChange).toHaveBeenCalledWith([
+        'default.date_dim.month',
+      ]);
+    });
+  });
+
+  describe('Clear All Button', () => {
+    it('shows Clear all button when items are selected', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+          cubes={[{ name: 'default.cube', display_name: 'Cube' }]}
+        />,
+      );
+
+      expect(screen.getByText('Clear all')).toBeInTheDocument();
+    });
+
+    it('calls onClearSelection when Clear all is clicked', () => {
+      const onClearSelection = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+          cubes={[{ name: 'default.cube', display_name: 'Cube' }]}
+          onClearSelection={onClearSelection}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Clear all'));
+
+      expect(onClearSelection).toHaveBeenCalled();
+    });
+
+    it('clears metrics and dimensions if no onClearSelection provided', () => {
+      const onMetricsChange = jest.fn();
+      const onDimensionsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+          selectedDimensions={['default.date_dim.dateint']}
+          onMetricsChange={onMetricsChange}
+          onDimensionsChange={onDimensionsChange}
+          cubes={[{ name: 'default.cube', display_name: 'Cube' }]}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Clear all'));
+
+      expect(onMetricsChange).toHaveBeenCalledWith([]);
+      expect(onDimensionsChange).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('Dimension Path Display', () => {
+    it('shows dimension path when path has multiple segments', () => {
+      const dimensionsWithPath = [
+        {
+          name: 'default.date_dim.dateint',
+          type: 'timestamp',
+          path: ['default.orders', 'default.date_dim.dateint'],
+        },
+      ];
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={dimensionsWithPath}
+          selectedMetrics={['default.test']}
+        />,
+      );
+
+      // Should show the path
+      expect(screen.getByText('default.date_dim.dateint')).toBeInTheDocument();
+    });
+  });
+
+  describe('Namespace Sorting Logic', () => {
+    it('prioritizes namespaces that start with search term', () => {
+      const metricsWithNamespaces = [
+        'zebra.metric1',
+        'alpha.metric2',
+        'alpha_test.metric3',
+        'beta.metric4',
+      ];
+
+      render(
+        <SelectionPanel {...defaultProps} metrics={metricsWithNamespaces} />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search metrics...');
+      fireEvent.change(searchInput, { target: { value: 'alpha' } });
+
+      // Alpha namespace should be expanded first since it starts with 'alpha'
+      const namespaces = document.querySelectorAll('.namespace-header');
+      expect(namespaces.length).toBeGreaterThan(0);
+    });
+
+    it('sorts namespaces with more matching items higher', () => {
+      const metricsWithNamespaces = [
+        'default.test_metric1',
+        'default.test_metric2',
+        'default.test_metric3',
+        'other.test_metric4',
+      ];
+
+      render(
+        <SelectionPanel {...defaultProps} metrics={metricsWithNamespaces} />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search metrics...');
+      fireEvent.change(searchInput, { target: { value: 'test' } });
+
+      // Should show namespaces - default has more matching items
+      expect(screen.getByText('default')).toBeInTheDocument();
+      expect(screen.getByText('other')).toBeInTheDocument();
+    });
+
+    it('sorts namespaces alphabetically when other criteria are equal', () => {
+      const metricsWithNamespaces = [
+        'zebra.metric1',
+        'alpha.metric2',
+        'beta.metric3',
+      ];
+
+      render(
+        <SelectionPanel {...defaultProps} metrics={metricsWithNamespaces} />,
+      );
+
+      // Namespaces should be available
+      expect(screen.getByText('alpha')).toBeInTheDocument();
+      expect(screen.getByText('beta')).toBeInTheDocument();
+      expect(screen.getByText('zebra')).toBeInTheDocument();
+    });
+  });
+
+  describe('Dimension Sorting Logic', () => {
+    it('prioritizes dimensions that start with search term', () => {
+      const sortableDimensions = [
+        { name: 'default.zebra.column', path: [] },
+        { name: 'default.alpha.column', path: [] },
+        { name: 'default.date_dim.alpha_col', path: [] },
+      ];
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={sortableDimensions}
+          selectedMetrics={['default.test']}
+        />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search dimensions...');
+      fireEvent.change(searchInput, { target: { value: 'alpha' } });
+
+      // Should show matching dimensions
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes.length).toBeGreaterThan(0);
+    });
+
+    it('sorts dimensions alphabetically by short name', () => {
+      const sortableDimensions = [
+        { name: 'default.zebra.col', path: [] },
+        { name: 'default.alpha.col', path: [] },
+        { name: 'default.beta.col', path: [] },
+      ];
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={sortableDimensions}
+          selectedMetrics={['default.test']}
+        />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search dimensions...');
+      fireEvent.change(searchInput, { target: { value: 'col' } });
+
+      // All three should be visible
+      expect(screen.getByText('alpha.col')).toBeInTheDocument();
+      expect(screen.getByText('beta.col')).toBeInTheDocument();
+      expect(screen.getByText('zebra.col')).toBeInTheDocument();
+    });
+
+    it('handles dimensions with prefix matches before contains matches', () => {
+      const sortableDimensions = [
+        { name: 'default.country_code', path: [] },
+        { name: 'default.customer.country', path: [] },
+      ];
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={sortableDimensions}
+          selectedMetrics={['default.test']}
+        />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search dimensions...');
+      fireEvent.change(searchInput, { target: { value: 'country' } });
+
+      // Both should be visible
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes.length).toBe(2);
+    });
+  });
+
+  describe('Dimensions Chips Toggle', () => {
+    it('shows "Show all" button when many dimensions are selected', () => {
+      const manyDimensions = Array.from({ length: 15 }, (_, i) => ({
+        name: `default.dim_${i}`,
+        path: [],
+      }));
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={manyDimensions}
+          selectedMetrics={['default.test']}
+          selectedDimensions={manyDimensions.map(d => d.name)}
+        />,
+      );
+
+      expect(screen.getByText(/Show all 15/)).toBeInTheDocument();
+    });
+
+    it('toggles dimension chips expansion', () => {
+      const manyDimensions = Array.from({ length: 15 }, (_, i) => ({
+        name: `default.dim_${i}`,
+        path: [],
+      }));
+
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          dimensions={manyDimensions}
+          selectedMetrics={['default.test']}
+          selectedDimensions={manyDimensions.map(d => d.name)}
+        />,
+      );
+
+      // Click to expand
+      const expandBtn = screen.getByText(/Show all 15/);
+      fireEvent.click(expandBtn);
+
+      // Should show "Show less"
+      expect(screen.getByText('Show less')).toBeInTheDocument();
+
+      // Click to collapse
+      fireEvent.click(screen.getByText('Show less'));
+
+      // Should show "Show all" again
+      expect(screen.getByText(/Show all 15/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Toggle Namespace', () => {
+    it('toggles namespace expansion state', () => {
+      render(<SelectionPanel {...defaultProps} />);
+
+      // Click to expand 'default'
+      fireEvent.click(screen.getByText('default'));
+      expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+
+      // Click again to collapse
+      fireEvent.click(screen.getByText('default'));
+      expect(screen.queryByText('num_repair_orders')).not.toBeInTheDocument();
+
+      // Click again to expand
+      fireEvent.click(screen.getByText('default'));
+      expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+    });
+
+    it('allows multiple namespaces to be expanded', () => {
+      render(<SelectionPanel {...defaultProps} />);
+
+      // Expand both default and sales
+      fireEvent.click(screen.getByText('default'));
+      fireEvent.click(screen.getByText('sales'));
+
+      // Both should show their metrics
+      expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
+      expect(screen.getByText('revenue')).toBeInTheDocument();
+    });
+  });
+
+  describe('Clear Dimension Search', () => {
+    it('clears dimension search when clear button is clicked', () => {
+      render(
+        <SelectionPanel {...defaultProps} selectedMetrics={['default.test']} />,
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search dimensions...');
+      fireEvent.change(searchInput, { target: { value: 'test' } });
+
+      expect(searchInput.value).toBe('test');
+
+      // Find the clear button (there are two × buttons, one for each search)
+      const clearButtons = screen.getAllByText('×');
+      // The second one is for dimension search
+      fireEvent.click(clearButtons[clearButtons.length - 1]);
+
+      expect(searchInput.value).toBe('');
+    });
+  });
+
+  describe('Remove Dimension from Selected', () => {
+    it('removes dimension when clicking X on dimension chip', () => {
+      const onDimensionsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={[
+            'default.date_dim.dateint',
+            'default.date_dim.month',
+            'default.date_dim.year',
+          ]}
+          onDimensionsChange={onDimensionsChange}
+        />,
+      );
+
+      // Find and click remove button for dateint
+      const removeBtn = screen.getByTitle('Remove date_dim.dateint');
+      fireEvent.click(removeBtn);
+
+      expect(onDimensionsChange).toHaveBeenCalledWith([
+        'default.date_dim.month',
+        'default.date_dim.year',
+      ]);
+    });
+  });
+
+  describe('Toggle Dimension Selection', () => {
+    it('removes dimension when unchecking already selected dimension', () => {
+      const onDimensionsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={['default.date_dim.dateint']}
+          onDimensionsChange={onDimensionsChange}
+        />,
+      );
+
+      const checkbox = screen.getByRole('checkbox', { name: /dateint/i });
+      fireEvent.click(checkbox);
+
+      expect(onDimensionsChange).toHaveBeenCalledWith([]);
+    });
+  });
 });

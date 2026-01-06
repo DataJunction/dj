@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.construction.build_v3 import assert_sql_equal
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.models.cube_materialization import (
     Aggregability,
@@ -14,8 +15,9 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
-from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.models.engine import Dialect
+from datajunction_server.sql.parsing.ast import to_sql
 
 
 @pytest_asyncio.fixture
@@ -101,8 +103,9 @@ async def test_simple_sum(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_b5a3cefe) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_b5a3cefe) FROM parent_node",
     )
 
 
@@ -126,10 +129,9 @@ async def test_sum_with_cast(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT CAST(SUM(sales_amount_sum_b5a3cefe) AS DOUBLE) * 100.0 FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT CAST(SUM(sales_amount_sum_b5a3cefe) AS DOUBLE) * 100.0 FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -147,8 +149,9 @@ async def test_sum_with_cast(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT 100.0 * SUM(sales_amount_sum_b5a3cefe) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT 100.0 * SUM(sales_amount_sum_b5a3cefe) FROM parent_node",
     )
 
 
@@ -172,8 +175,9 @@ async def test_sum_with_coalesce(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT COALESCE(SUM(sales_amount_sum_b5a3cefe), 0) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT COALESCE(SUM(sales_amount_sum_b5a3cefe), 0) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -191,8 +195,9 @@ async def test_sum_with_coalesce(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_65a3b528) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_65a3b528) FROM parent_node",
     )
 
 
@@ -223,11 +228,10 @@ async def test_multiple_sums(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(sales_amount_sum_b5a3cefe) + "
-            "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_b5a3cefe) + "
+        "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -252,11 +256,10 @@ async def test_multiple_sums(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(sales_amount_sum_b5a3cefe) - "
-            "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_b5a3cefe) - "
+        "SUM(fraud_sales_sum_0e1bc4a2) FROM parent_node",
     )
 
 
@@ -280,8 +283,9 @@ async def test_nested_functions(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT SUM(sales_amount_sum_090066cf) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_090066cf) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -299,8 +303,9 @@ async def test_nested_functions(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT LN(SUM(sales_amount_sum_65a3b528) + 1) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT LN(SUM(sales_amount_sum_65a3b528) + 1) FROM parent_node",
     )
 
 
@@ -336,11 +341,10 @@ async def test_average(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(sales_amount_sum_b5a3cefe) / "
-            "SUM(sales_amount_count_b5a3cefe) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(sales_amount_sum_b5a3cefe) / "
+        "SUM(sales_amount_count_b5a3cefe) FROM parent_node",
     )
 
 
@@ -371,10 +375,9 @@ async def test_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures0
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(clicks_sum_c45fd8cf) / SUM(impressions_sum_3be0a0e7) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(clicks_sum_c45fd8cf) / SUM(impressions_sum_3be0a0e7) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -399,11 +402,10 @@ async def test_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT 1.0 * SUM(clicks_sum_c45fd8cf) / "
-            "NULLIF(SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT 1.0 * SUM(clicks_sum_c45fd8cf) / "
+        "NULLIF(SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
     )
 
     metric_rev3 = await create_metric(
@@ -413,11 +415,10 @@ async def test_rate(session: AsyncSession, create_metric):
     extractor3 = MetricComponentExtractor(metric_rev3.id)
     measures, derived_sql = await extractor3.extract(session)
     assert measures == expected_measures0
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT CAST(CAST(SUM(clicks_sum_c45fd8cf) AS INT) AS DOUBLE) / "
-            "CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT CAST(CAST(SUM(clicks_sum_c45fd8cf) AS INT) AS DOUBLE) / "
+        "CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE) FROM parent_node",
     )
 
     metric_rev4 = await create_metric(
@@ -442,11 +443,10 @@ async def test_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT COALESCE(SUM(clicks_sum_c45fd8cf) / "
-            "SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT COALESCE(SUM(clicks_sum_c45fd8cf) / "
+        "SUM(impressions_sum_3be0a0e7), 0) FROM parent_node",
     )
 
     metric_rev5 = await create_metric(
@@ -472,11 +472,10 @@ async def test_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT IF(SUM(clicks_sum_c45fd8cf) > 0, CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE)"
-            " / CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), NULL) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT IF(SUM(clicks_sum_c45fd8cf) > 0, CAST(SUM(impressions_sum_3be0a0e7) AS DOUBLE)"
+        " / CAST(SUM(clicks_sum_c45fd8cf) AS DOUBLE), NULL) FROM parent_node",
     )
 
     metric_rev6 = await create_metric(
@@ -501,10 +500,9 @@ async def test_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / SUM(views_sum_d8e39817) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT ln(SUM(clicks_sum_c45fd8cf) + 1) / SUM(views_sum_d8e39817) FROM parent_node",
     )
 
 
@@ -526,8 +524,9 @@ async def test_max_if(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT MAX(condition_max_f04b0c57) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT MAX(condition_max_f04b0c57) FROM parent_node",
     )
 
 
@@ -561,12 +560,11 @@ async def test_fraction_with_if(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT IF(SUM(action_sum_c9802ccb) > 0, "
-            "CAST(SUM(action_two_sum_05d921a8) AS DOUBLE) / "
-            "CAST(SUM(action_sum_c9802ccb) AS DOUBLE), NULL) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT IF(SUM(action_sum_c9802ccb) > 0, "
+        "CAST(SUM(action_two_sum_05d921a8) AS DOUBLE) / "
+        "CAST(SUM(action_sum_c9802ccb) AS DOUBLE), NULL) FROM parent_node",
     )
 
 
@@ -594,8 +592,9 @@ async def test_count(session: AsyncSession, create_metric):
     assert measures == expected_measures
     # Verify COUNT merges as SUM
     assert measures[0].merge == "SUM"
-    assert str(derived_sql) == str(
-        parse("SELECT SUM(action_action_event_ts_count_7d582e65) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(action_action_event_ts_count_7d582e65) FROM parent_node",
     )
 
 
@@ -629,11 +628,10 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
-            "SUM(action_count_50d753fd) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT COUNT( DISTINCT user_id_distinct_7f092f23) / "
+        "SUM(action_count_50d753fd) FROM parent_node",
     )
 
 
@@ -655,8 +653,9 @@ async def test_any_value(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse("SELECT ANY_VALUE(sales_amount_any_value_b5a3cefe) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT ANY_VALUE(sales_amount_any_value_b5a3cefe) FROM parent_node",
     )
 
 
@@ -669,7 +668,7 @@ async def test_no_aggregation(session: AsyncSession, create_metric):
     extractor = MetricComponentExtractor(metric_rev.id)
     measures, derived_sql = await extractor.extract(session)
     assert measures == []
-    assert str(derived_sql) == str(parse("SELECT sales_amount FROM parent_node"))
+    assert_sql_equal(str(derived_sql), "SELECT sales_amount FROM parent_node")
 
 
 @pytest.mark.asyncio
@@ -706,11 +705,10 @@ async def test_multiple_aggregations_with_conditions(
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(region_sales_amount_sum_5467b14a) + "
-            "COUNT(DISTINCT region_account_id_distinct_ee608f27) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(region_sales_amount_sum_5467b14a) + "
+        "COUNT(DISTINCT region_account_id_distinct_ee608f27) FROM parent_node",
     )
 
     metric_rev2 = await create_metric(
@@ -736,11 +734,10 @@ async def test_multiple_aggregations_with_conditions(
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5), 0) AS DOUBLE) + "
-            "CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5)) AS DOUBLE) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5), 0) AS DOUBLE) + "
+        "CAST(coalesce(MAX(a_max_0f00346b), MAX(b_max_6d64a2e5)) AS DOUBLE) FROM parent_node",
     )
 
 
@@ -758,7 +755,7 @@ async def test_min_agg(session: AsyncSession, create_metric):
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
-    assert str(derived_sql) == str(parse("SELECT MIN(a_min_3cf406a5) FROM parent"))
+    assert_sql_equal(str(derived_sql), "SELECT MIN(a_min_3cf406a5) FROM parent")
 
 
 @pytest.mark.asyncio
@@ -782,9 +779,7 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
     extractor = MetricComponentExtractor(metric_rev.id)
     measures, derived_sql = await extractor.extract(session)
     assert measures == []
-    assert str(derived_sql) == str(
-        parse("SELECT MEDIAN(sales_amount) FROM parent_node"),
-    )
+    assert_sql_equal(str(derived_sql), "SELECT MEDIAN(sales_amount) FROM parent_node")
 
     metric_rev2 = await create_metric(
         "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
@@ -792,10 +787,9 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
     extractor2 = MetricComponentExtractor(metric_rev2.id)
     measures, derived_sql = await extractor2.extract(session)
     assert measures == []
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT approx_percentile(duration_ms, 1.0, 0.9) / 1000 FROM parent_node",
     )
 
 
@@ -827,11 +821,10 @@ async def test_count_if(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / SUM(count_58ac32c5) "
-            "FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT  CAST(SUM(field_a_count_if_3979ffbd) AS FLOAT) / SUM(count_58ac32c5) "
+        "FROM parent_node",
     )
 
 
@@ -864,11 +857,10 @@ async def test_metric_query_with_aliases(session: AsyncSession, create_metric):
         ),
     ]
     assert measures == expected_measures
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT SUM(time_to_dispatch_sum_3bc9baed) / "
-            "SUM(time_to_dispatch_count_3bc9baed) FROM default.repair_orders_fact",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(time_to_dispatch_sum_3bc9baed) / "
+        "SUM(time_to_dispatch_count_3bc9baed) FROM default.repair_orders_fact",
     )
 
 
@@ -883,8 +875,9 @@ async def test_max_by(session: AsyncSession, create_metric):
     extractor = MetricComponentExtractor(metric_rev.id)
     measures, derived_sql = await extractor.extract(session)
     assert measures == []
-    assert str(derived_sql) == str(
-        parse("SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT MAX_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
 
 
@@ -899,8 +892,9 @@ async def test_min_by(session: AsyncSession, create_metric):
     extractor = MetricComponentExtractor(metric_rev.id)
     measures, derived_sql = await extractor.extract(session)
     assert measures == []
-    assert str(derived_sql) == str(
-        parse("SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node"),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT MIN_BY(IF(condition, 1, 0), dimension) FROM parent_node",
     )
 
 
@@ -926,16 +920,15 @@ async def test_approx_count_distinct(session: AsyncSession, create_metric):
             name="user_id_hll_7f092f23",
             expression="user_id",
             aggregation="hll_sketch_agg",  # Spark's HLL accumulate
-            merge="hll_union",  # Spark's HLL merge
+            merge="hll_union_agg",  # Spark's HLL merge
             rule=AggregationRule(type=Aggregability.FULL, level=None),
         ),
     ]
     assert measures == expected_measures
     # Verify the derived SQL uses Spark HLL functions
-    assert str(derived_sql) == str(
-        parse(
-            "SELECT hll_sketch_estimate(hll_union(user_id_hll_7f092f23)) FROM parent_node",
-        ),
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) FROM parent_node",
     )
 
 
@@ -958,13 +951,13 @@ async def test_approx_count_distinct_with_expression(
     measure = measures[0]
     assert measure.expression == "COALESCE(user_id, 'unknown')"
     assert measure.aggregation == "hll_sketch_agg"
-    assert measure.merge == "hll_union"
+    assert measure.merge == "hll_union_agg"
     assert measure.rule.type == Aggregability.FULL
 
     # Verify derived SQL contains the HLL functions
     derived_str = str(derived_sql)
     assert "hll_sketch_estimate" in derived_str
-    assert "hll_union" in derived_str
+    assert "hll_union_agg" in derived_str
     assert "_hll_" in derived_str
 
 
@@ -987,13 +980,13 @@ async def test_approx_count_distinct_with_conditional(
     measure = measures[0]
     assert measure.expression == "IF(active = 1, user_id, NULL)"
     assert measure.aggregation == "hll_sketch_agg"
-    assert measure.merge == "hll_union"
+    assert measure.merge == "hll_union_agg"
     assert measure.rule.type == Aggregability.FULL
 
     # Verify derived SQL contains the HLL functions
     derived_str = str(derived_sql)
     assert "hll_sketch_estimate" in derived_str
-    assert "hll_union" in derived_str
+    assert "hll_union_agg" in derived_str
 
 
 @pytest.mark.asyncio
@@ -1023,13 +1016,13 @@ async def test_approx_count_distinct_combined_with_sum(
     hll_measures = [m for m in measures if m.aggregation == "hll_sketch_agg"]
     assert len(hll_measures) == 1
     assert hll_measures[0].expression == "user_id"
-    assert hll_measures[0].merge == "hll_union"
+    assert hll_measures[0].merge == "hll_union_agg"
 
     # Verify derived SQL has both
     derived_str = str(derived_sql)
     assert "SUM(" in derived_str
     assert "hll_sketch_estimate" in derived_str
-    assert "hll_union" in derived_str
+    assert "hll_union_agg" in derived_str
 
 
 @pytest.mark.asyncio
@@ -1047,7 +1040,7 @@ async def test_approx_count_distinct_multiple(session: AsyncSession, create_metr
     # Should have two HLL measures
     assert len(measures) == 2
     assert all(m.aggregation == "hll_sketch_agg" for m in measures)
-    assert all(m.merge == "hll_union" for m in measures)
+    assert all(m.merge == "hll_union_agg" for m in measures)
 
     # Verify both expressions are present
     expressions = {m.expression for m in measures}
@@ -1056,7 +1049,7 @@ async def test_approx_count_distinct_multiple(session: AsyncSession, create_metr
     # Verify derived SQL has both HLL estimate calls
     derived_str = str(derived_sql)
     assert derived_str.count("hll_sketch_estimate") == 2
-    assert derived_str.count("hll_union") == 2
+    assert derived_str.count("hll_union_agg") == 2
 
 
 @pytest.mark.asyncio
@@ -1076,7 +1069,7 @@ async def test_approx_count_distinct_rate(session: AsyncSession, create_metric):
     # Should have two HLL measures
     assert len(measures) == 2
     assert all(m.aggregation == "hll_sketch_agg" for m in measures)
-    assert all(m.merge == "hll_union" for m in measures)
+    assert all(m.merge == "hll_union_agg" for m in measures)
 
     # Verify expressions
     expressions = {m.expression for m in measures}
@@ -1085,9 +1078,10 @@ async def test_approx_count_distinct_rate(session: AsyncSession, create_metric):
 
     # Verify derived SQL structure
     derived_str = str(derived_sql)
-    assert "CAST(" in derived_str
-    assert "hll_sketch_estimate" in derived_str
-    assert "hll_union" in derived_str
+    assert_sql_equal(
+        derived_str,
+        "SELECT  CAST(hll_sketch_estimate(hll_union_agg(clicked_user_id_hll_f3824813)) AS DOUBLE) / CAST(hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS DOUBLE) FROM parent_node",
+    )
 
 
 @pytest.mark.asyncio
@@ -1102,9 +1096,6 @@ async def test_approx_count_distinct_dialect_translation(
     1. Decompose APPROX_COUNT_DISTINCT -> Spark HLL functions
     2. Translate Spark HLL functions -> target dialect
     """
-    from datajunction_server.models.engine import Dialect
-    from datajunction_server.sql.translation import translate_sql
-
     metric_rev = await create_metric(
         "SELECT APPROX_COUNT_DISTINCT(user_id) FROM parent_node",
     )
@@ -1113,25 +1104,27 @@ async def test_approx_count_distinct_dialect_translation(
     spark_sql = str(derived_sql)
 
     # The decomposed SQL uses Spark HLL functions
-    assert "hll_sketch_estimate" in spark_sql
-    assert "hll_union" in spark_sql
+    assert_sql_equal(
+        spark_sql,
+        "SELECT hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) FROM parent_node",
+    )
 
     # Translate to Druid
-    druid_sql = translate_sql(spark_sql, Dialect.DRUID)
-    assert "APPROX_COUNT_DISTINCT_DS_HLL" in druid_sql
-    assert "DS_HLL" in druid_sql
-    assert "hll_sketch_estimate" not in druid_sql
-    assert "hll_union" not in druid_sql
+    druid_sql = to_sql(derived_sql, Dialect.DRUID)
+    assert_sql_equal(
+        druid_sql,
+        "SELECT hll_sketch_estimate(ds_hll(user_id_hll_7f092f23)) FROM parent_node",
+    )
 
     # Translate to Trino
-    trino_sql = translate_sql(spark_sql, Dialect.TRINO)
-    assert "cardinality" in trino_sql
-    assert "merge" in trino_sql
-    assert "hll_sketch_estimate" not in trino_sql
-    assert "hll_union" not in trino_sql
+    trino_sql = to_sql(derived_sql, Dialect.TRINO)
+    assert_sql_equal(
+        trino_sql,
+        "SELECT cardinality(merge(user_id_hll_7f092f23)) FROM parent_node",
+    )
 
     # Spark to Spark is identity
-    spark_spark_sql = translate_sql(spark_sql, Dialect.SPARK)
+    spark_spark_sql = to_sql(derived_sql, Dialect.SPARK)
     assert spark_spark_sql == spark_sql
 
 
@@ -1143,9 +1136,6 @@ async def test_approx_count_distinct_combined_metrics_dialect_translation(
     """
     Test dialect translation for a complex metric combining HLL with other aggregations.
     """
-    from datajunction_server.models.engine import Dialect
-    from datajunction_server.sql.translation import translate_sql
-
     metric_rev = await create_metric(
         "SELECT SUM(revenue) / APPROX_COUNT_DISTINCT(user_id) AS revenue_per_user "
         "FROM parent_node",
@@ -1155,20 +1145,24 @@ async def test_approx_count_distinct_combined_metrics_dialect_translation(
     spark_sql = str(derived_sql)
 
     # Verify Spark SQL structure - contains both SUM and HLL
-    assert "SUM(" in spark_sql
-    assert "hll_sketch_estimate(hll_union(" in spark_sql
+    assert_sql_equal(
+        spark_sql,
+        "SELECT SUM(revenue_sum_60e4d31f) / hll_sketch_estimate(hll_union_agg(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+    )
 
     # Translate to Druid - should preserve SUM but translate HLL
-    druid_sql = translate_sql(spark_sql, Dialect.DRUID)
-    assert "SUM(" in druid_sql
-    assert "APPROX_COUNT_DISTINCT_DS_HLL(DS_HLL(" in druid_sql
-    assert "hll_sketch_estimate" not in druid_sql
+    druid_sql = to_sql(derived_sql, Dialect.DRUID)
+    assert_sql_equal(
+        druid_sql,
+        "SELECT SUM(revenue_sum_60e4d31f) / hll_sketch_estimate(ds_hll(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+    )
 
     # Translate to Trino
-    trino_sql = translate_sql(spark_sql, Dialect.TRINO)
-    assert "SUM(" in trino_sql
-    assert "cardinality(merge(" in trino_sql
-    assert "hll_sketch_estimate" not in trino_sql
+    trino_sql = to_sql(derived_sql, Dialect.TRINO)
+    assert_sql_equal(
+        trino_sql,
+        "SELECT SUM(revenue_sum_60e4d31f) / cardinality(merge(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+    )
 
 
 @pytest.mark.asyncio
@@ -1213,12 +1207,13 @@ async def test_var_pop(session: AsyncSession, create_metric):
 
     # The derived SQL should reference all components
     derived_str = str(derived_sql)
-    assert derived_str == str(
-        parse("""
+    assert_sql_equal(
+        derived_str,
+        """
       SELECT
         SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
         POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
-      FROM parent_node"""),
+      FROM parent_node""",
     )
 
 
@@ -1237,11 +1232,12 @@ async def test_var_samp(session: AsyncSession, create_metric):
     assert len(measures) == 3
     agg_types = {m.aggregation for m in measures}
     assert agg_types == {"SUM", "SUM(POWER(price, 2))", "COUNT"}
-    assert str(derived_sql) == str(
-        parse("""
+    assert_sql_equal(
+        str(derived_sql),
+        """
       SELECT
         SUM(price_count_726db899) * SUM(price_sum_sq_726db899) - POWER(SUM(price_sum_726db899), 2) / SUM(price_count_726db899) * SUM(price_count_726db899) - 1
-      FROM parent_node"""),
+      FROM parent_node""",
     )
 
 
@@ -1263,14 +1259,14 @@ async def test_stddev_pop(session: AsyncSession, create_metric):
 
     # Derived SQL should include SQRT for standard deviation
     derived_str = str(derived_sql)
-    assert derived_str == str(
-        parse("""
-      SELECT
+    assert_sql_equal(
+        derived_str,
+        """SELECT
         SQRT(
           SUM(price_sum_sq_726db899) / SUM(price_count_726db899) -
           POWER(SUM(price_sum_726db899) / SUM(price_count_726db899), 2)
         )
-      FROM parent_node"""),
+      FROM parent_node""",
     )
 
 
@@ -1292,15 +1288,16 @@ async def test_stddev_samp(session: AsyncSession, create_metric):
 
     # Derived SQL should include SQRT
     derived_str = str(derived_sql)
-    assert derived_str == str(
-        parse("""
+    assert_sql_equal(
+        derived_str,
+        """
       SELECT
         SQRT(
           SUM(price_count_726db899) * SUM(price_sum_sq_726db899) -
           POWER(SUM(price_sum_726db899), 2) /
           SUM(price_count_726db899) * SUM(price_count_726db899) - 1
         )
-      FROM parent_node"""),
+      FROM parent_node""",
     )
 
 

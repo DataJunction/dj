@@ -170,6 +170,16 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
 
     temporal_partitions: list[TemporalPartitionColumn] = []
     if preagg.node_revision:  # pragma: no branch
+        # Build reverse mapping: source column name -> dimension attribute
+        # dimensions_to_columns_map returns {dim_attr (AST Column): source_col (AST Column)}
+        col_to_dim: dict[str, str] = {}
+        dim_to_col = preagg.node_revision.dimensions_to_columns_map()
+        for dim_attr, source_col in dim_to_col.items():
+            # dim_attr is like "dimensions.date.dateint"
+            # source_col is an AST Column, get its name (e.g., "utc_date")
+            source_col_name = source_col.identifier().split(SEPARATOR)[-1]
+            col_to_dim[source_col_name] = dim_attr
+
         for temporal_col in preagg.node_revision.temporal_partition_columns():
             source_name = temporal_col.name
             source_type = str(temporal_col.type) if temporal_col.type else "int"
@@ -180,7 +190,24 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
             if full_source_col in preagg.grain_columns:
                 output_name = source_name  # pragma: no cover
 
-            # Strategy 2: Linked dimension - find matching grain column
+            # Strategy 2: Check dimension links via dimensions_to_columns_map
+            # If temporal column maps to a dimension attribute, find that in grain
+            elif source_name in col_to_dim:
+                dim_attr = col_to_dim[source_name]
+                dim_node = dim_attr.rsplit(SEPARATOR, 1)[0]
+                # Check if this dimension attribute or its parent node is in grain_columns
+                for gc in preagg.grain_columns:
+                    if gc == dim_attr or gc.startswith(dim_node + SEPARATOR):
+                        output_name = gc.split(SEPARATOR)[-1]
+                        logger.info(
+                            "Temporal column %s links to dimension %s -> output %s",
+                            source_name,
+                            dim_attr,
+                            output_name,
+                        )
+                        break
+
+            # Strategy 3: Check column.dimension reference link
             elif temporal_col.dimension:  # pragma: no cover
                 dim_name = temporal_col.dimension.name
                 for gc in preagg.grain_columns:
@@ -193,14 +220,16 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
                 col_type_map[output_name] = source_type  # pragma: no cover
 
             logger.info(
-                "Temporal partition: source=%s -> output=%s",
+                "Temporal partition: source=%s -> output=%s (type=%s)",
                 source_name,
                 output_name,
+                source_type,
             )
 
             temporal_partitions.append(
                 TemporalPartitionColumn(
                     column_name=output_name,
+                    column_type=source_type,
                     format=temporal_col.partition.format
                     if temporal_col.partition
                     else None,

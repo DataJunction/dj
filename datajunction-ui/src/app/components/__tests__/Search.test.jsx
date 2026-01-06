@@ -59,15 +59,22 @@ describe('<Search />', () => {
     expect(getByPlaceholderText('Search')).toBeInTheDocument();
   });
 
-  it('fetches and initializes search data on mount', async () => {
+  it('fetches and initializes search data on focus (lazy loading)', async () => {
     mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
     mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
 
-    render(
+    const { getByPlaceholderText } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <Search />
       </DJClientContext.Provider>,
     );
+
+    // Data should NOT be fetched on mount
+    expect(mockDjClient.DataJunctionAPI.nodeDetails).not.toHaveBeenCalled();
+
+    // Focus on search input to trigger lazy loading
+    const searchInput = getByPlaceholderText('Search');
+    fireEvent.focus(searchInput);
 
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
@@ -85,11 +92,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'test' } });
 
     await waitFor(() => {
@@ -107,11 +117,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'node' } });
 
     await waitFor(() => {
@@ -130,11 +143,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.listTags).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'tag' } });
 
     await waitFor(() => {
@@ -153,11 +169,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'long' } });
 
     await waitFor(() => {
@@ -175,11 +194,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'another' } });
 
     await waitFor(() => {
@@ -204,11 +226,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'node' } });
 
     await waitFor(() => {
@@ -224,11 +249,15 @@ describe('<Search />', () => {
     );
     mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
 
-    render(
+    const { getByPlaceholderText } = render(
       <DJClientContext.Provider value={mockDjClient}>
         <Search />
       </DJClientContext.Provider>,
     );
+
+    // Focus to trigger lazy loading
+    const searchInput = getByPlaceholderText('Search');
+    fireEvent.focus(searchInput);
 
     await waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -273,12 +302,15 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.listTags).toHaveBeenCalled();
     });
 
     // Should not throw an error
-    const searchInput = getByPlaceholderText('Search');
     expect(searchInput).toBeInTheDocument();
   });
 
@@ -292,11 +324,14 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
+    const searchInput = getByPlaceholderText('Search');
+    // Focus to trigger lazy loading
+    fireEvent.focus(searchInput);
+
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
     });
 
-    const searchInput = getByPlaceholderText('Search');
     fireEvent.change(searchInput, { target: { value: 'test' } });
 
     await waitFor(() => {

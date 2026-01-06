@@ -2,9 +2,8 @@
 Add pre_aggregation table
 
 Creates a pre-aggregations table to store pre-aggregation entities that can be
-shared across cubes. This is equivalent to the embedded MeasuresMaterialization
-JSON blob approach, but enables persistence and sharing of pre-aggregations
-across cubes.
+shared across cubes. Includes workflow state for scheduler-agnostic workflow
+URL tracking.
 
 Revision ID: 5a6b7c8d9e0f
 Revises: 2a3b4c5d6e7f
@@ -57,7 +56,7 @@ def upgrade():
         ),
         sa.Column("schedule", sa.String(), nullable=True),
         sa.Column("lookback_window", sa.String(), nullable=True),
-        sa.Column("scheduled_workflow_url", sa.String(), nullable=True),
+        sa.Column("workflow_urls", sa.JSON(), nullable=True),
         sa.Column("workflow_status", sa.String(), nullable=True),
         sa.Column("availability_id", sa.BigInteger(), nullable=True),
         sa.Column(

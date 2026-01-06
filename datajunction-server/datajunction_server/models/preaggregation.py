@@ -17,6 +17,15 @@ from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.query import V3ColumnMetadata
 
 
+class WorkflowUrl(BaseModel):
+    """A labeled workflow URL for scheduler-agnostic display."""
+
+    label: str = Field(
+        description="Label for the workflow (e.g., 'scheduled', 'backfill')",
+    )
+    url: str = Field(description="URL to the workflow")
+
+
 class GrainMode(StrEnum):
     """
     Grain matching mode for pre-aggregation lookup.
@@ -140,16 +149,13 @@ class PreAggregationInfo(BaseModel):
     lookback_window: Optional[str] = None
 
     # Workflow state (persisted)
-    scheduled_workflow_url: Optional[str] = None  # URL to recurring workflow definition
+    workflow_urls: Optional[List[WorkflowUrl]] = None  # Labeled workflow URLs
     workflow_status: Optional[str] = None  # "active" | "paused" | None
 
     # Availability (derived from AvailabilityState)
     status: str = "pending"  # "pending" | "running" | "active"
     materialized_table_ref: Optional[str] = None
     max_partition: Optional[List[str]] = None
-
-    # Workflow info (transient - from recent operations)
-    workflow_urls: Optional[List[str]] = None
 
     # Metadata
     created_at: datetime
@@ -209,6 +215,10 @@ class TemporalPartitionColumn(BaseModel):
     """
 
     column_name: str = Field(description="Column name in the output")
+    column_type: Optional[str] = Field(
+        default="int",
+        description="Column data type (e.g., 'int', 'string')",
+    )
     format: Optional[str] = Field(
         default=None,
         description="Format string (e.g., 'yyyyMMdd' for date, None for integer hour)",
@@ -378,6 +388,19 @@ class BackfillInput(BaseModel):
     output_table: str = Field(
         description="Output table name (used to derive workflow name)",
     )
+    start_date: date = Field(description="Backfill start date")
+    end_date: date = Field(description="Backfill end date")
+
+
+class CubeBackfillInput(BaseModel):
+    """
+    Input for running a cube backfill in query service.
+
+    The cube workflow must already exist (created via POST /cubes/{name}/materialize).
+    Query Service derives workflow names from cube_name.
+    """
+
+    cube_name: str = Field(description="Cube name (e.g., 'ads.my_cube')")
     start_date: date = Field(description="Backfill start date")
     end_date: date = Field(description="Backfill end date")
 
