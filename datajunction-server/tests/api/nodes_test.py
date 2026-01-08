@@ -338,6 +338,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.src_orders",
         "v3.src_page_views",
         "v3.src_products",
+        "v3.top_product_by_revenue",
         "v3.total_quantity",
         "v3.total_revenue",
         "v3.total_unit_price",

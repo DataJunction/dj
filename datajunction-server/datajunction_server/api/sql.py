@@ -11,8 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.utils import get_current_user
 from datajunction_server.construction.build_v3 import (
+    build_combiner_sql,
     build_metrics_sql,
     build_measures_sql,
+)
+from datajunction_server.construction.build_v3.combiners import (
+    build_combiner_sql_from_preaggs,
 )
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.sql.parsing import ast
@@ -34,6 +38,7 @@ from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.sql import (
+    CombinedMeasuresSQLResponse,
     ComponentResponse,
     GrainGroupResponse,
     MeasuresSQLResponse,
@@ -304,6 +309,122 @@ async def get_measures_sql_v3(
         metric_formulas=metric_formulas,
         dialect=str(result.dialect) if result.dialect else None,
         requested_dimensions=result.requested_dimensions,
+    )
+
+
+@router.get(
+    "/sql/measures/v3/combined",
+    response_model=CombinedMeasuresSQLResponse,
+    name="Get Combined Measures SQL V3",
+    tags=["sql", "v3"],
+)
+async def get_combined_measures_sql_v3(
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    use_preagg_tables: bool = Query(
+        False,
+        description=(
+            "If False (default), compute from scratch using source tables. "
+            "If True, compute from pre-aggregation tables"
+        ),
+    ),
+    dialect: Dialect = Query(
+        Dialect.SPARK,
+        description="SQL dialect for the generated query.",
+    ),
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> CombinedMeasuresSQLResponse:
+    """
+    Generate combined pre-aggregated measures SQL for the requested metrics.
+
+    This endpoint combines multiple grain groups into a single SQL query using
+    FULL OUTER JOIN on shared dimensions. Dimension columns are wrapped with
+    COALESCE to handle NULLs from non-matching rows.
+
+    This is useful for:
+    - Druid cube materialization where a single combined table is needed
+    - Simplifying downstream queries that need data from multiple fact tables
+    - Pre-computing joined aggregations for dashboards
+
+    The combined SQL contains:
+    - CTEs for each grain group's pre-aggregated data
+    - FULL OUTER JOIN between grain groups on shared dimensions
+    - COALESCE on dimension columns to handle NULL values
+    - All measure columns from all grain groups
+
+    Args:
+        metrics: List of metric names to include
+        dimensions: List of dimensions to group by (the grain)
+        filters: Optional filters to apply
+        use_preagg_tables: If False (default), compute from scratch using source tables.
+            If True, read from pre-aggregation tables.
+
+    Returns:
+        Combined SQL query with column metadata and grain information.
+
+    See also:
+        - `/sql/measures/v3/` for individual grain group queries
+        - `/sql/metrics/v3/` for final metric computations with combiner expressions
+    """
+    if use_preagg_tables:
+        # Generate SQL that reads from pre-agg tables (deterministic names)
+        (
+            combined_result,
+            source_tables,
+            _,
+        ) = await build_combiner_sql_from_preaggs(  # pragma: no cover
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            dialect=dialect,
+        )
+    else:
+        # Build the measures SQL to get grain groups (compute from scratch)
+        result = await build_measures_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            dialect=dialect,
+            use_materialized=False,  # Don't use materialized - compute from source
+        )
+
+        if not result.grain_groups:
+            raise DJInvalidInputException(  # pragma: no cover
+                message="No grain groups generated. Ensure metrics and dimensions are valid.",
+                http_status_code=HTTPStatus.BAD_REQUEST,
+            )
+
+        # Combine the grain groups using the combiner logic
+        combined_result = build_combiner_sql(result.grain_groups)
+
+        # Collect source tables from grain groups
+        # These are the upstream tables used in the queries
+        source_tables = []
+        for gg in result.grain_groups:
+            # Extract table references from the query
+            source_tables.append(gg.parent_name)
+
+    return CombinedMeasuresSQLResponse(
+        sql=combined_result.sql,
+        columns=[
+            V3ColumnMetadata(
+                name=col.name,
+                type=col.type,
+                semantic_entity=col.semantic_entity,
+                semantic_type=col.semantic_type,
+            )
+            for col in combined_result.columns
+        ],
+        grain=combined_result.shared_dimensions,
+        grain_groups_combined=combined_result.grain_groups_combined,
+        dialect=str(dialect),
+        use_preagg_tables=use_preagg_tables,
+        source_tables=source_tables,
     )
 
 
