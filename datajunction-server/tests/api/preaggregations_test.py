@@ -3,241 +3,193 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-
-from datajunction_server.database.preaggregation import (
-    PreAggregation,
-    compute_grain_group_hash,
-    compute_expression_hash,
-)
-from datajunction_server.models.decompose import (
-    MetricComponent,
-    AggregationRule,
-    Aggregability,
-)
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
+from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.materialization import MaterializationStrategy
-from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import get_query_service_client
+from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.utils import get_query_service_client, get_session
 
 
-def make_measure(
-    name: str,
-    expression: str,
-    aggregation: str = "SUM",
-    merge: str = "SUM",
-):
-    """Helper to create a measure dict with all required fields (matching MetricComponent)."""
-    component = MetricComponent(
-        name=name,
-        expression=expression,
-        aggregation=aggregation,
-        merge=merge,
-        rule=AggregationRule(type=Aggregability.FULL),
+async def _set_temporal_partition_via_session(
+    session: AsyncSession,
+    node_name: str,
+    column_name: str,
+    granularity: str = "day",
+    format_: str = "yyyyMMdd",
+) -> None:
+    """
+    Set a temporal partition on a column directly via the session.
+
+    This avoids the API's response serialization issue with module-scoped fixtures.
+    """
+    # Get the node with columns loaded
+    result = await session.execute(
+        select(Node)
+        .options(
+            joinedload(Node.current).options(joinedload(NodeRevision.columns)),
+        )
+        .where(Node.name == node_name),
     )
-    measure_dict = component.model_dump()
-    measure_dict["expr_hash"] = compute_expression_hash(expression)
-    return measure_dict
+    node = result.unique().scalar_one()
+
+    # Find the column
+    column = next(
+        (c for c in node.current.columns if c.name == column_name),
+        None,
+    )
+    if column is None:
+        raise ValueError(f"Column {column_name} not found on node {node_name}")
+
+    # Check if partition already exists
+    if column.partition is not None:
+        # Update existing partition
+        column.partition.type_ = PartitionType.TEMPORAL
+        column.partition.granularity = Granularity[granularity.upper()]
+        column.partition.format = format_
+    else:
+        # Create new partition
+        partition = Partition(
+            column=column,
+            type_=PartitionType.TEMPORAL,
+            granularity=Granularity[granularity.upper()],
+            format=format_,
+        )
+        session.add(partition)
+
+    await session.commit()
 
 
-@pytest_asyncio.fixture
+async def _plan_preagg(
+    client: AsyncClient,
+    metrics: list[str],
+    dimensions: list[str],
+    strategy: str | None = None,
+    schedule: str | None = None,
+    lookback_window: str | None = None,
+) -> dict:
+    """Helper to create a preagg via /preaggs/plan endpoint."""
+    payload = {"metrics": metrics, "dimensions": dimensions}
+    if strategy:
+        payload["strategy"] = strategy  # type: ignore
+    if schedule:
+        payload["schedule"] = schedule  # type: ignore
+    if lookback_window:
+        payload["lookback_window"] = lookback_window  # type: ignore
+    response = await client.post("/preaggs/plan", json=payload)
+    assert response.status_code == 201, f"Failed to plan preagg: {response.text}"
+    return response.json()["preaggs"][0]
+
+
+@pytest_asyncio.fixture(scope="module")
 async def client_with_preaggs(
-    module__client_with_roads: AsyncClient,
+    module__client_with_build_v3: AsyncClient,
     module__session: AsyncSession,
 ):
     """
-    Creates pre-aggregations for testing.
+    Creates pre-aggregations for testing using BUILD_V3 examples.
+
+    Uses /preaggs/plan API to create preaggs, which is more realistic
+    and ensures consistency with the actual API behavior.
     """
-    # First, get the node revision ID for default.repair_orders_fact
-    response = await module__client_with_roads.get("/nodes/default.repair_orders_fact/")
-    assert response.status_code == 200
+    client = module__client_with_build_v3
 
-    # We need to find the node revision ID through the current node
-    from datajunction_server.database import Node
-
-    node = await Node.get_by_name(module__session, "default.repair_orders_fact")
-    node_revision_id = node.current.id  # type: ignore
-
-    # Create some pre-aggregations with full measure info
-    preagg1 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[
-            make_measure("sum_repair_cost", "repair_cost"),
-            make_measure("count_orders", "1", "COUNT", "SUM"),
-        ],
-        sql="SELECT date_id, SUM(repair_cost), COUNT(1) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    # preagg1: Basic preagg with FULL strategy, single grain
+    # total_revenue + total_quantity by status
+    preagg1_data = await _plan_preagg(
+        client,
+        metrics=["v3.total_revenue", "v3.total_quantity"],
+        dimensions=["v3.order_details.status"],
+        strategy="full",
         schedule="0 0 * * *",
     )
 
-    preagg2 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id", "default.hard_hat.state"],
-        measures=[
-            make_measure("sum_repair_cost", "repair_cost"),
-            make_measure("avg_repair_cost", "repair_cost", "AVG", "AVG"),
-        ],
-        sql="SELECT date_id, state, SUM(repair_cost), AVG(repair_cost) FROM ... GROUP BY date_id, state",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id", "default.hard_hat.state"],
-        ),
-        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+    # preagg2: Multi-grain preagg (status + category)
+    # total_revenue + avg_unit_price by status and category
+    preagg2_data = await _plan_preagg(
+        client,
+        metrics=["v3.total_revenue", "v3.avg_unit_price"],
+        dimensions=["v3.order_details.status", "v3.product.category"],
+        strategy="full",
         schedule="0 * * * *",
-        lookback_window="3 days",
     )
 
-    # Third pre-agg with same grain as preagg1 but different measures
-    preagg3 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[
-            make_measure("max_repair_cost", "repair_cost", "MAX", "MAX"),
-        ],
-        sql="SELECT date_id, MAX(repair_cost) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    # preagg3: Same grain as preagg1 but different metrics (for grain group hash testing)
+    # max_unit_price by status
+    preagg3_data = await _plan_preagg(
+        client,
+        metrics=["v3.max_unit_price"],
+        dimensions=["v3.order_details.status"],
+        strategy="full",
     )
 
-    # Fourth pre-agg without strategy (for testing "requires strategy" validation)
-    preagg4 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.hard_hat.country"],
-        measures=[
-            make_measure("sum_repair_cost", "repair_cost"),
-        ],
-        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.hard_hat.country"],
-        ),
-        strategy=None,  # No strategy set
-        schedule=None,
+    # preagg4: No strategy set (for testing "requires strategy" validation)
+    # total_revenue by category
+    preagg4_data = await _plan_preagg(
+        client,
+        metrics=["v3.total_revenue"],
+        dimensions=["v3.product.category"],
     )
 
-    # Additional preaggs for tests that modify state (to avoid conflicts)
-    # preagg5: for test_deactivate_workflow_success
-    preagg5 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    # preagg5-10: Additional preaggs for tests that modify state
+    # These use different dimension combinations to avoid grain_group_hash conflicts
+    preagg5_data = await _plan_preagg(
+        client,
+        metrics=["v3.order_count"],
+        dimensions=["v3.order_details.status"],
+        strategy="full",
         schedule="0 0 * * *",
     )
-
-    # preagg6: for test_backfill_success
-    preagg6 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    preagg6_data = await _plan_preagg(
+        client,
+        metrics=["v3.min_unit_price"],
+        dimensions=["v3.order_details.status"],
+        strategy="full",
         schedule="0 0 * * *",
     )
-
-    # preagg7: for test_materialize_incremental_no_temporal_columns
-    preagg7 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.hard_hat.country"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.hard_hat.country"],
-        ),
-        strategy=None,
-        schedule=None,
+    preagg7_data = await _plan_preagg(
+        client,
+        metrics=["v3.total_revenue"],
+        dimensions=["v3.customer.customer_id"],
     )
-
-    # preagg8: for test_deactivate_workflow_query_service_failure
-    preagg8 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    preagg8_data = await _plan_preagg(
+        client,
+        metrics=["v3.page_view_count"],
+        dimensions=["v3.product.category"],
+        strategy="full",
         schedule="0 0 * * *",
     )
-
-    # preagg9: for test_backfill_query_service_failure
-    preagg9 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.date_dim.date_id"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT date_id, SUM(repair_cost) FROM ... GROUP BY date_id",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.date_dim.date_id"],
-        ),
-        strategy=MaterializationStrategy.FULL,
+    preagg9_data = await _plan_preagg(
+        client,
+        metrics=["v3.session_count"],
+        dimensions=["v3.product.category"],
+        strategy="full",
         schedule="0 0 * * *",
     )
-
-    # preagg10: for test_materialize_sets_default_schedule_when_none
-    preagg10 = PreAggregation(
-        node_revision_id=node_revision_id,
-        grain_columns=["default.hard_hat.country"],
-        measures=[make_measure("sum_repair_cost", "repair_cost")],
-        sql="SELECT country, SUM(repair_cost) FROM ... GROUP BY country",
-        grain_group_hash=compute_grain_group_hash(
-            node_revision_id,
-            ["default.hard_hat.country"],
-        ),
-        strategy=None,
-        schedule=None,
+    preagg10_data = await _plan_preagg(
+        client,
+        metrics=["v3.visitor_count"],
+        dimensions=["v3.product.category"],
     )
 
-    module__session.add_all(
-        [
-            preagg1,
-            preagg2,
-            preagg3,
-            preagg4,
-            preagg5,
-            preagg6,
-            preagg7,
-            preagg8,
-            preagg9,
-            preagg10,
-        ],
-    )
-    await module__session.commit()
-
-    # Store the pre-agg IDs for later use
-    await module__session.refresh(preagg1)
-    await module__session.refresh(preagg2)
-    await module__session.refresh(preagg3)
-    await module__session.refresh(preagg4)
-    await module__session.refresh(preagg5)
-    await module__session.refresh(preagg6)
-    await module__session.refresh(preagg7)
-    await module__session.refresh(preagg8)
-    await module__session.refresh(preagg9)
-    await module__session.refresh(preagg10)
+    # Fetch actual PreAggregation objects from DB for tests that need them
+    preagg1 = await module__session.get(PreAggregation, preagg1_data["id"])
+    preagg2 = await module__session.get(PreAggregation, preagg2_data["id"])
+    preagg3 = await module__session.get(PreAggregation, preagg3_data["id"])
+    preagg4 = await module__session.get(PreAggregation, preagg4_data["id"])
+    preagg5 = await module__session.get(PreAggregation, preagg5_data["id"])
+    preagg6 = await module__session.get(PreAggregation, preagg6_data["id"])
+    preagg7 = await module__session.get(PreAggregation, preagg7_data["id"])
+    preagg8 = await module__session.get(PreAggregation, preagg8_data["id"])
+    preagg9 = await module__session.get(PreAggregation, preagg9_data["id"])
+    preagg10 = await module__session.get(PreAggregation, preagg10_data["id"])
 
     yield {
-        "client": module__client_with_roads,
+        "client": client,
         "session": module__session,
         "preagg1": preagg1,
         "preagg2": preagg2,
@@ -249,7 +201,6 @@ async def client_with_preaggs(
         "preagg8": preagg8,
         "preagg9": preagg9,
         "preagg10": preagg10,
-        "node_revision_id": node_revision_id,
     }
 
 
@@ -277,7 +228,7 @@ class TestListPreaggregations:
         client = client_with_preaggs["client"]
         response = await client.get(
             "/preaggs/",
-            params={"node_name": "default.repair_orders_fact"},
+            params={"node_name": "v3.order_details"},
         )
 
         assert response.status_code == 200
@@ -285,7 +236,7 @@ class TestListPreaggregations:
 
         assert len(data["items"]) >= 3
         for item in data["items"]:
-            assert item["node_name"] == "default.repair_orders_fact"
+            assert item["node_name"] == "v3.order_details"
 
     @pytest.mark.asyncio
     async def test_list_preaggs_by_grain(self, client_with_preaggs):
@@ -293,17 +244,17 @@ class TestListPreaggregations:
         client = client_with_preaggs["client"]
         response = await client.get(
             "/preaggs/",
-            params={"grain": "default.date_dim.date_id"},
+            params={"grain": "v3.order_details.status"},
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        # Should get preagg1 and preagg3 (both have single date_dim grain)
+        # Should get preaggs that have status as a grain column
         matching_items = [
             item
             for item in data["items"]
-            if sorted(item["grain_columns"]) == ["default.date_dim.date_id"]
+            if "v3.order_details.status" in item["grain_columns"]
         ]
         assert len(matching_items) >= 2
 
@@ -313,16 +264,16 @@ class TestListPreaggregations:
         client = client_with_preaggs["client"]
         response = await client.get(
             "/preaggs/",
-            params={"measures": "sum_repair_cost"},
+            params={"measures": "total_revenue"},
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        # Should get preagg1 and preagg2 (both contain sum_repair_cost)
+        # Should get preaggs that have total_revenue measure
         for item in data["items"]:
             measure_names = {m["name"] for m in item["measures"]}
-            assert "sum_repair_cost" in measure_names
+            assert "total_revenue" in measure_names
 
     @pytest.mark.asyncio
     async def test_list_preaggs_by_multiple_measures(self, client_with_preaggs):
@@ -330,7 +281,7 @@ class TestListPreaggregations:
         client = client_with_preaggs["client"]
         response = await client.get(
             "/preaggs/",
-            params={"measures": "sum_repair_cost,count_orders"},
+            params={"measures": "total_revenue,total_quantity"},
         )
 
         assert response.status_code == 200
@@ -339,8 +290,8 @@ class TestListPreaggregations:
         # Should only get preagg1 (has both measures)
         for item in data["items"]:
             measure_names = {m["name"] for m in item["measures"]}
-            assert "sum_repair_cost" in measure_names
-            assert "count_orders" in measure_names
+            assert "total_revenue" in measure_names
+            assert "total_quantity" in measure_names
 
     @pytest.mark.asyncio
     async def test_list_preaggs_by_grain_group_hash(self, client_with_preaggs):
@@ -421,7 +372,7 @@ class TestListPreaggregations:
         client = client_with_preaggs["client"]
 
         # First get the current version
-        node_response = await client.get("/nodes/default.repair_orders_fact/")
+        node_response = await client.get("/nodes/v3.order_details/")
         assert node_response.status_code == 200
         current_version = node_response.json()["version"]
 
@@ -429,7 +380,7 @@ class TestListPreaggregations:
         response = await client.get(
             "/preaggs/",
             params={
-                "node_name": "default.repair_orders_fact",
+                "node_name": "v3.order_details",
                 "node_version": current_version,
             },
         )
@@ -447,7 +398,7 @@ class TestListPreaggregations:
         response = await client.get(
             "/preaggs/",
             params={
-                "node_name": "default.repair_orders_fact",
+                "node_name": "v3.order_details",
                 "node_version": "v99.99.99",
             },
         )
@@ -539,22 +490,24 @@ class TestPreaggregationResponseFields:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["strategy"] == "incremental_time"
+        # preagg2 is created with FULL strategy and hourly schedule
+        assert data["strategy"] == "full"
         assert data["schedule"] == "0 * * * *"
-        assert data["lookback_window"] == "3 days"
+        # lookback_window is not set for FULL strategy
+        assert data["lookback_window"] is None
 
 
 class TestPlanPreaggregations:
     """Tests for POST /preaggs/plan endpoint."""
 
     @pytest.mark.asyncio
-    async def test_plan_preaggs_basic(self, module__client_with_roads: AsyncClient):
+    async def test_plan_preaggs_basic(self, module__client_with_build_v3: AsyncClient):
         """Test basic plan endpoint creates pre-aggs from metrics + dims."""
-        response = await module__client_with_roads.post(
+        response = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.num_repair_orders"],
-                "dimensions": ["default.hard_hat.state"],
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
             },
         )
 
@@ -575,16 +528,16 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_with_strategy(
         self,
-        module__client_with_roads: AsyncClient,
+        module__client_with_build_v3: AsyncClient,
     ):
         """Test plan endpoint with materialization strategy."""
         # Use different dimensions than test_plan_preaggs_basic to avoid conflict
         # Use FULL strategy since source node may not have temporal partition columns
-        response = await module__client_with_roads.post(
+        response = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.num_repair_orders"],
-                "dimensions": ["default.hard_hat.city"],
+                "metrics": ["v3.total_quantity"],
+                "dimensions": ["v3.product.category"],
                 "strategy": "full",
                 "schedule": "0 0 * * *",
             },
@@ -601,14 +554,14 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_invalid_strategy(
         self,
-        module__client_with_roads: AsyncClient,
+        module__client_with_build_v3: AsyncClient,
     ):
         """Test that invalid strategy returns error."""
-        response = await module__client_with_roads.post(
+        response = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.num_repair_orders"],
-                "dimensions": ["default.hard_hat.state"],
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
                 "strategy": "view",  # Not valid for pre-aggs
             },
         )
@@ -620,15 +573,15 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_returns_existing(
         self,
-        module__client_with_roads: AsyncClient,
+        module__client_with_build_v3: AsyncClient,
     ):
         """Test that calling plan twice returns existing pre-agg."""
         # First call creates
-        response1 = await module__client_with_roads.post(
+        response1 = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.avg_repair_price"],
-                "dimensions": ["default.dispatcher.company_name"],
+                "metrics": ["v3.avg_unit_price"],
+                "dimensions": ["v3.customer.customer_id"],
             },
         )
         assert response1.status_code == 201
@@ -636,11 +589,11 @@ class TestPlanPreaggregations:
         preagg_id_1 = data1["preaggs"][0]["id"]
 
         # Second call should return same pre-agg
-        response2 = await module__client_with_roads.post(
+        response2 = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.avg_repair_price"],
-                "dimensions": ["default.dispatcher.company_name"],
+                "metrics": ["v3.avg_unit_price"],
+                "dimensions": ["v3.customer.customer_id"],
             },
         )
         assert response2.status_code == 201
@@ -1012,13 +965,13 @@ class TestListPreaggregationsGrainSuperset:
         Test grain_mode=superset returns pre-aggs at finer grain.
 
         Fixture has:
-        - preagg1: grain = ["default.date_dim.date_id"]
-        - preagg2: grain = ["default.date_dim.date_id", "default.hard_hat.state"] (finer)
-        - preagg3: grain = ["default.date_dim.date_id"]
-        - preagg4: grain = ["default.hard_hat.country"]
+        - preagg1: grain = ["v3.order_details.status"]
+        - preagg2: grain = ["v3.order_details.status", "v3.product.category"] (finer)
+        - preagg3: grain = ["v3.order_details.status"]
+        - preagg4: grain = ["v3.product.category"]
 
-        Requesting grain="default.date_dim.date_id" with mode="superset" should return
-        preagg1, preagg2, and preagg3 (all contain date_dim.date_id).
+        Requesting grain="v3.order_details.status" with mode="superset" should return
+        preagg1, preagg2, and preagg3 (all contain status).
         """
         client = client_with_preaggs["client"]
 
@@ -1026,8 +979,8 @@ class TestListPreaggregationsGrainSuperset:
         response = await client.get(
             "/preaggs/",
             params={
-                "node_name": "default.repair_orders_fact",
-                "grain": "default.date_dim.date_id",
+                "node_name": "v3.order_details",
+                "grain": "v3.order_details.status",
                 "grain_mode": "superset",
             },
         )
@@ -1035,8 +988,8 @@ class TestListPreaggregationsGrainSuperset:
         assert response.status_code == 200
         data = response.json()
 
-        # Should get preagg1, preagg2, preagg3 - all have date_dim.date_id
-        # preagg2 has finer grain (date_id + state) but still matches
+        # Should get preagg1, preagg2, preagg3 - all have status
+        # preagg2 has finer grain (status + category) but still matches
         matching_ids = {item["id"] for item in data["items"]}
         preagg1 = client_with_preaggs["preagg1"]
         preagg2 = client_with_preaggs["preagg2"]
@@ -1061,8 +1014,8 @@ class TestListPreaggregationsGrainSuperset:
         exact_response = await client.get(
             "/preaggs/",
             params={
-                "node_name": "default.repair_orders_fact",
-                "grain": "default.date_dim.date_id",
+                "node_name": "v3.order_details",
+                "grain": "v3.order_details.status",
                 "grain_mode": "exact",
             },
         )
@@ -1073,8 +1026,8 @@ class TestListPreaggregationsGrainSuperset:
         superset_response = await client.get(
             "/preaggs/",
             params={
-                "node_name": "default.repair_orders_fact",
-                "grain": "default.date_dim.date_id",
+                "node_name": "v3.order_details",
+                "grain": "v3.order_details.status",
                 "grain_mode": "superset",
             },
         )
@@ -1220,20 +1173,20 @@ class TestIncrementalTimeValidation:
     @pytest.mark.asyncio
     async def test_plan_incremental_no_temporal_columns(
         self,
-        module__client_with_roads: AsyncClient,
+        module__client_with_build_v3: AsyncClient,
     ):
         """
         Test that planning with INCREMENTAL_TIME strategy fails
         when source node lacks temporal partition columns.
 
-        The repair_orders_fact node doesn't have temporal partition columns,
+        The v3.order_details node doesn't have temporal partition columns by default,
         so INCREMENTAL_TIME should be rejected.
         """
-        response = await module__client_with_roads.post(
+        response = await module__client_with_build_v3.post(
             "/preaggs/plan",
             json={
-                "metrics": ["default.num_repair_orders"],
-                "dimensions": ["default.dispatcher.company_name"],
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
                 "strategy": "incremental_time",
             },
         )
@@ -1555,8 +1508,8 @@ class TestIncrementalTimeMaterialization:
     @pytest.mark.asyncio
     async def test_materialize_incremental_time_with_temporal_partition(
         self,
-        client_with_build_v3: AsyncClient,
-        mocker,
+        module__client_with_build_v3: AsyncClient,
+        module_mocker,
     ):
         """
         Test INCREMENTAL_TIME materialization succeeds when node has temporal partitions.
@@ -1566,19 +1519,17 @@ class TestIncrementalTimeMaterialization:
         2. Creates a preagg with INCREMENTAL_TIME strategy via /preaggs/plan
         3. Verifies materialize returns correct temporal partition info
         """
-        client = client_with_build_v3
+        client = module__client_with_build_v3
 
-        # Set temporal partition on order_date column
-        partition_response = await client.post(
-            "/nodes/v3.order_details/columns/order_date/partition",
-            json={
-                "type_": "temporal",
-                "granularity": "day",
-                "format": "yyyyMMdd",
-            },
-        )
-        assert partition_response.status_code == 201, (
-            f"Failed to set partition: {partition_response.text}"
+        # Set temporal partition on order_date column via session
+        # (using session directly avoids response serialization issues with module-scoped fixtures)
+        session = client.app.dependency_overrides[get_session]()
+        await _set_temporal_partition_via_session(
+            session,
+            node_name="v3.order_details",
+            column_name="order_date",
+            granularity="day",
+            format_="yyyyMMdd",
         )
 
         # Create a preagg with INCREMENTAL_TIME strategy via API
@@ -1603,59 +1554,51 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/incremental.main"],
             "output_tables": ["analytics.preaggs.incremental_test"],
         }
-        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
-        mock_qs_client.materialize_preagg.return_value = mock_result
-
-        # Set up dependency override on the app
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
         )
 
-        try:
-            response = await client.post(f"/preaggs/{preagg_id}/materialize")
+        response = await client.post(f"/preaggs/{preagg_id}/materialize")
 
-            assert response.status_code == 200, f"Materialize failed: {response.text}"
-            data = response.json()
+        assert response.status_code == 200, f"Materialize failed: {response.text}"
+        data = response.json()
 
-            # Verify response structure
-            assert data["node_name"] == "v3.order_details"
-            assert data["strategy"] == "incremental_time"
-            assert data["schedule"] == "0 0 * * *"
-            assert data["lookback_window"] == "3 days"
-            assert data["workflow_status"] == "active"
-            assert (
-                data["scheduled_workflow_url"]
-                == "http://scheduler/workflow/incremental.main"
-            )
-        finally:
-            # Clean up dependency override
-            del client.app.dependency_overrides[get_query_service_client]
+        # Verify response structure
+        assert data["node_name"] == "v3.order_details"
+        assert data["strategy"] == "incremental_time"
+        assert data["schedule"] == "0 0 * * *"
+        assert data["lookback_window"] == "3 days"
+        assert data["workflow_status"] == "active"
+        assert (
+            data["scheduled_workflow_url"]
+            == "http://scheduler/workflow/incremental.main"
+        )
 
     @pytest.mark.asyncio
     async def test_materialize_incremental_passes_temporal_partition_to_query_service(
         self,
-        client_with_build_v3: AsyncClient,
-        mocker,
+        module__client_with_build_v3: AsyncClient,
+        module_mocker,
     ):
         """
         Test that temporal partition info is passed to query service during materialization.
 
         Verifies the PreAggMaterializationInput contains temporal_partitions.
         """
-        client = client_with_build_v3
+        client = module__client_with_build_v3
 
-        # Ensure temporal partition is set on order_date column
-        partition_response = await client.post(
-            "/nodes/v3.order_details/columns/order_date/partition",
-            json={
-                "type_": "temporal",
-                "granularity": "day",
-                "format": "yyyyMMdd",
-            },
-        )
-        # May already exist from previous test, 201 or 200 is fine
-        assert partition_response.status_code in (200, 201), (
-            f"Failed to set partition: {partition_response.text}"
+        # Ensure temporal partition is set on order_date column via session
+        # (using session directly avoids response serialization issues with module-scoped fixtures)
+        session = client.app.dependency_overrides[get_session]()
+        await _set_temporal_partition_via_session(
+            session,
+            node_name="v3.order_details",
+            column_name="order_date",
+            granularity="day",
+            format_="yyyyMMdd",
         )
 
         # Create a preagg with INCREMENTAL_TIME strategy
@@ -1678,41 +1621,36 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/test.main"],
             "output_tables": ["analytics.preaggs.test"],
         }
-        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
-        mock_qs_client.materialize_preagg.return_value = mock_result
-
-        # Set up dependency override on the app
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        mock_materialize = module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
         )
 
-        try:
-            response = await client.post(f"/preaggs/{preagg_id}/materialize")
-            assert response.status_code == 200
+        response = await client.post(f"/preaggs/{preagg_id}/materialize")
+        assert response.status_code == 200
 
-            # Verify the query service was called with temporal partition info
-            mock_qs_client.materialize_preagg.assert_called_once()
-            call_args = mock_qs_client.materialize_preagg.call_args
-            mat_input = call_args[0][0]  # First positional argument
+        # Verify the query service was called with temporal partition info
+        mock_materialize.assert_called_once()
+        call_args = mock_materialize.call_args
+        mat_input = call_args[0][0]  # First positional argument
 
-            # Check temporal partitions are included in the input
-            assert hasattr(mat_input, "temporal_partitions")
-            assert len(mat_input.temporal_partitions) > 0
+        # Check temporal partitions are included in the input
+        assert hasattr(mat_input, "temporal_partitions")
+        assert len(mat_input.temporal_partitions) > 0
 
-            # Verify the temporal partition has expected properties
-            temporal_partition = mat_input.temporal_partitions[0]
-            assert temporal_partition.column_name is not None
-            assert temporal_partition.format == "yyyyMMdd"
-            assert temporal_partition.granularity == "day"
-        finally:
-            # Clean up dependency override
-            del client.app.dependency_overrides[get_query_service_client]
+        # Verify the temporal partition has expected properties
+        temporal_partition = mat_input.temporal_partitions[0]
+        assert temporal_partition.column_name is not None
+        assert temporal_partition.format == "yyyyMMdd"
+        assert temporal_partition.granularity == "day"
 
     @pytest.mark.asyncio
     async def test_temporal_partition_via_dimension_link(
         self,
-        client_with_build_v3: AsyncClient,
-        mocker,
+        module__client_with_build_v3: AsyncClient,
+        module_mocker,
     ):
         """
         Test temporal partition resolution via dimension link.
@@ -1726,19 +1664,17 @@ class TestIncrementalTimeMaterialization:
         2. Search grain_columns for v3.date.*
         3. Map order_date -> date_id as the output column name
         """
-        client = client_with_build_v3
+        client = module__client_with_build_v3
 
-        # Set temporal partition on order_date (which links to v3.date)
-        partition_response = await client.post(
-            "/nodes/v3.order_details/columns/order_date/partition",
-            json={
-                "type_": "temporal",
-                "granularity": "day",
-                "format": "yyyyMMdd",
-            },
-        )
-        assert partition_response.status_code in (200, 201), (
-            f"Failed to set partition: {partition_response.text}"
+        # Set temporal partition on order_date (which links to v3.date) via session
+        # (using session directly avoids response serialization issues with module-scoped fixtures)
+        session = client.app.dependency_overrides[get_session]()
+        await _set_temporal_partition_via_session(
+            session,
+            node_name="v3.order_details",
+            column_name="order_date",
+            granularity="day",
+            format_="yyyyMMdd",
         )
 
         # Create preagg with grain including v3.date.date_id (linked dimension)
@@ -1764,33 +1700,28 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/dimension_link.main"],
             "output_tables": ["analytics.preaggs.dimension_link_test"],
         }
-        mock_qs_client = mocker.Mock(spec=QueryServiceClient)
-        mock_qs_client.materialize_preagg.return_value = mock_result
-
-        # Set up dependency override on the app
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        mock_materialize = module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
         )
 
-        try:
-            response = await client.post(f"/preaggs/{preagg_id}/materialize")
-            assert response.status_code == 200, f"Materialize failed: {response.text}"
+        response = await client.post(f"/preaggs/{preagg_id}/materialize")
+        assert response.status_code == 200, f"Materialize failed: {response.text}"
 
-            # Verify the query service was called
-            mock_qs_client.materialize_preagg.assert_called_once()
-            call_args = mock_qs_client.materialize_preagg.call_args
-            mat_input = call_args[0][0]
+        # Verify the query service was called
+        mock_materialize.assert_called_once()
+        call_args = mock_materialize.call_args
+        mat_input = call_args[0][0]
 
-            # Check temporal partitions
-            assert hasattr(mat_input, "temporal_partitions")
-            assert len(mat_input.temporal_partitions) > 0
+        # Check temporal partitions
+        assert hasattr(mat_input, "temporal_partitions")
+        assert len(mat_input.temporal_partitions) > 0
 
-            # The temporal partition should be mapped via dimension link
-            # order_date -> v3.date.date_id -> output column "date_id"
-            temporal_partition = mat_input.temporal_partitions[0]
-            assert temporal_partition.column_name is not None
-            assert temporal_partition.format == "yyyyMMdd"
-            assert temporal_partition.granularity == "day"
-        finally:
-            # Clean up dependency override
-            del client.app.dependency_overrides[get_query_service_client]
+        # The temporal partition should be mapped via dimension link
+        # order_date -> v3.date.date_id -> output column "date_id"
+        temporal_partition = mat_input.temporal_partitions[0]
+        assert temporal_partition.column_name is not None
+        assert temporal_partition.format == "yyyyMMdd"
+        assert temporal_partition.granularity == "day"

@@ -1559,6 +1559,22 @@ async def module__client_with_examples(
 
 
 @pytest_asyncio.fixture(scope="module")
+async def module__client_with_build_v3(
+    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+) -> AsyncClient:
+    """
+    Provides a module-scoped DJ client fixture with BUILD_V3 examples.
+    This is the comprehensive test model for V3 SQL generation, including:
+    - Multi-hop dimension traversal with roles
+    - Dimension hierarchies (date, location)
+    - Cross-fact derived metrics (orders + page_views)
+    - Period-over-period metrics (window functions)
+    - Multiple aggregability levels
+    """
+    return await module__client_example_loader(["BUILD_V3"])
+
+
+@pytest_asyncio.fixture(scope="module")
 async def module__clean_client(
     request,
     postgres_container: PostgresContainer,
