@@ -13,6 +13,7 @@ from functools import reduce
 from typing import Any, Optional
 
 from datajunction_server.construction.build_v3.cte import (
+    inject_partition_by_into_windows,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
@@ -388,6 +389,10 @@ def generate_metrics_sql(
             metric_column_refs[metric_name] = (alias, short_name)
 
     # Process derived metrics (not in any grain group)
+    # Get unique dimension aliases for PARTITION BY injection
+    # Use unique values to avoid duplicates when multiple refs map to same alias
+    all_dim_aliases = list(dict.fromkeys(dimension_aliases.values()))
+
     for metric_name in ctx.metrics:
         if metric_name in all_grain_group_metrics:
             continue
@@ -403,6 +408,9 @@ def generate_metrics_sql(
         # Also try component refs (for backward compatibility)
         replace_component_refs_in_ast(expr_ast, component_columns)
         replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
+        # Inject PARTITION BY for window functions (e.g., LAG in WoW metrics)
+        # This ensures window calculations are partitioned by all non-ORDER-BY dimensions
+        inject_partition_by_into_windows(expr_ast, all_dim_aliases)
         metric_expr_asts[metric_name] = (expr_ast, short_name)
 
     # Build projection in requested order

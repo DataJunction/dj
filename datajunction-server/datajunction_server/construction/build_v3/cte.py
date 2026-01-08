@@ -202,6 +202,91 @@ def replace_dimension_refs_in_ast(
                 break
 
 
+# Window functions that need PARTITION BY injection for period-over-period calculations
+# These are navigation/ranking functions where comparing across partitions is meaningful
+# Aggregate functions (SUM, AVG, etc.) with OVER () are intentionally left alone
+# as they compute grand totals which is often the desired behavior (e.g., weighted CPM)
+PARTITION_BY_INJECTION_FUNCTIONS = frozenset(
+    {
+        # Navigation functions (need partitioning for period comparisons)
+        "LAG",
+        "LEAD",
+        "FIRST_VALUE",
+        "LAST_VALUE",
+        "NTH_VALUE",
+        # Ranking functions (need partitioning for per-group ranking)
+        "ROW_NUMBER",
+        "RANK",
+        "DENSE_RANK",
+        "NTILE",
+        "PERCENT_RANK",
+        "CUME_DIST",
+    },
+)
+
+
+def inject_partition_by_into_windows(
+    expr_ast: ast.Node,
+    all_dimension_aliases: list[str],
+) -> None:
+    """
+    Inject PARTITION BY clauses into navigation/ranking window functions.
+
+    For period-over-period metrics with window functions like LAG/LEAD, the PARTITION BY
+    should include all requested dimensions EXCEPT those in the ORDER BY clause.
+
+    This ensures that comparisons (e.g., week-over-week) are done within each partition
+    (e.g., per country, per product) rather than across the entire result set.
+
+    IMPORTANT: This only applies to navigation/ranking functions (LAG, LEAD, RANK, etc.).
+    Aggregate window functions (SUM, AVG, COUNT, MIN, MAX with OVER ()) are NOT modified,
+    as they often intentionally compute grand totals (e.g., for weighted CPM calculations).
+
+    For example, given:
+        LAG(revenue, 1) OVER (ORDER BY week_code)
+    And requested dimensions: [category, country_iso_code, week_code]
+
+    This function transforms it to:
+        LAG(revenue, 1) OVER (PARTITION BY category, country_iso_code ORDER BY week_code)
+
+    But this is left unchanged:
+        SUM(impressions) OVER ()  -- grand total, no partition injection
+
+    Args:
+        expr_ast: The AST expression to modify (mutated in place)
+        all_dimension_aliases: List of all requested dimension column aliases
+            (already resolved, e.g., ["category", "country_iso_code", "week_code"])
+    """
+    # Find all Function nodes with an OVER clause (window functions)
+    for func in expr_ast.find_all(ast.Function):
+        if not func.over:
+            continue
+
+        # Only inject PARTITION BY for navigation/ranking functions
+        # Aggregate functions (SUM, AVG, etc.) with OVER () should keep their grand total behavior
+        func_name = func.name.name.upper() if func.name else ""
+        if func_name not in PARTITION_BY_INJECTION_FUNCTIONS:
+            continue
+
+        # Get dimensions used in ORDER BY (these should NOT be in PARTITION BY)
+        order_by_dims: set[str] = set()
+        for sort_item in func.over.order_by:
+            # Extract the column name from the sort expression
+            if (
+                isinstance(sort_item.expr, ast.Column) and sort_item.expr.name
+            ):  # pragma: no branch
+                order_by_dims.add(sort_item.expr.name.name)
+
+        # Add all other dimensions to PARTITION BY
+        # Only add if PARTITION BY is currently empty (don't override explicit partitions)
+        if not func.over.partition_by:
+            for dim_alias in all_dimension_aliases:
+                if dim_alias not in order_by_dims:
+                    func.over.partition_by.append(
+                        ast.Column(name=ast.Name(dim_alias)),
+                    )
+
+
 def topological_sort_nodes(ctx: BuildContext, node_names: set[str]) -> list[Node]:
     """
     Sort nodes in topological order (dependencies first).
