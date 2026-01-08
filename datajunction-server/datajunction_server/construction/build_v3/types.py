@@ -360,14 +360,6 @@ class MetricGroup:
             return Aggregability.LIMITED
         return Aggregability.FULL
 
-    def get_all_components(self) -> list[tuple[Node, MetricComponent]]:
-        """Get all components with their source metric node."""
-        result = []
-        for decomposed in self.decomposed_metrics:
-            for component in decomposed.components:
-                result.append((decomposed.metric_node, component))
-        return result
-
 
 @dataclass
 class GrainGroup:
@@ -385,6 +377,9 @@ class GrainGroup:
     Grain groups from the same parent can be merged into a single CTE at the
     finest grain. When merged, is_merged=True and original component aggregabilities
     are preserved in component_aggregabilities for proper aggregation in final SELECT.
+
+    Non-decomposable metrics (like MAX_BY) have empty components but need a grain
+    group at native grain to pass through raw rows for aggregation in metrics SQL.
     """
 
     parent_node: Node
@@ -398,6 +393,10 @@ class GrainGroup:
     # For merged groups: tracks original aggregability per component
     # Maps component.name -> original Aggregability
     component_aggregabilities: dict[str, Aggregability] = field(default_factory=dict)
+
+    # Non-decomposable metrics that couldn't be broken into components
+    # These need their raw metric expression applied in the final SELECT
+    non_decomposable_metrics: list["DecomposedMetricInfo"] = field(default_factory=list)
 
     @property
     def grain_key(self) -> tuple[str, Aggregability, tuple[str, ...]]:

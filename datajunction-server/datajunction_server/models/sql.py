@@ -99,3 +99,22 @@ class MeasuresSQLResponse(BaseModel):
     metric_formulas: List[MetricFormulaResponse]  # How metrics combine components
     dialect: Optional[str] = None
     requested_dimensions: List[str]
+
+
+class CombinedMeasuresSQLResponse(BaseModel):
+    """
+    Response model for combined measures SQL.
+
+    This endpoint combines multiple grain groups into a single SQL query
+    using FULL OUTER JOIN on shared dimensions with COALESCE for dimension columns.
+    """
+
+    sql: str  # Combined SQL query
+    columns: List[V3ColumnMetadata]  # Output columns with semantic metadata
+    grain: List[str]  # Shared grain columns (dimensions)
+    grain_groups_combined: int  # Number of grain groups that were combined
+    dialect: Optional[str] = None
+    use_preagg_tables: (
+        bool  # If True, data is read from pre-agg tables; if False, from source tables
+    )
+    source_tables: List[str]  # Tables being read (pre-agg tables or source tables)

@@ -3462,6 +3462,19 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
+    # =========================================================================
+    # Non-Decomposable Metrics (Aggregability: NONE)
+    # These cannot be pre-aggregated and require full dataset access
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.top_product_by_revenue",
+            "description": "Product ID with highest line total (non-decomposable MAX_BY)",
+            "query": "SELECT MAX_BY(product_id, line_total) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
     # Conditional Aggregation (SUM with CASE WHEN)
     (
         "/nodes/metric/",
