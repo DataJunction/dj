@@ -2463,3 +2463,60 @@ class TestTemporalFilters:
             GROUP BY t1.status
             """,
         )
+
+
+class TestNonDecomposableMetrics:
+    """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
+
+    @pytest.mark.asyncio
+    async def test_non_decomposable_metric_max_by(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        Test that non-decomposable metrics like MAX_BY are handled.
+
+        MAX_BY cannot be pre-aggregated because it needs access to the full
+        dataset to determine which row has the maximum value. Since it has
+        Aggregability.NONE, the query outputs raw rows at native grain
+        (PK columns) rather than aggregated values.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.status"],
+        )
+
+        # Non-decomposable metrics should have Aggregability.NONE
+        assert len(result.grain_groups) == 1
+        gg = result.grain_groups[0]
+        assert gg.aggregability.value == "none"
+
+        # The grain should be the native grain (PK columns) since we can't aggregate
+        # For order_details, native grain is order_id + line_number
+        assert set(gg.grain) == {"order_id", "line_number"}
+
+        # SQL should output raw values at native grain, not aggregated
+        assert_sql_equal(
+            gg.sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id,
+              t1.line_number,
+              t1.product_id,
+              t1.line_total
+            FROM v3_order_details t1
+            """,
+        )

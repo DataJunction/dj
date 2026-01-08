@@ -287,7 +287,8 @@ def get_native_grain(node: Node) -> list[str]:
     Get the native grain (primary key columns) of a node.
 
     For transforms/dimensions, this is their primary key columns.
-    If no PK is defined, returns empty list (meaning row-level grain).
+    If no PK is defined, returns all columns (every column together forms
+    the unique identity of a row).
     """
     if not node.current:  # pragma: no cover
         return []
@@ -295,8 +296,13 @@ def get_native_grain(node: Node) -> list[str]:
     pk_columns = []
     for col in node.current.columns:
         # Check if this column is part of the primary key
-        if col.has_primary_key_attribute:
+        if col.has_primary_key_attribute():
             pk_columns.append(col.name)
+
+    # If no PK is defined, use all columns as the grain
+    # This ensures we don't accidentally aggregate non-decomposable metrics
+    if not pk_columns:
+        pk_columns = [col.name for col in node.current.columns]  # pragma: no cover
 
     return pk_columns
 
@@ -315,6 +321,9 @@ def analyze_grain_groups(
     - LIMITED aggregability: grain = requested dimensions + level columns
     - NONE aggregability: grain = native grain (PK of parent)
 
+    Non-decomposable metrics (like MAX_BY) have no components but still need
+    a grain group at native grain to pass through raw rows.
+
     Args:
         metric_group: MetricGroup with decomposed metrics
         requested_dimensions: Dimensions requested by user (column names only)
@@ -331,26 +340,39 @@ def analyze_grain_groups(
         list[tuple[Node, MetricComponent]],
     ] = {}
 
-    for metric_node, component in metric_group.get_all_components():
-        agg_type = component.rule.type
+    # Track non-decomposable metrics (those with no components)
+    non_decomposable: list[DecomposedMetricInfo] = []
 
-        # Explicitly type the key to satisfy mypy
-        key: tuple[Aggregability, tuple[str, ...]]
-        if agg_type == Aggregability.FULL:
-            # FULL: no additional grain columns needed
-            key = (Aggregability.FULL, ())
-        elif agg_type == Aggregability.LIMITED:
-            # LIMITED: add level columns to grain
-            level_cols = tuple(sorted(component.rule.level or []))
-            key = (Aggregability.LIMITED, level_cols)
-        else:  # NONE
-            # NONE: use native grain (PK columns)
-            native_grain = get_native_grain(parent_node)
-            key = (Aggregability.NONE, tuple(sorted(native_grain)))
+    for decomposed in metric_group.decomposed_metrics:
+        if not decomposed.components:
+            # Non-decomposable metric (like MAX_BY) - track it separately
+            non_decomposable.append(decomposed)
+            continue
 
-        if key not in grain_buckets:
-            grain_buckets[key] = []
-        grain_buckets[key].append((metric_node, component))
+        # Process decomposable components
+        for component in decomposed.components:
+            agg_type = component.rule.type
+
+            # Explicitly type the key to satisfy mypy
+            key: tuple[Aggregability, tuple[str, ...]]
+            if agg_type == Aggregability.FULL:
+                # FULL: no additional grain columns needed
+                key = (Aggregability.FULL, ())
+            elif agg_type == Aggregability.LIMITED:
+                # LIMITED: add level columns to grain
+                level_cols = tuple(sorted(component.rule.level or []))
+                key = (Aggregability.LIMITED, level_cols)
+            else:  # NONE
+                # NONE: use native grain (PK columns)
+                native_grain = get_native_grain(parent_node)
+                key = (
+                    Aggregability.NONE,
+                    tuple(sorted(native_grain)),
+                )  # pragma: no cover
+
+            if key not in grain_buckets:
+                grain_buckets[key] = []
+            grain_buckets[key].append((decomposed.metric_node, component))
 
     # Convert buckets to GrainGroup objects
     grain_groups = []
@@ -363,6 +385,34 @@ def analyze_grain_groups(
                 components=components,
             ),
         )
+
+    # Handle non-decomposable metrics - create a NONE grain group at native grain
+    if non_decomposable:
+        native_grain = get_native_grain(parent_node)
+        none_key = (Aggregability.NONE, tuple(sorted(native_grain)))
+
+        # Check if we already have a NONE grain group at this grain
+        existing_none = next(
+            (g for g in grain_groups if g.grain_key[1:] == none_key),
+            None,
+        )
+
+        if existing_none:
+            # Add non-decomposable metrics to existing NONE group
+            existing_none.non_decomposable_metrics.extend(
+                non_decomposable,
+            )  # pragma: no cover
+        else:
+            # Create new NONE grain group for non-decomposable metrics
+            grain_groups.append(
+                GrainGroup(
+                    parent_node=parent_node,
+                    aggregability=Aggregability.NONE,
+                    grain_columns=list(native_grain),
+                    components=[],  # No components
+                    non_decomposable_metrics=non_decomposable,
+                ),
+            )
 
     # Sort groups: FULL first, then LIMITED, then NONE (for consistent output)
     agg_order = {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}
