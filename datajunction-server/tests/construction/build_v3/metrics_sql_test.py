@@ -859,9 +859,18 @@ class TestMetricsSQLCrossFact:
             SELECT  COALESCE(order_details_0.category) AS category,
                 COALESCE(order_details_0.month) AS month,
                 COALESCE(order_details_0.week) AS week,
-                (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_revenue_change,
-                (CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) ) / NULLIF(LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( ORDER BY week) , 0) * 100 AS wow_order_growth,
-                (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( ORDER BY month) , 0) * 100 AS mom_revenue_change
+
+                (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( PARTITION BY category, month
+ ORDER BY week) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( PARTITION BY category, month
+ ORDER BY week) , 0) * 100 AS wow_revenue_change,
+
+                (CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category, month
+ ORDER BY week) ) / NULLIF(LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category, month
+ ORDER BY week) , 0) * 100 AS wow_order_growth,
+
+                (SUM(order_details_0.total_revenue) - LAG(SUM(order_details_0.total_revenue), 1) OVER ( PARTITION BY category, week
+ ORDER BY month) ) / NULLIF(LAG(SUM(order_details_0.total_revenue), 1) OVER ( PARTITION BY category, week
+ ORDER BY month) , 0) * 100 AS mom_revenue_change
             FROM order_details_0
             GROUP BY  order_details_0.category, order_details_0.month, order_details_0.week
         """,
