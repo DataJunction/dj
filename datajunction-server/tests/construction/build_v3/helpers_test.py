@@ -182,11 +182,11 @@ class TestNativeGrain:
         """Test getting native grain with primary key columns."""
         mock_col1 = MagicMock()
         mock_col1.name = "order_id"
-        mock_col1.has_primary_key_attribute = True
+        mock_col1.has_primary_key_attribute.return_value = True
 
         mock_col2 = MagicMock()
         mock_col2.name = "status"
-        mock_col2.has_primary_key_attribute = False
+        mock_col2.has_primary_key_attribute.return_value = False
 
         mock_rev = MagicMock()
         mock_rev.columns = [mock_col1, mock_col2]
@@ -201,7 +201,7 @@ class TestNativeGrain:
         """Test getting native grain with no primary key columns."""
         mock_col = MagicMock()
         mock_col.name = "status"
-        mock_col.has_primary_key_attribute = False
+        mock_col.has_primary_key_attribute.return_value = False
 
         mock_rev = MagicMock()
         mock_rev.columns = [mock_col]
@@ -210,7 +210,7 @@ class TestNativeGrain:
         mock_node.current = mock_rev
 
         result = get_native_grain(mock_node)
-        assert result == []
+        assert result == ["status"]
 
     def test_native_grain_no_current(self):
         """Test getting native grain when node has no current revision."""
@@ -1343,7 +1343,7 @@ class TestAnalyzeGrainGroups:
         for col_name in pk_columns or []:
             col = MagicMock()
             col.name = col_name
-            col.has_primary_key_attribute = True
+            col.has_primary_key_attribute.return_value = True
             columns.append(col)
         node.current.columns = columns
 

@@ -284,6 +284,7 @@ def build_select_ast(
     parent_node: Node,
     grain_columns: list[str] | None = None,
     filters: list[str] | None = None,
+    skip_aggregation: bool = False,
 ) -> ast.Query:
     """
     Build a SELECT AST for measures SQL with JOIN support.
@@ -299,6 +300,8 @@ def build_select_ast(
         filters: Optional list of filter strings to apply as WHERE clause.
                  Filter strings can reference dimensions (e.g., "v3.product.category = 'Electronics'")
                  or local columns (e.g., "status = 'active'").
+        skip_aggregation: If True, skip adding GROUP BY clause. Used for non-decomposable
+                          metrics where raw rows need to be passed through.
 
     Returns:
         AST Query node
@@ -554,11 +557,13 @@ def build_select_ast(
             where_clause = temporal_filter_ast
 
     # Build SELECT
+    # For non-decomposable metrics, skip GROUP BY to pass through raw rows
+    effective_group_by = [] if skip_aggregation else (group_by if group_by else [])
     select = ast.Select(
         projection=projection,
         from_=from_clause,
         where=where_clause,
-        group_by=group_by if group_by else [],
+        group_by=effective_group_by,
     )
 
     # Build Query with CTEs
@@ -933,13 +938,28 @@ def build_grain_group_sql(
         # This is needed for metrics SQL to correctly reference component columns
         component_aliases[component.name] = component_alias
 
+    # Handle non-decomposable metrics (like MAX_BY)
+    # Extract column references from the metric expression and pass them through
+    non_decomposable_columns: list[tuple[str, ast.Expression]] = []
+    for decomposed in grain_group.non_decomposable_metrics:
+        metrics_covered.add(decomposed.metric_node.name)
+
+        # Extract column references from the metric's derived AST
+        # These are the columns needed for the aggregation function
+        for col in decomposed.derived_ast.find_all(ast.Column):
+            col_name = col.name.name if col.name else None
+            if col_name and col_name not in seen_components:  # pragma: no branch
+                seen_components.add(col_name)
+                col_ast = make_column_ref(col_name)
+                non_decomposable_columns.append((col_name, col_ast))
+
     # Determine grain columns for this group
     if grain_group.is_merged:
         # Merged: use finest grain (all grain columns from merged groups)
         effective_grain_columns = grain_group.grain_columns
     elif grain_group.aggregability == Aggregability.NONE:
         # NONE: use native grain (PK columns)
-        effective_grain_columns = grain_group.grain_columns  # pragma: no cover
+        effective_grain_columns = grain_group.grain_columns
     elif grain_group.aggregability == Aggregability.LIMITED:
         # LIMITED: use level columns from components
         effective_grain_columns = grain_group.grain_columns
@@ -948,14 +968,35 @@ def build_grain_group_sql(
         effective_grain_columns = []
 
     # Build AST
-    query_ast = build_select_ast(
-        ctx,
-        metric_expressions=component_expressions,
-        resolved_dimensions=resolved_dimensions,
-        parent_node=parent_node,
-        grain_columns=effective_grain_columns,
-        filters=ctx.filters,
-    )
+    # For non-decomposable metrics (NONE aggregability with no components),
+    # we pass through raw rows without aggregation
+    if grain_group.non_decomposable_metrics and not component_expressions:
+        # Pure non-decomposable case: pass through raw rows (no GROUP BY)
+        # Add non-decomposable columns to grain_columns so they appear as plain columns
+        # (not aliased expressions) since we're just selecting them for pass-through
+        pass_through_columns = effective_grain_columns + [
+            col_name for col_name, _ in non_decomposable_columns
+        ]
+        query_ast = build_select_ast(
+            ctx,
+            metric_expressions=[],  # No aggregated expressions
+            resolved_dimensions=resolved_dimensions,
+            parent_node=parent_node,
+            grain_columns=pass_through_columns,
+            filters=ctx.filters,
+            skip_aggregation=True,  # Don't add GROUP BY
+        )
+    else:
+        # Normal case: combine component expressions with non-decomposable columns
+        all_metric_expressions = component_expressions + non_decomposable_columns
+        query_ast = build_select_ast(
+            ctx,
+            metric_expressions=all_metric_expressions,
+            resolved_dimensions=resolved_dimensions,
+            parent_node=parent_node,
+            grain_columns=effective_grain_columns,
+            filters=ctx.filters,
+        )
 
     # Build column metadata
     columns_metadata = []
@@ -1029,15 +1070,30 @@ def build_grain_group_sql(
                 ),
             )
 
-    # Build the full grain list (GROUP BY columns)
-    # Start with dimension column aliases
-    full_grain = []
-    for resolved_dim in resolved_dimensions:
-        alias = (
-            ctx.alias_registry.get_alias(resolved_dim.original_ref)
-            or resolved_dim.column_name
+    # Add columns for non-decomposable metrics (raw columns passed through)
+    for col_name, _ in non_decomposable_columns:
+        col_type = get_column_type(parent_node, col_name)
+        columns_metadata.append(
+            ColumnMetadata(
+                name=col_name,
+                semantic_name=f"{parent_node.name}{SEPARATOR}{col_name}",
+                type=col_type,
+                semantic_type="dimension",  # Treated as dimension (raw value for aggregation)
+            ),
         )
-        full_grain.append(alias)
+
+    # Build the full grain list (GROUP BY columns or unique row identity)
+    # For NONE aggregability, grain is just the native grain (no dimensions)
+    # because we're passing through raw rows without grouping
+    full_grain = []
+    if grain_group.aggregability != Aggregability.NONE:
+        # FULL/LIMITED: dimensions are part of the grain
+        for resolved_dim in resolved_dimensions:
+            alias = (
+                ctx.alias_registry.get_alias(resolved_dim.original_ref)
+                or resolved_dim.column_name
+            )
+            full_grain.append(alias)
 
     # Add any additional grain columns (from LIMITED/NONE aggregability)
     for grain_col in effective_grain_columns:

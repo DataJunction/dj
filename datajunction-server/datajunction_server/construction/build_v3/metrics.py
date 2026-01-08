@@ -354,16 +354,24 @@ def generate_metrics_sql(
             decomposed = decomposed_metrics.get(metric_name)
             short_name = get_short_name(metric_name)
 
-            if not decomposed or not decomposed.components:  # pragma: no cover
-                # No decomposition info - use column from metadata
-                # This is defensive; metrics should always be decomposable
-                col_name = next(
-                    (c.name for c in gg.columns if c.semantic_name == metric_name),
-                    short_name,
-                )
-                expr_ast: ast.Expression = make_column_ref(col_name, alias)
+            if not decomposed:  # pragma: no cover
+                # No decomposition info at all - skip this metric
+                continue
+
+            if not decomposed.components:
+                # Non-decomposable metric (like MAX_BY) - use original expression
+                # with column references rewritten to point to grain group CTE
+                expr_ast: ast.Expression = deepcopy(decomposed.combiner_ast)
+
+                # Rewrite column references in the expression to use the CTE alias
+                # _table must be an ast.Table (not ast.Name) for proper stringification
+                cte_table = ast.Table(name=ast.Name(alias))
+                for col in expr_ast.find_all(ast.Column):  # type: ignore
+                    if col.name and not col._table:  # type: ignore  # pragma: no branch
+                        col._table = cte_table  # type: ignore
+
                 metric_expr_asts[metric_name] = (expr_ast, short_name)
-                metric_column_refs[metric_name] = (alias, col_name)
+                metric_column_refs[metric_name] = (alias, short_name)
                 continue
 
             # Build expression using unified function (handles merged + non-merged)

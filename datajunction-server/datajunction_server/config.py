@@ -182,6 +182,11 @@ class Settings(BaseSettings):  # pragma: no cover
     fanout_threshold: int = 50
     max_concurrency: int = 20
 
+    # Pre-aggregation output location
+    # Used when generating combined SQL that references pre-agg tables
+    preagg_catalog: str = "default"
+    preagg_schema: str = "dj_preaggs"
+
     @property
     def celery(self) -> Celery:
         """

@@ -20,11 +20,20 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
 )
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
+from datajunction_server.construction.build_v3.combiners import (
+    build_combiner_sql,
+    CombinedGrainGroupResult,
+    validate_grain_groups_compatible,
+)
 
 __all__ = [
     # Main entry points
     "build_measures_sql",
     "build_metrics_sql",
+    # Combiners
+    "build_combiner_sql",
+    "CombinedGrainGroupResult",
+    "validate_grain_groups_compatible",
     # Context and types
     "BuildContext",
     "GeneratedSQL",

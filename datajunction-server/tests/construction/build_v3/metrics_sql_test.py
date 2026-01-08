@@ -939,3 +939,60 @@ class TestMetricsSQLCrossFact:
             "Cross-fact metrics" in str(error_detail)
             or "shared dimension" in str(error_detail).lower()
         )
+
+
+class TestNonDecomposableMetrics:
+    """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
+
+    @pytest.mark.asyncio
+    async def test_non_decomposable_metric_max_by(self, client_with_build_v3):
+        """
+        Test that non-decomposable metrics like MAX_BY are handled in metrics SQL.
+
+        MAX_BY cannot be pre-aggregated because it needs access to the full
+        dataset to determine which row has the maximum value. Since it has
+        Aggregability.NONE, the measures CTE outputs raw rows at native grain
+        (PK columns), and the final metrics SQL applies MAX_BY over those rows.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.top_product_by_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # The final SQL should apply MAX_BY to get the product with highest revenue
+        # Since NONE aggregability, measures CTE has raw rows, then final SELECT
+        # applies the actual aggregation
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.order_id,
+                t1.line_number,
+                t1.product_id,
+                t1.line_total
+              FROM v3_order_details t1
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   MAX_BY(order_details_0.product_id, order_details_0.line_total) AS top_product_by_revenue
+            FROM order_details_0
+            GROUP BY  order_details_0.status
+            """,
+        )
