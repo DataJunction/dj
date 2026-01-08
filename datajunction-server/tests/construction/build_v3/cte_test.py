@@ -2,6 +2,7 @@
 
 from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
+    inject_partition_by_into_windows,
     replace_metric_refs_in_ast,
 )
 from datajunction_server.sql.parsing import ast
@@ -126,3 +127,198 @@ class TestReplaceMetricRefsInAst:
         # Both occurrences should be replaced
         assert result_sql.count("cte_0.total_revenue") == 2
         assert "v3.revenue" not in result_sql
+
+
+class TestInjectPartitionByIntoWindows:
+    """Tests for inject_partition_by_into_windows function."""
+
+    def test_injects_partition_by_for_lag_window(self):
+        """LAG window function gets PARTITION BY with non-ORDER-BY dimensions."""
+        # WoW metric expression: LAG(revenue, 1) OVER (ORDER BY week)
+        query = parse("SELECT LAG(revenue, 1) OVER (ORDER BY week)")
+        expr = query.select.projection[0]
+
+        # Requested dimensions: category, country, week
+        # week is in ORDER BY, so PARTITION BY should have: category, country
+        inject_partition_by_into_windows(expr, ["category", "country", "week"])
+
+        result_sql = str(expr)
+        assert "PARTITION BY category, country" in result_sql
+        assert "ORDER BY week" in result_sql
+
+    def test_injects_partition_by_excludes_order_by_dimension(self):
+        """ORDER BY dimension should not be in PARTITION BY."""
+        query = parse("SELECT LAG(total, 1) OVER (ORDER BY month)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "month", "year"])
+
+        result_sql = str(expr)
+        # month is in ORDER BY, so should NOT be in PARTITION BY
+        assert "PARTITION BY category, year" in result_sql
+        assert "ORDER BY month" in result_sql
+
+    def test_does_not_modify_window_with_existing_partition_by(self):
+        """Should not override existing PARTITION BY clause."""
+        query = parse(
+            "SELECT LAG(revenue, 1) OVER (PARTITION BY region ORDER BY week)",
+        )
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "country", "week"])
+
+        result_sql = str(expr)
+        # Original PARTITION BY should be preserved
+        assert "PARTITION BY region" in result_sql
+        # Should NOT have the injected dimensions
+        assert "category" not in result_sql
+
+    def test_handles_multiple_window_functions(self):
+        """Should inject PARTITION BY into multiple window functions."""
+        # MoM and WoW in the same expression
+        query = parse(
+            "SELECT "
+            "(revenue - LAG(revenue, 1) OVER (ORDER BY week)) / "
+            "NULLIF(LAG(revenue, 1) OVER (ORDER BY week), 0)",
+        )
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "week"])
+
+        result_sql = str(expr)
+        # Both LAG functions should get PARTITION BY category
+        assert result_sql.count("PARTITION BY category") == 2
+
+    def test_handles_no_window_functions(self):
+        """Expression without window functions should not be modified."""
+        query = parse("SELECT revenue / NULLIF(orders, 0)")
+        expr = query.select.projection[0]
+        original_sql = str(expr)
+
+        inject_partition_by_into_windows(expr, ["category", "week"])
+
+        assert str(expr) == original_sql
+
+    def test_handles_empty_dimension_list(self):
+        """Empty dimension list should not add PARTITION BY."""
+        query = parse("SELECT LAG(revenue, 1) OVER (ORDER BY week)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, [])
+
+        result_sql = str(expr)
+        # No PARTITION BY should be added
+        assert "PARTITION BY" not in result_sql
+        assert "ORDER BY week" in result_sql
+
+    def test_handles_all_dimensions_in_order_by(self):
+        """If all dimensions are in ORDER BY, no PARTITION BY added."""
+        query = parse("SELECT LAG(revenue, 1) OVER (ORDER BY week)")
+        expr = query.select.projection[0]
+
+        # Only dimension is week, which is in ORDER BY
+        inject_partition_by_into_windows(expr, ["week"])
+
+        result_sql = str(expr)
+        # No PARTITION BY because all dimensions are in ORDER BY
+        assert "PARTITION BY" not in result_sql
+
+    def test_real_wow_metric_expression(self):
+        """Test with realistic week-over-week metric expression."""
+        query = parse(
+            "SELECT "
+            "(SUM(total_revenue) - LAG(SUM(total_revenue), 1) OVER (ORDER BY week)) "
+            "/ NULLIF(LAG(SUM(total_revenue), 1) OVER (ORDER BY week), 0) * 100",
+        )
+        expr = query.select.projection[0]
+
+        # Typical dimensions for WoW: category (non-time), week (time)
+        inject_partition_by_into_windows(expr, ["category", "week"])
+
+        result_sql = str(expr)
+        # Both LAG windows should get PARTITION BY category
+        assert result_sql.count("PARTITION BY category") == 2
+        # week should remain in ORDER BY
+        assert "ORDER BY week" in result_sql
+
+    def test_aggregate_window_not_modified(self):
+        """Aggregate window functions (SUM OVER) should NOT get PARTITION BY injected."""
+        # This is the weighted CPM pattern - grand total for weighting
+        query = parse("SELECT impressions / NULLIF(SUM(impressions) OVER (), 0)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "country"])
+
+        result_sql = str(expr)
+        # SUM OVER () should remain empty - no PARTITION BY injection
+        assert "PARTITION BY" not in result_sql
+        assert "SUM(impressions) OVER ()" in result_sql
+
+    def test_weighted_cpm_pattern(self):
+        """Test weighted CPM pattern with grand total weight."""
+        # Weighted CPM = (revenue / impressions) * (impressions / SUM(impressions) OVER ())
+        query = parse(
+            "SELECT "
+            "(revenue / NULLIF(impressions / 1000.0, 0)) "
+            "* (impressions / NULLIF(SUM(impressions) OVER (), 0))",
+        )
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "country"])
+
+        result_sql = str(expr)
+        # SUM OVER () should NOT get PARTITION BY - it's computing grand total
+        assert "SUM(impressions) OVER ()" in result_sql
+        assert "PARTITION BY" not in result_sql
+
+    def test_mixed_lag_and_aggregate_window(self):
+        """LAG should get PARTITION BY, but SUM OVER () should not."""
+        query = parse(
+            "SELECT LAG(revenue, 1) OVER (ORDER BY week) + SUM(revenue) OVER ()",
+        )
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "week"])
+
+        result_sql = str(expr)
+        # LAG should get PARTITION BY category (week is in ORDER BY)
+        assert "LAG(revenue, 1) OVER (" in result_sql
+        assert "PARTITION BY category" in result_sql
+        # SUM OVER () should remain empty
+        assert "SUM(revenue) OVER ()" in result_sql
+
+    def test_rank_gets_partition_by(self):
+        """RANK window function should get PARTITION BY injection."""
+        query = parse("SELECT RANK() OVER (ORDER BY revenue DESC)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category", "country"])
+
+        result_sql = str(expr)
+        # RANK should get PARTITION BY
+        assert "PARTITION BY" in result_sql
+        assert "category" in result_sql
+        assert "country" in result_sql
+
+    def test_row_number_gets_partition_by(self):
+        """ROW_NUMBER window function should get PARTITION BY injection."""
+        query = parse("SELECT ROW_NUMBER() OVER (ORDER BY created_at)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["user_id"])
+
+        result_sql = str(expr)
+        # ROW_NUMBER should get PARTITION BY
+        assert "PARTITION BY user_id" in result_sql
+
+    def test_avg_over_not_modified(self):
+        """AVG OVER () should not get PARTITION BY injected."""
+        query = parse("SELECT value / NULLIF(AVG(value) OVER (), 0)")
+        expr = query.select.projection[0]
+
+        inject_partition_by_into_windows(expr, ["category"])
+
+        result_sql = str(expr)
+        # AVG OVER () should remain empty
+        assert "AVG(value) OVER ()" in result_sql
+        assert "PARTITION BY" not in result_sql
