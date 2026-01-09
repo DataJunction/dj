@@ -213,14 +213,14 @@ async def test_edit_measure(
         "additive": "non-additive",
         "columns": [
             {
-                "name": "total_amount_nationwide",
-                "node": "default.national_level_agg",
-                "type": "double",
-            },
-            {
                 "name": "completed_repairs",
                 "node": "default.regional_level_agg",
                 "type": "bigint",
+            },
+            {
+                "name": "total_amount_nationwide",
+                "node": "default.national_level_agg",
+                "type": "double",
             },
         ],
         "description": "random description",
