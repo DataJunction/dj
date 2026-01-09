@@ -200,8 +200,8 @@ export function MetricFlowGraph({
           componentNodeIds.set(comp.name, id);
           // Shorten name for display (e.g., "unit_price_sum" -> "price_sum")
           const shortName =
-            comp.name.length > 20
-              ? comp.name.split('_').slice(-2).join('_')
+            comp.name.length > 40
+              ? '...' + comp.name.split('_').slice(-2).join('_')
               : comp.name;
 
           rawNodes.push({

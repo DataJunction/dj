@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomOneLight } from 'react-syntax-highlighter/src/styles/hljs';
@@ -2441,7 +2441,25 @@ export function QueryOverviewPanel({
  *
  * Shows comprehensive info when a preagg node is selected in the graph
  */
-export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
+export function PreAggDetailsPanel({
+  preAgg,
+  metricFormulas,
+  onClose,
+  highlightedComponent,
+}) {
+  const componentsSectionRef = useRef(null);
+
+  // Scroll to and highlight component when highlightedComponent changes
+  useEffect(() => {
+    if (highlightedComponent && componentsSectionRef.current) {
+      // Scroll the components section into view
+      componentsSectionRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }
+  }, [highlightedComponent]);
+
   if (!preAgg) {
     return null;
   }
@@ -2520,7 +2538,10 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
       </div>
 
       {/* Components Table */}
-      <div className="details-section details-section-full">
+      <div
+        className="details-section details-section-full"
+        ref={componentsSectionRef}
+      >
         <h3 className="section-title">
           <span className="section-icon">⚙</span>
           Components ({preAgg.components?.length || 0})
@@ -2537,7 +2558,14 @@ export function PreAggDetailsPanel({ preAgg, metricFormulas, onClose }) {
             </thead>
             <tbody>
               {preAgg.components?.map((comp, i) => (
-                <tr key={comp.name || i}>
+                <tr
+                  key={comp.name || i}
+                  className={
+                    highlightedComponent === comp.name
+                      ? 'component-row-highlighted'
+                      : ''
+                  }
+                >
                   <td className="comp-name-cell">
                     <code>{comp.name}</code>
                   </td>
@@ -2630,6 +2658,17 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
         </div>
         <h2 className="details-title">{metric.short_name}</h2>
         <p className="details-full-name">{metric.name}</p>
+      </div>
+
+      {/* Definition */}
+      <div className="details-section">
+        <h3 className="section-title">
+          <span className="section-icon">⌘</span>
+          Definition
+        </h3>
+        <div className="formula-display">
+          <code>{metric.query}</code>
+        </div>
       </div>
 
       {/* Formula */}

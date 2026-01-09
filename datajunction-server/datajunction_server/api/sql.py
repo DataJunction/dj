@@ -264,6 +264,7 @@ async def get_measures_sql_v3(
             MetricFormulaResponse(
                 name=metric_name,
                 short_name=metric_name.split(".")[-1],
+                query=decomposed.metric_node.current.query,
                 combiner=combiner_str,
                 components=component_names,
                 is_derived=is_derived,

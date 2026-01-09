@@ -1154,11 +1154,23 @@ export function QueryPlannerPage() {
 
         {/* Right: Details Panel */}
         <aside className="planner-details">
-          {selectedNode?.type === 'preagg' ? (
+          {selectedNode?.type === 'preagg' ||
+          selectedNode?.type === 'component' ? (
             <PreAggDetailsPanel
-              preAgg={selectedNode.data}
+              preAgg={
+                selectedNode?.type === 'component'
+                  ? measuresResult?.grain_groups?.[
+                      selectedNode.data?.grainGroupIndex
+                    ]
+                  : selectedNode.data
+              }
               metricFormulas={measuresResult?.metric_formulas}
               onClose={handleClosePanel}
+              highlightedComponent={
+                selectedNode?.type === 'component'
+                  ? selectedNode.data?.name
+                  : null
+              }
             />
           ) : selectedNode?.type === 'metric' ? (
             <MetricDetailsPanel
