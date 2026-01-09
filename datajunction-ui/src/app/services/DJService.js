@@ -202,9 +202,9 @@ export const DataJunctionAPI = {
       const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
       const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
 
-      // Extract druid_cube materialization if present
+      // Extract druid_cube materialization if present (v3 or legacy)
       const druidMat = (current.materializations || []).find(
-        m => m.name === 'druid_cube',
+        m => m.name === 'druid_cube' || m.name === 'druid_cube_v3',
       );
       const cubeMaterialization = druidMat
         ? {
