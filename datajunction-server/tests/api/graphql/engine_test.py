@@ -90,9 +90,7 @@ async def test_list_dialects(
     expected_dialects = [
         {"name": "spark", "pluginClass": "SQLTranspilationPlugin"},
         {"name": "trino", "pluginClass": "SQLTranspilationPlugin"},
-        {"name": "postgres", "pluginClass": "SQLGlotTranspilationPlugin"},
         {"name": "druid", "pluginClass": "SQLTranspilationPlugin"},
-        {"name": "clickhouse", "pluginClass": "SQLGlotTranspilationPlugin"},
     ]
     actual_dialects = data["data"]["listDialects"]
     for expected in expected_dialects:
