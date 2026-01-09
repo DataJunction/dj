@@ -272,7 +272,7 @@ class NodeSpecBulkValidator:
                 )
                 return exc
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         with ThreadPoolExecutor() as executor:
             parse_tasks = [
                 loop.run_in_executor(executor, _parse_single_query, spec)
