@@ -2517,26 +2517,6 @@ export function PreAggDetailsPanel({
         </div>
       </div>
 
-      {/* Metrics Using This */}
-      <div className="details-section">
-        <h3 className="section-title">
-          <span className="section-icon">◈</span>
-          Metrics Using This
-        </h3>
-        <div className="metrics-list">
-          {relatedMetrics.length > 0 ? (
-            relatedMetrics.map((m, i) => (
-              <div key={i} className="related-metric">
-                <span className="metric-name">{m.short_name}</span>
-                {m.is_derived && <span className="derived-badge">Derived</span>}
-              </div>
-            ))
-          ) : (
-            <span className="empty-text">No metrics found</span>
-          )}
-        </div>
-      </div>
-
       {/* Components Table */}
       <div
         className="details-section details-section-full"
@@ -2582,6 +2562,26 @@ export function PreAggDetailsPanel({
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Metrics Using This */}
+      <div className="details-section">
+        <h3 className="section-title">
+          <span className="section-icon">◈</span>
+          Metrics Using This
+        </h3>
+        <div className="metrics-list">
+          {relatedMetrics.length > 0 ? (
+            relatedMetrics.map((m, i) => (
+              <div key={i} className="related-metric">
+                <span className="metric-name">{m.short_name}</span>
+                {m.is_derived && <span className="derived-badge">Derived</span>}
+              </div>
+            ))
+          ) : (
+            <span className="empty-text">No metrics found</span>
+          )}
         </div>
       </div>
 
