@@ -43,7 +43,7 @@ describe('<Root />', () => {
 
     // Check navigation links exist
     expect(screen.getByText('Explore')).toBeInTheDocument();
-    expect(screen.getByText('SQL')).toBeInTheDocument();
+    expect(screen.getByText('Query Planner')).toBeInTheDocument();
   });
 
   it('renders Docs dropdown', async () => {
