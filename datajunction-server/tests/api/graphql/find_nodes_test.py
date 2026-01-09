@@ -10,7 +10,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_find_by_node_type(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by node type
@@ -32,7 +32,7 @@ async def test_find_by_node_type(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     repair_orders_fact = next(
@@ -85,7 +85,7 @@ async def test_find_by_node_type(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data == {"data": {"findNodes": []}}
@@ -93,7 +93,7 @@ async def test_find_by_node_type(
 
 @pytest.mark.asyncio
 async def test_find_node_limit(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
     caplog,
 ) -> None:
     """
@@ -108,7 +108,7 @@ async def test_find_node_limit(
     }
     """
     caplog.set_level("WARNING")
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     assert any(
         "Limit of 100000 is greater than the maximum limit" in message
@@ -127,7 +127,7 @@ async def test_find_node_limit(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     node_names = [node["name"] for node in data["data"]["findNodes"]]
@@ -138,7 +138,7 @@ async def test_find_node_limit(
 
 @pytest.mark.asyncio
 async def test_find_by_node_type_paginated(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by node type with pagination
@@ -169,7 +169,7 @@ async def test_find_by_node_type_paginated(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     edges = data["data"]["findNodesPaginated"]["edges"]
@@ -207,7 +207,7 @@ async def test_find_by_node_type_paginated(
       }
     }
     """
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/graphql",
         json={"query": query, "variables": {"after": after}},
     )
@@ -244,7 +244,7 @@ async def test_find_by_node_type_paginated(
       }
     }
     """
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/graphql",
         json={"query": query, "variables": {"before": before}},
     )
@@ -266,7 +266,7 @@ async def test_find_by_node_type_paginated(
 
 @pytest.mark.asyncio
 async def test_find_by_fragment(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by fragment search functionality
@@ -280,7 +280,7 @@ async def test_find_by_fragment(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     nodes = data["data"]["findNodes"]
@@ -298,7 +298,7 @@ async def test_find_by_fragment(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     nodes = data["data"]["findNodes"]
@@ -308,7 +308,7 @@ async def test_find_by_fragment(
 
 @pytest.mark.asyncio
 async def test_find_by_names(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by their names
@@ -329,7 +329,7 @@ async def test_find_by_names(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -432,7 +432,7 @@ async def test_find_by_names(
 
 @pytest.mark.asyncio
 async def test_find_by_tags(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by tags
@@ -451,7 +451,7 @@ async def test_find_by_tags(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == []
@@ -459,7 +459,7 @@ async def test_find_by_tags(
 
 @pytest.mark.asyncio
 async def test_find_source(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding source nodes
@@ -490,7 +490,7 @@ async def test_find_source(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -522,7 +522,7 @@ async def test_find_source(
 
 @pytest.mark.asyncio
 async def test_find_transform(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding transform nodes
@@ -568,7 +568,7 @@ async def test_find_transform(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -600,7 +600,7 @@ async def test_find_transform(
 
 @pytest.mark.asyncio
 async def test_find_metric(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding metrics
@@ -643,7 +643,7 @@ async def test_find_metric(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -724,12 +724,12 @@ async def test_find_metric(
 
 @pytest.mark.asyncio
 async def test_find_cubes(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding cubes
     """
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": [
@@ -769,7 +769,7 @@ async def test_find_cubes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -818,7 +818,7 @@ async def test_find_cubes(
 
 @pytest.mark.asyncio
 async def test_find_node_with_revisions(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with revisions
@@ -854,7 +854,7 @@ async def test_find_node_with_revisions(
       }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     results = data["data"]["findNodesPaginated"]
@@ -1137,7 +1137,7 @@ async def test_find_node_with_revisions(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_created_edited_by(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with created by / edited by metadata
@@ -1154,7 +1154,7 @@ async def test_find_nodes_with_created_edited_by(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -1168,7 +1168,7 @@ async def test_find_nodes_with_created_edited_by(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_empty_list(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with pagination when there are none
@@ -1191,7 +1191,7 @@ async def test_find_nodes_paginated_empty_list(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodesPaginated"] == {
@@ -1207,7 +1207,7 @@ async def test_find_nodes_paginated_empty_list(
 
 @pytest.mark.asyncio
 async def test_find_by_with_filtering_on_columns(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test that filter on columns works correctly
@@ -1228,7 +1228,7 @@ async def test_find_by_with_filtering_on_columns(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -1274,7 +1274,7 @@ async def test_find_by_with_filtering_on_columns(
 
 @pytest.mark.asyncio
 async def test_find_by_with_ordering(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with ordering
@@ -1287,7 +1287,7 @@ async def test_find_by_with_ordering(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert [node["name"] for node in data["data"]["findNodes"]][:6] == [
@@ -1307,7 +1307,7 @@ async def test_find_by_with_ordering(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert [node["name"] for node in data["data"]["findNodes"]][:6] == [
@@ -1322,7 +1322,7 @@ async def test_find_by_with_ordering(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_mode(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes returns mode field
@@ -1338,7 +1338,7 @@ async def test_find_nodes_with_mode(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == [
@@ -1353,13 +1353,13 @@ async def test_find_nodes_with_mode(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_by_mode(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by mode (published vs draft)
     """
     # First, create a draft node
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/transform/",
         json={
             "name": "default.draft_test_node",
@@ -1386,7 +1386,7 @@ async def test_find_nodes_paginated_filter_by_mode(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1416,7 +1416,7 @@ async def test_find_nodes_paginated_filter_by_mode(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1446,7 +1446,7 @@ async def test_find_nodes_paginated_filter_by_mode(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1458,7 +1458,7 @@ async def test_find_nodes_paginated_filter_by_mode(
 
 @pytest.mark.asyncio
 async def test_approx_count_distinct_metric_decomposition(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test that APPROX_COUNT_DISTINCT metrics decompose into HLL sketch components.
@@ -1497,7 +1497,7 @@ async def test_approx_count_distinct_metric_decomposition(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1531,7 +1531,7 @@ async def test_approx_count_distinct_metric_decomposition(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_dimensions_filter(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with the dimensions filter.
@@ -1546,7 +1546,7 @@ async def test_find_nodes_with_dimensions_filter(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     node_names = {node["name"] for node in data["data"]["findNodes"]}
@@ -1571,7 +1571,7 @@ async def test_find_nodes_with_dimensions_filter(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_dimensions_filter_combined_with_type(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with dimensions filter combined with node type filter.
@@ -1585,7 +1585,7 @@ async def test_find_nodes_with_dimensions_filter_combined_with_type(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     node_names = {node["name"] for node in data["data"]["findNodes"]}
@@ -1610,7 +1610,7 @@ async def test_find_nodes_with_dimensions_filter_combined_with_type(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_nonexistent_dimension(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test that finding nodes with a nonexistent dimension returns empty list.
@@ -1622,7 +1622,7 @@ async def test_find_nodes_with_nonexistent_dimension(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == []
@@ -1630,7 +1630,7 @@ async def test_find_nodes_with_nonexistent_dimension(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_dimension_attribute(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with a dimension attribute (e.g., default.hard_hat.city).
@@ -1644,7 +1644,7 @@ async def test_find_nodes_with_dimension_attribute(
         }
     }
     """
-    response_attr = await module__client_with_roads.post(
+    response_attr = await client_with_roads.post(
         "/graphql",
         json={"query": query_with_attr},
     )
@@ -1660,7 +1660,7 @@ async def test_find_nodes_with_dimension_attribute(
         }
     }
     """
-    response_node = await module__client_with_roads.post(
+    response_node = await client_with_roads.post(
         "/graphql",
         json={"query": query_with_node},
     )
@@ -1675,7 +1675,7 @@ async def test_find_nodes_with_dimension_attribute(
 
 @pytest.mark.asyncio
 async def test_find_nodes_with_mixed_dimension_formats(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes with a mix of dimension node names and dimension attributes.
@@ -1689,7 +1689,7 @@ async def test_find_nodes_with_mixed_dimension_formats(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     node_names = {node["name"] for node in data["data"]["findNodes"]}
@@ -1703,7 +1703,7 @@ async def test_find_nodes_with_mixed_dimension_formats(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_by_owner(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by owner (ownedBy).
@@ -1719,7 +1719,7 @@ async def test_find_nodes_filter_by_owner(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1734,7 +1734,7 @@ async def test_find_nodes_filter_by_owner(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_by_owner(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by owner (ownedBy) using paginated endpoint.
@@ -1753,7 +1753,7 @@ async def test_find_nodes_paginated_filter_by_owner(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1765,7 +1765,7 @@ async def test_find_nodes_paginated_filter_by_owner(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_by_status_valid(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by status (VALID).
@@ -1780,7 +1780,7 @@ async def test_find_nodes_filter_by_status_valid(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1794,14 +1794,14 @@ async def test_find_nodes_filter_by_status_valid(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_by_status_invalid(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by status (INVALID).
     First create an invalid node, then filter for it.
     """
     # Create a node that references a non-existent parent (will be invalid)
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/transform/",
         json={
             "name": "default.invalid_test_node",
@@ -1822,7 +1822,7 @@ async def test_find_nodes_filter_by_status_invalid(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1833,7 +1833,7 @@ async def test_find_nodes_filter_by_status_invalid(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_by_status(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by status using paginated endpoint.
@@ -1852,7 +1852,7 @@ async def test_find_nodes_paginated_filter_by_status(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1863,13 +1863,13 @@ async def test_find_nodes_paginated_filter_by_status(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_missing_description(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that are missing descriptions.
     """
     # First create a node without a description
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/transform/",
         json={
             "name": "default.no_description_node",
@@ -1889,7 +1889,7 @@ async def test_find_nodes_filter_missing_description(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1901,7 +1901,7 @@ async def test_find_nodes_filter_missing_description(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_missing_description(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that are missing descriptions using paginated endpoint.
@@ -1920,7 +1920,7 @@ async def test_find_nodes_paginated_filter_missing_description(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1932,7 +1932,7 @@ async def test_find_nodes_paginated_filter_missing_description(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_missing_owner(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that are missing owners.
@@ -1947,7 +1947,7 @@ async def test_find_nodes_filter_missing_owner(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1958,7 +1958,7 @@ async def test_find_nodes_filter_missing_owner(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_missing_owner(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that are missing owners using paginated endpoint.
@@ -1977,7 +1977,7 @@ async def test_find_nodes_paginated_filter_missing_owner(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -1989,13 +1989,13 @@ async def test_find_nodes_paginated_filter_missing_owner(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_orphaned_dimension(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering for orphaned dimension nodes (dimensions not linked to by any other node).
     """
     # First, create an orphaned dimension (a dimension that no other node links to)
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/dimension/",
         json={
             "name": "default.orphaned_dimension_test",
@@ -2014,7 +2014,7 @@ async def test_find_nodes_filter_orphaned_dimension(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2029,7 +2029,7 @@ async def test_find_nodes_filter_orphaned_dimension(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_orphaned_dimension(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering for orphaned dimension nodes using paginated endpoint.
@@ -2046,7 +2046,7 @@ async def test_find_nodes_paginated_filter_orphaned_dimension(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2057,7 +2057,7 @@ async def test_find_nodes_paginated_filter_orphaned_dimension(
 
 @pytest.mark.asyncio
 async def test_find_nodes_combined_filters(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test combining multiple filters together.
@@ -2077,7 +2077,7 @@ async def test_find_nodes_combined_filters(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2091,7 +2091,7 @@ async def test_find_nodes_combined_filters(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_combined_filters(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test combining multiple filters together using paginated endpoint.
@@ -2114,7 +2114,7 @@ async def test_find_nodes_paginated_combined_filters(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2129,7 +2129,7 @@ async def test_find_nodes_paginated_combined_filters(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_by_nonexistent_owner(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test that filtering by a nonexistent owner returns empty results.
@@ -2141,7 +2141,7 @@ async def test_find_nodes_filter_by_nonexistent_owner(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["findNodes"] == []
@@ -2149,7 +2149,7 @@ async def test_find_nodes_filter_by_nonexistent_owner(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_multiple_statuses(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes by multiple statuses.
@@ -2164,7 +2164,7 @@ async def test_find_nodes_filter_multiple_statuses(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2178,19 +2178,19 @@ async def test_find_nodes_filter_multiple_statuses(
 
 @pytest.mark.asyncio
 async def test_find_nodes_paginated_filter_has_materialization(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that have materializations configured.
     """
     # First, set up a partition column on a node so we can create a materialization
-    await module__client_with_roads.post(
+    await client_with_roads.post(
         "/nodes/default.repair_orders_fact/columns/repair_order_id/partition",
         json={"type_": "categorical"},
     )
 
     # Create a materialization on a node
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/nodes/default.repair_orders_fact/materialization",
         json={
             "job": "spark_sql",
@@ -2220,7 +2220,7 @@ async def test_find_nodes_paginated_filter_has_materialization(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
@@ -2233,7 +2233,7 @@ async def test_find_nodes_paginated_filter_has_materialization(
 
 @pytest.mark.asyncio
 async def test_find_nodes_filter_has_materialization(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test filtering nodes that have materializations using non-paginated endpoint.
@@ -2251,7 +2251,7 @@ async def test_find_nodes_filter_has_materialization(
         }
     }
     """
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 

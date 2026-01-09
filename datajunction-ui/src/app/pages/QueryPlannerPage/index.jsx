@@ -1026,7 +1026,7 @@ export function QueryPlannerPage() {
         selectedMetrics,
         selectedDimensions,
         '',
-        false, // use_materialized = false for raw SQL
+        false, // useMaterialized = false for raw SQL
       );
       return result.sql;
     } catch (err) {

@@ -13,14 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @pytest_asyncio.fixture
 async def capture_queries(
-    module__session: AsyncSession,
+    session: AsyncSession,
 ) -> AsyncGenerator[list[str], None]:
     """
     Returns a list of strings, where each string represents a SQL statement
     captured during the test.
     """
     queries = []
-    sync_engine = module__session.bind.sync_engine
+    sync_engine = session.bind.sync_engine
 
     def before_cursor_execute(
         _conn,
@@ -43,7 +43,7 @@ async def capture_queries(
 
 @pytest.mark.asyncio
 async def test_get_common_dimensions(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
     capture_queries: AsyncGenerator[
         list[str],
         None,
@@ -68,7 +68,7 @@ async def test_get_common_dimensions(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     # With all examples loaded, there may be more common dimensions
@@ -101,7 +101,7 @@ async def test_get_common_dimensions(
 
 @pytest.mark.asyncio
 async def test_get_common_dimensions_with_full_dim_node(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
     capture_queries: AsyncGenerator[
         list[str],
         None,
@@ -139,7 +139,7 @@ async def test_get_common_dimensions_with_full_dim_node(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert len(data["data"]["commonDimensions"]) >= 40
@@ -186,7 +186,7 @@ async def test_get_common_dimensions_with_full_dim_node(
 
 @pytest.mark.asyncio
 async def test_get_common_dimensions_non_metric_nodes(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Test getting common dimensions and requesting a full dimension node for each
@@ -204,7 +204,7 @@ async def test_get_common_dimensions_non_metric_nodes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert len(data["data"]["commonDimensions"]) >= 40

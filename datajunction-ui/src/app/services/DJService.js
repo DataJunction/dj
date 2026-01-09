@@ -1107,6 +1107,7 @@ export const DataJunctionAPI = {
     metricSelection,
     dimensionSelection,
     filters = '',
+    useMaterialized = true,
   ) {
     const params = new URLSearchParams();
     metricSelection.forEach(metric => params.append('metrics', metric));
@@ -1117,7 +1118,7 @@ export const DataJunctionAPI = {
       params.append('filters', filters);
     }
     return await (
-      await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
+      await fetch(`${DJ_URL}/sql/metrics/v3/?${params}&use_materialized=${useMaterialized}`, {
         credentials: 'include',
       })
     ).json();
