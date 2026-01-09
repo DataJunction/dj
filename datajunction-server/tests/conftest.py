@@ -345,10 +345,7 @@ def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
             await conn.run_sync(Base.metadata.create_all)
 
     # Make sure DB is initialized once
-    # Use explicit event loop creation for Python 3.11 compatibility
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(init_db())
+    asyncio.get_event_loop().run_until_complete(init_db())
 
     async_session_factory = async_sessionmaker(
         bind=engine,
@@ -614,15 +611,11 @@ def event_loop():
     This fixture is OK because we are pinning the pytest_asyncio to 0.21.x.
     When they fix https://github.com/pytest-dev/pytest-asyncio/issues/718
     we can remove the pytest_asyncio pin and remove this fixture.
-
-    Updated for Python 3.11 compatibility: explicitly set the event loop
-    as the current loop to avoid issues with asyncio.get_event_loop() deprecation.
     """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
