@@ -2,6 +2,7 @@
 Tests for ``datajunction_server.service_clients``.
 """
 
+from datetime import date
 from unittest.mock import ANY, MagicMock
 
 import pytest
@@ -18,6 +19,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.models.cube_materialization import (
     CubeMetric,
+    CubeMaterializationV2Input,
     DruidCubeMaterializationInput,
     MeasureKey,
     NodeNameVersion,
@@ -29,6 +31,7 @@ from datajunction_server.models.materialization import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import (
     QueryServiceClient,
@@ -926,10 +929,12 @@ class TestQueryServiceClient:
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        response = query_service_client.deactivate_preagg_workflow(preagg_id=123)
+        response = query_service_client.deactivate_preagg_workflow(
+            output_table="test_preagg_table",
+        )
 
         mock_request.assert_called_with(
-            "/preaggs/123/workflow",
+            "/preaggs/test_preagg_table/workflow",
             headers=ANY,
             timeout=20,
         )
@@ -952,7 +957,9 @@ class TestQueryServiceClient:
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        response = query_service_client.deactivate_preagg_workflow(preagg_id=456)
+        response = query_service_client.deactivate_preagg_workflow(
+            output_table="another_preagg_table",
+        )
 
         assert response == {}
 
@@ -974,7 +981,9 @@ class TestQueryServiceClient:
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
         with pytest.raises(Exception) as exc_info:
-            query_service_client.deactivate_preagg_workflow(preagg_id=999)
+            query_service_client.deactivate_preagg_workflow(
+                output_table="nonexistent_preagg",
+            )
         assert "Query service error" in str(exc_info.value)
 
     def test_run_preagg_backfill(self, mocker: MockerFixture) -> None:
@@ -1039,4 +1048,165 @@ class TestQueryServiceClient:
         query_service_client = QueryServiceClient(uri=self.endpoint)
         with pytest.raises(Exception) as exc_info:
             query_service_client.run_preagg_backfill(mock_input)
+        assert "Query service error" in str(exc_info.value)
+
+    def test_materialize_cube_v2_success(self, mocker: MockerFixture) -> None:
+        """
+        Test successful v2 cube materialization.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://workflow1"],
+            "output_tables": ["druid_ds"],
+            "status": "created",
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        input_data = CubeMaterializationV2Input(
+            cube_name="test.cube",
+            cube_version="v1",
+            preagg_tables=[],
+            combined_sql="SELECT 1",
+            combined_columns=[],
+            combined_grain=[],
+            druid_datasource="test_ds",
+            druid_spec={},
+            timestamp_column="date_id",
+            timestamp_format="yyyyMMdd",
+            strategy=MaterializationStrategy.FULL,
+            schedule="0 0 * * *",
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.materialize_cube_v2(input_data)
+
+        mock_request.assert_called_once()
+        assert result.urls == ["http://workflow1"]
+
+    def test_materialize_cube_v2_failure(self, mocker: MockerFixture) -> None:
+        """
+        Test v2 cube materialization failure raises exception.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        input_data = CubeMaterializationV2Input(
+            cube_name="test.cube",
+            cube_version="v1",
+            preagg_tables=[],
+            combined_sql="SELECT 1",
+            combined_columns=[],
+            combined_grain=[],
+            druid_datasource="test_ds",
+            druid_spec={},
+            timestamp_column="date_id",
+            timestamp_format="yyyyMMdd",
+            strategy=MaterializationStrategy.FULL,
+            schedule="0 0 * * *",
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(Exception) as exc_info:
+            query_service_client.materialize_cube_v2(input_data)
+        assert "Query service error" in str(exc_info.value)
+
+    def test_deactivate_cube_workflow_success(self, mocker: MockerFixture) -> None:
+        """
+        Test successful cube workflow deactivation.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"status": "deactivated"}'
+        mock_response.json.return_value = {"status": "deactivated"}
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.deactivate_cube_workflow("test.cube")
+
+        mock_request.assert_called_once()
+        assert result["status"] == "deactivated"
+
+    def test_deactivate_cube_workflow_failure_returns_failed_status(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test cube workflow deactivation failure returns failed status (doesn't raise).
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Not Found"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.deactivate_cube_workflow("test.cube")
+        # Should NOT raise, should return failed status
+        assert result["status"] == "failed"
+
+    def test_run_cube_backfill_success(self, mocker: MockerFixture) -> None:
+        """
+        Test successful cube backfill.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"job_url": "http://backfill-job"}
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        backfill_input = CubeBackfillInput(
+            cube_name="test.cube",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.run_cube_backfill(backfill_input)
+
+        mock_request.assert_called_once()
+        assert result["job_url"] == "http://backfill-job"
+
+    def test_run_cube_backfill_failure(self, mocker: MockerFixture) -> None:
+        """
+        Test cube backfill failure raises exception.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        backfill_input = CubeBackfillInput(
+            cube_name="test.cube",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(Exception) as exc_info:
+            query_service_client.run_cube_backfill(backfill_input)
         assert "Query service error" in str(exc_info.value)

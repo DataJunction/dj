@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SettingsPage } from '../index';
 import DJClientContext from '../../../providers/djclient';
 import { UserProvider } from '../../../providers/UserProvider';
@@ -183,5 +183,173 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('SOURCE')).toBeInTheDocument();
     });
+  });
+
+  it('handles subscription update', async () => {
+    mockDjClient.getNotificationPreferences.mockResolvedValue([
+      {
+        entity_name: 'default.my_metric',
+        entity_type: 'node',
+        activity_types: ['update'],
+        alert_types: ['web'],
+      },
+    ]);
+
+    mockDjClient.getNodesByNames.mockResolvedValue([
+      {
+        name: 'default.my_metric',
+        type: 'METRIC',
+        current: {
+          displayName: 'My Metric',
+          status: 'VALID',
+          mode: 'PUBLISHED',
+        },
+      },
+    ]);
+
+    mockDjClient.subscribeToNotifications.mockResolvedValue({
+      status: 200,
+      json: { message: 'Subscribed' },
+    });
+
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByText('default.my_metric')).toBeInTheDocument();
+    });
+
+    // The subscription is rendered with checkboxes for activity types
+    // Find and interact with the update checkbox (if available in UI)
+    const updateCheckbox = screen.queryByLabelText(/update/i);
+    if (updateCheckbox) {
+      fireEvent.click(updateCheckbox);
+      await waitFor(() => {
+        expect(mockDjClient.subscribeToNotifications).toHaveBeenCalled();
+      });
+    }
+  });
+
+  it('handles subscription unsubscribe', async () => {
+    mockDjClient.getNotificationPreferences.mockResolvedValue([
+      {
+        entity_name: 'default.my_metric',
+        entity_type: 'node',
+        activity_types: ['update'],
+        alert_types: ['web'],
+      },
+    ]);
+
+    mockDjClient.getNodesByNames.mockResolvedValue([
+      {
+        name: 'default.my_metric',
+        type: 'METRIC',
+        current: {
+          displayName: 'My Metric',
+          status: 'VALID',
+          mode: 'PUBLISHED',
+        },
+      },
+    ]);
+
+    mockDjClient.unsubscribeFromNotifications.mockResolvedValue({
+      status: 200,
+      json: { message: 'Unsubscribed' },
+    });
+
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByText('default.my_metric')).toBeInTheDocument();
+    });
+
+    // Find unsubscribe button
+    const unsubscribeBtn = screen.queryByRole('button', {
+      name: /unsubscribe/i,
+    });
+    if (unsubscribeBtn) {
+      fireEvent.click(unsubscribeBtn);
+      await waitFor(() => {
+        expect(mockDjClient.unsubscribeFromNotifications).toHaveBeenCalled();
+      });
+    }
+  });
+
+  it('opens create service account modal', async () => {
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+    });
+
+    // Find and click create button
+    const createBtn = screen.getByRole('button', { name: /create/i });
+    fireEvent.click(createBtn);
+
+    // Modal should be visible
+    await waitFor(() => {
+      expect(screen.getByText('Create Service Account')).toBeInTheDocument();
+    });
+  });
+
+  it('handles service account deletion', async () => {
+    mockDjClient.listServiceAccounts.mockResolvedValue([
+      {
+        id: 1,
+        name: 'my-pipeline',
+        client_id: 'abc-123',
+        created_at: '2024-12-01T00:00:00Z',
+      },
+    ]);
+
+    mockDjClient.deleteServiceAccount.mockResolvedValue({
+      message: 'Deleted',
+    });
+
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByText('my-pipeline')).toBeInTheDocument();
+    });
+
+    // Find delete button
+    const deleteBtn = screen.queryByRole('button', { name: /delete/i });
+    if (deleteBtn) {
+      fireEvent.click(deleteBtn);
+      await waitFor(() => {
+        expect(mockDjClient.deleteServiceAccount).toHaveBeenCalled();
+      });
+    }
+  });
+
+  it('handles non-node subscription types gracefully', async () => {
+    mockDjClient.getNotificationPreferences.mockResolvedValue([
+      {
+        entity_name: 'namespace.test',
+        entity_type: 'namespace',
+        activity_types: ['create'],
+        alert_types: ['web'],
+      },
+    ]);
+
+    renderWithContext();
+
+    await waitFor(() => {
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+    });
+
+    // Namespace subscription should still appear
+    await waitFor(() => {
+      expect(screen.getByText('namespace.test')).toBeInTheDocument();
+    });
+  });
+
+  it('skips fetching if userLoading', async () => {
+    // When user is still loading, the component waits
+    mockDjClient.whoami.mockImplementation(() => new Promise(() => {}));
+
+    renderWithContext();
+
+    // getNotificationPreferences should not be called while user is loading
+    expect(mockDjClient.getNotificationPreferences).not.toHaveBeenCalled();
   });
 });

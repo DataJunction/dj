@@ -24,6 +24,7 @@ from datajunction_server.models.materialization import (
     GenericMaterializationConfig,
     MaterializationStrategy,
 )
+from datajunction_server.models.cube_materialization import DruidCubeV3Config
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -71,11 +72,11 @@ class Materialization(Base):
     schedule: Mapped[str]
 
     # Arbitrary config relevant to the materialization job
-    config: Mapped[Union[GenericMaterializationConfig, DruidMeasuresCubeConfig]] = (
-        mapped_column(
-            JSON,
-            default={},
-        )
+    config: Mapped[
+        Union[GenericMaterializationConfig, DruidMeasuresCubeConfig, DruidCubeV3Config]
+    ] = mapped_column(
+        JSON,
+        default={},
     )
 
     # The name of the plugin that handles materialization, if any

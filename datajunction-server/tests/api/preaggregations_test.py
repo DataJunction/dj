@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client, get_session
@@ -832,16 +833,15 @@ class TestDeletePreaggWorkflow:
         module_mocker,
     ):
         """Test successfully deactivating a workflow."""
-        from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.utils import get_query_service_client
-
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
         preagg5 = client_with_preaggs["preagg5"]  # Use dedicated preagg
 
         # Set up workflow URL on preagg5
         preagg = await session.get(PreAggregation, preagg5.id)
-        preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
+        preagg.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test-123"),
+        ]
         preagg.workflow_status = "active"
         await session.commit()
 
@@ -857,9 +857,10 @@ class TestDeletePreaggWorkflow:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "paused"
-        assert data["workflow_url"] == "http://scheduler/workflow/test-123"
-        assert "deactivated successfully" in data["message"]
+        # Implementation clears all workflow state after deactivation
+        assert data["status"] == "none"
+        assert data["workflow_url"] is None
+        assert "deactivated" in data["message"].lower()
 
         # Verify query service was called
         mock_deactivate.assert_called_once()
@@ -910,7 +911,10 @@ class TestRunPreaggBackfill:
 
         # Set up workflow URL on preagg6
         preagg = await session.get(PreAggregation, preagg6.id)
-        preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
+        preagg.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test-123"),
+        ]
+        preagg.workflow_status = "active"
         await session.commit()
 
         # Mock the backfill method
@@ -1272,7 +1276,9 @@ class TestQueryServiceExceptionHandling:
 
         # Set up workflow URL
         preagg = await session.get(PreAggregation, preagg8.id)
-        preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
+        preagg.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test-123"),
+        ]
         preagg.workflow_status = "active"
         await session.commit()
 
@@ -1307,7 +1313,10 @@ class TestQueryServiceExceptionHandling:
 
         # Set up workflow URL
         preagg = await session.get(PreAggregation, preagg9.id)
-        preagg.scheduled_workflow_url = "http://scheduler/workflow/test-123"
+        preagg.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test-123"),
+        ]
+        preagg.workflow_status = "active"
         await session.commit()
 
         # Mock query service to raise an exception
@@ -1366,10 +1375,15 @@ class TestWorkflowUrlExtraction:
 
         assert response.status_code == 200
 
-        # Check the stored workflow URL is the .main one
+        # Check all workflow URLs are stored with appropriate labels
         await session.refresh(preagg1)
         preagg = await session.get(PreAggregation, preagg1.id)
-        assert preagg.scheduled_workflow_url == "http://scheduler/workflow/test.main"
+        # Implementation stores ALL URLs with labels based on URL patterns
+        assert preagg.workflow_urls == [
+            WorkflowUrl(label="workflow", url="http://scheduler/workflow/test.trigger"),
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test.main"),
+            WorkflowUrl(label="workflow", url="http://scheduler/workflow/test.cleanup"),
+        ]
         assert preagg.workflow_status == "active"
 
     @pytest.mark.asyncio
@@ -1405,12 +1419,20 @@ class TestWorkflowUrlExtraction:
 
         assert response.status_code == 200
 
-        # Check the stored workflow URL is the first one (fallback)
+        # Check all workflow URLs are stored with labels based on URL patterns
+        # When no .main URL found, all URLs get 'workflow' label
         await session.refresh(preagg3)
         preagg = await session.get(PreAggregation, preagg3.id)
-        assert (
-            preagg.scheduled_workflow_url == "http://scheduler/workflow/test-fallback"
-        )
+        assert preagg.workflow_urls == [
+            WorkflowUrl(
+                label="workflow",
+                url="http://scheduler/workflow/test-fallback",
+            ),
+            WorkflowUrl(
+                label="workflow",
+                url="http://scheduler/workflow/test-other",
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_materialize_sets_default_schedule_when_none(
@@ -1489,9 +1511,130 @@ class TestWorkflowUrlExtraction:
         assert response.status_code == 200
         data = response.json()
 
-        # Response should include all workflow URLs
+        # Response should include all workflow URLs as labeled objects
         assert "workflow_urls" in data
-        assert data["workflow_urls"] == all_urls
+        assert data["workflow_urls"] == [
+            {"label": "workflow", "url": "http://scheduler/workflow/test.trigger"},
+            {"label": "scheduled", "url": "http://scheduler/workflow/test.main"},
+            {"label": "workflow", "url": "http://scheduler/workflow/test.cleanup"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_materialize_handles_new_workflow_urls_format(
+        self,
+        client_with_preaggs,
+        module_mocker,
+    ):
+        """
+        Test that new workflow_urls format is correctly stored.
+        """
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # Mock query service with NEW workflow_urls format
+        mock_result = {
+            "workflow_urls": [
+                {"label": "scheduled", "url": "http://scheduler/scheduled-workflow"},
+                {"label": "backfill", "url": "http://scheduler/backfill-workflow"},
+            ],
+            "status": "active",
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
+        )
+
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+        assert response.status_code == 200
+
+        # Verify workflow_urls are stored correctly with labels from response
+        await session.refresh(preagg1)
+        preagg = await session.get(PreAggregation, preagg1.id)
+        assert preagg.workflow_urls == [
+            WorkflowUrl(label="scheduled", url="http://scheduler/scheduled-workflow"),
+            WorkflowUrl(label="backfill", url="http://scheduler/backfill-workflow"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_materialize_handles_legacy_urls_with_backfill_pattern(
+        self,
+        client_with_preaggs,
+        module_mocker,
+    ):
+        """
+        Test legacy URLs with .backfill pattern get labeled correctly.
+        """
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # Mock query service with legacy urls format containing .backfill
+        mock_result = {
+            "urls": [
+                "http://scheduler/workflow/test.main",
+                "http://scheduler/workflow/test.backfill",  # Should get label "backfill"
+            ],
+            "output_tables": ["analytics.materialized.preagg_test"],
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
+        )
+
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+        assert response.status_code == 200
+
+        # Verify backfill URL gets correct label
+        await session.refresh(preagg1)
+        preagg = await session.get(PreAggregation, preagg1.id)
+        # Find the backfill URL
+        backfill_urls = [wf for wf in preagg.workflow_urls if wf.label == "backfill"]
+        assert len(backfill_urls) == 1
+        assert ".backfill" in backfill_urls[0].url
+
+    @pytest.mark.asyncio
+    async def test_materialize_handles_legacy_urls_with_adhoc_pattern(
+        self,
+        client_with_preaggs,
+        module_mocker,
+    ):
+        """
+        Test legacy URLs with adhoc pattern get labeled as backfill.
+        """
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg1 = client_with_preaggs["preagg1"]
+
+        # Mock query service with legacy urls containing adhoc
+        mock_result = {
+            "urls": [
+                "http://scheduler/scheduled-workflow",
+                "http://scheduler/Adhoc-workflow",  # Should get label "backfill" (case insensitive)
+            ],
+            "output_tables": ["analytics.materialized.preagg_test"],
+        }
+        qs_client = client.app.dependency_overrides[get_query_service_client]()
+        module_mocker.patch.object(
+            qs_client,
+            "materialize_preagg",
+            return_value=mock_result,
+        )
+
+        response = await client.post(f"/preaggs/{preagg1.id}/materialize")
+        assert response.status_code == 200
+
+        # Verify adhoc URL gets backfill label
+        await session.refresh(preagg1)
+        preagg = await session.get(PreAggregation, preagg1.id)
+        # Find the backfill URL (adhoc should be labeled as backfill)
+        backfill_urls = [wf for wf in preagg.workflow_urls if wf.label == "backfill"]
+        assert len(backfill_urls) == 1
+        assert "adhoc" in backfill_urls[0].url.lower()
 
 
 class TestIncrementalTimeMaterialization:
@@ -1572,10 +1715,9 @@ class TestIncrementalTimeMaterialization:
         assert data["schedule"] == "0 0 * * *"
         assert data["lookback_window"] == "3 days"
         assert data["workflow_status"] == "active"
-        assert (
-            data["scheduled_workflow_url"]
-            == "http://scheduler/workflow/incremental.main"
-        )
+        assert data["workflow_urls"] == [
+            {"label": "scheduled", "url": "http://scheduler/workflow/incremental.main"},
+        ]
 
     @pytest.mark.asyncio
     async def test_materialize_incremental_passes_temporal_partition_to_query_service(

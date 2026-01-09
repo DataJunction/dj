@@ -1516,7 +1516,7 @@ async def test_approx_count_distinct_metric_decomposition(
     hll_component = components[0]
     assert hll_component["expression"] == "hard_hat_id"
     assert hll_component["aggregation"] == "hll_sketch_agg"  # Spark's HLL accumulate
-    assert hll_component["merge"] == "hll_union"  # Spark's HLL merge
+    assert hll_component["merge"] == "hll_union_agg"  # Spark's HLL merge
     assert hll_component["rule"]["type"] == "FULL"
 
     # The combiner should use Spark HLL functions

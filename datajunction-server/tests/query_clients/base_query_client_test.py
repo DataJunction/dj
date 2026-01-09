@@ -70,7 +70,7 @@ def test_base_client_abstract_methods():
         client.materialize_preagg(None)
 
     with pytest.raises(NotImplementedError):
-        client.deactivate_preagg_workflow(123)
+        client.deactivate_preagg_workflow("test_table")
 
     with pytest.raises(NotImplementedError):
         client.run_preagg_backfill(None)
@@ -111,7 +111,7 @@ def test_preagg_error_messages():
         assert "does not support pre-aggregation materialization" in str(e)
 
     try:
-        client.deactivate_preagg_workflow(123)
+        client.deactivate_preagg_workflow("test_table")
     except NotImplementedError as e:
         assert "MockQueryServiceClient" in str(e)
         assert "does not support pre-aggregation workflows" in str(e)

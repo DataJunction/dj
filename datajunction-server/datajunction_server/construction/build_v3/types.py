@@ -14,6 +14,7 @@ from datajunction_server.models.decompose import MetricComponent, Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 if TYPE_CHECKING:
@@ -182,10 +183,13 @@ class GrainGroupSQL:
     # Each component has: name, expression, aggregation (phase 1), merge (phase 2), rule
     components: list[MetricComponent] = field(default_factory=list)
 
+    # Dialect for rendering SQL (used for dialect-specific function names)
+    dialect: Dialect = Dialect.SPARK
+
     @property
     def sql(self) -> str:
-        """Render the query AST to SQL string."""
-        return str(self.query)
+        """Render the query AST to SQL string for the target dialect."""
+        return to_sql(self.query, self.dialect)
 
 
 @dataclass
@@ -229,8 +233,8 @@ class GeneratedSQL:
 
     @property
     def sql(self) -> str:
-        """Render the query AST to SQL string."""
-        return str(self.query)
+        """Render the query AST to SQL string for the target dialect."""
+        return to_sql(self.query, self.dialect)
 
 
 @dataclass

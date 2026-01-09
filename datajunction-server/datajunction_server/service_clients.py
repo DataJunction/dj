@@ -18,6 +18,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.models.cube_materialization import (
+    CubeMaterializationV2Input,
     DruidCubeMaterializationInput,
 )
 from datajunction_server.models.materialization import (
@@ -31,9 +32,12 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction_server.models.preaggregation import BackfillInput
+    from datajunction_server.models.preaggregation import (
+        BackfillInput,
+        CubeBackfillInput,
+        PreAggMaterializationInput,
+    )
     from datajunction_server.database.engine import Engine
-    from datajunction_server.models.preaggregation import PreAggMaterializationInput
 
 _logger = logging.getLogger(__name__)
 
@@ -325,6 +329,52 @@ class QueryServiceClient:
         )
         return MaterializationInfo(**result)  # pragma: no cover
 
+    def materialize_cube_v2(
+        self,
+        materialization_input: CubeMaterializationV2Input,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Create a v2 cube materialization workflow (pre-agg based).
+
+        This calls the query service's POST /cubes/materialize/v2 endpoint which creates
+        a workflow that:
+        1. Waits for pre-agg tables to be available (via VTTS)
+        2. Runs the combined SQL that joins/coalesces pre-agg data
+        3. Ingests the combined result to Druid
+
+        Unlike materialize_cube(), this does NOT create measures materialization
+        workflows inline - it expects pre-aggs to already exist.
+        """
+        response = self.requests_session.post(
+            "/cubes/materialize/v2",
+            json=materialization_input.model_dump(),
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+            timeout=30,
+        )
+        if response.status_code not in (200, 201):
+            _logger.exception(
+                "[DJQS] Failed to schedule v2 cube materialization for"
+                " cube=%s with `POST /cubes/materialize/v2`: %s",
+                materialization_input.cube_name,
+                response.text,
+                exc_info=True,
+            )
+            raise Exception(f"Query service error: {response.text}")
+        result = response.json()
+        _logger.info(
+            "[DJQS] Scheduled v2 cube materialization for cube=%s with "
+            "`POST /cubes/materialize/v2`, urls=%s",
+            materialization_input.cube_name,
+            result.get("urls"),
+        )
+        return MaterializationInfo(**result)
+
     def materialize_preagg(
         self,
         materialization_input: "PreAggMaterializationInput",
@@ -374,17 +424,22 @@ class QueryServiceClient:
 
     def deactivate_preagg_workflow(
         self,
-        preagg_id: int,
+        output_table: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
-        Deactivate a pre-aggregation's scheduled workflow.
+        Deactivate a pre-aggregation's workflows by output table name.
+
+        Args:
+            output_table: The pre-aggregation's output table name (resource identifier).
+                         Query Service owns the workflow naming pattern and reconstructs
+                         workflow names from this identifier.
 
         Returns:
             Dict with 'status'
         """
         response = self.requests_session.delete(
-            f"/preaggs/{preagg_id}/workflow",
+            f"/preaggs/{output_table}/workflow",
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
@@ -395,16 +450,57 @@ class QueryServiceClient:
         )
         if response.status_code not in (200, 201, 204):
             _logger.exception(
-                "[DJQS] Failed to deactivate workflow for preagg_id=%s: %s",
-                preagg_id,
+                "[DJQS] Failed to deactivate preagg workflow for output_table=%s: %s",
+                output_table,
                 response.text,
                 exc_info=True,
             )
             raise Exception(f"Query service error: {response.text}")
         result = response.json() if response.text else {}
         _logger.info(
-            "[DJQS] Deactivated workflow for preagg_id=%s",
-            preagg_id,
+            "[DJQS] Deactivated preagg workflows for output_table=%s",
+            output_table,
+        )
+        return result
+
+    def deactivate_cube_workflow(
+        self,
+        cube_name: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deactivate a cube's Druid materialization workflows by cube name.
+
+        Args:
+            cube_name: Full cube name (e.g., 'default.my_cube').
+                      Query Service owns the workflow naming pattern and reconstructs
+                      workflow names from this identifier.
+
+        Returns:
+            Dict with 'status'
+        """
+        response = self.requests_session.delete(
+            f"/cubes/{cube_name}/workflow",
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+            timeout=20,
+        )
+        if response.status_code not in (200, 201, 204):
+            _logger.warning(
+                "[DJQS] Failed to deactivate cube workflow for cube=%s: %s",
+                cube_name,
+                response.text,
+            )
+            # Don't raise - the query service endpoint may not exist yet
+            return {"status": "failed", "message": response.text}
+        result = response.json() if response.text else {}
+        _logger.info(
+            "[DJQS] Deactivated cube workflows for cube=%s",
+            cube_name,
         )
         return result
 
@@ -442,6 +538,44 @@ class QueryServiceClient:
         _logger.info(
             "[DJQS] Started backfill for preagg_id=%s, job_url=%s",
             backfill_input.preagg_id,
+            result.get("job_url"),
+        )
+        return result
+
+    def run_cube_backfill(
+        self,
+        backfill_input: "CubeBackfillInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run a backfill for a cube.
+
+        Returns:
+            Dict with 'job_url'
+        """
+        response = self.requests_session.post(
+            "/cubes/backfill",
+            json=backfill_input.model_dump(mode="json"),
+            headers={
+                **self.requests_session.headers,
+                **QueryServiceClient.filtered_headers(request_headers),
+            }
+            if request_headers
+            else self.requests_session.headers,
+            timeout=30,
+        )
+        if response.status_code not in (200, 201):
+            _logger.exception(
+                "[DJQS] Failed to run backfill for cube=%s: %s",
+                backfill_input.cube_name,
+                response.text,
+                exc_info=True,
+            )
+            raise Exception(f"Query service error: {response.text}")
+        result = response.json()
+        _logger.info(
+            "[DJQS] Started backfill for cube=%s, job_url=%s",
+            backfill_input.cube_name,
             result.get("job_url"),
         )
         return result

@@ -788,6 +788,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
+        dialect=ctx.dialect,
     )
 
 
@@ -1114,6 +1115,7 @@ def build_grain_group_sql(
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
+        dialect=ctx.dialect,
     )
 
 
