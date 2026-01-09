@@ -280,6 +280,7 @@ type NodeName {
 type NodeNameVersion {
   name: String!
   currentVersion: String!
+  type: String!
 }
 
 type NodeRevision {
