@@ -184,8 +184,8 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # Pre-aggregation output location
     # Used when generating combined SQL that references pre-agg tables
-    preagg_catalog: str = "default"
-    preagg_schema: str = "dj_preaggs"
+    preagg_catalog: str = "prodhive"
+    preagg_schema: str = "dj_test"
 
     @property
     def celery(self) -> Celery:

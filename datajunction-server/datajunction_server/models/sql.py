@@ -72,6 +72,7 @@ class MetricFormulaResponse(BaseModel):
 
     name: str  # Full metric name (e.g., "v3.avg_unit_price")
     short_name: str  # Short name (e.g., "avg_unit_price")
+    query: str  # Original metric query (e.g., "SELECT AVG(unit_price) FROM ...")
     combiner: str  # Formula combining components (e.g., "SUM(unit_price_sum) / SUM(unit_price_count)")
     components: List[str]  # Component names used in this metric
     is_derived: bool  # True if metric is derived from other metrics
