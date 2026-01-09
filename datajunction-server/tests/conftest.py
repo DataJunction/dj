@@ -345,7 +345,10 @@ def create_session_factory(postgres_container) -> Awaitable[AsyncSession]:
             await conn.run_sync(Base.metadata.create_all)
 
     # Make sure DB is initialized once
-    asyncio.get_event_loop().run_until_complete(init_db())
+    # NOTE: Use asyncio.run() instead of get_event_loop().run_until_complete()
+    # for Python 3.10+ compatibility. The old method can hang in pytest-xdist
+    # due to event loop lifecycle changes in Python 3.10+.
+    asyncio.run(init_db())
 
     async_session_factory = async_sessionmaker(
         bind=engine,
