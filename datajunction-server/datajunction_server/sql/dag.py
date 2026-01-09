@@ -1090,18 +1090,30 @@ async def get_shared_dimensions(
     # Get the per-metric parent mapping (batched for efficiency)
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
 
-    # For each metric, compute the UNION of dimensions from its parents
-    per_metric_dimensions: List[Dict[str, List[DimensionAttributeOutput]]] = []
+    # Collect all unique parent nodes across all metrics
+    unique_parents: Dict[int, Node] = {}
+    for parents in metric_to_parents.values():
+        for parent in parents:
+            if parent.id not in unique_parents:
+                unique_parents[parent.id] = parent
 
+    # Compute dimensions once per unique parent
+    parent_dims_cache: Dict[int, Dict[str, List[DimensionAttributeOutput]]] = {}
+    for parent_id, parent in unique_parents.items():
+        parent_dims = await group_dimensions_by_name(session, parent)
+        parent_dims_cache[parent_id] = parent_dims
+
+    # Map cached results back to each metric
+    per_metric_dimensions: List[Dict[str, List[DimensionAttributeOutput]]] = []
     for metric_node in metric_nodes:
         parents = metric_to_parents.get(metric_node.name, [])
         if not parents:
             continue  # pragma: no cover
 
-        # Compute union of dimensions from all parents
+        # Compute union of dimensions from all parents (using cached results)
         dims_by_name: Dict[str, List[DimensionAttributeOutput]] = {}
         for parent in parents:
-            parent_dims = await group_dimensions_by_name(session, parent)
+            parent_dims = parent_dims_cache[parent.id]
             for dim_name, dim_list in parent_dims.items():
                 if dim_name not in dims_by_name:
                     dims_by_name[dim_name] = dim_list
