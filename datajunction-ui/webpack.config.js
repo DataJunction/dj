@@ -24,16 +24,43 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, './dist'),
     filename: 'static/[name].[fullhash].js',
+    chunkFilename: 'static/[name].[fullhash].chunk.js', // For lazy-loaded chunks
     library: 'datajunction-ui',
     libraryTarget: 'umd',
     globalObject: 'this',
     umdNamedDefine: true,
     publicPath: '/',
   },
+  optimization: {
+    splitChunks: {
+      chunks: 'all',
+      cacheGroups: {
+        // Split ReactFlow and dagre into a separate chunk since they're heavy
+        // and only used on the QueryPlannerPage
+        reactflow: {
+          test: /[\\/]node_modules[\\/](reactflow|@reactflow|dagre|d3-.*)[\\/]/,
+          name: 'reactflow-vendor',
+          chunks: 'async',
+          priority: 20,
+        },
+        // Common vendor chunks
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendors',
+          chunks: 'initial',
+          priority: 10,
+        },
+      },
+    },
+  },
   devServer: {
     historyApiFallback: {
       disableDotRule: true,
     },
+    host: '0.0.0.0', // Allow connections from outside container
+    port: 3000,
+    hot: true, // Enable hot module replacement
+    watchFiles: ['src/**/*'], // Watch for changes
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json', '.ts', '.tsx', '.scss'],

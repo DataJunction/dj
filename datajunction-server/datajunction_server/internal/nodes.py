@@ -642,6 +642,7 @@ async def create_cube_node_revision(
         status=status,
         catalog=catalog,
         created_by_id=current_user.id,
+        mode=data.mode,
     )
     return node_revision
 

@@ -254,7 +254,7 @@ async def find_required_dimensions(
     Find Column objects for required dimension paths.
 
     Required dimensions can be specified as:
-    - Full path: "common.dimensions.date.dateint" -> look up dimension node and find column
+    - Full path: "dimensions.date.dateint" -> look up dimension node and find column
     - Short name: "status" -> find in parent_columns
 
     Uses a single DB query to fetch all needed dimension nodes.

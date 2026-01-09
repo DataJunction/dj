@@ -159,11 +159,20 @@ class Dispatch(metaclass=DispatchMeta):
 class Function(Dispatch):
     """
     A DJ function.
+
+    Class variables:
+        is_aggregation: Whether this is an aggregation function
+        is_runtime: Whether this is a runtime function (evaluated at execution time)
+        dialects: List of dialects that support this function
+        dialect_names: Mapping of dialect -> function name for dialect-aware rendering.
+            If a dialect is not in this dict, the canonical (Spark) name is used.
     """
 
     is_aggregation: ClassVar[bool] = False
     is_runtime: ClassVar[bool] = False
     dialects: List[Dialect] = [Dialect.SPARK]
+    # Override in subclasses to provide dialect-specific function names
+    dialect_names: ClassVar[Dict[Dialect, str]] = {}
 
     @staticmethod
     def infer_type(*args) -> ct.ColumnType:
@@ -384,6 +393,10 @@ class HllSketchAgg(Function):
 
     is_aggregation = True
     dialects = [Dialect.SPARK, Dialect.DRUID, Dialect.TRINO]
+    dialect_names = {
+        Dialect.DRUID: "ds_hll",
+        Dialect.TRINO: "approx_set",
+    }
 
 
 @HllSketchAgg.register
@@ -401,6 +414,34 @@ def infer_type(
     return ct.BinaryType()
 
 
+class HllUnionAgg(Function):
+    """
+    hll_union_agg(sketch) - Merge multiple HLL sketches into one.
+    """
+
+    is_aggregation = True  # pragma: no cover
+    dialects = [Dialect.SPARK, Dialect.DRUID, Dialect.TRINO]
+    dialect_names = {
+        Dialect.DRUID: "ds_hll",
+        Dialect.TRINO: "merge",
+    }
+
+
+@HllUnionAgg.register
+def infer_type(
+    sketch: ct.ColumnType,
+) -> ct.BinaryType:
+    return ct.BinaryType()
+
+
+@HllUnionAgg.register
+def infer_type(
+    sketch: ct.ColumnType,
+    allowDifferentLgConfigK: ct.BooleanType,
+) -> ct.BinaryType:
+    return ct.BinaryType()  # pragma: no cover
+
+
 class HllUnion(Function):
     """
     hll_union(sketch) - Merge multiple HLL sketches into one.
@@ -412,11 +453,16 @@ class HllUnion(Function):
 
     is_aggregation = True
     dialects = [Dialect.SPARK, Dialect.DRUID, Dialect.TRINO]
+    dialect_names = {
+        Dialect.DRUID: "ds_hll",
+        Dialect.TRINO: "merge",
+    }
 
 
 @HllUnion.register
 def infer_type(
-    sketch: ct.ColumnType,
+    col1: ct.ColumnType,
+    col2: ct.ColumnType,
 ) -> ct.BinaryType:
     return ct.BinaryType()
 
@@ -432,6 +478,10 @@ class HllSketchEstimate(Function):
 
     is_aggregation = False  # Scalar function, not an aggregation
     dialects = [Dialect.SPARK, Dialect.DRUID, Dialect.TRINO]
+    dialect_names = {
+        Dialect.DRUID: "hll_sketch_estimate",
+        Dialect.TRINO: "cardinality",
+    }
 
 
 @HllSketchEstimate.register

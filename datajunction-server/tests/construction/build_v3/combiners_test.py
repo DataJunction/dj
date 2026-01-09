@@ -15,6 +15,7 @@ from datajunction_server.construction.build_v3.combiners import (
     _build_grain_group_from_preagg_table,
     _build_join_criteria,
     _compute_preagg_table_name,
+    _reorder_partition_column_last,
     build_combiner_sql,
     build_combiner_sql_from_preaggs,
     validate_grain_groups_compatible,
@@ -24,6 +25,7 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
     ColumnMetadata,
 )
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
@@ -1678,3 +1680,441 @@ class TestComponentAliasLookup:
         # Should have re-aggregation with SUM (found via alias)
         assert "SUM(" in sql.upper()
         assert "revenue_sum" in sql.lower()
+
+
+class TestReorderPartitionColumnLast:
+    """
+    Tests for _reorder_partition_column_last function.
+
+    This function ensures columns are ordered correctly for Hive/Spark
+    INSERT OVERWRITE ... PARTITION (col) syntax, where the partition
+    column must be last.
+    """
+
+    def _create_combined_result(
+        self,
+        sql: str,
+        columns: list[tuple[str, str]],  # (name, semantic_type)
+        shared_dimensions: list[str],
+        all_measures: list[str] | None = None,
+    ) -> CombinedGrainGroupResult:
+        """Helper to create a CombinedGrainGroupResult from SQL and columns."""
+        query = parse_sql(sql)
+        col_metadata = [
+            V3ColumnMetadata(
+                name=name,
+                type="string",
+                semantic_entity=f"test.{name}",
+                semantic_type=sem_type,
+            )
+            for name, sem_type in columns
+        ]
+        return CombinedGrainGroupResult(
+            query=query,
+            columns=col_metadata,
+            grain_groups_combined=1,
+            shared_dimensions=shared_dimensions,
+            all_measures=all_measures or [],
+        )
+
+    def test_partition_column_moved_to_end(self):
+        """Partition column should be moved to the end of projections and columns."""
+        result = self._create_combined_result(
+            sql="SELECT dateint, country, SUM(revenue) AS revenue FROM t GROUP BY dateint, country",
+            columns=[
+                ("dateint", "dimension"),
+                ("country", "dimension"),
+                ("revenue", "metric_component"),
+            ],
+            shared_dimensions=["dateint", "country"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Column metadata should have dateint last
+        assert [c.name for c in reordered.columns] == ["country", "revenue", "dateint"]
+
+        # Projections should have dateint last
+        proj_names = [
+            p.alias_or_name.name if hasattr(p, "alias_or_name") else p.name.name
+            for p in reordered.query.select.projection
+        ]
+        assert proj_names == ["country", "revenue", "dateint"]
+
+        # shared_dimensions should have dateint last
+        assert reordered.shared_dimensions == ["country", "dateint"]
+
+    def test_partition_column_already_last(self):
+        """If partition column is already last, no reordering needed."""
+        result = self._create_combined_result(
+            sql="SELECT country, revenue, dateint FROM t",
+            columns=[
+                ("country", "dimension"),
+                ("revenue", "metric_component"),
+                ("dateint", "dimension"),
+            ],
+            shared_dimensions=["country", "dateint"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Should remain in same order
+        assert [c.name for c in reordered.columns] == ["country", "revenue", "dateint"]
+        assert reordered.shared_dimensions == ["country", "dateint"]
+
+    def test_partition_column_not_in_result(self):
+        """If partition column doesn't exist, no changes should be made."""
+        result = self._create_combined_result(
+            sql="SELECT country, revenue FROM t",
+            columns=[
+                ("country", "dimension"),
+                ("revenue", "metric_component"),
+            ],
+            shared_dimensions=["country"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Should remain unchanged
+        assert [c.name for c in reordered.columns] == ["country", "revenue"]
+        assert reordered.shared_dimensions == ["country"]
+
+    def test_partition_not_in_shared_dimensions(self):
+        """If partition column exists but not in shared_dimensions."""
+        result = self._create_combined_result(
+            sql="SELECT dateint, country, revenue FROM t",
+            columns=[
+                ("dateint", "dimension"),
+                ("country", "dimension"),
+                ("revenue", "metric_component"),
+            ],
+            shared_dimensions=["country"],  # dateint not in shared_dimensions
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Column metadata and projections should still be reordered
+        assert [c.name for c in reordered.columns] == ["country", "revenue", "dateint"]
+
+        # shared_dimensions should remain unchanged (dateint wasn't in it)
+        assert reordered.shared_dimensions == ["country"]
+
+    def test_single_column_is_partition(self):
+        """Single column that is also partition column."""
+        result = self._create_combined_result(
+            sql="SELECT dateint FROM t",
+            columns=[("dateint", "dimension")],
+            shared_dimensions=["dateint"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Should remain as single column
+        assert [c.name for c in reordered.columns] == ["dateint"]
+        assert reordered.shared_dimensions == ["dateint"]
+
+    def test_multiple_measures_with_partition(self):
+        """Multiple measure columns with partition column."""
+        result = self._create_combined_result(
+            sql="SELECT dateint, country, SUM(revenue) AS revenue, COUNT(*) AS cnt FROM t GROUP BY dateint, country",
+            columns=[
+                ("dateint", "dimension"),
+                ("country", "dimension"),
+                ("revenue", "metric_component"),
+                ("cnt", "metric_component"),
+            ],
+            shared_dimensions=["dateint", "country"],
+            all_measures=["revenue", "cnt"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # dateint should be at end
+        assert reordered.columns[-1].name == "dateint"
+        assert reordered.shared_dimensions[-1] == "dateint"
+
+    def test_with_aliased_columns(self):
+        """Columns with aliases should work correctly."""
+        result = self._create_combined_result(
+            sql="SELECT d.dateint AS date_id, c.name AS country_name, SUM(o.amt) AS total FROM t",
+            columns=[
+                ("date_id", "dimension"),
+                ("country_name", "dimension"),
+                ("total", "metric_component"),
+            ],
+            shared_dimensions=["date_id", "country_name"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "date_id")
+
+        # date_id should be at end
+        assert [c.name for c in reordered.columns] == [
+            "country_name",
+            "total",
+            "date_id",
+        ]
+        assert reordered.shared_dimensions == ["country_name", "date_id"]
+
+    def test_with_function_projections(self):
+        """Projections that are functions should work correctly."""
+        result = self._create_combined_result(
+            sql="SELECT dateint, country, SUM(revenue) AS total_revenue, COUNT(DISTINCT user_id) AS unique_users FROM t GROUP BY dateint, country",
+            columns=[
+                ("dateint", "dimension"),
+                ("country", "dimension"),
+                ("total_revenue", "metric_component"),
+                ("unique_users", "metric_component"),
+            ],
+            shared_dimensions=["dateint", "country"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # All columns should be present with dateint last
+        col_names = [c.name for c in reordered.columns]
+        assert col_names[-1] == "dateint"
+        assert set(col_names) == {"dateint", "country", "total_revenue", "unique_users"}
+
+    def test_preserves_other_fields(self):
+        """Other fields like measure_components and component_aliases should be preserved."""
+        query = parse_sql("SELECT dateint, country, revenue FROM t")
+        col_metadata = [
+            V3ColumnMetadata(
+                name="dateint",
+                type="int",
+                semantic_entity="test.dateint",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="country",
+                type="string",
+                semantic_entity="test.country",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="revenue",
+                type="double",
+                semantic_entity="test.revenue",
+                semantic_type="metric_component",
+            ),
+        ]
+        components = [
+            MetricComponent(
+                name="revenue_sum",
+                expression="revenue",
+                aggregation="SUM",
+                merge="SUM",
+                rule=AggregationRule(),
+            ),
+        ]
+        result = CombinedGrainGroupResult(
+            query=query,
+            columns=col_metadata,
+            grain_groups_combined=3,
+            shared_dimensions=["dateint", "country"],
+            all_measures=["revenue"],
+            measure_components=components,
+            component_aliases={"revenue_sum": "revenue"},
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Other fields should be preserved
+        assert reordered.grain_groups_combined == 3
+        assert reordered.all_measures == ["revenue"]
+        assert reordered.measure_components == components
+        assert reordered.component_aliases == {"revenue_sum": "revenue"}
+
+    def test_columns_synced_to_projection_order(self):
+        """Column metadata should be synced to match projection order before reordering."""
+        # Create a result where column metadata order differs from projection order
+        query = parse_sql(
+            "SELECT country, dateint, revenue FROM t",
+        )  # projection: country, dateint, revenue
+        col_metadata = [
+            # Intentionally different order than projection
+            V3ColumnMetadata(
+                name="revenue",
+                type="double",
+                semantic_entity="test.revenue",
+                semantic_type="metric_component",
+            ),
+            V3ColumnMetadata(
+                name="dateint",
+                type="int",
+                semantic_entity="test.dateint",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="country",
+                type="string",
+                semantic_entity="test.country",
+                semantic_type="dimension",
+            ),
+        ]
+        result = CombinedGrainGroupResult(
+            query=query,
+            columns=col_metadata,
+            grain_groups_combined=1,
+            shared_dimensions=["dateint", "country"],
+            all_measures=["revenue"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Column metadata should be synced to projection order,
+        # then dateint moved to end
+        # Projection: country, revenue, dateint (after reorder)
+        # So columns should be: country, revenue, dateint
+        assert [c.name for c in reordered.columns] == ["country", "revenue", "dateint"]
+
+    def test_partition_in_middle_of_many_columns(self):
+        """Partition column in middle of many columns."""
+        result = self._create_combined_result(
+            sql="SELECT a, b, dateint, c, d, e FROM t",
+            columns=[
+                ("a", "dimension"),
+                ("b", "dimension"),
+                ("dateint", "dimension"),
+                ("c", "metric_component"),
+                ("d", "metric_component"),
+                ("e", "metric_component"),
+            ],
+            shared_dimensions=["a", "b", "dateint"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # dateint should be last
+        col_names = [c.name for c in reordered.columns]
+        assert col_names[-1] == "dateint"
+        # All others should precede dateint
+        assert col_names[:-1] == ["a", "b", "c", "d", "e"]
+
+        # shared_dimensions should have dateint last
+        assert reordered.shared_dimensions == ["a", "b", "dateint"]
+
+    def test_with_named_function_no_alias(self):
+        """Test with a function projection that is Named but not Aliasable.
+
+        Note: In practice, most functions in SELECT are wrapped in Alias nodes
+        when they have "AS" syntax. This test verifies the Named branch handling
+        for bare function calls.
+        """
+        # Using COUNT(*) which creates a Named function
+        # Note: The SQL parser typically wraps this in Alias, but we test
+        # the helper's Named handling explicitly
+        query = parse_sql(
+            "SELECT dateint, country, COUNT(*) FROM t GROUP BY dateint, country",
+        )
+
+        # Manually check that projection includes function
+        projections = query.select.projection
+        assert len(projections) == 3
+
+        # Create result with columns that include a function-named column
+        col_metadata = [
+            V3ColumnMetadata(
+                name="dateint",
+                type="int",
+                semantic_entity="test.dateint",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="country",
+                type="string",
+                semantic_entity="test.country",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="count",  # Name comes from function name
+                type="bigint",
+                semantic_entity="test.count",
+                semantic_type="metric_component",
+            ),
+        ]
+
+        result = CombinedGrainGroupResult(
+            query=query,
+            columns=col_metadata,
+            grain_groups_combined=1,
+            shared_dimensions=["dateint", "country"],
+            all_measures=["count"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # dateint should be moved to end
+        col_names = [c.name for c in reordered.columns]
+        assert col_names[-1] == "dateint"
+
+    def test_projection_with_unrecognized_type(self):
+        """Test handling of projection types that are neither Aliasable nor Named.
+
+        This tests the None return path in _get_projection_name helper.
+        Most AST nodes fall into Aliasable or Named, but we ensure graceful handling.
+        """
+        result = self._create_combined_result(
+            sql="SELECT dateint, country, 42 AS literal_val FROM t",  # Literal value
+            columns=[
+                ("dateint", "dimension"),
+                ("country", "dimension"),
+                ("literal_val", "metric_component"),
+            ],
+            shared_dimensions=["dateint", "country"],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Should still work - dateint moved to end
+        assert reordered.columns[-1].name == "dateint"
+        assert reordered.shared_dimensions[-1] == "dateint"
+
+    def test_projection_bare_expression_not_aliasable(self):
+        """Test handling when a projection cannot be identified.
+
+        Creates a scenario with a Number literal (not Aliasable, not Named)
+        to exercise the None return path in _get_projection_name.
+        """
+        # Parse SQL with a bare number (no alias)
+        query = parse_sql("SELECT dateint, country, 42 FROM t")
+
+        # Verify that the third projection is NOT Aliasable (it's a Number)
+        projs = query.select.projection
+        assert len(projs) == 3
+        # Numbers are literals, not Aliasable or Named
+        third_proj = projs[2]
+        assert not isinstance(third_proj, ast.Aliasable)
+        assert not isinstance(third_proj, ast.Named)
+
+        # Create result - note the bare 42 won't match any column name
+        col_metadata = [
+            V3ColumnMetadata(
+                name="dateint",
+                type="int",
+                semantic_entity="test.dateint",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="country",
+                type="string",
+                semantic_entity="test.country",
+                semantic_type="dimension",
+            ),
+            # The "42" column won't be in projection names since Number returns None
+        ]
+
+        result = CombinedGrainGroupResult(
+            query=query,
+            columns=col_metadata,
+            grain_groups_combined=1,
+            shared_dimensions=["dateint", "country"],
+            all_measures=[],
+        )
+
+        reordered = _reorder_partition_column_last(result, "dateint")
+
+        # Should still work - dateint moved to end
+        # The None from bare number projection is filtered out
+        assert reordered.columns[-1].name == "dateint"
+        assert reordered.shared_dimensions == ["country", "dateint"]

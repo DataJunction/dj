@@ -24,6 +24,7 @@ from datajunction_server.database.base import Base, PydanticListType
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.typing import UTCDatetime
 
@@ -217,8 +218,12 @@ class PreAggregation(Base):
     lookback_window: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # === Workflow State ===
-    # URL to the scheduled workflow definition (set when workflow is created)
-    scheduled_workflow_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Labeled workflow URLs: [WorkflowUrl(label="scheduled", url="..."), ...]
+    # Scheduler-agnostic: DJ Server stores what Query Service returns
+    workflow_urls: Mapped[Optional[List[WorkflowUrl]]] = mapped_column(
+        PydanticListType(WorkflowUrl),
+        nullable=True,
+    )
 
     # Workflow status: "active" | "paused" | None (no workflow)
     workflow_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -289,9 +294,24 @@ class PreAggregation(Base):
         """
         Get all pre-aggregations with the given grain group hash.
         """
-        statement = select(cls).where(cls.grain_group_hash == grain_group_hash)
+        from sqlalchemy.orm import joinedload, selectinload
+
+        from datajunction_server.database.dimensionlink import DimensionLink
+
+        statement = (
+            select(cls)
+            .options(
+                joinedload(cls.node_revision).options(
+                    selectinload(NodeRevision.columns),
+                    selectinload(NodeRevision.dimension_links).options(
+                        joinedload(DimensionLink.dimension),
+                    ),
+                ),
+            )
+            .where(cls.grain_group_hash == grain_group_hash)
+        )
         result = await session.execute(statement)
-        return list(result.scalars().all())
+        return list(result.scalars().unique().all())
 
     @classmethod
     async def get_by_id(

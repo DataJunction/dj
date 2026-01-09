@@ -225,12 +225,18 @@ class ApproxCountDistinctDecomposition(AggDecomposition):
 
     @property
     def components(self) -> list[ComponentDef]:
-        return [ComponentDef("_hll", "hll_sketch_agg", "hll_union")]
+        return [
+            ComponentDef(
+                suffix="_hll",
+                accumulate="hll_sketch_agg",
+                merge="hll_union_agg",
+            ),
+        ]
 
     def combine(self, components: list[MetricComponent]):
         return make_func(
             "hll_sketch_estimate",
-            make_func("hll_union", components[0].name),
+            make_func("hll_union_agg", components[0].name),
         )
 
 

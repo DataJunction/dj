@@ -62,11 +62,11 @@ class MetricComponent(BaseModel):
       Can be a function name ("SUM") or a template ("SUM(POWER({}, 2))")
 
     - Phase 2 (Merge): Combine pre-aggregated values using `merge` function
-      Examples: SUM, SUM (for COUNT), hll_union
+      Examples: SUM, SUM (for COUNT), hll_union_agg
 
     For most aggregations, accumulate and merge use the same function (SUM → SUM).
     For COUNT, merge is SUM (sum up the counts).
-    For HLL sketches, they differ: hll_sketch_agg → hll_union.
+    For HLL sketches, they differ: hll_sketch_estimate vs hll_union_agg.
 
     The final expression combining merged components is specified in
     DecomposedMetric.combiner.

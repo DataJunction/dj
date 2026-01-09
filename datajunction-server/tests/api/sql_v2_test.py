@@ -2059,6 +2059,6 @@ async def test_approx_count_distinct_metric_sql(
     response = await client.get("/metrics/hll.unique_users")
     assert str(parse(response.json()["derived_query"])) == str(
         parse(
-            "SELECT hll_sketch_estimate(hll_union(user_id_hll_7a744b96)) FROM hll.events",
+            "SELECT hll_sketch_estimate(hll_union_agg(user_id_hll_7a744b96)) FROM hll.events",
         ),
     )

@@ -315,4 +315,41 @@ describe('CreateServiceAccountModal', () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('abc-123');
   });
+
+  it('copies client secret to clipboard when copy button is clicked', async () => {
+    const credentials = {
+      name: 'my-account',
+      client_id: 'abc-123',
+      client_secret: 'secret-xyz',
+    };
+    mockOnCreate.mockResolvedValue(credentials);
+
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: jest.fn().mockResolvedValue(),
+      },
+    });
+
+    render(
+      <CreateServiceAccountModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreate={mockOnCreate}
+      />,
+    );
+
+    const input = screen.getByLabelText('Name');
+    fireEvent.change(input, { target: { value: 'my-account' } });
+    fireEvent.click(screen.getByText('Create'));
+
+    await waitFor(() => {
+      expect(screen.getByText('secret-xyz')).toBeInTheDocument();
+    });
+
+    // Click the second copy button (client secret)
+    const copyButtons = screen.getAllByTitle('Copy');
+    fireEvent.click(copyButtons[1]);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('secret-xyz');
+  });
 });

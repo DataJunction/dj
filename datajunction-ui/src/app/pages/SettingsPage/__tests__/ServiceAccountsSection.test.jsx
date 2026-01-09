@@ -147,4 +147,52 @@ describe('ServiceAccountsSection', () => {
     expect(screen.getByText('Client ID')).toBeInTheDocument();
     expect(screen.getByText('Created')).toBeInTheDocument();
   });
+
+  it('handles delete error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation();
+    window.confirm = jest.fn().mockReturnValue(true);
+    mockOnDelete.mockRejectedValue(new Error('Delete failed'));
+
+    render(
+      <ServiceAccountsSection
+        accounts={mockAccounts}
+        onCreate={mockOnCreate}
+        onDelete={mockOnDelete}
+      />,
+    );
+
+    const deleteButtons = screen.getAllByTitle('Delete service account');
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Failed to delete service account');
+    });
+
+    consoleSpy.mockRestore();
+    alertSpy.mockRestore();
+  });
+
+  it('closes modal when close button is clicked', () => {
+    render(
+      <ServiceAccountsSection
+        accounts={[]}
+        onCreate={mockOnCreate}
+        onDelete={mockOnDelete}
+      />,
+    );
+
+    // Open modal
+    fireEvent.click(screen.getByText('+ Create'));
+    expect(screen.getByText('Create Service Account')).toBeInTheDocument();
+
+    // Close modal
+    fireEvent.click(screen.getByTitle('Close'));
+
+    // Modal should no longer be visible (it stays in DOM but should be hidden)
+    // The modal content should be hidden
+    expect(
+      screen.queryByText('Create Service Account'),
+    ).not.toBeInTheDocument();
+  });
 });

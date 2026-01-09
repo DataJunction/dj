@@ -1005,3 +1005,72 @@ class TestNonDecomposableMetrics:
             GROUP BY  order_details_0.status
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_trailing_wow_metrics(self, client_with_build_v3):
+        """
+        Test trailing/rolling week-over-week metrics.
+
+        These metrics use frame clauses (ROWS BETWEEN) to compare:
+        - Last 7 days (ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+        - Previous 7 days (ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING)
+
+        Output is one row per day, not per week.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_wow_revenue_change"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Check that the SQL contains the expected frame clauses
+        sql = result["sql"]
+
+        # Should have ROWS BETWEEN for "this week" (last 7 days)
+        assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
+
+        # Should have ROWS BETWEEN for "last week" (previous 7 days)
+        assert "ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING" in sql
+
+        # Should have category dimension in query
+        assert "category" in sql
+
+        # Should have ORDER BY date_id for the window functions
+        assert "ORDER BY" in sql
+
+        # Verify output columns
+        column_names = [col["name"] for col in result["columns"]]
+        assert "category" in column_names
+        assert "date_id" in column_names  # Required dimension auto-added
+        assert "trailing_wow_revenue_change" in column_names
+
+    @pytest.mark.asyncio
+    async def test_trailing_7d_revenue(self, client_with_build_v3):
+        """
+        Test trailing 7-day rolling sum metric.
+
+        This metric computes a rolling 7-day sum using a frame clause.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Check that the SQL contains the expected frame clause
+        sql = result["sql"]
+        assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
+
+        # Verify output columns
+        column_names = [col["name"] for col in result["columns"]]
+        assert "category" in column_names
+        assert "date_id" in column_names  # Required dimension auto-added
+        assert "trailing_7d_revenue" in column_names

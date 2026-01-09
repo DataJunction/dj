@@ -44,7 +44,13 @@ DRUID_AGG_MAPPING = {
     ("int", "count"): "longSum",
     ("double", "count"): "longSum",
     ("float", "count"): "longSum",
+    # HLL Sketch support (Druid DataSketches extension)
+    ("binary", "hll_union_agg"): "HLLSketchMerge",
+    ("binary", "hll_sketch_agg"): "HLLSketchMerge",
 }
+
+# Aggregation types that need special handling (extra config parameters)
+DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 
 
 class MaterializationStrategy(StrEnum):

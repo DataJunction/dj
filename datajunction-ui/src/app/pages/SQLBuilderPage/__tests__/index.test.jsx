@@ -14,6 +14,7 @@ const mockDjClient = {
   commonDimensions: jest.fn(),
   sqls: jest.fn(),
   data: jest.fn(),
+  stream: jest.fn(),
 };
 
 const mockMetrics = [
@@ -97,6 +98,16 @@ const mockCommonDimensions = [
   },
 ];
 
+// Additional dimensions for testing type handling
+const mockDimensionsWithBool = [
+  {
+    name: 'default.is_active',
+    type: 'bool',
+    path: ['default.repair_order'],
+  },
+  ...mockCommonDimensions,
+];
+
 describe('SQLBuilderPage', () => {
   beforeEach(() => {
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
@@ -169,5 +180,76 @@ describe('SQLBuilderPage', () => {
       fireEvent.click(screen.getAllByText(dim.name)[0]);
     }
     expect(mockDjClient.sqls).toHaveBeenCalled();
+  });
+});
+
+describe('SQLBuilderPage - Data fetching', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDjClient.metrics.mockResolvedValue(mockMetrics);
+    mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
+    mockDjClient.sqls.mockResolvedValue({ sql: 'SELECT * FROM table' });
+    mockDjClient.data.mockResolvedValue({});
+  });
+
+  it('fetches metrics on initial render', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('3 Available Metrics')[0]).toBeInTheDocument();
+    });
+  });
+
+  it('displays instruction card when no selections', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Using the SQL Builder')).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(/Start by selecting one or more/),
+    ).toBeInTheDocument();
+  });
+
+  it('clears dimensions when no common dimensions found', async () => {
+    mockDjClient.commonDimensions.mockResolvedValue([]);
+
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    // Wait for metrics
+    await waitFor(() => {
+      expect(screen.getAllByText('3 Available Metrics')[0]).toBeInTheDocument();
+    });
+
+    // Select metric
+    const selectMetrics = screen.getAllByTestId('select-metrics')[0];
+    fireEvent.keyDown(selectMetrics.firstChild, { key: 'ArrowDown' });
+    await waitFor(() => {
+      expect(screen.getByText('default.num_repair_orders')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('default.num_repair_orders'));
+    fireEvent.click(screen.getAllByText('Group By')[0]);
+
+    // When no common dimensions
+    await waitFor(() => {
+      expect(screen.getAllByText('0 Shared Dimensions')[0]).toBeInTheDocument();
+    });
   });
 });

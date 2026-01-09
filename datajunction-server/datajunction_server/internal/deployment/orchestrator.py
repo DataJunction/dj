@@ -1269,6 +1269,7 @@ class DeploymentOrchestrator:
             created_by_id=self.context.current_user.id,
             node=new_node,
             version=new_node.current_version,
+            mode=cube_spec.mode,
         )
         return node_revision
 

@@ -61,7 +61,7 @@ export function Root() {
               </span>
               <span className="menu-link">
                 <span className="menu-title">
-                  <a href="/sql">SQL</a>
+                  <a href="/planner">Query Planner</a>
                 </span>
               </span>
               <span className="menu-link">

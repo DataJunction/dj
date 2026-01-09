@@ -1,4 +1,6 @@
-import { MarkerType } from 'reactflow';
+// Note: MarkerType.Arrow is just the string "arrow" - we use the literal
+// to avoid importing reactflow in this service (which would bloat the main bundle)
+const MARKER_TYPE_ARROW = 'arrow';
 
 const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
@@ -113,6 +115,121 @@ export const DataJunctionAPI = {
         }),
       })
     ).json();
+  },
+
+  // Lightweight GraphQL query for listing cubes with display names (for preset dropdown)
+  listCubesForPreset: async function () {
+    const query = `
+      query ListCubes {
+        findNodes(nodeTypes: [CUBE]) {
+          name
+          current {
+            displayName
+          }
+        }
+      }
+    `;
+
+    try {
+      const result = await (
+        await fetch(DJ_GQL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ query }),
+        })
+      ).json();
+
+      // Transform to simple array: [{name, display_name}]
+      const nodes = result?.data?.findNodes || [];
+      return nodes.map(node => ({
+        name: node.name,
+        display_name: node.current?.displayName || null,
+      }));
+    } catch (err) {
+      console.error('Failed to fetch cubes via GraphQL:', err);
+      return [];
+    }
+  },
+
+  // Lightweight GraphQL query for planner page - only fetches fields needed
+  // Much faster than REST /cubes/{name}/ which loads all columns, elements, etc.
+  cubeForPlanner: async function (name) {
+    const query = `
+      query GetCubeForPlanner($name: String!) {
+        findNodes(names: [$name]) {
+          name
+          current {
+            displayName
+            cubeMetrics {
+              name
+            }
+            cubeDimensions {
+              name
+            }
+            materializations {
+              name
+              config
+              schedule
+              strategy
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const result = await (
+        await fetch(DJ_GQL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ query, variables: { name } }),
+        })
+      ).json();
+
+      const node = result?.data?.findNodes?.[0];
+      if (!node) {
+        return null;
+      }
+
+      // Transform to match the shape expected by QueryPlannerPage
+      const current = node.current || {};
+      const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
+      const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
+
+      // Extract druid_cube materialization if present
+      const druidMat = (current.materializations || []).find(
+        m => m.name === 'druid_cube',
+      );
+      const cubeMaterialization = druidMat
+        ? {
+            strategy: druidMat.strategy,
+            schedule: druidMat.schedule,
+            lookbackWindow: druidMat.config?.lookback_window,
+            druidDatasource: druidMat.config?.druid_datasource,
+            preaggTables: druidMat.config?.preagg_tables || [],
+            workflowUrls: druidMat.config?.workflow_urls || [],
+            timestampColumn: druidMat.config?.timestamp_column,
+            timestampFormat: druidMat.config?.timestamp_format,
+          }
+        : null;
+
+      return {
+        name: node.name,
+        display_name: current.displayName,
+        cube_node_metrics: cubeMetrics,
+        cube_node_dimensions: cubeDimensions,
+        cubeMaterialization, // Included so we don't need a second fetch
+      };
+    } catch (err) {
+      console.error('Failed to fetch cube via GraphQL:', err);
+      return null;
+    }
   },
 
   whoami: async function () {
@@ -758,6 +875,56 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  // Fetch node columns with partition info via GraphQL
+  // Used to check if a node has temporal partitions defined
+  getNodeColumnsWithPartitions: async function (nodeName) {
+    const query = `
+      query GetNodeColumnsWithPartitions($name: String!) {
+        findNodes(names: [$name]) {
+          name
+          current {
+            columns {
+              name
+              type
+              partition {
+                type_
+                format
+                granularity
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const results = await (
+        await fetch(DJ_GQL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ query, variables: { name: nodeName } }),
+        })
+      ).json();
+
+      const node = results.data?.findNodes?.[0];
+      if (!node) return { columns: [], temporalPartitions: [] };
+
+      const columns = node.current?.columns || [];
+      const temporalPartitions = columns.filter(
+        col => col.partition?.type_ === 'TEMPORAL',
+      );
+
+      return {
+        columns,
+        temporalPartitions,
+      };
+    } catch (err) {
+      console.error('Failed to fetch node columns with partitions:', err);
+      return { columns: [], temporalPartitions: [] };
+    }
+  },
+
   node_lineage: async function (name) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/lineage/`, {
@@ -1074,7 +1241,7 @@ export const DataJunctionAPI = {
             source: parent.name,
             animated: true,
             markerEnd: {
-              type: MarkerType.Arrow,
+              type: MARKER_TYPE_ARROW,
             },
           });
         }
@@ -1479,6 +1646,29 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+  // New V2 cube materialization endpoint for Druid cubes
+  materializeCubeV2: async function (
+    cubeName,
+    schedule,
+    strategy = 'incremental_time',
+    lookbackWindow = '1 DAY',
+    runBackfill = true,
+  ) {
+    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        schedule: schedule,
+        strategy: strategy,
+        lookback_window: lookbackWindow,
+        run_backfill: runBackfill,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
   runBackfill: async function (nodeName, materializationName, partitionValues) {
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
@@ -1656,6 +1846,8 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     if (filters.node_name) params.append('node_name', filters.node_name);
     if (filters.grain) params.append('grain', filters.grain);
+    if (filters.grain_mode) params.append('grain_mode', filters.grain_mode);
+    if (filters.measures) params.append('measures', filters.measures);
     if (filters.status) params.append('status', filters.status);
 
     return await (
@@ -1766,28 +1958,6 @@ export const DataJunctionAPI = {
     return result;
   },
 
-  // Create a scheduled workflow for a pre-aggregation
-  createPreaggWorkflow: async function (preaggId, activate = true) {
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/workflow`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ activate }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      return {
-        ...result,
-        _error: true,
-        _status: response.status,
-        message: result.message || result.detail || 'Failed to create workflow',
-      };
-    }
-    return result;
-  },
-
   // Deactivate (pause) a pre-aggregation's workflow
   deactivatePreaggWorkflow: async function (preaggId) {
     const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/workflow`, {
@@ -1829,6 +1999,138 @@ export const DataJunctionAPI = {
         _error: true,
         _status: response.status,
         message: result.message || result.detail || 'Failed to run backfill',
+      };
+    }
+    return result;
+  },
+
+  // Get cube details including materializations
+  getCubeDetails: async function (cubeName) {
+    const response = await fetch(`${DJ_URL}/cubes/${cubeName}`, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      return { status: response.status, json: null };
+    }
+    return { status: response.status, json: await response.json() };
+  },
+
+  // Extract Druid cube workflow URLs from cube materializations
+  getCubeWorkflowUrls: async function (cubeName) {
+    console.log('getCubeWorkflowUrls: Fetching for cube', cubeName);
+    const result = await this.getCubeDetails(cubeName);
+    console.log('getCubeWorkflowUrls: Cube details result', result);
+    if (!result.json || !result.json.materializations) {
+      console.log('getCubeWorkflowUrls: No materializations found');
+      return [];
+    }
+    console.log(
+      'getCubeWorkflowUrls: Materializations',
+      result.json.materializations,
+    );
+    const druidMat = result.json.materializations.find(
+      m => m.name === 'druid_cube',
+    );
+    console.log('getCubeWorkflowUrls: druid_cube materialization', druidMat);
+    if (druidMat && druidMat.config && druidMat.config.workflow_urls) {
+      console.log(
+        'getCubeWorkflowUrls: Found URLs',
+        druidMat.config.workflow_urls,
+      );
+      return druidMat.config.workflow_urls;
+    }
+    console.log('getCubeWorkflowUrls: No workflow_urls in config');
+    return [];
+  },
+
+  // Get full cube materialization info (for edit/refresh/backfill)
+  getCubeMaterialization: async function (cubeName) {
+    const result = await this.getCubeDetails(cubeName);
+    if (!result.json || !result.json.materializations) {
+      return null;
+    }
+    const druidMat = result.json.materializations.find(
+      m => m.name === 'druid_cube',
+    );
+    if (!druidMat) {
+      return null;
+    }
+    // Return combined info from materialization record and config
+    return {
+      id: druidMat.id,
+      strategy: druidMat.strategy,
+      schedule: druidMat.schedule,
+      lookbackWindow: druidMat.lookback_window,
+      druidDatasource: druidMat.config?.druid_datasource,
+      preaggTables: druidMat.config?.preagg_tables || [],
+      workflowUrls: druidMat.config?.workflow_urls || [],
+      timestampColumn: druidMat.config?.timestamp_column,
+      timestampFormat: druidMat.config?.timestamp_format,
+    };
+  },
+
+  // Refresh cube workflow (re-push to scheduler without backfill)
+  refreshCubeWorkflow: async function (
+    cubeName,
+    schedule,
+    strategy = 'incremental_time',
+    lookbackWindow = '1 DAY',
+  ) {
+    // Re-call materialize with run_backfill=false
+    return this.materializeCubeV2(
+      cubeName,
+      schedule,
+      strategy,
+      lookbackWindow,
+      false, // run_backfill = false for refresh
+    );
+  },
+
+  // Deactivate (pause) a cube's workflow
+  deactivateCubeWorkflow: async function (cubeName) {
+    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        status: response.status,
+        json: {
+          ...result,
+          message:
+            result.message ||
+            result.detail ||
+            'Failed to deactivate cube workflow',
+        },
+      };
+    }
+    return { status: response.status, json: await response.json() };
+  },
+
+  // Run cube backfill (trigger ad-hoc backfill with date range)
+  runCubeBackfill: async function (cubeName, startDate, endDate = null) {
+    const body = {
+      start_date: startDate,
+    };
+    if (endDate) body.end_date = endDate;
+
+    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/backfill`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message:
+          result.message || result.detail || 'Failed to run cube backfill',
       };
     }
     return result;

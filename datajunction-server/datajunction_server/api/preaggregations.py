@@ -30,6 +30,7 @@ from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.column import Column
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     VALID_PREAGG_STRATEGIES,
@@ -58,6 +59,7 @@ from datajunction_server.models.preaggregation import (
     PreAggMaterializationInput,
     UpdatePreAggregationAvailabilityRequest,
     WorkflowResponse,
+    WorkflowUrl,
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
@@ -138,13 +140,13 @@ def _preagg_to_info(preagg: PreAggregation) -> PreAggregationInfo:
         node_version=preagg.node_revision.version,
         grain_columns=preagg.grain_columns,
         measures=preagg.measures,
-        columns=preagg.columns,  # Include output columns with types
+        columns=preagg.columns,
         sql=preagg.sql,
         grain_group_hash=preagg.grain_group_hash,
         strategy=preagg.strategy,
         schedule=preagg.schedule,
         lookback_window=preagg.lookback_window,
-        scheduled_workflow_url=preagg.scheduled_workflow_url,
+        workflow_urls=preagg.workflow_urls,  # PydanticListType handles conversion
         workflow_status=preagg.workflow_status,
         status=preagg.status,
         materialized_table_ref=preagg.materialized_table_ref,
@@ -630,7 +632,7 @@ async def materialize_preaggregation(
     For user-managed materialization, use the SQL from GET /preaggs/{id}
     and call POST /preaggs/{id}/availability/ when done.
     """
-    # Get the pre-agg with node_revision and its columns/partitions
+    # Get the pre-agg with node_revision and its columns/partitions/dimension_links
     stmt = (
         select(PreAggregation)
         .options(
@@ -640,6 +642,9 @@ async def materialize_preaggregation(
                     load_only(Column.name, Column.type),
                     joinedload(Column.partition),
                     joinedload(Column.dimension).load_only(Node.name),
+                ),
+                selectinload(NodeRevision.dimension_links).options(
+                    joinedload(DimensionLink.dimension).load_only(Node.name),
                 ),
             ),
             joinedload(PreAggregation.availability),
@@ -681,6 +686,7 @@ async def materialize_preaggregation(
 
     # Build columns metadata from stored V3ColumnMetadata
     columns: list[ColumnMetadata] = []
+    column_names: set[str] = set()
 
     if preagg.columns:
         # Convert V3ColumnMetadata to ColumnMetadata for the materialization API
@@ -692,6 +698,24 @@ async def materialize_preaggregation(
                     semantic_entity=col.semantic_entity,
                     semantic_type=col.semantic_type,
                 ),
+            )
+            column_names.add(col.name)
+
+    # Ensure temporal partition columns are included in columns list
+    # (they may not be if partition column wasn't selected as a dimension)
+    for tp in temporal_partitions:
+        if tp.column_name not in column_names:  # pragma: no branch
+            columns.append(
+                ColumnMetadata(
+                    name=tp.column_name,
+                    type=tp.column_type or "int",
+                ),
+            )
+            column_names.add(tp.column_name)
+            _logger.info(
+                "Added partition column to columns list: %s (type=%s)",
+                tp.column_name,
+                tp.column_type,
             )
 
     # Get upstream source tables using DJ's node lineage
@@ -757,19 +781,28 @@ async def materialize_preaggregation(
             message=f"Failed to create workflow: {e}",
         )
 
-    # Update pre-agg with workflow URL and status
-    # Query service returns 'urls' list - use the main workflow URL (contains '.main')
-    urls = mat_result.get("urls", [])
-    workflow_url = None
-    for url in urls:
-        if ".main" in url:
-            workflow_url = url
-            break
-    # Fallback to first URL if no .main found
-    if not workflow_url and urls:
-        workflow_url = urls[0]
+    # Store labeled workflow URLs from query service response
+    # Query service returns 'workflow_urls' list of {label, url} objects
+    # PydanticListType handles serialization to/from WorkflowUrl objects
+    workflow_urls_data = mat_result.get("workflow_urls", [])
+    if workflow_urls_data:
+        preagg.workflow_urls = [
+            WorkflowUrl(label=wf["label"], url=wf["url"]) for wf in workflow_urls_data
+        ]
+    else:
+        # Fallback: convert legacy 'urls' list to labeled format
+        urls = mat_result.get("urls", [])
+        if urls:  # pragma: no branch
+            labeled_urls: list[WorkflowUrl] = []
+            for url in urls:
+                if ".main" in url or "scheduled" in url.lower():
+                    labeled_urls.append(WorkflowUrl(label="scheduled", url=url))
+                elif ".backfill" in url or "adhoc" in url.lower():
+                    labeled_urls.append(WorkflowUrl(label="backfill", url=url))
+                else:
+                    labeled_urls.append(WorkflowUrl(label="workflow", url=url))
+            preagg.workflow_urls = labeled_urls
 
-    preagg.scheduled_workflow_url = workflow_url
     preagg.workflow_status = "active"
     # Also update schedule if it wasn't set (using default)
     if not preagg.schedule:
@@ -777,16 +810,14 @@ async def materialize_preaggregation(
     await session.commit()
 
     _logger.info(
-        "Created workflow for preagg_id=%s, workflow_url=%s, status=active",
+        "Created workflow for preagg_id=%s, workflow_urls=%s, status=active",
         preagg_id,
-        workflow_url,
+        preagg.workflow_urls,
     )
 
-    # Return pre-agg info with all workflow URLs
+    # Return pre-agg info with workflow URLs
     await session.refresh(preagg, ["node_revision", "availability"])
-    preagg_info = _preagg_to_info(preagg)
-    preagg_info.workflow_urls = urls  # Return all URLs from query service
-    return preagg_info
+    return _preagg_to_info(preagg)
 
 
 class UpdatePreAggregationConfigRequest(BaseModel):
@@ -898,18 +929,25 @@ async def delete_preagg_workflow(
     if not preagg:
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
-    if not preagg.scheduled_workflow_url:
+    if not preagg.workflow_urls:
         return WorkflowResponse(
             workflow_url=None,
             status="none",
             message="No workflow exists for this pre-aggregation",
         )
 
-    # Call query service to deactivate
+    # Compute output_table - the resource identifier that Query Service uses
+    output_table = _compute_output_table(
+        preagg.node_revision.name,
+        preagg.grain_group_hash,
+    )
+
+    # Call query service to deactivate using the resource identifier (output_table)
+    # Query Service owns the workflow naming patterns and reconstructs them from output_table
     request_headers = dict(request.headers)
     try:
         query_service_client.deactivate_preagg_workflow(
-            preagg_id,
+            output_table,
             request_headers=request_headers,
         )
     except Exception as e:
@@ -922,19 +960,23 @@ async def delete_preagg_workflow(
             message=f"Failed to deactivate workflow: {e}",
         )
 
-    # Update status
-    preagg.workflow_status = "paused"
+    # Clear all materialization config and workflow state - clean slate for reconfiguration
+    preagg.strategy = None
+    preagg.schedule = None
+    preagg.lookback_window = None
+    preagg.workflow_urls = None
+    preagg.workflow_status = None
     await session.commit()
 
     _logger.info(
-        "Deactivated workflow for preagg_id=%s",
+        "Deactivated workflow and cleared config for preagg_id=%s",
         preagg_id,
     )
 
     return WorkflowResponse(
-        workflow_url=preagg.scheduled_workflow_url,
-        status="paused",
-        message="Workflow deactivated successfully",
+        workflow_url=None,
+        status="none",
+        message="Workflow deactivated and configuration cleared. You can reconfigure materialization.",
     )
 
 
@@ -980,7 +1022,7 @@ async def run_preagg_backfill(
         raise DJDoesNotExistException(f"Pre-aggregation with ID {preagg_id} not found")
 
     # Validate: workflow must exist
-    if not preagg.scheduled_workflow_url:
+    if not preagg.workflow_urls:
         raise DJInvalidInputException(
             "Pre-aggregation must have a workflow created first. "
             "Use POST /preaggs/{id}/workflow first.",

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
+    CubeMaterializationV2Input,
     DruidCubeMaterializationInput,
 )
 from datajunction_server.models.materialization import (
@@ -20,7 +21,10 @@ from datajunction_server.service_clients import QueryServiceClient
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
-    from datajunction_server.models.preaggregation import BackfillInput
+    from datajunction_server.models.preaggregation import (
+        BackfillInput,
+        CubeBackfillInput,
+    )
 
 
 class HttpQueryServiceClient(BaseQueryServiceClient):
@@ -119,6 +123,17 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             request_headers=request_headers,
         )
 
+    def materialize_cube_v2(
+        self,
+        materialization_input: CubeMaterializationV2Input,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """Set up a v2 cube materialization (pre-agg based) via HTTP query service."""
+        return self._client.materialize_cube_v2(  # pragma: no cover
+            materialization_input=materialization_input,
+            request_headers=request_headers,
+        )
+
     def materialize_preagg(
         self,
         materialization_input: PreAggMaterializationInput,
@@ -132,12 +147,23 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def deactivate_preagg_workflow(
         self,
-        preagg_id: int,
+        output_table: str,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Deactivate a pre-aggregation's workflow via HTTP query service."""
+        """Deactivate a pre-aggregation's workflows via HTTP query service."""
         return self._client.deactivate_preagg_workflow(
-            preagg_id=preagg_id,
+            output_table=output_table,
+            request_headers=request_headers,
+        )
+
+    def deactivate_cube_workflow(
+        self,
+        cube_name: str,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Deactivate a cube's Druid materialization workflow via HTTP query service."""
+        return self._client.deactivate_cube_workflow(  # pragma: no cover
+            cube_name=cube_name,
             request_headers=request_headers,
         )
 
@@ -148,6 +174,17 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     ) -> Dict[str, Any]:
         """Run a backfill for a pre-aggregation via HTTP query service."""
         return self._client.run_preagg_backfill(
+            backfill_input=backfill_input,
+            request_headers=request_headers,
+        )
+
+    def run_cube_backfill(
+        self,
+        backfill_input: "CubeBackfillInput",
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Run a backfill for a cube via HTTP query service."""
+        return self._client.run_cube_backfill(  # pragma: no cover
             backfill_input=backfill_input,
             request_headers=request_headers,
         )

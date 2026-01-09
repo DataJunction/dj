@@ -2191,4 +2191,586 @@ describe('DataJunctionAPI', () => {
     );
     expect(result).toHaveLength(2);
   });
+
+  // Test listCubesForPreset (lines 121-155)
+  it('calls listCubesForPreset correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            { name: 'default.cube1', current: { displayName: 'Cube 1' } },
+            { name: 'default.cube2', current: { displayName: null } },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.listCubesForPreset();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/graphql'),
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+      }),
+    );
+    expect(result).toEqual([
+      { name: 'default.cube1', display_name: 'Cube 1' },
+      { name: 'default.cube2', display_name: null },
+    ]);
+  });
+
+  it('handles listCubesForPreset error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    fetch.mockRejectOnce(new Error('Network error'));
+
+    const result = await DataJunctionAPI.listCubesForPreset();
+    expect(result).toEqual([]);
+    consoleSpy.mockRestore();
+  });
+
+  // Test cubeForPlanner (lines 159-233)
+  it('calls cubeForPlanner correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.cube1',
+              current: {
+                displayName: 'Cube 1',
+                cubeMetrics: [{ name: 'metric1' }, { name: 'metric2' }],
+                cubeDimensions: [{ name: 'dim1' }],
+                materializations: [
+                  {
+                    name: 'druid_cube',
+                    strategy: 'incremental_time',
+                    schedule: '0 6 * * *',
+                    config: {
+                      lookback_window: '1 DAY',
+                      druid_datasource: 'ds1',
+                      preagg_tables: ['table1'],
+                      workflow_urls: ['http://workflow.url'],
+                      timestamp_column: 'ts',
+                      timestamp_format: 'yyyy-MM-dd',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.cubeForPlanner('default.cube1');
+    expect(result).toEqual({
+      name: 'default.cube1',
+      display_name: 'Cube 1',
+      cube_node_metrics: ['metric1', 'metric2'],
+      cube_node_dimensions: ['dim1'],
+      cubeMaterialization: {
+        strategy: 'incremental_time',
+        schedule: '0 6 * * *',
+        lookbackWindow: '1 DAY',
+        druidDatasource: 'ds1',
+        preaggTables: ['table1'],
+        workflowUrls: ['http://workflow.url'],
+        timestampColumn: 'ts',
+        timestampFormat: 'yyyy-MM-dd',
+      },
+    });
+  });
+
+  it('returns null for cubeForPlanner when cube not found', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: { findNodes: [] },
+      }),
+    );
+
+    const result = await DataJunctionAPI.cubeForPlanner('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  it('handles cubeForPlanner without druid materialization', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.cube1',
+              current: {
+                displayName: 'Cube 1',
+                cubeMetrics: [{ name: 'metric1' }],
+                cubeDimensions: [],
+                materializations: [],
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.cubeForPlanner('default.cube1');
+    expect(result.cubeMaterialization).toBeNull();
+  });
+
+  it('handles cubeForPlanner error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    fetch.mockRejectOnce(new Error('Network error'));
+
+    const result = await DataJunctionAPI.cubeForPlanner('default.cube1');
+    expect(result).toBeNull();
+    consoleSpy.mockRestore();
+  });
+
+  // Test getNodesByNames (lines 460-493)
+  it('calls getNodesByNames correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.node1',
+              type: 'METRIC',
+              current: {
+                displayName: 'Node 1',
+                status: 'VALID',
+                mode: 'PUBLISHED',
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getNodesByNames(['default.node1']);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('default.node1');
+  });
+
+  it('returns empty array for getNodesByNames with empty input', async () => {
+    const result = await DataJunctionAPI.getNodesByNames([]);
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array for getNodesByNames with null input', async () => {
+    const result = await DataJunctionAPI.getNodesByNames(null);
+    expect(result).toEqual([]);
+  });
+
+  // Test getNodeColumnsWithPartitions (lines 880-926)
+  it('calls getNodeColumnsWithPartitions correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.node1',
+              current: {
+                columns: [
+                  {
+                    name: 'id',
+                    type: 'int',
+                    partition: null,
+                  },
+                  {
+                    name: 'date_col',
+                    type: 'date',
+                    partition: {
+                      type_: 'TEMPORAL',
+                      format: 'yyyyMMdd',
+                      granularity: 'day',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getNodeColumnsWithPartitions(
+      'default.node1',
+    );
+    expect(result.columns).toHaveLength(2);
+    expect(result.temporalPartitions).toHaveLength(1);
+    expect(result.temporalPartitions[0].name).toBe('date_col');
+  });
+
+  it('returns empty for getNodeColumnsWithPartitions when node not found', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: { findNodes: [] },
+      }),
+    );
+
+    const result = await DataJunctionAPI.getNodeColumnsWithPartitions(
+      'nonexistent',
+    );
+    expect(result).toEqual({ columns: [], temporalPartitions: [] });
+  });
+
+  it('handles getNodeColumnsWithPartitions error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    fetch.mockRejectOnce(new Error('Network error'));
+
+    const result = await DataJunctionAPI.getNodeColumnsWithPartitions(
+      'default.node1',
+    );
+    expect(result).toEqual({ columns: [], temporalPartitions: [] });
+    consoleSpy.mockRestore();
+  });
+
+  // Test measuresV3 (lines 1085-1103)
+  it('calls measuresV3 correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ preaggs: [] }));
+    await DataJunctionAPI.measuresV3(['metric1'], ['dim1'], 'filter=value');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/sql/measures/v3/?'),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('metrics=metric1');
+    expect(url).toContain('dimensions=dim1');
+    expect(url).toContain('filters=filter');
+  });
+
+  it('calls measuresV3 without filters', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ preaggs: [] }));
+    await DataJunctionAPI.measuresV3(['metric1'], ['dim1']);
+    const url = fetch.mock.calls[0][0];
+    expect(url).not.toContain('filters=');
+  });
+
+  // Test metricsV3 (lines 1106-1124)
+  it('calls metricsV3 correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], 'filter=value');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/sql/metrics/v3/?'),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('metrics=metric1');
+    expect(url).toContain('dimensions=dim1');
+    expect(url).toContain('filters=filter');
+  });
+
+  it('calls metricsV3 without filters', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1']);
+    const url = fetch.mock.calls[0][0];
+    expect(url).not.toContain('filters=');
+  });
+
+  // Test materializeCubeV2 (lines 1649-1671)
+  it('calls materializeCubeV2 correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    const result = await DataJunctionAPI.materializeCubeV2(
+      'default.cube1',
+      '0 6 * * *',
+      'incremental_time',
+      '1 DAY',
+      true,
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/cubes/default.cube1/materialize',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('schedule'),
+      }),
+    );
+    expect(result).toEqual({ status: 200, json: { message: 'Success' } });
+  });
+
+  // Test listPreaggs (lines 1845-1858)
+  it('calls listPreaggs correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify([{ id: 1, name: 'preagg1' }]));
+    const result = await DataJunctionAPI.listPreaggs({ node_name: 'node1' });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/preaggs/?node_name=node1'),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result).toHaveLength(1);
+  });
+
+  // Test planPreaggs (lines 1861-1896)
+  it('calls planPreaggs correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ preaggs: [] }));
+    const result = await DataJunctionAPI.planPreaggs(
+      ['metric1'],
+      ['dim1'],
+      'full',
+      '0 6 * * *',
+      '1 DAY',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/plan',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('metrics'),
+      }),
+    );
+  });
+
+  it('handles planPreaggs error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Error' }), {
+      status: 400,
+    });
+    const result = await DataJunctionAPI.planPreaggs(['metric1'], ['dim1']);
+    expect(result._error).toBe(true);
+    expect(result._status).toBe(400);
+  });
+
+  // Test getPreagg (lines 1899-1905)
+  it('calls getPreagg correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ id: 1, name: 'preagg1' }));
+    const result = await DataJunctionAPI.getPreagg(1);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/1',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result.id).toBe(1);
+  });
+
+  // Test materializePreagg (lines 1908-1927)
+  it('calls materializePreagg correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Success' }));
+    const result = await DataJunctionAPI.materializePreagg(1);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/1/materialize',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('handles materializePreagg error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 500,
+    });
+    const result = await DataJunctionAPI.materializePreagg(1);
+    expect(result._error).toBe(true);
+  });
+
+  // Test updatePreaggConfig (lines 1930-1959)
+  it('calls updatePreaggConfig correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Updated' }));
+    const result = await DataJunctionAPI.updatePreaggConfig(
+      1,
+      'incremental_time',
+      '0 6 * * *',
+      '2 DAY',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/1/config',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+  });
+
+  it('handles updatePreaggConfig error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 400,
+    });
+    const result = await DataJunctionAPI.updatePreaggConfig(1, 'full');
+    expect(result._error).toBe(true);
+  });
+
+  // Test deactivatePreaggWorkflow (lines 1962-1978)
+  it('calls deactivatePreaggWorkflow correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Deactivated' }));
+    const result = await DataJunctionAPI.deactivatePreaggWorkflow(1);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/1/workflow',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('handles deactivatePreaggWorkflow error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 500,
+    });
+    const result = await DataJunctionAPI.deactivatePreaggWorkflow(1);
+    expect(result._error).toBe(true);
+  });
+
+  // Test runPreaggBackfill (lines 1981-2005)
+  it('calls runPreaggBackfill correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Backfill started' }));
+    const result = await DataJunctionAPI.runPreaggBackfill(
+      1,
+      '2024-01-01',
+      '2024-12-31',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/1/backfill',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('start_date'),
+      }),
+    );
+  });
+
+  it('handles runPreaggBackfill error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 500,
+    });
+    const result = await DataJunctionAPI.runPreaggBackfill(1, '2024-01-01');
+    expect(result._error).toBe(true);
+  });
+
+  // Test getCubeDetails (lines 2008-2016)
+  it('calls getCubeDetails correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ name: 'cube1' }));
+    const result = await DataJunctionAPI.getCubeDetails('default.cube1');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/cubes/default.cube1',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(result.status).toBe(200);
+    expect(result.json).toEqual({ name: 'cube1' });
+  });
+
+  it('handles getCubeDetails error', async () => {
+    fetch.mockResponseOnce('Not found', { status: 404 });
+    const result = await DataJunctionAPI.getCubeDetails('nonexistent');
+    expect(result.status).toBe(404);
+    expect(result.json).toBeNull();
+  });
+
+  // Test getCubeWorkflowUrls (lines 2019-2044)
+  it('calls getCubeWorkflowUrls correctly', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        name: 'cube1',
+        materializations: [
+          {
+            name: 'druid_cube',
+            config: { workflow_urls: ['http://url1', 'http://url2'] },
+          },
+        ],
+      }),
+    );
+
+    const result = await DataJunctionAPI.getCubeWorkflowUrls('default.cube1');
+    expect(result).toEqual(['http://url1', 'http://url2']);
+    consoleSpy.mockRestore();
+  });
+
+  it('returns empty array for getCubeWorkflowUrls when no materializations', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    fetch.mockResponseOnce(
+      JSON.stringify({ name: 'cube1', materializations: [] }),
+    );
+    const result = await DataJunctionAPI.getCubeWorkflowUrls('default.cube1');
+    expect(result).toEqual([]);
+    consoleSpy.mockRestore();
+  });
+
+  // Test getCubeMaterialization (lines 2047-2070)
+  it('calls getCubeMaterialization correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        materializations: [
+          {
+            id: 1,
+            name: 'druid_cube',
+            strategy: 'incremental_time',
+            schedule: '0 6 * * *',
+            lookback_window: '1 DAY',
+            config: {
+              druid_datasource: 'ds1',
+              preagg_tables: ['table1'],
+              workflow_urls: ['http://url'],
+              timestamp_column: 'ts',
+              timestamp_format: 'yyyy-MM-dd',
+            },
+          },
+        ],
+      }),
+    );
+
+    const result = await DataJunctionAPI.getCubeMaterialization(
+      'default.cube1',
+    );
+    expect(result).toHaveProperty('strategy', 'incremental_time');
+    expect(result).toHaveProperty('druidDatasource', 'ds1');
+  });
+
+  it('returns null for getCubeMaterialization when no druid_cube', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ materializations: [] }));
+    const result = await DataJunctionAPI.getCubeMaterialization(
+      'default.cube1',
+    );
+    expect(result).toBeNull();
+  });
+
+  // Test refreshCubeWorkflow (lines 2073-2087)
+  it('calls refreshCubeWorkflow correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Refreshed' }));
+    const result = await DataJunctionAPI.refreshCubeWorkflow(
+      'default.cube1',
+      '0 6 * * *',
+      'incremental_time',
+      '1 DAY',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/cubes/default.cube1/materialize',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  // Test deactivateCubeWorkflow (lines 2090-2109)
+  it('calls deactivateCubeWorkflow correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Deactivated' }));
+    const result = await DataJunctionAPI.deactivateCubeWorkflow(
+      'default.cube1',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/cubes/default.cube1/materialize',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(result.status).toBe(200);
+  });
+
+  it('handles deactivateCubeWorkflow error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 500,
+    });
+    const result = await DataJunctionAPI.deactivateCubeWorkflow(
+      'default.cube1',
+    );
+    expect(result.status).toBe(500);
+    expect(result.json.message).toBeDefined();
+  });
+
+  // Test runCubeBackfill (lines 2112-2137)
+  it('calls runCubeBackfill correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ message: 'Backfill started' }));
+    const result = await DataJunctionAPI.runCubeBackfill(
+      'default.cube1',
+      '2024-01-01',
+      '2024-12-31',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/cubes/default.cube1/backfill',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('start_date'),
+      }),
+    );
+  });
+
+  it('handles runCubeBackfill error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Error' }), {
+      status: 500,
+    });
+    const result = await DataJunctionAPI.runCubeBackfill(
+      'default.cube1',
+      '2024-01-01',
+    );
+    expect(result._error).toBe(true);
+    expect(result.message).toBeDefined();
+  });
 });

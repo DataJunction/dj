@@ -643,6 +643,7 @@ class Node(Base):
         statement = select(Node).where(is_(Node.deactivated_at, None))
 
         # Join NodeRevision if needed for order_by, fragment filtering, or mode filtering
+        # Also ensures only nodes with a valid current revision are returned
         order_by_node_revision = (
             order_by and getattr(order_by, "class_", None) is NodeRevision
         )
@@ -762,6 +763,12 @@ class Node(Base):
             statement = statement.where(
                 ~Node.id.in_(select(linked_dimension_subquery)),
             )
+
+        # Always ensure only nodes with valid current revisions are returned
+        # This prevents GraphQL errors when current is non-nullable
+        if not join_revision:
+            statement = statement.join(NodeRevisionAlias, Node.current)
+            join_revision = True  # noqa: F841
 
         if after:
             cursor = NodeCursor.decode(after)

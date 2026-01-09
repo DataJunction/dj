@@ -17,9 +17,10 @@ The combiner SQL:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from datajunction_server.models.decompose import MetricComponent
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
 )
@@ -32,6 +33,7 @@ from datajunction_server.construction.build_v3.types import GrainGroupSQL
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.utils import get_settings
@@ -55,11 +57,18 @@ class CombinedGrainGroupResult:
     grain_groups_combined: int  # Number of grain groups that were combined
     shared_dimensions: list[str]  # Dimension columns used in JOIN
     all_measures: list[str]  # All measure columns in output
+    # Metric components with aggregation info (for materialization)
+    measure_components: list["MetricComponent"] = field(default_factory=list)
+    # Mapping from component name to output column alias
+    # e.g., {"account_id_hll_e7b21ce4": "approx_unique_accounts_rating"}
+    component_aliases: dict[str, str] = field(default_factory=dict)
+    # Dialect for rendering SQL (used for dialect-specific function names)
+    dialect: Dialect = Dialect.SPARK
 
     @property
     def sql(self) -> str:
-        """Render the query AST to SQL string."""
-        return str(self.query)
+        """Render the query AST to SQL string for the target dialect."""
+        return to_sql(self.query, self.dialect)
 
 
 def build_combiner_sql(
@@ -136,6 +145,9 @@ def _single_grain_group_result(grain_group: GrainGroupSQL) -> CombinedGrainGroup
         grain_groups_combined=1,
         shared_dimensions=grain_group.grain,
         all_measures=measure_cols,
+        measure_components=grain_group.components,
+        component_aliases=grain_group.component_aliases,
+        dialect=grain_group.dialect,
     )
 
 
@@ -218,12 +230,25 @@ def _combine_multiple_grain_groups(
         all_measures,
     )
 
+    # Collect all components and aliases from all grain groups
+    all_components = []
+    all_component_aliases: dict[str, str] = {}
+    for gg in grain_groups:
+        all_components.extend(gg.components)
+        all_component_aliases.update(gg.component_aliases)
+
+    # Use dialect from the first grain group (all should have same dialect)
+    dialect = grain_groups[0].dialect if grain_groups else Dialect.SPARK
+
     return CombinedGrainGroupResult(
         query=combined_query,
         columns=output_columns,
         grain_groups_combined=len(grain_groups),
         shared_dimensions=shared_grain,
         all_measures=all_measures,
+        measure_components=all_components,
+        component_aliases=all_component_aliases,
+        dialect=dialect,
     )
 
 
@@ -647,7 +672,115 @@ async def build_combiner_sql_from_preaggs(
         ):
             temporal_partition_info = first
 
+    # Reorder columns so partition column is last
+    # This is required for Hive/Spark INSERT OVERWRITE ... PARTITION (col) syntax
+    if temporal_partition_info:
+        combined_result = _reorder_partition_column_last(
+            combined_result,
+            temporal_partition_info.column_name,
+        )
+
     return combined_result, preagg_table_refs, temporal_partition_info
+
+
+def _reorder_partition_column_last(
+    result: CombinedGrainGroupResult,
+    partition_column: str,
+) -> CombinedGrainGroupResult:
+    """
+    Reorder columns so:
+    1. Column metadata order matches the actual SQL projection order
+    2. The partition column is last (required for Hive/Spark INSERT OVERWRITE PARTITION)
+
+    For Hive/Spark INSERT OVERWRITE ... PARTITION (col) syntax:
+    - Non-partition columns must match the target table's column order (by position)
+    - Partition column(s) must be last
+
+    This function:
+    1. First synchronizes column metadata to match projection order
+    2. Then moves the partition column to the end of both
+
+    Args:
+        result: The combined grain group result to reorder
+        partition_column: Name of the partition column to move to the end
+
+    Returns:
+        A CombinedGrainGroupResult with reordered columns (mutates the input)
+    """
+    # Note: We mutate the input result directly since the caller immediately
+    # reassigns to the return value and doesn't use the original afterward.
+    # This avoids expensive deepcopy of AST objects.
+
+    def _get_projection_name(proj: ast.Node) -> str | None:
+        """Extract the output column name from a projection element."""
+        # Aliasable types (Column, Alias) have alias_or_name which prefers alias over name
+        if isinstance(proj, ast.Aliasable):
+            return proj.alias_or_name.name
+        # Named types (Function) have name directly
+        if isinstance(proj, ast.Named):
+            return proj.name.name
+        return None
+
+    # Step 1: Build a mapping from column name to metadata
+    col_meta_by_name = {col.name: col for col in result.columns}
+
+    # Step 2: Extract projection names in order (this is the canonical order)
+    projection_names = [
+        name
+        for proj in result.query.select.projection
+        if (name := _get_projection_name(proj))
+    ]
+
+    # Step 3: Reorder column metadata to match projection order
+    reordered_columns = [
+        col_meta_by_name[name] for name in projection_names if name in col_meta_by_name
+    ]
+
+    result.columns = reordered_columns
+
+    # Step 4: Move partition column to end of both projections and columns
+    projections = result.query.select.projection
+    partition_proj = None
+    other_projs = []
+
+    for proj in projections:
+        proj_name = _get_projection_name(proj)
+        if proj_name == partition_column:
+            partition_proj = proj
+        else:
+            other_projs.append(proj)
+
+    if partition_proj is not None:
+        result.query.select.projection = other_projs + [partition_proj]
+
+    # Reorder column metadata to match (partition last)
+    partition_col_meta = None
+    other_cols = []
+    for col in result.columns:
+        if col.name == partition_column:
+            partition_col_meta = col
+        else:
+            other_cols.append(col)
+
+    if partition_col_meta is not None:
+        result.columns = other_cols + [partition_col_meta]
+
+    # Also reorder shared_dimensions to put partition column last
+    if partition_column in result.shared_dimensions:
+        new_dims = [d for d in result.shared_dimensions if d != partition_column]
+        new_dims.append(partition_column)
+        result = CombinedGrainGroupResult(
+            query=result.query,
+            columns=result.columns,
+            grain_groups_combined=result.grain_groups_combined,
+            shared_dimensions=new_dims,
+            all_measures=result.all_measures,
+            measure_components=result.measure_components,
+            component_aliases=result.component_aliases,
+            dialect=result.dialect,
+        )
+
+    return result
 
 
 def _build_grain_group_from_preagg_table(
@@ -748,4 +881,5 @@ def _build_grain_group_from_preagg_table(
         is_merged=original_gg.is_merged,
         component_aggregabilities=original_gg.component_aggregabilities,
         components=original_gg.components,
+        dialect=original_gg.dialect,
     )
