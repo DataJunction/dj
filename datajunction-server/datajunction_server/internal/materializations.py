@@ -313,6 +313,9 @@ async def schedule_materialization_jobs(
     """
     Schedule recurring materialization jobs
     """
+    if not query_service_client:
+        return {}  # No query service configured, skip scheduling
+
     materializations = await Materialization.get_by_names(
         session,
         node_revision_id,

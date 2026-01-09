@@ -8,7 +8,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_downstream_nodes(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding nodes by node type
@@ -27,7 +27,7 @@ async def test_downstream_nodes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
@@ -85,7 +85,7 @@ async def test_downstream_nodes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
@@ -106,7 +106,7 @@ async def test_downstream_nodes(
 
 @pytest.mark.asyncio
 async def test_downstream_nodes_multiple_inputs(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding downstream nodes from multiple input nodes.
@@ -120,7 +120,7 @@ async def test_downstream_nodes_multiple_inputs(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     downstream_names = {node["name"] for node in data["data"]["downstreamNodes"]}
@@ -130,12 +130,12 @@ async def test_downstream_nodes_multiple_inputs(
 
 @pytest.mark.asyncio
 async def test_downstream_nodes_deactivated(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding downstream nodes with and without deactivated nodes.
     """
-    response = await module__client_with_roads.delete(
+    response = await client_with_roads.delete(
         "/nodes/default.num_repair_orders",
     )
     assert response.status_code == 200
@@ -149,7 +149,7 @@ async def test_downstream_nodes_deactivated(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
@@ -171,7 +171,7 @@ async def test_downstream_nodes_deactivated(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
@@ -188,7 +188,7 @@ async def test_downstream_nodes_deactivated(
 
 @pytest.mark.asyncio
 async def test_downstream_nodes_with_nested_fields(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test downstream nodes query with nested fields that require database joins.
@@ -224,7 +224,7 @@ async def test_downstream_nodes_with_nested_fields(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 
