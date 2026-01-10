@@ -153,14 +153,15 @@ def load_node_options(fields):
     return options
 
 
-def build_nested_node_revision_options(requested_fields):
+def build_cube_metrics_node_revision_options(requested_fields):
     """
-    Build loading options for nested NodeRevision objects (e.g., in cube_metrics/cube_dimensions).
-    Only loads relationships that are actually requested.
+    Build loading options for NodeRevision objects returned by cube_metrics.
+    cube_metrics returns List[NodeRevision], so Strawberry will serialize them
+    based on the requested subfields.
     """
     options = [
         defer(DBNodeRevision.query_ast),
-        # Always noload these - not needed for nested NodeRevision
+        # Always noload these - not needed for cube_metrics NodeRevision
         noload(DBNodeRevision.node),
         noload(DBNodeRevision.created_by),
         noload(DBNodeRevision.missing_parents),
@@ -197,6 +198,32 @@ def build_nested_node_revision_options(requested_fields):
         options.append(noload(DBNodeRevision.metric_metadata))
 
     return options
+
+
+def build_cube_dimensions_node_revision_options():
+    """
+    Build loading options for NodeRevision objects used by cube_dimensions.
+    cube_dimensions returns List[DimensionAttribute] which is constructed manually,
+    so we only need minimal NodeRevision fields (name, type).
+    """
+    return [
+        # Only load what cube_dimensions needs: name, type
+        load_only(DBNodeRevision.id, DBNodeRevision.name, DBNodeRevision.type),
+        defer(DBNodeRevision.query_ast),
+        # Noload all relationships - cube_dimensions builds DimensionAttribute manually
+        noload(DBNodeRevision.node),
+        noload(DBNodeRevision.created_by),
+        noload(DBNodeRevision.missing_parents),
+        noload(DBNodeRevision.cube_elements),
+        noload(DBNodeRevision.required_dimensions),
+        noload(DBNodeRevision.parents),
+        noload(DBNodeRevision.dimension_links),
+        noload(DBNodeRevision.availability),
+        noload(DBNodeRevision.materializations),
+        noload(DBNodeRevision.columns),
+        noload(DBNodeRevision.catalog),
+        noload(DBNodeRevision.metric_metadata),
+    ]
 
 
 def load_node_revision_options(node_revision_fields):
@@ -302,14 +329,20 @@ def load_node_revision_options(node_revision_fields):
     # Handle cube_elements
     if "cube_elements" in node_revision_fields or is_cube_request:
         # Build optimized options for nested NodeRevision based on what's requested
-        # Merge fields from both cube_metrics and cube_dimensions
-        nested_fields = {}
+        # cube_metrics returns List[NodeRevision] - needs full serialization based on requested fields
+        # cube_dimensions returns List[DimensionAttribute] - only needs name, type from NodeRevision
         if cube_metric_fields:
-            nested_fields.update(cube_metric_fields)
-        if cube_dimension_fields:
-            nested_fields.update(cube_dimension_fields)
+            # cube_metrics needs full NodeRevision serialization
+            nested_options = build_cube_metrics_node_revision_options(
+                cube_metric_fields,
+            )
+        elif cube_dimension_fields:
+            # cube_dimensions only needs minimal NodeRevision fields
+            nested_options = build_cube_dimensions_node_revision_options()
+        else:
+            # cube_elements directly requested - load minimal
+            nested_options = build_cube_dimensions_node_revision_options()
 
-        nested_options = build_nested_node_revision_options(nested_fields or None)
         options.append(
             selectinload(DBNodeRevision.cube_elements)
             .selectinload(Column.node_revision)

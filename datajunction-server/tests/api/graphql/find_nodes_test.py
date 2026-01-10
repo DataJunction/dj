@@ -820,6 +820,138 @@ async def test_find_cubes(
 
 
 @pytest.mark.asyncio
+async def test_find_cubes_full_query(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test finding cubes with full field selection including cubeMetrics and cubeDimensions.
+    This tests the optimized loading paths for cube queries.
+    """
+    # First create a cube
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+                "default.total_repair_cost",
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Full cube for testing",
+            "mode": "published",
+            "name": "default.full_test_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    # Query with full field selection
+    query = """
+    query FindReportCubes {
+        findNodes(nodeTypes:[CUBE]) {
+            name
+            tags {
+                name
+            }
+            createdBy {
+                username
+            }
+            current {
+                description
+                displayName
+                cubeMetrics {
+                    name
+                    version
+                    type
+                    displayName
+                }
+                cubeDimensions {
+                    name
+                    type
+                    role
+                    dimensionNode {
+                        name
+                    }
+                    attribute
+                }
+            }
+        }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    cubes = data["data"]["findNodes"]
+    assert cubes == [
+        {
+            "createdBy": {
+                "username": "dj",
+            },
+            "current": {
+                "cubeDimensions": [
+                    {
+                        "attribute": "city",
+                        "dimensionNode": {
+                            "name": "default.hard_hat",
+                        },
+                        "name": "default.hard_hat.city",
+                        "role": "",
+                        "type": "string",
+                    },
+                    {
+                        "attribute": "state",
+                        "dimensionNode": {
+                            "name": "default.hard_hat",
+                        },
+                        "name": "default.hard_hat.state",
+                        "role": "",
+                        "type": "string",
+                    },
+                    {
+                        "attribute": "company_name",
+                        "dimensionNode": {
+                            "name": "default.dispatcher",
+                        },
+                        "name": "default.dispatcher.company_name",
+                        "role": "",
+                        "type": "string",
+                    },
+                ],
+                "cubeMetrics": [
+                    {
+                        "displayName": "Num Repair Orders",
+                        "name": "default.num_repair_orders",
+                        "type": "METRIC",
+                        "version": "v1.0",
+                    },
+                    {
+                        "displayName": "Avg Repair Price",
+                        "name": "default.avg_repair_price",
+                        "type": "METRIC",
+                        "version": "v1.0",
+                    },
+                    {
+                        "displayName": "Total Repair Cost",
+                        "name": "default.total_repair_cost",
+                        "type": "METRIC",
+                        "version": "v1.0",
+                    },
+                ],
+                "description": "Full cube for testing",
+                "displayName": "Full Test Cube",
+            },
+            "name": "default.full_test_cube",
+            "tags": [],
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_find_node_with_revisions(
     client_with_roads: AsyncClient,
 ) -> None:

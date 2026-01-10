@@ -87,7 +87,7 @@ class Tag(Base):
         """
         statement = select(cls).where(Tag.name == tag_name)
         base_options = joinedload(Tag.nodes)
-        if options:
+        if options:  # pragma: no branch
             base_options = base_options.options(*options)
         statement = statement.options(base_options)
         tag = (await session.execute(statement)).unique().scalars().one_or_none()
