@@ -537,6 +537,7 @@ async def test_find_transform(
                 parents {
                     name
                     currentVersion
+                    type
                 }
                 materializations {
                     name
@@ -582,10 +583,12 @@ async def test_find_transform(
                     {
                         "name": "default.repair_orders",
                         "currentVersion": "v1.2",
+                        "type": "source",
                     },
                     {
                         "name": "default.repair_order_details",
                         "currentVersion": "v1.2",
+                        "type": "source",
                     },
                 ],
                 "extractedMeasures": None,

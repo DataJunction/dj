@@ -45,6 +45,7 @@ class NodeNameVersion:
 
     name: str
     current_version: str
+    type: str
 
 
 @strawberry.type
