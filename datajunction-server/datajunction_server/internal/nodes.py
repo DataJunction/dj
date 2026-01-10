@@ -738,6 +738,7 @@ async def save_node(
         ),
         session=session,
     )
+
     await session.commit()
     await session.refresh(node, ["current"])
     newly_valid_nodes = await resolve_downstream_references(

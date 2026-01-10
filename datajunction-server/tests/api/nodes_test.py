@@ -6318,3 +6318,42 @@ class TestCopyNode:
             # ]
             # for copied in copied_dimensions:
             #     assert copied in original_dimensions
+
+
+@pytest_asyncio.fixture
+async def unique_node_namespace(client: AsyncClient):
+    """
+    Fixture that provides unique namespace/node names and auto-cleans up after test.
+    """
+    import uuid
+
+    suffix = uuid.uuid4().hex[:8]
+    created_namespaces = []
+    created_roles = []
+
+    def make_namespace(name: str) -> str:
+        """Generate a unique namespace name and track it for cleanup."""
+        full_name = f"{name}_{suffix}"
+        created_namespaces.append(full_name)
+        created_roles.append(f"{full_name}-owner")
+        return full_name
+
+    def track_node(node_name: str):
+        """Track a node's role for cleanup."""
+        created_roles.append(f"{node_name}-owner")
+
+    # Create a simple namespace object with the helper methods
+    class NamespaceHelper:
+        pass
+
+    helper = NamespaceHelper()
+    helper.make = make_namespace  # type: ignore
+    helper.track_node = track_node  # type: ignore
+
+    yield helper
+
+    # Cleanup after test
+    for ns in reversed(created_namespaces):
+        await client.delete(f"/namespaces/{ns}/hard/?cascade=true")
+    for role in created_roles:
+        await client.delete(f"/roles/{role}")

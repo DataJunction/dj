@@ -94,6 +94,7 @@ def test_sqlglot_transpile_success():
             output_dialect=Dialect("custom123"),
         )
         assert result == "SELECT * FROM bar"
+        del DialectRegistry._registry["custom123"]
 
 
 def test_default_transpile_success():
@@ -116,6 +117,7 @@ def test_default_transpile_success():
             output_dialect=Dialect("custom123"),
         )
         assert result == "SELECT * FROM bar"
+        del DialectRegistry._registry["custom123"]
 
 
 def test_transpile_sql():
