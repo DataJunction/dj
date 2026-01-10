@@ -1118,9 +1118,12 @@ export const DataJunctionAPI = {
       params.append('filters', filters);
     }
     return await (
-      await fetch(`${DJ_URL}/sql/metrics/v3/?${params}&use_materialized=${useMaterialized}`, {
-        credentials: 'include',
-      })
+      await fetch(
+        `${DJ_URL}/sql/metrics/v3/?${params}&use_materialized=${useMaterialized}`,
+        {
+          credentials: 'include',
+        },
+      )
     ).json();
   },
 
