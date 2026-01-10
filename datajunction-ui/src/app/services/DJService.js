@@ -10,6 +10,9 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
   ? process.env.REACT_APP_DJ_GQL
   : process.env.REACT_APP_DJ_URL + '/graphql';
 
+// Export the base URL for components that need direct access
+export const getDJUrl = () => DJ_URL;
+
 export const DataJunctionAPI = {
   listNodesForLanding: async function (
     namespace,

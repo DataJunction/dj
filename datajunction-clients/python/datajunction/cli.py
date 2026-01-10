@@ -7,6 +7,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from rich import box
+from rich.console import Console
+from rich.table import Table
+
 from datajunction import DJBuilder, Project
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException
@@ -15,14 +19,232 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def display_impact_analysis(impact: dict, console: Console | None = None) -> None:
+    """
+    Display deployment impact analysis with rich formatting.
+
+    Args:
+        impact: The impact analysis response from the server
+        console: Optional Rich console for output
+    """
+    console = console or Console()
+    namespace = impact.get("namespace", "unknown")
+
+    # Header
+    console.print()
+    console.print(
+        f"[bold blue]📊 Impact Analysis for namespace:[/bold blue] [bold green]{namespace}[/bold green]",
+    )
+    console.print("━" * 60)
+    console.print()
+
+    # Direct Changes Table
+    changes = impact.get("changes", [])
+    if changes:
+        changes_table = Table(
+            title="[bold]📝 Direct Changes[/bold]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        changes_table.add_column("Operation", style="bold", width=10)
+        changes_table.add_column("Node", style="magenta")
+        changes_table.add_column("Type", style="dim", width=12)
+        changes_table.add_column("Changed Fields", style="white")
+
+        operation_styles = {
+            "create": ("🟢 Create", "green"),
+            "update": ("🟡 Update", "yellow"),
+            "delete": ("🔴 Delete", "red"),
+            "noop": ("⚪ Skip", "dim"),
+        }
+
+        for change in changes:
+            op = change.get("operation", "unknown")
+            op_display, op_color = operation_styles.get(op, (op.upper(), "white"))
+            changed_fields = ", ".join(change.get("changed_fields", [])) or "-"
+            changes_table.add_row(
+                f"[{op_color}]{op_display}[/{op_color}]",
+                change.get("name", ""),
+                change.get("node_type", ""),
+                changed_fields,
+            )
+
+        console.print(changes_table)
+        console.print()
+
+    # Summary for direct changes
+    create_count = impact.get("create_count", 0)
+    update_count = impact.get("update_count", 0)
+    delete_count = impact.get("delete_count", 0)
+    skip_count = impact.get("skip_count", 0)
+
+    summary_parts = []
+    if create_count:
+        summary_parts.append(
+            f"[green]{create_count} create{'s' if create_count != 1 else ''}[/green]",
+        )
+    if update_count:
+        summary_parts.append(
+            f"[yellow]{update_count} update{'s' if update_count != 1 else ''}[/yellow]",
+        )
+    if delete_count:
+        summary_parts.append(
+            f"[red]{delete_count} delete{'s' if delete_count != 1 else ''}[/red]",
+        )
+    if skip_count:
+        summary_parts.append(f"[dim]{skip_count} skipped[/dim]")
+
+    if summary_parts:
+        console.print(f"[bold]Summary:[/bold] {', '.join(summary_parts)}")
+        console.print()
+
+    # Column Changes (if any)
+    column_changes_found = []
+    for change in changes:
+        for col_change in change.get("column_changes", []):
+            column_changes_found.append(
+                {
+                    "node": change.get("name"),
+                    **col_change,
+                },
+            )
+
+    if column_changes_found:
+        col_table = Table(
+            title="[bold]⚡ Column Changes[/bold]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        col_table.add_column("Node", style="magenta")
+        col_table.add_column("Change", style="bold", width=10)
+        col_table.add_column("Details", style="white")
+
+        change_type_styles = {
+            "added": ("🟢 Added", "green"),
+            "removed": ("🔴 Removed", "red"),
+            "type_changed": ("🟡 Type Changed", "yellow"),
+        }
+
+        for col in column_changes_found:
+            change_type = col.get("change_type", "unknown")
+            display, color = change_type_styles.get(
+                change_type,
+                (change_type.upper(), "white"),
+            )
+
+            if change_type == "type_changed":
+                details = f"'{col.get('column')}': {col.get('old_type')} → {col.get('new_type')}"
+            elif change_type == "removed":
+                details = f"Column '{col.get('column')}' removed"
+            else:
+                details = f"Column '{col.get('column')}' added"
+
+            col_table.add_row(
+                col.get("node", ""),
+                f"[{color}]{display}[/{color}]",
+                details,
+            )
+
+        console.print(col_table)
+        console.print()
+
+    # Downstream Impact
+    downstream_impacts = impact.get("downstream_impacts", [])
+    if downstream_impacts:
+        impact_table = Table(
+            title="[bold]🔗 Downstream Impact[/bold]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        impact_table.add_column("Node", style="magenta")
+        impact_table.add_column("Impact", style="bold", width=18)
+        impact_table.add_column("Reason", style="white")
+
+        impact_styles = {
+            "will_invalidate": ("❌ Will Invalidate", "bold red"),
+            "may_affect": ("⚠️  May Affect", "yellow"),
+            "unchanged": ("✓ Unchanged", "dim"),
+        }
+
+        for downstream in downstream_impacts:
+            impact_type = downstream.get("impact_type", "unknown")
+            display, style = impact_styles.get(
+                impact_type,
+                (impact_type.upper(), "white"),
+            )
+            impact_table.add_row(
+                downstream.get("name", ""),
+                f"[{style}]{display}[/{style}]",
+                downstream.get("impact_reason", ""),
+            )
+
+        console.print(impact_table)
+        console.print()
+
+        # Downstream summary
+        will_invalidate = impact.get("will_invalidate_count", 0)
+        may_affect = impact.get("may_affect_count", 0)
+
+        impact_summary = []
+        if will_invalidate:
+            impact_summary.append(f"[red]{will_invalidate} will invalidate[/red]")
+        if may_affect:
+            impact_summary.append(f"[yellow]{may_affect} may be affected[/yellow]")
+
+        if impact_summary:
+            console.print(
+                f"[bold]Downstream Summary:[/bold] {', '.join(impact_summary)}",
+            )
+            console.print()
+    else:
+        console.print("[green]✅ No downstream impact detected.[/green]")
+        console.print()
+
+    # Warnings
+    warnings = impact.get("warnings", [])
+    if warnings:
+        console.print("[bold red]⚠️  Warnings:[/bold red]")
+        for warning in warnings:
+            console.print(f"  [yellow]• {warning}[/yellow]")
+        console.print()
+    else:
+        console.print("[green]✅ No warnings.[/green]")
+        console.print()
+
+    # Final verdict
+    has_issues = (
+        impact.get("will_invalidate_count", 0) > 0
+        or len(warnings) > 0
+        or delete_count > 0
+    )
+
+    if has_issues:
+        console.print(
+            "[yellow bold]⚠️  Review the warnings and downstream impacts before deploying.[/yellow bold]",
+        )
+    else:
+        console.print("[green bold]✅ Ready to deploy![/green bold]")
+
+    console.print()
+
+
 class DJCLI:
     """DJ command-line tool"""
 
     def __init__(self, builder_client: DJBuilder | None = None):
         """
         Initialize the CLI with a builder client.
+
+        If DJ_URL environment variable is set, it will be used as the server URL.
         """
-        self.builder_client = builder_client or DJBuilder()
+        if builder_client is None:
+            # Read DJ_URL from environment, default to localhost:8000
+            dj_url = os.environ.get("DJ_URL", "http://localhost:8000")
+            builder_client = DJBuilder(uri=dj_url)
+        self.builder_client = builder_client
         self.deployment_service = DeploymentService(client=self.builder_client)
 
     def push(self, directory: str, namespace: str | None = None):
@@ -30,6 +252,38 @@ class DJCLI:
         Alias for deploy without dryrun.
         """
         self.deployment_service.push(directory, namespace=namespace)
+
+    def dryrun(
+        self,
+        directory: str,
+        namespace: str | None = None,
+        format: str = "text",
+    ):
+        """
+        Perform a dry run of deployment, showing impact analysis.
+        """
+        console = Console()
+
+        try:
+            impact = self.deployment_service.get_impact(directory, namespace=namespace)
+
+            if format == "json":
+                print(json.dumps(impact, indent=2))
+            else:
+                console.print(f"[bold]Analyzing deployment from:[/bold] {directory}")
+                console.print()
+                display_impact_analysis(impact, console=console)
+        except DJClientException as exc:
+            error_data = exc.args[0] if exc.args else str(exc)
+            message = (
+                error_data.get("message", str(exc))
+                if isinstance(error_data, dict)
+                else str(exc)
+            )
+            if format == "json":
+                print(json.dumps({"error": message}, indent=2))
+            else:
+                console.print(f"[red bold]ERROR:[/red bold] {message}")
 
     def pull(self, namespace: str, directory: str):
         """
@@ -317,7 +571,14 @@ class DJCLI:
         deploy_parser.add_argument(
             "--dryrun",
             action="store_true",
-            help="Perform a dry run",
+            help="Perform a dry run (show impact analysis without deploying)",
+        )
+        deploy_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format for dry run (default: text)",
         )
 
         # `dj push <directory>` (alias for deploy without dryrun)
@@ -545,7 +806,13 @@ class DJCLI:
         """
         Dispatches the command based on the parsed args
         """
-        if args.command == "push":
+        if args.command == "deploy":
+            # deploy is similar to push but supports --dryrun
+            if args.dryrun:
+                self.dryrun(args.directory, format=args.format)
+                return
+            self.push(args.directory)
+        elif args.command == "push":
             # CLI flags override env vars for deployment source tracking
             if args.repo:
                 os.environ["DJ_DEPLOY_REPO"] = args.repo
