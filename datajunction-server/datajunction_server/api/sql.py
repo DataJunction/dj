@@ -178,6 +178,10 @@ async def get_measures_sql_v3(
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     use_materialized: bool = Query(True),
+    dialect: Dialect = Query(
+        Dialect.SPARK,
+        description="SQL dialect for the generated query.",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -212,7 +216,7 @@ async def get_measures_sql_v3(
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
@@ -440,12 +444,17 @@ async def get_metrics_sql_v3(
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
     use_materialized: bool = Query(True),
+    dialect: Dialect = Query(
+        Dialect.SPARK,
+        description="SQL dialect for the generated query.",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> V3TranslatedSQL:
     """
-    Generate final metrics SQL with fully computed metric expressions.
+    Generate final metrics SQL with fully computed metric expressions for the
+    requested metrics, dimensions, and filters using the specified dialect.
 
     Metrics SQL is the second (and final) stage of metric computation - it takes
     the pre-aggregated components from Measures SQL and applies combiner expressions
@@ -466,19 +475,13 @@ async def get_metrics_sql_v3(
     final column aliases.
 
     Args:
+        metrics: List of metric names to include
+        dimensions: List of dimensions to group by (the grain)
+        filters: Optional filters to apply
+        dialect: SQL dialect for the generated query
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
-
-    Returns:
-        A single SQL query that:
-        - Defines CTEs for each grain group (pre-aggregated component data) or
-        uses materialized pre-agg tables when available
-        - Joins grain groups on shared dimensions (if multiple)
-        - Builds dimensions with coalesce and metrics with combiner expressions
-        - Groups by dimensions to finalize re-aggregation
-
-    See also: `/sql/measures/v3/` for the underlying pre-aggregated components.
     """
 
     result = await build_metrics_sql(
@@ -486,7 +489,7 @@ async def get_metrics_sql_v3(
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
