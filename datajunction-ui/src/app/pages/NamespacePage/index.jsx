@@ -9,6 +9,7 @@ import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
+import { getDJUrl } from '../../services/DJService';
 
 import 'styles/node-list.css';
 import 'styles/sorted-table.css';
@@ -927,6 +928,9 @@ export function NamespacePage() {
                         title={
                           currentNamespaceSources.has_multiple_sources
                             ? `Warning: ${currentNamespaceSources.sources.length} deployment sources`
+                            : currentNamespaceSources.sources?.[0]
+                                ?.last_deployed_by
+                            ? `Last deployed by ${currentNamespaceSources.sources[0].last_deployed_by}`
                             : 'Local/adhoc deployment'
                         }
                         style={{
@@ -949,11 +953,60 @@ export function NamespacePage() {
                       >
                         {currentNamespaceSources.has_multiple_sources
                           ? `⚠️ ${currentNamespaceSources.sources.length} sources`
+                          : currentNamespaceSources.sources?.[0]
+                              ?.last_deployed_by
+                          ? `Local deploy by ${currentNamespaceSources.sources[0].last_deployed_by}`
                           : 'Local'}
                       </span>
                     ))}
                 </div>
-                <AddNodeDropdown namespace={namespace} />
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <a
+                    href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
+                    download
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      // padding: '6px 12px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: '#475569',
+                      // backgroundColor: '#f8fafc',
+                      // border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      textDecoration: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      margin: '0.5em 0px 0px 1em',
+                    }}
+                    onMouseOver={e => {
+                      e.currentTarget.style.color = '#333333';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.color = '#475569';
+                    }}
+                    title="Export namespace to YAML"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                  </a>
+                  <AddNodeDropdown namespace={namespace} />
+                </div>
               </div>
               <table className="card-table table" style={{ marginBottom: 0 }}>
                 <thead>

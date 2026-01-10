@@ -2,28 +2,28 @@
 Node namespace related APIs.
 """
 
+import io
 import logging
+import zipfile
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, cast
+from typing import Callable, Dict, List, Optional
 
+import yaml
 from fastapi import Depends, Query, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
-    CubeSpec,
     DeploymentSpec,
     NamespaceSourcesResponse,
 )
-from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -39,13 +39,15 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
     get_sources_for_namespace,
+    get_node_specs_for_export,
+    _get_yaml_dumper,
+    _node_spec_to_yaml_dict,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
 from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
-    SEPARATOR,
     get_current_user,
     get_query_service_client,
     get_session,
@@ -416,18 +418,10 @@ async def export_a_namespace(
     )
 
 
-def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
-    """
-    Replaces a namespace in a string with ${prefix}
-    users.yshang.blah -> ${prefix}.blah
-    users.yshang.blah.foo -> ${prefix}.blah.foo
-    """
-    return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
-
-
 @router.get(
     "/namespaces/{namespace}/export/spec",
     name="Export namespace as a deployment specification",
+    response_model_exclude_none=True,
 )
 async def export_namespace_spec(
     namespace: str,
@@ -441,46 +435,91 @@ async def export_namespace_spec(
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    nodes = await NodeNamespace.list_all_nodes(
-        session,
-        namespace,
-        options=Node.cube_load_options(),
-    )
-    node_specs = [await node.to_spec(session) for node in nodes]
-    for node_spec in node_specs:
-        node_spec.name = inject_prefixes(node_spec.rendered_name, namespace)
-        if node_spec.node_type in (
-            NodeType.TRANSFORM,
-            NodeType.DIMENSION,
-            NodeType.METRIC,
-        ):
-            node_spec.query = inject_prefixes(node_spec.query, namespace)
-        if node_spec.node_type in (
-            NodeType.SOURCE,
-            NodeType.TRANSFORM,
-            NodeType.DIMENSION,
-        ):
-            for link in node_spec.dimension_links:
-                if link.type == LinkType.JOIN:
-                    link.dimension_node = inject_prefixes(
-                        link.dimension_node,
-                        namespace,
-                    )
-                    link.join_on = inject_prefixes(link.join_on, namespace)
-                else:  # pragma: no cover
-                    link.dimension = inject_prefixes(link.dimension, namespace)
-        if node_spec.node_type == NodeType.CUBE:
-            cube_spec = cast(CubeSpec, node_spec)
-            cube_spec.metrics = [
-                inject_prefixes(metric, namespace) for metric in node_spec.metrics
-            ]
-            cube_spec.dimensions = [
-                inject_prefixes(dimension, namespace)
-                for dimension in node_spec.dimensions
-            ]
+    node_specs = await get_node_specs_for_export(session, namespace)
     return DeploymentSpec(
         namespace=namespace,
         nodes=node_specs,
+    )
+
+
+@router.get(
+    "/namespaces/{namespace}/export/yaml",
+    name="Export namespace as downloadable YAML ZIP",
+    response_class=StreamingResponse,
+)
+async def export_namespace_yaml(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> StreamingResponse:
+    """
+    Export a namespace as a downloadable ZIP file containing YAML files.
+
+    The ZIP structure matches the expected layout for `dj push`:
+    - dj.yaml (project manifest)
+    - <namespace>/<node>.yaml (one file per node)
+
+    This makes it easy to start managing nodes via Git/CI-CD.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Get node specs with ${prefix} injection applied
+    node_specs = await get_node_specs_for_export(session, namespace)
+
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add dj.yaml project manifest
+        project_manifest = {
+            "name": f"Project {namespace} (Exported)",
+            "description": f"Exported project for namespace {namespace}",
+            "namespace": namespace,
+        }
+        # Get custom dumper for clean multiline strings
+        yaml_dumper = _get_yaml_dumper()
+
+        zf.writestr(
+            "dj.yaml",
+            yaml.dump(
+                project_manifest,
+                Dumper=yaml_dumper,
+                sort_keys=False,
+                default_flow_style=False,
+            ),
+        )
+
+        # Add each node as a YAML file
+        for node_spec in node_specs:
+            # Convert name to file path: foo.bar.baz -> foo/bar/baz.yaml
+            node_name = node_spec.name.replace("${prefix}", "").lstrip(".")
+            parts = node_name.split(".")
+            file_path = "/".join(parts) + ".yaml"
+
+            # Convert to YAML-friendly dict
+            node_dict = _node_spec_to_yaml_dict(node_spec)
+
+            zf.writestr(
+                file_path,
+                yaml.dump(
+                    node_dict,
+                    Dumper=yaml_dumper,
+                    sort_keys=False,
+                    default_flow_style=False,
+                ),
+            )
+
+    zip_buffer.seek(0)
+
+    # Return as downloadable ZIP
+    safe_namespace = namespace.replace(".", "_")
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_namespace}_export.zip"',
+        },
     )
 
 

@@ -788,9 +788,8 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
     assert expected_roads_nodes.issubset(actual_node_names)
 
     node_defs = {node["name"]: node for node in data["nodes"]}
+    # Note: None values are filtered out in the export for cleaner output
     assert node_defs["${prefix}example_cube"] == {
-        "custom_metadata": None,
-        "filters": None,
         "owners": ["dj"],
         "mode": "published",
         "node_type": "cube",
@@ -798,23 +797,18 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
         "columns": [
             {
                 "attributes": [],
-                "description": None,
                 "display_name": "Num Repair Orders",
                 "name": "default.num_repair_orders",
                 "type": "bigint",
-                "partition": None,
             },
             {
                 "attributes": [],
-                "description": None,
                 "display_name": "City",
                 "name": "default.hard_hat.city",
                 "type": "string",
-                "partition": None,
             },
             {
                 "attributes": [],
-                "description": None,
                 "display_name": "Hire Date",
                 "name": "default.hard_hat.hire_date",
                 "type": "timestamp",
@@ -831,6 +825,7 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
         "metrics": ["${prefix}num_repair_orders"],
         "tags": [],
     }
+    # Note: None values are filtered out in the export for cleaner output
     assert node_defs["${prefix}repair_orders_fact"]["dimension_links"] == [
         {
             "dimension_node": "${prefix}municipality_dim",
@@ -838,16 +833,12 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "${prefix}municipality_dim.municipality_id",
             "join_type": "inner",
             "type": "join",
-            "node_column": None,
-            "role": None,
         },
         {
             "dimension_node": "${prefix}hard_hat",
             "join_on": "${prefix}repair_orders_fact.hard_hat_id = ${prefix}hard_hat.hard_hat_id",
             "join_type": "inner",
             "type": "join",
-            "node_column": None,
-            "role": None,
         },
         {
             "dimension_node": "${prefix}hard_hat_to_delete",
@@ -855,16 +846,12 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "${prefix}hard_hat_to_delete.hard_hat_id",
             "join_type": "left",
             "type": "join",
-            "node_column": None,
-            "role": None,
         },
         {
             "dimension_node": "${prefix}dispatcher",
             "join_on": "${prefix}repair_orders_fact.dispatcher_id = ${prefix}dispatcher.dispatcher_id",
             "join_type": "inner",
             "type": "join",
-            "node_column": None,
-            "role": None,
         },
     ]
 
@@ -1417,3 +1404,218 @@ class TestBulkNamespaceSources:
         assert len(bulk_response.sources) == 1
         assert "bulk_single_ns" in bulk_response.sources
         assert bulk_response.sources["bulk_single_ns"].total_deployments == 1
+
+
+class TestExportYaml:
+    """Tests for GET /namespaces/{namespace}/export/yaml endpoint (ZIP download)"""
+
+    @pytest.mark.asyncio
+    async def test_export_yaml_returns_zip(self, client_with_roads):
+        """Test that export/yaml returns a valid ZIP file"""
+        import zipfile
+        import io
+
+        response = await client_with_roads.get("/namespaces/default/export/yaml")
+        assert response.status_code == 200
+
+        # Check content type is ZIP
+        assert "application/zip" in response.headers.get("content-type", "")
+
+        # Check content disposition header
+        content_disp = response.headers.get("content-disposition", "")
+        assert "attachment" in content_disp
+        assert "default_export.zip" in content_disp
+
+        # Verify it's a valid ZIP file
+        zip_buffer = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            file_list = zf.namelist()
+            # Should have dj.yaml manifest
+            assert "dj.yaml" in file_list
+
+            # Should have node files
+            assert len(file_list) > 1
+
+            # Read and verify dj.yaml content
+            import yaml
+
+            manifest_content = zf.read("dj.yaml").decode("utf-8")
+            manifest = yaml.safe_load(manifest_content)
+            assert manifest["namespace"] == "default"
+            assert "name" in manifest
+            assert "description" in manifest
+
+    @pytest.mark.asyncio
+    async def test_export_yaml_node_files_structure(self, client_with_roads):
+        """Test that exported node files have correct structure"""
+        import zipfile
+        import io
+        import yaml
+
+        response = await client_with_roads.get("/namespaces/default/export/yaml")
+        assert response.status_code == 200
+
+        zip_buffer = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            # Get a node file (not dj.yaml)
+            node_files = [f for f in zf.namelist() if f != "dj.yaml"]
+            assert len(node_files) > 0
+
+            # Check at least one node file has valid YAML structure
+            for node_file in node_files[:3]:  # Check first 3 node files
+                content = zf.read(node_file).decode("utf-8")
+                node_data = yaml.safe_load(content)
+
+                # Node should have a name
+                assert "name" in node_data
+                # Node should have a node_type
+                assert "node_type" in node_data
+
+
+class TestYamlHelpers:
+    """Tests for internal YAML helper functions"""
+
+    def test_multiline_str_representer_with_newlines(self):
+        """Test that multiline strings get literal block style"""
+        from datajunction_server.internal.namespaces import _multiline_str_representer
+        import yaml
+
+        dumper = yaml.SafeDumper("")
+
+        # Test with multiline string
+        multiline = "SELECT *\nFROM table\nWHERE x = 1"
+        result = _multiline_str_representer(dumper, multiline)
+        assert result.style == "|"
+
+    def test_multiline_str_representer_single_line(self):
+        """Test that single line strings don't get block style"""
+        from datajunction_server.internal.namespaces import _multiline_str_representer
+        import yaml
+
+        dumper = yaml.SafeDumper("")
+
+        # Test with single line string
+        single = "SELECT * FROM table"
+        result = _multiline_str_representer(dumper, single)
+        assert result.style is None  # Default style
+
+    def test_get_yaml_dumper(self):
+        """Test that YAML dumper is properly configured"""
+        from datajunction_server.internal.namespaces import _get_yaml_dumper
+        import yaml
+
+        dumper = _get_yaml_dumper()
+
+        # Verify it's a SafeDumper
+        assert dumper == yaml.SafeDumper or issubclass(dumper, yaml.SafeDumper)
+
+        # Test dumping a multiline string uses literal block style
+        data = {"query": "SELECT *\nFROM table\nWHERE x = 1"}
+        output = yaml.dump(data, Dumper=dumper)
+        assert "|" in output  # Should use literal block style
+
+    def test_node_spec_to_yaml_dict_excludes_none(self):
+        """Test that _node_spec_to_yaml_dict excludes None values"""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import TransformSpec
+
+        spec = TransformSpec(
+            name="test.node",
+            query="SELECT 1",
+            description=None,  # Should be excluded
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        assert "name" in result
+        assert "query" in result
+        assert "description" not in result  # None should be excluded
+
+    def test_node_spec_to_yaml_dict_cube_excludes_columns(self):
+        """Test that cube nodes always exclude columns"""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import CubeSpec, ColumnSpec
+
+        spec = CubeSpec(
+            name="test.cube",
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            columns=[
+                ColumnSpec(name="col1", type="int"),
+            ],
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        assert "columns" not in result
+        assert "metrics" in result
+        assert "dimensions" in result
+
+    def test_node_spec_to_yaml_dict_filters_columns_without_customizations(self):
+        """Test that columns without customizations are filtered out"""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        spec = TransformSpec(
+            name="test.transform",
+            query="SELECT id, name FROM source",
+            columns=[
+                # Column without customization - should be filtered
+                ColumnSpec(name="id", type="int"),
+                # Column with custom display_name - should be kept
+                ColumnSpec(name="name", type="string", display_name="Full Name"),
+            ],
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        # Only the column with customization should remain
+        if "columns" in result:
+            assert len(result["columns"]) == 1
+            assert result["columns"][0]["name"] == "name"
+            assert result["columns"][0]["display_name"] == "Full Name"
+            # Type should be excluded from output
+            assert "type" not in result["columns"][0]
+
+    def test_node_spec_to_yaml_dict_keeps_column_with_attributes(self):
+        """Test that columns with attributes are kept"""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        spec = TransformSpec(
+            name="test.transform",
+            query="SELECT id FROM source",
+            columns=[
+                ColumnSpec(name="id", type="int", attributes=["primary_key"]),
+            ],
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        assert "columns" in result
+        assert len(result["columns"]) == 1
+        assert result["columns"][0]["attributes"] == ["primary_key"]
+
+    def test_node_spec_to_yaml_dict_removes_empty_columns(self):
+        """Test that columns key is removed when no columns have customizations"""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        spec = TransformSpec(
+            name="test.transform",
+            query="SELECT id, name FROM source",
+            columns=[
+                # Both columns without customizations
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(
+                    name="name",
+                    type="string",
+                    display_name="name",
+                ),  # same as name
+            ],
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        # columns key should be removed entirely
+        assert "columns" not in result

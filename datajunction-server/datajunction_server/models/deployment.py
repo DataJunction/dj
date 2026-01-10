@@ -59,11 +59,16 @@ class PartitionSpec(BaseModel):
 
 class ColumnSpec(BaseModel):
     """
-    Represents a column
+    Represents a column.
+
+    The `type` field is optional - if not provided, DJ will infer the column
+    type from the query or source definition. This is useful when you only
+    want to specify metadata (display_name, attributes, description) without
+    hardcoding the type.
     """
 
     name: str
-    type: str
+    type: str | None = None  # Optional - DJ infers from query/source if not provided
     display_name: str | None = None
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
@@ -567,6 +572,7 @@ class NamespaceDeploymentSource(BaseModel):
     first_deployed_at: str | None = None  # ISO datetime
     last_deployed_at: str | None = None  # ISO datetime
     last_deployment_id: str | None = None  # UUID of the most recent deployment
+    last_deployed_by: str | None = None  # Username of who made the last deployment
 
 
 class NamespaceSourcesResponse(BaseModel):

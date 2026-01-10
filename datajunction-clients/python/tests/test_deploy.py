@@ -22,6 +22,81 @@ def test_clean_dict_removes_nones_and_empty():
     assert cleaned == {"d": {"k": "keep"}, "e": [1, 2]}
 
 
+def test_filter_node_for_export_removes_columns_without_customizations():
+    """Columns without meaningful customizations should be removed."""
+    node = {
+        "name": "test.node",
+        "query": "SELECT * FROM foo",
+        "columns": [
+            # Should be kept: has custom display_name
+            {"name": "user_id", "type": "INT", "display_name": "User ID"},
+            # Should be removed: display_name same as name
+            {"name": "created_at", "type": "TIMESTAMP", "display_name": "created_at"},
+            # Should be kept: has attributes
+            {"name": "id", "type": "BIGINT", "attributes": ["primary_key"]},
+            # Should be removed: no customizations
+            {"name": "plain_col", "type": "VARCHAR"},
+            # Should be kept: has description
+            {"name": "desc_col", "type": "TEXT", "description": "A useful column"},
+        ],
+    }
+
+    filtered = DeploymentService.filter_node_for_export(node)
+
+    # Only columns with customizations should remain
+    assert len(filtered["columns"]) == 3
+
+    # Type should be excluded from all columns
+    for col in filtered["columns"]:
+        assert "type" not in col
+
+    # Check correct columns were kept
+    col_names = [c["name"] for c in filtered["columns"]]
+    assert "user_id" in col_names
+    assert "id" in col_names
+    assert "desc_col" in col_names
+    assert "created_at" not in col_names
+    assert "plain_col" not in col_names
+
+
+def test_filter_node_for_export_removes_columns_key_when_empty():
+    """If no columns have customizations, the columns key should be removed."""
+    node = {
+        "name": "test.node",
+        "query": "SELECT * FROM foo",
+        "columns": [
+            {"name": "a", "type": "INT"},
+            {"name": "b", "type": "VARCHAR", "display_name": "b"},  # same as name
+        ],
+    }
+
+    filtered = DeploymentService.filter_node_for_export(node)
+
+    assert "columns" not in filtered
+
+
+def test_filter_node_for_export_always_removes_columns_for_cubes():
+    """Cube columns should always be removed - they're inferred from metrics/dimensions."""
+    node = {
+        "name": "test.cube",
+        "node_type": "cube",
+        "metrics": ["test.metric1", "test.metric2"],
+        "dimensions": ["test.dim1"],
+        "columns": [
+            {"name": "metric1", "type": "BIGINT"},
+            {"name": "dim1", "type": "VARCHAR", "display_name": "Dimension 1"},
+        ],
+    }
+
+    filtered = DeploymentService.filter_node_for_export(node)
+
+    # Columns should be removed regardless of customizations
+    assert "columns" not in filtered
+    # Other fields should remain
+    assert filtered["metrics"] == ["test.metric1", "test.metric2"]
+    assert filtered["dimensions"] == ["test.dim1"]
+
+
 def test_pull_writes_yaml_files(tmp_path):
     # fake client returning a minimal deployment spec
     client = MagicMock()
@@ -179,18 +254,21 @@ def test_read_project_yaml_returns_empty(tmp_path: Path):
 class TestBuildDeploymentSource:
     """Tests for _build_deployment_source method."""
 
-    def test_no_env_vars_returns_none(self, monkeypatch):
-        """When no DJ_DEPLOY_* env vars are set, returns None."""
-        # Ensure none of the relevant env vars are set
+    def test_no_git_env_vars_returns_local_source(self, monkeypatch):
+        """When no DJ_DEPLOY_REPO is set, returns local source with hostname."""
+        # Ensure none of the git-related env vars are set
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_BRANCH", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
-        monkeypatch.delenv("DJ_DEPLOY_TRACK_LOCAL", raising=False)
 
         result = DeploymentService._build_deployment_source()
-        assert result is None
+
+        # Now we always track local deploys
+        assert result is not None
+        assert result["type"] == "local"
+        assert "hostname" in result
 
     def test_git_source_with_all_fields(self, monkeypatch):
         """When DJ_DEPLOY_REPO is set, returns git source with all fields."""
@@ -283,21 +361,84 @@ class TestBuildDeploymentSource:
         assert spec["source"]["repository"] == "github.com/test/repo"
         assert spec["source"]["branch"] == "feature-branch"
 
-    def test_reconstruct_deployment_spec_no_source_without_env_vars(
+    def test_reconstruct_deployment_spec_local_source_without_repo_env_var(
         self,
         tmp_path,
         monkeypatch,
     ):
-        """_reconstruct_deployment_spec should not include source when no env vars."""
+        """_reconstruct_deployment_spec should include local source when no repo env var."""
         # Set up project files
         (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "test"}))
         (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "test.node"}))
 
-        # Ensure no env vars are set
+        # Ensure no git env vars are set
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
-        monkeypatch.delenv("DJ_DEPLOY_TRACK_LOCAL", raising=False)
 
         svc = DeploymentService(MagicMock())
         spec = svc._reconstruct_deployment_spec(tmp_path)
 
-        assert "source" not in spec
+        # Now we always track local deploys
+        assert "source" in spec
+        assert spec["source"]["type"] == "local"
+        assert "hostname" in spec["source"]
+
+
+class TestGetImpact:
+    """Tests for the get_impact method."""
+
+    def test_get_impact_calls_api(self, tmp_path, monkeypatch):
+        """get_impact should call the deployment impact API."""
+        # Set up project files
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "test.ns"}))
+        (tmp_path / "node.yaml").write_text(
+            yaml.safe_dump({"name": "test.ns.my_node", "node_type": "source"}),
+        )
+
+        # Ensure no git env vars are set for cleaner test
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+
+        # Create mock client
+        mock_client = MagicMock()
+        mock_client.get_deployment_impact.return_value = {
+            "namespace": "test.ns",
+            "changes": [],
+            "create_count": 0,
+            "update_count": 0,
+            "delete_count": 0,
+            "skip_count": 1,
+            "downstream_impacts": [],
+            "will_invalidate_count": 0,
+            "may_affect_count": 0,
+            "warnings": [],
+        }
+
+        svc = DeploymentService(mock_client)
+        result = svc.get_impact(tmp_path)
+
+        # Verify the API was called
+        mock_client.get_deployment_impact.assert_called_once()
+        call_args = mock_client.get_deployment_impact.call_args[0][0]
+        assert call_args["namespace"] == "test.ns"
+        assert "nodes" in call_args
+
+        # Verify the result is returned
+        assert result["namespace"] == "test.ns"
+        assert result["skip_count"] == 1
+
+    def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
+        """get_impact should respect namespace override."""
+        # Set up project files
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "original.ns"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "test.node"}))
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+
+        mock_client = MagicMock()
+        mock_client.get_deployment_impact.return_value = {"namespace": "override.ns"}
+
+        svc = DeploymentService(mock_client)
+        svc.get_impact(tmp_path, namespace="override.ns")
+
+        # Verify the namespace was overridden in the API call
+        call_args = mock_client.get_deployment_impact.call_args[0][0]
+        assert call_args["namespace"] == "override.ns"

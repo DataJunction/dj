@@ -109,7 +109,10 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as exc:
-            if exc.response.headers.get("Content-Type") == "application/json":
+            if exc.response is None:
+                # Connection error - no response received
+                error_message = f"Connection failed: {str(exc)}"
+            elif exc.response.headers.get("Content-Type") == "application/json":
                 error_message = exc.response.json()
             else:
                 error_message = f"Request failed {exc.response.status_code}: {str(exc)}"
@@ -213,6 +216,17 @@ class DJClient:
         """
         response = self._session.get(
             f"/deployments/{deployment_uuid}",
+            timeout=self._timeout,
+        )
+        return response.json()
+
+    def get_deployment_impact(self, deployment_spec: Dict[str, Any]):
+        """
+        Get impact analysis for a deployment spec without deploying.
+        """
+        response = self._session.post(
+            "/deployments/impact",
+            json=deployment_spec,
             timeout=self._timeout,
         )
         return response.json()
