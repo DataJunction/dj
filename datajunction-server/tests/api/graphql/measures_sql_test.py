@@ -10,7 +10,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_measures_sql(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Test requesting measures SQL for a set of metrics, dimensions, and filters
@@ -44,7 +44,7 @@ async def test_measures_sql(
     }
     """
 
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/graphql",
         json={
             "query": query,
@@ -115,7 +115,7 @@ async def test_measures_sql(
 
 @pytest.mark.asyncio
 async def test_materialization_plan(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ):
     """
     Test requesting materialization plan for a set of metrics, dimensions, and filters
@@ -154,7 +154,7 @@ async def test_materialization_plan(
     }
     """
 
-    response = await module__client_with_roads.post(
+    response = await client_with_roads.post(
         "/graphql",
         json={
             "query": query,
