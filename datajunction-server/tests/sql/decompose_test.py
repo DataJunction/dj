@@ -1154,7 +1154,7 @@ async def test_approx_count_distinct_combined_metrics_dialect_translation(
     druid_sql = to_sql(derived_sql, Dialect.DRUID)
     assert_sql_equal(
         druid_sql,
-        "SELECT SUM(revenue_sum_60e4d31f) / hll_sketch_estimate(ds_hll(user_id_hll_7f092f23)) AS revenue_per_user FROM parent_node",
+        "SELECT SAFE_DIVIDE(SUM(revenue_sum_60e4d31f), hll_sketch_estimate(ds_hll(user_id_hll_7f092f23))) AS revenue_per_user FROM parent_node",
     )
 
     # Translate to Trino

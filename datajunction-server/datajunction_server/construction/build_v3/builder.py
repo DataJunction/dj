@@ -163,8 +163,13 @@ async def build_metrics_sql(
     """
     # Try cube match first (early exit)
     if use_materialized:
-        cube = await find_matching_cube(session, metrics, dimensions)
-        if cube and cube.availability:
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+        if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
             return await build_sql_from_cube(
                 session=session,

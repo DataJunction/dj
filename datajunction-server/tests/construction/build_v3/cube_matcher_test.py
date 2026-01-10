@@ -1566,3 +1566,409 @@ class TestBuildSyntheticGrainGroup:
                 decomposed_metrics=decomposed_metrics,
                 cube=cube,
             )
+
+
+class TestBuildMetricsSqlCubePath:
+    """
+    Tests for build_metrics_sql that exercise the cube matching path (Layer 1).
+
+    These tests verify that when a matching cube with availability is found,
+    build_metrics_sql uses the cube's table as the source instead of computing
+    from source tables.
+    """
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_uses_cube_when_available(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should use cube table when matching cube with availability exists."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Create a cube
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_for_metrics_sql",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for build_metrics_sql test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_for_metrics_sql/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_for_metrics_sql",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Call build_metrics_sql - should use cube path
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=True,
+        )
+
+        # Verify SQL using assert_sql_equal - queries cube table with re-aggregation
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_for_metrics_sql_0 AS (
+                SELECT category, total_revenue
+                FROM default.analytics.cube_for_metrics_sql
+            )
+            SELECT
+                COALESCE(cube_for_metrics_sql_0.category) AS category,
+                SUM(cube_for_metrics_sql_0.total_revenue) AS total_revenue
+            FROM cube_for_metrics_sql_0
+            GROUP BY cube_for_metrics_sql_0.category
+            """,
+        )
+
+        # Verify output columns
+        assert len(result.columns) == 2
+        column_names = [col.name for col in result.columns]
+        assert "category" in column_names
+        assert "total_revenue" in column_names
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_falls_back_when_no_cube(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should fall back to source tables when no matching cube exists."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Don't create any cube - just call build_metrics_sql
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.page_view_count"],  # No cube has this metric
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=True,
+        )
+
+        # Verify SQL uses source tables (page_views), not cube
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+                SELECT view_id, product_id
+                FROM default.v3.page_views
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, COUNT(t1.view_id) page_view_count
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category
+            )
+            SELECT
+                COALESCE(page_views_enriched_0.category) AS category,
+                SUM(page_views_enriched_0.page_view_count) AS page_view_count
+            FROM page_views_enriched_0
+            GROUP BY page_views_enriched_0.category
+            """,
+        )
+
+        # Verify output columns
+        column_names = [col.name for col in result.columns]
+        assert "category" in column_names
+        assert "page_view_count" in column_names
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_skips_cube_when_use_materialized_false(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should NOT use cube when use_materialized=False."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Create a cube with availability
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_skip_test",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube that should be skipped",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_skip_test/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_skip_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Call build_metrics_sql with use_materialized=False
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=False,  # Should skip cube lookup
+        )
+
+        # Verify SQL does NOT reference the cube table - uses source tables
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) total_revenue
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category
+            )
+            SELECT
+                COALESCE(order_details_0.category) AS category,
+                SUM(order_details_0.total_revenue) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_cube_with_multi_component_metric(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should correctly handle multi-component metrics (like AVG) from cube."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Create a cube with AVG metric (decomposes to SUM + COUNT)
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_avg_metric",
+                "metrics": ["v3.avg_unit_price"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube with AVG metric",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_avg_metric/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_avg_metric",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Call build_metrics_sql
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.avg_unit_price"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=True,
+        )
+
+        # Verify SQL with combiner expression for AVG (SUM/SUM for re-aggregation)
+        # AVG decomposes into unit_price_sum_xxx and unit_price_count_xxx components
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_avg_metric_0 AS (
+                SELECT category, unit_price_count_55cff00f, unit_price_sum_55cff00f
+                FROM default.analytics.cube_avg_metric
+            )
+            SELECT
+                COALESCE(cube_avg_metric_0.category) AS category,
+                SUM(cube_avg_metric_0.unit_price_sum_55cff00f)
+                    / SUM(cube_avg_metric_0.unit_price_count_55cff00f) AS avg_unit_price
+            FROM cube_avg_metric_0
+            GROUP BY cube_avg_metric_0.category
+            """,
+            normalize_aliases=True,
+        )
+
+        # Verify output columns
+        column_names = [col.name for col in result.columns]
+        assert "avg_unit_price" in column_names
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_cube_with_multiple_metrics(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should handle cube with multiple metrics correctly."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Create a cube with multiple metrics
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_multi_metrics",
+                "metrics": ["v3.total_revenue", "v3.total_quantity"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube with multiple metrics",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_multi_metrics/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_multi_metrics",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Call build_metrics_sql with both metrics
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue", "v3.total_quantity"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=True,
+        )
+
+        # Verify SQL with both metrics from cube
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_multi_metrics_0 AS (
+                SELECT category, total_revenue, total_quantity
+                FROM default.analytics.cube_multi_metrics
+            )
+            SELECT
+                COALESCE(cube_multi_metrics_0.category) AS category,
+                SUM(cube_multi_metrics_0.total_revenue) AS total_revenue,
+                SUM(cube_multi_metrics_0.total_quantity) AS total_quantity
+            FROM cube_multi_metrics_0
+            GROUP BY cube_multi_metrics_0.category
+            """,
+        )
+
+        # Verify both metrics in output
+        column_names = [col.name for col in result.columns]
+        assert "total_revenue" in column_names
+        assert "total_quantity" in column_names
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_cube_rollup(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should roll up cube data when querying with fewer dimensions."""
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        # Create a cube with multiple dimensions
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_rollup_test",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.product.subcategory",
+                ],
+                "mode": "published",
+                "description": "Cube for rollup test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_rollup_test/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_rollup_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Query with only one dimension (should roll up)
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],  # Subset of cube dims
+            filters=None,
+            dialect=Dialect.SPARK,
+            use_materialized=True,
+        )
+
+        # Verify SQL - cube has both dims, but only category requested
+        # The cube table is queried with both columns but only category in output
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_rollup_test_0 AS (
+                SELECT category, total_revenue
+                FROM default.analytics.cube_rollup_test
+            )
+            SELECT
+                COALESCE(cube_rollup_test_0.category) AS category,
+                SUM(cube_rollup_test_0.total_revenue) AS total_revenue
+            FROM cube_rollup_test_0
+            GROUP BY cube_rollup_test_0.category
+            """,
+        )
+
+        # Only category should be in output (not subcategory)
+        column_names = [col.name for col in result.columns]
+        assert "category" in column_names
+        assert "subcategory" not in column_names
