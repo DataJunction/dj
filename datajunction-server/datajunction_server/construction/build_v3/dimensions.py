@@ -139,6 +139,7 @@ def can_skip_join_for_dimension(
     Returns:
         Tuple of (can_skip: bool, local_column_name: str | None)
     """
+    import time
     if not join_path or not join_path.links:  # pragma: no cover
         return False, None
 
@@ -152,7 +153,14 @@ def can_skip_join_for_dimension(
     dim_col_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # Check if this dimension column is in the foreign keys mapping
-    if parent_col := link.foreign_keys_reversed.get(dim_col_fqn):  # pragma: no cover
+    # NOTE: foreign_keys_reversed PARSES SQL every time - this is the bottleneck!
+    _t = time.perf_counter()
+    fk_reversed = link.foreign_keys_reversed
+    _elapsed = (time.perf_counter() - _t) * 1000
+    if _elapsed > 1:  # Log if > 1ms
+        logger.info(f"[BuildV3 TIMING] foreign_keys_reversed took {_elapsed:.1f}ms for {dim_ref.node_name}")
+
+    if parent_col := fk_reversed.get(dim_col_fqn):  # pragma: no cover
         # Join can be skipped - the FK column on the parent matches the requested dim
         return True, get_short_name(parent_col)
     return False, None
@@ -170,10 +178,17 @@ def resolve_dimensions(
 
     Returns a list of ResolvedDimension objects with join path information.
     """
+    import time
+    _parse_time = 0.0
+    _find_path_time = 0.0
+    _can_skip_time = 0.0
+
     resolved = []
 
     for dim in ctx.dimensions:
+        _t0 = time.perf_counter()
         dim_ref = parse_dimension_ref(dim)
+        _parse_time += time.perf_counter() - _t0
 
         # Check if it's a local dimension (column on the parent node itself)
         is_local = False
@@ -197,6 +212,7 @@ def resolve_dimensions(
             )
         else:
             # Need to find join path
+            _t1 = time.perf_counter()
             join_path = find_join_path(
                 ctx,
                 parent_node,
@@ -217,13 +233,16 @@ def resolve_dimensions(
                         dim_ref.node_name,
                         dim_ref.role,
                     )
+            _find_path_time += time.perf_counter() - _t1
 
             # Optimization: if requesting the join key column, skip the join
+            _t2 = time.perf_counter()
             can_skip, local_col = can_skip_join_for_dimension(
                 dim_ref,
                 join_path,
                 parent_node,
             )
+            _can_skip_time += time.perf_counter() - _t2
             if can_skip and local_col:  # pragma: no cover
                 logger.info(
                     f"[BuildV3] Skipping join for {dim} - using local column {local_col}",
@@ -250,6 +269,11 @@ def resolve_dimensions(
                     ),
                 )
 
+    logger.info(
+        f"[BuildV3 TIMING] resolve_dimensions breakdown ({len(ctx.dimensions)} dims): "
+        f"parse={_parse_time * 1000:.1f}ms, find_path={_find_path_time * 1000:.1f}ms, "
+        f"can_skip={_can_skip_time * 1000:.1f}ms"
+    )
     return resolved
 
 

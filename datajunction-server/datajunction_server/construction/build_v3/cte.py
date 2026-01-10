@@ -550,15 +550,21 @@ def collect_node_ctes(
 
     Returns list of (cte_name, query_ast) tuples in dependency order.
     """
+    import time
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    _t_start = time.perf_counter()
+
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
     mat_check_time = 0.0
-    parse_check_time = 0.0
+    parse_time = 0.0
     ref_extract_time = 0.0
     call_count = 0
 
     def collect_refs(node: Node, visited: set[str]) -> None:
-        nonlocal mat_check_time, parse_check_time, ref_extract_time, call_count
+        nonlocal mat_check_time, parse_time, ref_extract_time, call_count
         call_count += 1
 
         if node.name in visited:  # pragma: no branch
@@ -569,7 +575,9 @@ def collect_node_ctes(
             return  # Sources don't become CTEs
 
         # Skip materialized nodes - they use physical tables, not CTEs
+        _t_mat = time.perf_counter()
         is_mat = should_use_materialized_table(ctx, node)
+        mat_check_time += time.perf_counter() - _t_mat
         if is_mat:  # pragma: no cover
             return
 
@@ -578,9 +586,13 @@ def collect_node_ctes(
         if node.current and node.current.query:  # pragma: no branch
             try:
                 # Use cached parsed query for reference extraction
+                _t_parse = time.perf_counter()
                 query_ast = ctx.get_parsed_query(node)
+                parse_time += time.perf_counter() - _t_parse
 
+                _t_ref = time.perf_counter()
                 refs = get_table_references_from_ast(query_ast)
+                ref_extract_time += time.perf_counter() - _t_ref
 
                 for ref in refs:
                     ref_node = ctx.nodes.get(ref)
@@ -595,8 +607,20 @@ def collect_node_ctes(
     for node in nodes_to_include:
         collect_refs(node, shared_visited)
 
+    _t_collect = time.perf_counter()
+    _logger.info(
+        f"[BuildV3 TIMING] collect_refs breakdown ({call_count} calls): "
+        f"mat_check={mat_check_time * 1000:.1f}ms, "
+        f"parse={parse_time * 1000:.1f}ms, "
+        f"ref_extract={ref_extract_time * 1000:.1f}ms, "
+        f"TOTAL={(_t_collect - _t_start) * 1000:.1f}ms"
+    )
+
     # Topologically sort all collected nodes
     sorted_nodes = topological_sort_nodes(ctx, all_node_names)
+
+    _t_topo = time.perf_counter()
+    _logger.info(f"[BuildV3 TIMING] collect_node_ctes - topological_sort: {(_t_topo - _t_collect) * 1000:.1f}ms")
 
     # Build CTE name mapping
     cte_names: dict[str, str] = {}
@@ -605,6 +629,11 @@ def collect_node_ctes(
 
     # Build CTEs in dependency order
     ctes: list[tuple[str, ast.Query]] = []
+    _deepcopy_time = 0.0
+    _flatten_time = 0.0
+    _rewrite_time = 0.0
+    _filter_time = 0.0
+
     for node in sorted_nodes:
         if node.type == NodeType.SOURCE:  # pragma: no cover
             continue
@@ -617,16 +646,21 @@ def collect_node_ctes(
             continue
 
         # Get parsed query from cache (uses deepcopy internally to avoid mutation)
+        _t_dc = time.perf_counter()
         query_ast = deepcopy(ctx.get_parsed_query(node))
+        _deepcopy_time += time.perf_counter() - _t_dc
 
         cte_name = cte_names[node.name]
 
         # Flatten any inner CTEs to avoid nested WITH clauses
         # Returns extracted CTEs and mapping of old names -> prefixed names
+        _t_fl = time.perf_counter()
         inner_ctes, inner_cte_renames = flatten_inner_ctes(query_ast, cte_name)
+        _flatten_time += time.perf_counter() - _t_fl
 
         # Rewrite table references in extracted inner CTEs
         # (they may reference sources or materialized nodes -> physical table names)
+        _t_rw = time.perf_counter()
         for inner_cte_name, inner_cte_query in inner_ctes:
             rewrite_table_references(
                 inner_cte_query,
@@ -645,15 +679,21 @@ def collect_node_ctes(
             cte_names,
             inner_cte_renames,
         )
+        _rewrite_time += time.perf_counter() - _t_rw
 
         # Apply column filtering if specified
+        _t_filt = time.perf_counter()
         needed_cols = None
         if needed_columns_by_node:  # pragma: no branch
             needed_cols = needed_columns_by_node.get(node.name)
 
         if needed_cols:  # pragma: no branch
             query_ast = filter_cte_projection(query_ast, needed_cols)
+        _filter_time += time.perf_counter() - _t_filt
 
         ctes.append((cte_name, query_ast))
+
+    _logger.info(f"[BuildV3 TIMING] collect_node_ctes - deepcopy: {_deepcopy_time * 1000:.1f}ms, flatten: {_flatten_time * 1000:.1f}ms, rewrite: {_rewrite_time * 1000:.1f}ms, filter: {_filter_time * 1000:.1f}ms")
+    ctx.log_cache_stats()
 
     return ctes

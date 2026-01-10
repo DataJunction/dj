@@ -306,6 +306,12 @@ def build_select_ast(
     Returns:
         AST Query node
     """
+    import time
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    _t0 = time.perf_counter()
+
     # Build projection (SELECT clause)
     # Use Any type to satisfy ast.Select.projection which accepts Union[Aliasable, Expression, Column]
     projection: list[Any] = []
@@ -474,7 +480,9 @@ def build_select_ast(
                         needed_columns_by_node[dim_node.name] = dim_cols
 
     # Build CTEs for all non-source nodes with column filtering
+    _t_ctes = time.perf_counter()
     ctes = collect_node_ctes(ctx, nodes_for_ctes, needed_columns_by_node)
+    _logger.info(f"[BuildV3 TIMING] collect_node_ctes ({len(ctes)} ctes, {len(nodes_for_ctes)} nodes): {(time.perf_counter() - _t_ctes) * 1000:.1f}ms")
 
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
@@ -578,6 +586,7 @@ def build_select_ast(
             cte_list.append(cte_query)
         query.ctes = cte_list
 
+    _logger.info(f"[BuildV3 TIMING] build_select_ast total: {(time.perf_counter() - _t0) * 1000:.1f}ms")
     return query
 
 
@@ -813,6 +822,11 @@ def build_grain_group_sql(
     Returns:
         GrainGroupSQL with SQL and metadata for this grain group
     """
+    import time
+    import logging
+
+    logger = logging.getLogger(__name__)
+    _t_start = time.perf_counter()
     parent_node = grain_group.parent_node
 
     # Check for matching pre-aggregation
@@ -971,6 +985,7 @@ def build_grain_group_sql(
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),
     # we pass through raw rows without aggregation
+    _t_build_ast = time.perf_counter()
     if grain_group.non_decomposable_metrics and not component_expressions:
         # Pure non-decomposable case: pass through raw rows (no GROUP BY)
         # Add non-decomposable columns to grain_columns so they appear as plain columns
@@ -998,6 +1013,7 @@ def build_grain_group_sql(
             grain_columns=effective_grain_columns,
             filters=ctx.filters,
         )
+    logger.info(f"[BuildV3 TIMING] build_select_ast: {(time.perf_counter() - _t_build_ast) * 1000:.1f}ms")
 
     # Build column metadata
     columns_metadata = []
@@ -1139,6 +1155,10 @@ def process_metric_group(
     Returns:
         List of GrainGroupSQL, one per aggregability level
     """
+    import time
+    import logging
+
+    logger = logging.getLogger(__name__)
     parent_node = metric_group.parent_node
 
     # Count components per metric to determine naming strategy
@@ -1148,29 +1168,37 @@ def process_metric_group(
 
     # Analyze grain groups - split by aggregability
     # Extract just the column names from dimensions for grain analysis
+    t0 = time.perf_counter()
     dim_column_names = [parse_dimension_ref(d).column_name for d in ctx.dimensions]
     grain_groups = analyze_grain_groups(metric_group, dim_column_names)
+    logger.info(f"[BuildV3 TIMING] analyze_grain_groups: {(time.perf_counter() - t0) * 1000:.1f}ms")
 
     # Merge compatible grain groups from same parent into single CTEs
     # This optimization reduces duplicate JOINs by outputting raw values
     # at finest grain, with aggregations applied in final SELECT
+    t1 = time.perf_counter()
     grain_groups = merge_grain_groups(grain_groups)
+    logger.info(f"[BuildV3 TIMING] merge_grain_groups: {(time.perf_counter() - t1) * 1000:.1f}ms")
 
     # Resolve dimensions (find join paths) - shared across grain groups
+    t2 = time.perf_counter()
     resolved_dimensions = resolve_dimensions(ctx, parent_node)
+    logger.info(f"[BuildV3 TIMING] resolve_dimensions: {(time.perf_counter() - t2) * 1000:.1f}ms")
 
     # Build SQL for each grain group
     grain_group_sqls: list[GrainGroupSQL] = []
-    for grain_group in grain_groups:
+    for i, grain_group in enumerate(grain_groups):
         # Reset alias registry for each grain group to avoid conflicts
         ctx.alias_registry = AliasRegistry()
         ctx._table_alias_counter = 0
 
+        t3 = time.perf_counter()
         grain_group_sql = build_grain_group_sql(
             ctx,
             grain_group,
             resolved_dimensions,
             components_per_metric,
         )
+        logger.info(f"[BuildV3 TIMING] build_grain_group_sql[{i}]: {(time.perf_counter() - t3) * 1000:.1f}ms")
         grain_group_sqls.append(grain_group_sql)
     return grain_group_sqls

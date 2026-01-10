@@ -71,6 +71,9 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    import time
+
+    t_start = time.perf_counter()
     ctx = BuildContext(
         session=session,
         metrics=metrics,
@@ -83,10 +86,14 @@ async def build_measures_sql(
     )
 
     # Load all required nodes (single DB round trip)
+    t0 = time.perf_counter()
     await load_nodes(ctx)
+    logger.info(f"[BuildV3 TIMING] load_nodes total: {(time.perf_counter() - t0) * 1000:.1f}ms")
 
     # Load available pre-aggregations (if use_materialized=True)
+    t1 = time.perf_counter()
     await load_available_preaggs(ctx)
+    logger.info(f"[BuildV3 TIMING] load_available_preaggs total: {(time.perf_counter() - t1) * 1000:.1f}ms")
 
     # Validate we have at least one metric
     if not ctx.metrics:
@@ -94,14 +101,19 @@ async def build_measures_sql(
 
     # Decompose metrics and group by parent node
     # Also returns the decomposed metrics to avoid redundant work
+    t2 = time.perf_counter()
     metric_groups, decomposed_metrics = await decompose_and_group_metrics(ctx)
+    logger.info(f"[BuildV3 TIMING] decompose_and_group_metrics: {(time.perf_counter() - t2) * 1000:.1f}ms")
 
     # Process each metric group into grain group SQLs
     # Cross-fact metrics produce separate grain groups (one per parent node)
+    t3 = time.perf_counter()
     all_grain_group_sqls: list[GrainGroupSQL] = []
     for metric_group in metric_groups:
         grain_group_sqls = process_metric_group(ctx, metric_group)
         all_grain_group_sqls.extend(grain_group_sqls)
+    logger.info(f"[BuildV3 TIMING] process_metric_groups: {(time.perf_counter() - t3) * 1000:.1f}ms")
+    logger.info(f"[BuildV3 TIMING] build_measures_sql TOTAL: {(time.perf_counter() - t_start) * 1000:.1f}ms")
 
     # Sanity check: all requested metrics should already be decomposed by group_metrics_by_parent
     for metric_name in metrics:

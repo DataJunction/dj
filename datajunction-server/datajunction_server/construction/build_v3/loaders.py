@@ -282,6 +282,8 @@ async def load_nodes(ctx: BuildContext) -> None:
     Query 2: Batch load all those nodes with eager loading
     Query 3-4: Find join paths and batch load dimension links
     """
+    import time
+
     # Collect initial node names (metrics + explicit dimension nodes)
     initial_node_names = set(ctx.metrics)
 
@@ -294,10 +296,12 @@ async def load_nodes(ctx: BuildContext) -> None:
             target_dim_names.add(dim_ref.node_name)
 
     # Find all upstream nodes using a recursive CTE query
+    t0 = time.perf_counter()
     all_node_names, parent_map = await find_upstream_node_names(
         ctx.session,
         list(initial_node_names),
     )
+    logger.info(f"[BuildV3 TIMING] Query 1 (find_upstream_node_names): {(time.perf_counter() - t0) * 1000:.1f}ms")
 
     # Store parent map in context for later use (e.g., get_parent_node)
     ctx.parent_map = parent_map
@@ -308,6 +312,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     logger.debug(f"[BuildV3] Found {len(all_node_names)} nodes to load")
 
     # Query 2: Batch load all nodes with appropriate eager loading
+    t1 = time.perf_counter()
     stmt = (
         select(Node)
         .where(Node.name.in_(all_node_names))
@@ -345,6 +350,7 @@ async def load_nodes(ctx: BuildContext) -> None:
 
     result = await ctx.session.execute(stmt)
     nodes = result.scalars().unique().all()
+    logger.info(f"[BuildV3 TIMING] Query 2 (batch load {len(nodes)} nodes): {(time.perf_counter() - t1) * 1000:.1f}ms")
 
     # Cache all loaded nodes
     for node in nodes:
@@ -414,7 +420,9 @@ async def load_nodes(ctx: BuildContext) -> None:
     logger.debug(f"[BuildV3] Loaded {len(ctx.nodes)} nodes")
 
     # Preload join paths for ALL parent nodes in a single batch
+    t2 = time.perf_counter()
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
+    logger.info(f"[BuildV3 TIMING] Query 3-4 (preload_join_paths): {(time.perf_counter() - t2) * 1000:.1f}ms")
 
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
@@ -434,6 +442,8 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
 
     This function is only called when ctx.use_materialized=True.
     """
+    import time
+
     if not ctx.use_materialized:
         return
 
@@ -443,6 +453,7 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
         return
 
     # Query for available pre-aggs with their availability state
+    t0 = time.perf_counter()
     stmt = (
         select(PreAggregation)
         .options(joinedload(PreAggregation.availability))
@@ -453,6 +464,7 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
     )
     result = await ctx.session.execute(stmt)
     preaggs = result.scalars().unique().all()
+    logger.info(f"[BuildV3 TIMING] Query 5 (load_available_preaggs): {(time.perf_counter() - t0) * 1000:.1f}ms")
 
     # Index by node_revision_id for fast lookup
     for preagg in preaggs:

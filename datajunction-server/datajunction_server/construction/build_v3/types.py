@@ -81,6 +81,10 @@ class BuildContext:
         # Use short alias like t1, t2, etc.
         return f"t{self._table_alias_counter}"
 
+    # Track parse cache statistics
+    _parse_cache_hits: int = 0
+    _parse_cache_misses: int = 0
+
     def get_parsed_query(self, node: Node) -> ast.Query:
         """
         Get the parsed query AST for a node, using cache if available.
@@ -88,15 +92,40 @@ class BuildContext:
         Important: Returns a reference to the cached AST. If you need to modify
         it, make a copy first to avoid corrupting the cache.
         """
+        import time
+        _t = time.perf_counter()
+
         if node.name in self._parsed_query_cache:
+            self._parse_cache_hits += 1
+            _elapsed = (time.perf_counter() - _t) * 1000
+            if _elapsed > 5:  # Log if > 5ms (cache hit should be instant)
+                logger.info(f"[BuildV3 TIMING] SLOW cache HIT for {node.name}: {_elapsed:.1f}ms")
             return self._parsed_query_cache[node.name]
 
+        self._parse_cache_misses += 1
         if not node.current or not node.current.query:  # pragma: no cover
             raise DJInvalidInputException(f"Node {node.name} has no query")
 
-        query_ast = parse(node.current.query)
+        query_str = node.current.query
+        query_ast = parse(query_str)
+        _elapsed = (time.perf_counter() - _t) * 1000
+        if _elapsed > 10:  # Log if parse takes > 10ms
+            query_len = len(query_str)
+            logger.info(
+                f"[BuildV3 TIMING] parse MISS for {node.name}: {_elapsed:.1f}ms "
+                f"(query size: {query_len} chars)"
+            )
         self._parsed_query_cache[node.name] = query_ast
         return query_ast
+
+    def log_cache_stats(self):
+        """Log parse cache statistics."""
+        total = self._parse_cache_hits + self._parse_cache_misses
+        hit_rate = (self._parse_cache_hits / total * 100) if total > 0 else 0
+        logger.info(
+            f"[BuildV3 CACHE] Parse cache: {self._parse_cache_hits} hits, "
+            f"{self._parse_cache_misses} misses ({hit_rate:.1f}% hit rate)"
+        )
 
     def get_parent_node(self, metric_node: Node) -> Node:
         """Get the parent node of a metric (the node it's defined on)."""
