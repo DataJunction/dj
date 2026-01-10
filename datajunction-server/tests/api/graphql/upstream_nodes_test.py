@@ -8,7 +8,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_upstream_nodes_overlapping_parents(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test upstreams for multiple metrics where one metric's parent transform
@@ -24,7 +24,7 @@ async def test_upstream_nodes_overlapping_parents(
         metric_on_base (METRIC) → base_transform
         metric_on_derived (METRIC) → derived_transform → base_transform
     """
-    client = module__client_with_roads
+    client = client_with_roads
 
     # Create source
     response = await client.post(
@@ -123,7 +123,7 @@ async def test_upstream_nodes_overlapping_parents(
 
 @pytest.mark.asyncio
 async def test_upstream_nodes(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding upstream nodes by node type
@@ -139,7 +139,7 @@ async def test_upstream_nodes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
@@ -158,7 +158,7 @@ async def test_upstream_nodes(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
@@ -168,7 +168,7 @@ async def test_upstream_nodes(
 
 @pytest.mark.asyncio
 async def test_upstream_nodes_multiple_inputs(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding upstream nodes from multiple input nodes.
@@ -182,7 +182,7 @@ async def test_upstream_nodes_multiple_inputs(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
@@ -195,13 +195,13 @@ async def test_upstream_nodes_multiple_inputs(
 
 @pytest.mark.asyncio
 async def test_upstream_nodes_deactivated(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test finding upstream nodes with and without deactivated nodes.
     """
     # First deactivate a node that is upstream of the metric
-    response = await module__client_with_roads.delete(
+    response = await client_with_roads.delete(
         "/nodes/default.repair_orders_fact",
     )
     assert response.status_code == 200
@@ -216,7 +216,7 @@ async def test_upstream_nodes_deactivated(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
@@ -232,7 +232,7 @@ async def test_upstream_nodes_deactivated(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
     upstream_names = {node["name"] for node in data["data"]["upstreamNodes"]}
@@ -241,7 +241,7 @@ async def test_upstream_nodes_deactivated(
 
 @pytest.mark.asyncio
 async def test_upstream_nodes_with_nested_fields(
-    module__client_with_roads: AsyncClient,
+    client_with_roads: AsyncClient,
 ) -> None:
     """
     Test upstream nodes query with nested fields that require database joins.
@@ -278,7 +278,7 @@ async def test_upstream_nodes_with_nested_fields(
     }
     """
 
-    response = await module__client_with_roads.post("/graphql", json={"query": query})
+    response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
 

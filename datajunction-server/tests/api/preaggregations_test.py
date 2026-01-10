@@ -1,5 +1,7 @@
 """Tests for /preaggs API endpoints."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -13,7 +15,42 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.partition import Granularity, PartitionType
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import get_query_service_client
+
+
+@pytest.fixture
+def mock_query_service_client(client_with_build_v3):
+    """
+    Provides a mock query service client for tests that need to mock QS calls.
+
+    Sets up the FastAPI dependency override so the mock is used by the API.
+    """
+    mock_client = MagicMock()
+    # Override the FastAPI dependency
+    client_with_build_v3.app.dependency_overrides[get_query_service_client] = (
+        lambda: mock_client
+    )
+    yield mock_client
+    # Clean up - remove the override (will be cleared by client fixture anyway)
+    if get_query_service_client in client_with_build_v3.app.dependency_overrides:
+        del client_with_build_v3.app.dependency_overrides[get_query_service_client]
+
+
+@pytest.fixture
+def mock_qs_for_preaggs(client_with_preaggs):
+    """
+    Provides a mock query service client for tests using client_with_preaggs fixture.
+
+    Sets up the FastAPI dependency override so the mock is used by the API.
+    """
+    mock_client = MagicMock()
+    client = client_with_preaggs["client"]
+    # Override the FastAPI dependency
+    client.app.dependency_overrides[get_query_service_client] = lambda: mock_client
+    yield mock_client
+    # Clean up
+    if get_query_service_client in client.app.dependency_overrides:
+        del client.app.dependency_overrides[get_query_service_client]
 
 
 async def _set_temporal_partition_via_session(
@@ -86,18 +123,21 @@ async def _plan_preagg(
     return response.json()["preaggs"][0]
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture
 async def client_with_preaggs(
-    module__client_with_build_v3: AsyncClient,
-    module__session: AsyncSession,
+    client_with_build_v3: AsyncClient,
+    session: AsyncSession,
 ):
     """
     Creates pre-aggregations for testing using BUILD_V3 examples.
 
     Uses /preaggs/plan API to create preaggs, which is more realistic
     and ensures consistency with the actual API behavior.
+
+    NOTE: Using function-scoped fixtures to avoid Python 3.11 hanging issues
+    with module-scoped async fixtures in pytest-asyncio.
     """
-    client = module__client_with_build_v3
+    client = client_with_build_v3
 
     # preagg1: Basic preagg with FULL strategy, single grain
     # total_revenue + total_quantity by status
@@ -178,20 +218,20 @@ async def client_with_preaggs(
     )
 
     # Fetch actual PreAggregation objects from DB for tests that need them
-    preagg1 = await module__session.get(PreAggregation, preagg1_data["id"])
-    preagg2 = await module__session.get(PreAggregation, preagg2_data["id"])
-    preagg3 = await module__session.get(PreAggregation, preagg3_data["id"])
-    preagg4 = await module__session.get(PreAggregation, preagg4_data["id"])
-    preagg5 = await module__session.get(PreAggregation, preagg5_data["id"])
-    preagg6 = await module__session.get(PreAggregation, preagg6_data["id"])
-    preagg7 = await module__session.get(PreAggregation, preagg7_data["id"])
-    preagg8 = await module__session.get(PreAggregation, preagg8_data["id"])
-    preagg9 = await module__session.get(PreAggregation, preagg9_data["id"])
-    preagg10 = await module__session.get(PreAggregation, preagg10_data["id"])
+    preagg1 = await session.get(PreAggregation, preagg1_data["id"])
+    preagg2 = await session.get(PreAggregation, preagg2_data["id"])
+    preagg3 = await session.get(PreAggregation, preagg3_data["id"])
+    preagg4 = await session.get(PreAggregation, preagg4_data["id"])
+    preagg5 = await session.get(PreAggregation, preagg5_data["id"])
+    preagg6 = await session.get(PreAggregation, preagg6_data["id"])
+    preagg7 = await session.get(PreAggregation, preagg7_data["id"])
+    preagg8 = await session.get(PreAggregation, preagg8_data["id"])
+    preagg9 = await session.get(PreAggregation, preagg9_data["id"])
+    preagg10 = await session.get(PreAggregation, preagg10_data["id"])
 
     yield {
         "client": client,
-        "session": module__session,
+        "session": session,
         "preagg1": preagg1,
         "preagg2": preagg2,
         "preagg3": preagg3,
@@ -502,9 +542,9 @@ class TestPlanPreaggregations:
     """Tests for POST /preaggs/plan endpoint."""
 
     @pytest.mark.asyncio
-    async def test_plan_preaggs_basic(self, module__client_with_build_v3: AsyncClient):
+    async def test_plan_preaggs_basic(self, client_with_build_v3: AsyncClient):
         """Test basic plan endpoint creates pre-aggs from metrics + dims."""
-        response = await module__client_with_build_v3.post(
+        response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.total_revenue"],
@@ -529,12 +569,12 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_with_strategy(
         self,
-        module__client_with_build_v3: AsyncClient,
+        client_with_build_v3: AsyncClient,
     ):
         """Test plan endpoint with materialization strategy."""
         # Use different dimensions than test_plan_preaggs_basic to avoid conflict
         # Use FULL strategy since source node may not have temporal partition columns
-        response = await module__client_with_build_v3.post(
+        response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.total_quantity"],
@@ -555,10 +595,10 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_invalid_strategy(
         self,
-        module__client_with_build_v3: AsyncClient,
+        client_with_build_v3: AsyncClient,
     ):
         """Test that invalid strategy returns error."""
-        response = await module__client_with_build_v3.post(
+        response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.total_revenue"],
@@ -574,11 +614,11 @@ class TestPlanPreaggregations:
     @pytest.mark.asyncio
     async def test_plan_preaggs_returns_existing(
         self,
-        module__client_with_build_v3: AsyncClient,
+        client_with_build_v3: AsyncClient,
     ):
         """Test that calling plan twice returns existing pre-agg."""
         # First call creates
-        response1 = await module__client_with_build_v3.post(
+        response1 = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.avg_unit_price"],
@@ -590,7 +630,7 @@ class TestPlanPreaggregations:
         preagg_id_1 = data1["preaggs"][0]["id"]
 
         # Second call should return same pre-agg
-        response2 = await module__client_with_build_v3.post(
+        response2 = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.avg_unit_price"],
@@ -677,11 +717,10 @@ class TestMaterializePreaggregation:
     async def test_materialize_preagg_success(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test successful materialization call to query service."""
         from datajunction_server.database.materialization import MaterializationStrategy
-        from datajunction_server.utils import get_query_service_client
 
         client = client_with_preaggs["client"]
         preagg1 = client_with_preaggs["preagg1"]
@@ -689,18 +728,11 @@ class TestMaterializePreaggregation:
         # preagg1 already has strategy=FULL and schedule set in fixture
 
         # Mock the materialize_preagg method on the query service client
-        # Access the actual client from the app's dependency overrides
-        # materialize_preagg returns Dict[str, Any], not MaterializationInfo
         mock_result = {
             "urls": ["http://scheduler/job/123.main"],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_materialize = module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
 
@@ -712,8 +744,8 @@ class TestMaterializePreaggregation:
         assert data["strategy"] == "full"
 
         # Verify query service was called
-        mock_materialize.assert_called_once()
-        call_args = mock_materialize.call_args
+        mock_qs_for_preaggs.materialize_preagg.assert_called_once()
+        call_args = mock_qs_for_preaggs.materialize_preagg.call_args
         mat_input = call_args[0][0]  # First positional arg
 
         # Verify the input structure
@@ -830,7 +862,7 @@ class TestDeletePreaggWorkflow:
     async def test_deactivate_workflow_success(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test successfully deactivating a workflow."""
         client = client_with_preaggs["client"]
@@ -846,12 +878,9 @@ class TestDeletePreaggWorkflow:
         await session.commit()
 
         # Mock the deactivate method
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_deactivate = module_mocker.patch.object(
-            qs_client,
-            "deactivate_preagg_workflow",
-            return_value={"status": "paused"},
-        )
+        mock_qs_for_preaggs.deactivate_preagg_workflow.return_value = {
+            "status": "paused",
+        }
 
         response = await client.delete(f"/preaggs/{preagg5.id}/workflow")
 
@@ -863,7 +892,7 @@ class TestDeletePreaggWorkflow:
         assert "deactivated" in data["message"].lower()
 
         # Verify query service was called
-        mock_deactivate.assert_called_once()
+        mock_qs_for_preaggs.deactivate_preagg_workflow.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_deactivate_workflow_not_found(self, client_with_preaggs):
@@ -899,11 +928,10 @@ class TestRunPreaggBackfill:
     async def test_backfill_success(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test successfully running a backfill."""
         from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.utils import get_query_service_client
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
@@ -918,12 +946,9 @@ class TestRunPreaggBackfill:
         await session.commit()
 
         # Mock the backfill method
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_backfill = module_mocker.patch.object(
-            qs_client,
-            "run_preagg_backfill",
-            return_value={"job_url": "http://scheduler/jobs/backfill-456"},
-        )
+        mock_qs_for_preaggs.run_preagg_backfill.return_value = {
+            "job_url": "http://scheduler/jobs/backfill-456",
+        }
 
         response = await client.post(
             f"/preaggs/{preagg6.id}/backfill",
@@ -941,8 +966,8 @@ class TestRunPreaggBackfill:
         assert data["status"] == "running"
 
         # Verify query service was called with correct input
-        mock_backfill.assert_called_once()
-        call_args = mock_backfill.call_args
+        mock_qs_for_preaggs.run_preagg_backfill.assert_called_once()
+        call_args = mock_qs_for_preaggs.run_preagg_backfill.call_args
         backfill_input = call_args[0][0]
         assert backfill_input.preagg_id == preagg6.id
         assert "preagg" in backfill_input.output_table
@@ -1177,7 +1202,7 @@ class TestIncrementalTimeValidation:
     @pytest.mark.asyncio
     async def test_plan_incremental_no_temporal_columns(
         self,
-        module__client_with_build_v3: AsyncClient,
+        client_with_build_v3: AsyncClient,
     ):
         """
         Test that planning with INCREMENTAL_TIME strategy fails
@@ -1186,7 +1211,7 @@ class TestIncrementalTimeValidation:
         The v3.order_details node doesn't have temporal partition columns by default,
         so INCREMENTAL_TIME should be rejected.
         """
-        response = await module__client_with_build_v3.post(
+        response = await client_with_build_v3.post(
             "/preaggs/plan",
             json={
                 "metrics": ["v3.total_revenue"],
@@ -1237,20 +1262,15 @@ class TestQueryServiceExceptionHandling:
     async def test_materialize_query_service_failure(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test error handling when materialize_preagg call fails."""
-        from datajunction_server.utils import get_query_service_client
-
         client = client_with_preaggs["client"]
         preagg1 = client_with_preaggs["preagg1"]
 
         # Mock query service to raise an exception
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            side_effect=Exception("Connection refused"),
+        mock_qs_for_preaggs.materialize_preagg.side_effect = Exception(
+            "Connection refused",
         )
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
@@ -1264,11 +1284,10 @@ class TestQueryServiceExceptionHandling:
     async def test_deactivate_workflow_query_service_failure(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test error handling when deactivate_preagg_workflow call fails."""
         from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.utils import get_query_service_client
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
@@ -1283,11 +1302,8 @@ class TestQueryServiceExceptionHandling:
         await session.commit()
 
         # Mock query service to raise an exception
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "deactivate_preagg_workflow",
-            side_effect=Exception("Service unavailable"),
+        mock_qs_for_preaggs.deactivate_preagg_workflow.side_effect = Exception(
+            "Service unavailable",
         )
 
         response = await client.delete(f"/preaggs/{preagg8.id}/workflow")
@@ -1301,11 +1317,10 @@ class TestQueryServiceExceptionHandling:
     async def test_backfill_query_service_failure(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test error handling when run_preagg_backfill call fails."""
         from datajunction_server.database.preaggregation import PreAggregation
-        from datajunction_server.utils import get_query_service_client
 
         client = client_with_preaggs["client"]
         session = client_with_preaggs["session"]
@@ -1320,11 +1335,8 @@ class TestQueryServiceExceptionHandling:
         await session.commit()
 
         # Mock query service to raise an exception
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "run_preagg_backfill",
-            side_effect=Exception("Backfill service down"),
+        mock_qs_for_preaggs.run_preagg_backfill.side_effect = Exception(
+            "Backfill service down",
         )
 
         response = await client.post(
@@ -1345,10 +1357,9 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_extracts_main_workflow_url(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test that .main workflow URL is extracted from response."""
-        from datajunction_server.utils import get_query_service_client
         from datajunction_server.database.preaggregation import PreAggregation
 
         client = client_with_preaggs["client"]
@@ -1364,12 +1375,7 @@ class TestWorkflowUrlExtraction:
             ],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
 
@@ -1390,10 +1396,9 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_fallback_to_first_url(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test fallback to first URL when no .main URL found."""
-        from datajunction_server.utils import get_query_service_client
         from datajunction_server.database.preaggregation import PreAggregation
 
         client = client_with_preaggs["client"]
@@ -1408,12 +1413,7 @@ class TestWorkflowUrlExtraction:
             ],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg3.id}/materialize")
 
@@ -1438,10 +1438,9 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_sets_default_schedule_when_none(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test that default schedule is set during materialization if not configured."""
-        from datajunction_server.utils import get_query_service_client
         from datajunction_server.database.preaggregation import PreAggregation
 
         client = client_with_preaggs["client"]
@@ -1459,12 +1458,7 @@ class TestWorkflowUrlExtraction:
             "urls": ["http://scheduler/workflow/test.main"],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg10.id}/materialize")
 
@@ -1481,11 +1475,9 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_returns_all_urls(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """Test that response includes all workflow URLs from query service."""
-        from datajunction_server.utils import get_query_service_client
-
         client = client_with_preaggs["client"]
         preagg1 = client_with_preaggs["preagg1"]
 
@@ -1499,12 +1491,7 @@ class TestWorkflowUrlExtraction:
             "urls": all_urls,
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
 
@@ -1523,7 +1510,7 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_handles_new_workflow_urls_format(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """
         Test that new workflow_urls format is correctly stored.
@@ -1540,12 +1527,7 @@ class TestWorkflowUrlExtraction:
             ],
             "status": "active",
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
         assert response.status_code == 200
@@ -1562,7 +1544,7 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_handles_legacy_urls_with_backfill_pattern(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """
         Test legacy URLs with .backfill pattern get labeled correctly.
@@ -1579,12 +1561,7 @@ class TestWorkflowUrlExtraction:
             ],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
         assert response.status_code == 200
@@ -1601,7 +1578,7 @@ class TestWorkflowUrlExtraction:
     async def test_materialize_handles_legacy_urls_with_adhoc_pattern(
         self,
         client_with_preaggs,
-        module_mocker,
+        mock_qs_for_preaggs,
     ):
         """
         Test legacy URLs with adhoc pattern get labeled as backfill.
@@ -1618,12 +1595,7 @@ class TestWorkflowUrlExtraction:
             ],
             "output_tables": ["analytics.materialized.preagg_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_qs_for_preaggs.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg1.id}/materialize")
         assert response.status_code == 200
@@ -1651,8 +1623,9 @@ class TestIncrementalTimeMaterialization:
     @pytest.mark.asyncio
     async def test_materialize_incremental_time_with_temporal_partition(
         self,
-        module__client_with_build_v3: AsyncClient,
-        module_mocker,
+        client_with_build_v3: AsyncClient,
+        session: AsyncSession,
+        mock_query_service_client,
     ):
         """
         Test INCREMENTAL_TIME materialization succeeds when node has temporal partitions.
@@ -1662,11 +1635,9 @@ class TestIncrementalTimeMaterialization:
         2. Creates a preagg with INCREMENTAL_TIME strategy via /preaggs/plan
         3. Verifies materialize returns correct temporal partition info
         """
-        client = module__client_with_build_v3
+        client = client_with_build_v3
 
         # Set temporal partition on order_date column via session
-        # (using session directly avoids response serialization issues with module-scoped fixtures)
-        session = client.app.dependency_overrides[get_session]()
         await _set_temporal_partition_via_session(
             session,
             node_name="v3.order_details",
@@ -1697,12 +1668,7 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/incremental.main"],
             "output_tables": ["analytics.preaggs.incremental_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_query_service_client.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg_id}/materialize")
 
@@ -1722,19 +1688,18 @@ class TestIncrementalTimeMaterialization:
     @pytest.mark.asyncio
     async def test_materialize_incremental_passes_temporal_partition_to_query_service(
         self,
-        module__client_with_build_v3: AsyncClient,
-        module_mocker,
+        client_with_build_v3: AsyncClient,
+        session: AsyncSession,
+        mock_query_service_client,
     ):
         """
         Test that temporal partition info is passed to query service during materialization.
 
         Verifies the PreAggMaterializationInput contains temporal_partitions.
         """
-        client = module__client_with_build_v3
+        client = client_with_build_v3
 
         # Ensure temporal partition is set on order_date column via session
-        # (using session directly avoids response serialization issues with module-scoped fixtures)
-        session = client.app.dependency_overrides[get_session]()
         await _set_temporal_partition_via_session(
             session,
             node_name="v3.order_details",
@@ -1763,19 +1728,14 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/test.main"],
             "output_tables": ["analytics.preaggs.test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_materialize = module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_query_service_client.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg_id}/materialize")
         assert response.status_code == 200
 
         # Verify the query service was called with temporal partition info
-        mock_materialize.assert_called_once()
-        call_args = mock_materialize.call_args
+        mock_query_service_client.materialize_preagg.assert_called_once()
+        call_args = mock_query_service_client.materialize_preagg.call_args
         mat_input = call_args[0][0]  # First positional argument
 
         # Check temporal partitions are included in the input
@@ -1791,8 +1751,9 @@ class TestIncrementalTimeMaterialization:
     @pytest.mark.asyncio
     async def test_temporal_partition_via_dimension_link(
         self,
-        module__client_with_build_v3: AsyncClient,
-        module_mocker,
+        client_with_build_v3: AsyncClient,
+        session: AsyncSession,
+        mock_query_service_client,
     ):
         """
         Test temporal partition resolution via dimension link.
@@ -1806,11 +1767,9 @@ class TestIncrementalTimeMaterialization:
         2. Search grain_columns for v3.date.*
         3. Map order_date -> date_id as the output column name
         """
-        client = module__client_with_build_v3
+        client = client_with_build_v3
 
         # Set temporal partition on order_date (which links to v3.date) via session
-        # (using session directly avoids response serialization issues with module-scoped fixtures)
-        session = client.app.dependency_overrides[get_session]()
         await _set_temporal_partition_via_session(
             session,
             node_name="v3.order_details",
@@ -1842,19 +1801,14 @@ class TestIncrementalTimeMaterialization:
             "urls": ["http://scheduler/workflow/dimension_link.main"],
             "output_tables": ["analytics.preaggs.dimension_link_test"],
         }
-        qs_client = client.app.dependency_overrides[get_query_service_client]()
-        mock_materialize = module_mocker.patch.object(
-            qs_client,
-            "materialize_preagg",
-            return_value=mock_result,
-        )
+        mock_query_service_client.materialize_preagg.return_value = mock_result
 
         response = await client.post(f"/preaggs/{preagg_id}/materialize")
         assert response.status_code == 200, f"Materialize failed: {response.text}"
 
         # Verify the query service was called
-        mock_materialize.assert_called_once()
-        call_args = mock_materialize.call_args
+        mock_query_service_client.materialize_preagg.assert_called_once()
+        call_args = mock_query_service_client.materialize_preagg.call_args
         mat_input = call_args[0][0]
 
         # Check temporal partitions

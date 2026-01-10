@@ -8,12 +8,12 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_catalog_list(
-    module__client: AsyncClient,
+    client: AsyncClient,
 ) -> None:
     """
     Test listing catalogs
     """
-    response = await module__client.post(
+    response = await client.post(
         "/engines/",
         json={
             "name": "spark",
@@ -22,7 +22,7 @@ async def test_catalog_list(
         },
     )
 
-    response = await module__client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "dev",
@@ -36,14 +36,14 @@ async def test_catalog_list(
         },
     )
 
-    response = await module__client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "test",
         },
     )
 
-    response = await module__client.post(
+    response = await client.post(
         "/catalogs/",
         json={
             "name": "prod",
@@ -57,7 +57,7 @@ async def test_catalog_list(
     }
     """
 
-    response = await module__client.post("/graphql", json={"query": query})
+    response = await client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     catalog_names = {c["name"] for c in response.json()["data"]["listCatalogs"]}
     # These catalogs should be present
