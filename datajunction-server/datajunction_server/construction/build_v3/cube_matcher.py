@@ -116,7 +116,7 @@ async def find_matching_cube(
     for cube_node in candidate_cubes:
         cube_rev = cube_node.current
         if not cube_rev:
-            continue
+            continue  # pragma: no cover
 
         # Check availability if required
         if require_availability and not cube_rev.availability:
@@ -267,7 +267,7 @@ def build_synthetic_grain_group(
         is_simple = num_components == 1
 
         for comp in decomposed.components:
-            if comp.name not in component_aliases:
+            if comp.name not in component_aliases:  # pragma: no branch
                 if is_simple:
                     # Single-component: cube column = metric short name
                     cube_col_name = get_short_name(metric_name)

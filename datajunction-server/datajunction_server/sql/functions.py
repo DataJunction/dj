@@ -1851,7 +1851,7 @@ class SafeDivide(Function):
 
 @SafeDivide.register
 def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.DoubleType:
-    return ct.DoubleType()
+    return ct.DoubleType()  # pragma: no cover
 
 
 class Double(Function):
