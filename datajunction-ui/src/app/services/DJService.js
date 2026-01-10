@@ -1117,13 +1117,18 @@ export const DataJunctionAPI = {
     if (filters) {
       params.append('filters', filters);
     }
+    if (useMaterialized) {
+      params.append('use_materialized', 'true');
+      params.append('dialect', 'druid');
+    } else {
+      params.append('use_materialized', 'false');
+      params.append('dialect', 'spark');
+    }
     return await (
-      await fetch(
-        `${DJ_URL}/sql/metrics/v3/?${params}&use_materialized=${useMaterialized}`,
-        {
-          credentials: 'include',
-        },
-      )
+      await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
+        credentials: 'include',
+        params: params,
+      })
     ).json();
   },
 
