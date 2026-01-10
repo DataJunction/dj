@@ -6,7 +6,7 @@ from collections import OrderedDict
 from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer, joinedload, noload, selectinload
+from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 from strawberry.types import Info
 
 from datajunction_server.errors import DJNodeNotFound
@@ -111,81 +111,69 @@ async def get_node_by_name(
 def load_node_options(fields):
     """
     Based on the GraphQL query input fields, builds a list of node load options.
-
-    NOTE: We can only use noload() for:
-    1. Nullable fields in the GraphQL schema
-    2. @strawberry.field resolvers (only called when requested)
-    3. Relationships not exposed in GraphQL
-
-    For non-nullable plain attributes (current, revisions, created_by, owners, tags),
-    we cannot use noload() because Strawberry validates the schema even for unrequested
-    fields, and noload() returns None which violates the non-nullable constraint.
+    Uses noload() to prevent lazy loading for unrequested fields.
     """
     options = []
 
-    # Handle revisions - NON-NULLABLE in schema, only load if requested
     if "revisions" in fields:
         node_revision_options = load_node_revision_options(fields["revisions"])
         options.append(joinedload(DBNode.revisions).options(*node_revision_options))
-    # Cannot noload - revisions is non-nullable list in GraphQL schema
+    else:
+        options.append(noload(DBNode.revisions))
 
-    # Handle current - NON-NULLABLE in schema, only load if requested
     if fields.get("current"):
         node_revision_options = load_node_revision_options(fields["current"])
         options.append(joinedload(DBNode.current).options(*node_revision_options))
-    # Cannot noload - current is non-nullable in GraphQL schema
+    else:
+        options.append(noload(DBNode.current))
 
-    # Handle created_by - NON-NULLABLE in schema
     if "created_by" in fields:
         options.append(selectinload(DBNode.created_by))
-    # Cannot noload - created_by is non-nullable in GraphQL schema
+    else:
+        options.append(noload(DBNode.created_by))
 
-    # Handle owners - NON-NULLABLE list in schema
     if "owners" in fields:
         options.append(selectinload(DBNode.owners))
-    # Cannot noload - owners is non-nullable list in GraphQL schema
+    else:
+        options.append(noload(DBNode.owners))
 
-    # Handle edited_by (via history) - this is a @strawberry.field resolver, safe to noload
     if "edited_by" in fields:
         options.append(selectinload(DBNode.history))
     else:
         options.append(noload(DBNode.history))
 
-    # Handle tags - NON-NULLABLE list in schema
     if "tags" in fields:
         options.append(selectinload(DBNode.tags))
-    # Cannot noload - tags is non-nullable list in GraphQL schema
+    else:
+        options.append(noload(DBNode.tags))
 
-    # Always noload children - not exposed in GraphQL Node type
+    # Always noload children - not exposed in GraphQL
     options.append(noload(DBNode.children))
 
     return options
 
 
-def load_node_revision_options(node_revision_fields):
+def build_nested_node_revision_options(requested_fields):
     """
-    Based on the GraphQL query input fields, builds a list of node revision
-    load options.
-
-    NOTE: We can only use noload() for:
-    1. Nullable fields in the GraphQL schema
-    2. @strawberry.field resolvers (only called when requested)
-    3. Relationships not exposed in GraphQL
-
-    For non-nullable plain attributes (parents), we cannot use noload().
+    Build loading options for nested NodeRevision objects (e.g., in cube_metrics/cube_dimensions).
+    Only loads relationships that are actually requested.
     """
-    options = [defer(DBNodeRevision.query_ast)]
-    is_cube_request = (
-        "cube_metrics" in node_revision_fields
-        or "cube_dimensions" in node_revision_fields
-    )
+    options = [
+        defer(DBNodeRevision.query_ast),
+        # Always noload these - not needed for nested NodeRevision
+        noload(DBNodeRevision.node),
+        noload(DBNodeRevision.created_by),
+        noload(DBNodeRevision.missing_parents),
+        noload(DBNodeRevision.cube_elements),
+        noload(DBNodeRevision.required_dimensions),
+        noload(DBNodeRevision.parents),
+        noload(DBNodeRevision.dimension_links),
+        noload(DBNodeRevision.availability),
+        noload(DBNodeRevision.materializations),
+    ]
 
-    # Handle columns - @strawberry.field resolver, safe to noload
-    if (
-        "columns" in node_revision_fields
-        or is_cube_request
-        or "primary_key" in node_revision_fields
-    ):
+    # Only load relationships if they're requested
+    if requested_fields and "columns" in requested_fields:
         options.append(
             selectinload(DBNodeRevision.columns).options(
                 joinedload(Column.attributes).joinedload(
@@ -198,37 +186,100 @@ def load_node_revision_options(node_revision_fields):
     else:
         options.append(noload(DBNodeRevision.columns))
 
-    # Handle catalog - @strawberry.field resolver returning Optional, safe to noload
-    # Also has lazy="joined" by default which we want to prevent
+    if requested_fields and "catalog" in requested_fields:
+        options.append(joinedload(DBNodeRevision.catalog))
+    else:
+        options.append(noload(DBNodeRevision.catalog))
+
+    if requested_fields and "metric_metadata" in requested_fields:
+        options.append(selectinload(DBNodeRevision.metric_metadata))
+    else:
+        options.append(noload(DBNodeRevision.metric_metadata))
+
+    return options
+
+
+def load_node_revision_options(node_revision_fields):
+    """
+    Based on the GraphQL query input fields, builds a list of node revision
+    load options. Uses noload() to prevent lazy loading for unrequested fields.
+    """
+    options = [defer(DBNodeRevision.query_ast)]
+    is_cube_request = (
+        "cube_metrics" in node_revision_fields
+        or "cube_dimensions" in node_revision_fields
+    )
+
+    # Get the subfields requested for cube_metrics/cube_dimensions
+    cube_metric_fields = (
+        node_revision_fields.get("cube_metrics") if node_revision_fields else None
+    )
+    cube_dimension_fields = (
+        node_revision_fields.get("cube_dimensions") if node_revision_fields else None
+    )
+
+    # Handle columns
+    if "columns" in node_revision_fields or "primary_key" in node_revision_fields:
+        # Full columns with all relationships needed for columns/primary_key queries
+        options.append(
+            selectinload(DBNodeRevision.columns).options(
+                joinedload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                joinedload(Column.dimension),
+                joinedload(Column.partition),
+            ),
+        )
+    elif is_cube_request:
+        # Minimal columns for cube_metrics/cube_dimensions
+        # Only load the columns we need: name, order, dimension_column
+        options.append(
+            selectinload(DBNodeRevision.columns).options(
+                load_only(
+                    Column.id,
+                    Column.name,
+                    Column.order,
+                    Column.dimension_column,
+                ),
+                noload(Column.attributes),
+                noload(Column.dimension),
+                noload(Column.partition),
+            ),
+        )
+    else:
+        options.append(noload(DBNodeRevision.columns))
+
+    # Handle catalog - has lazy="joined" by default which we want to prevent
     if "catalog" in node_revision_fields:
         options.append(joinedload(DBNodeRevision.catalog))
     else:
         options.append(noload(DBNodeRevision.catalog))
 
-    # Handle parents - NON-NULLABLE list in schema, cannot noload
+    # Handle parents
     if "parents" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.parents))
-    # Cannot noload - parents is non-nullable list in GraphQL schema
+    else:
+        options.append(noload(DBNodeRevision.parents))
 
-    # Handle materializations - NULLABLE in schema, safe to noload
+    # Handle materializations
     if "materializations" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.materializations))
     else:
         options.append(noload(DBNodeRevision.materializations))
 
-    # Handle metric_metadata - @strawberry.field resolver, safe to noload
+    # Handle metric_metadata
     if "metric_metadata" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.metric_metadata))
     else:
         options.append(noload(DBNodeRevision.metric_metadata))
 
-    # Handle availability - NULLABLE in schema, safe to noload
+    # Handle availability
     if "availability" in node_revision_fields:
         options.append(selectinload(DBNodeRevision.availability))
     else:
         options.append(noload(DBNodeRevision.availability))
 
-    # Handle dimension_links - @strawberry.field resolver, safe to noload
+    # Handle dimension_links
     if "dimension_links" in node_revision_fields:
         options.append(
             selectinload(DBNodeRevision.dimension_links).options(
@@ -240,7 +291,7 @@ def load_node_revision_options(node_revision_fields):
     else:
         options.append(noload(DBNodeRevision.dimension_links))
 
-    # Handle required_dimensions - NULLABLE in schema, safe to noload
+    # Handle required_dimensions
     if "required_dimensions" in node_revision_fields:
         options.append(
             selectinload(DBNodeRevision.required_dimensions),
@@ -248,26 +299,29 @@ def load_node_revision_options(node_revision_fields):
     else:
         options.append(noload(DBNodeRevision.required_dimensions))
 
-    # Handle cube_elements - @strawberry.field resolver, safe to noload
+    # Handle cube_elements
     if "cube_elements" in node_revision_fields or is_cube_request:
+        # Build optimized options for nested NodeRevision based on what's requested
+        # Merge fields from both cube_metrics and cube_dimensions
+        nested_fields = {}
+        if cube_metric_fields:
+            nested_fields.update(cube_metric_fields)
+        if cube_dimension_fields:
+            nested_fields.update(cube_dimension_fields)
+
+        nested_options = build_nested_node_revision_options(nested_fields or None)
         options.append(
             selectinload(DBNodeRevision.cube_elements)
             .selectinload(Column.node_revision)
-            .options(
-                selectinload(DBNodeRevision.node),
-            ),
+            .options(*nested_options),
         )
     else:
         options.append(noload(DBNodeRevision.cube_elements))
 
-    # Noload relationships not exposed in GraphQL schema - always safe
-    # created_by on NodeRevision is not exposed as a plain attribute
+    # Noload relationships not exposed in GraphQL
     options.append(noload(DBNodeRevision.created_by))
-    # node relationship is not exposed as a plain attribute
     options.append(noload(DBNodeRevision.node))
-    # missing_parents is not exposed in GraphQL
     options.append(noload(DBNodeRevision.missing_parents))
-
     return options
 
 
