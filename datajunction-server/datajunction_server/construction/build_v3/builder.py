@@ -8,6 +8,10 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.cube_matcher import (
+    build_sql_from_cube,
+    find_matching_cube,
+)
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
@@ -142,19 +146,35 @@ async def build_metrics_sql(
     """
     Build metrics SQL for a set of metrics and dimensions.
 
-    Metrics SQL applies final metric expressions on top of measures,
-    including handling derived metrics. It produces a single executable
-    query that:
-    1. Uses measures SQL output as CTEs (one per grain group)
-    2. JOINs grain groups if metrics come from different facts/aggregabilities
-    3. Applies combiner expressions for multi-component metrics
-    4. Computes derived metrics that reference other metrics
+    Metrics SQL applies final metric expressions on top of measures, including
+    handling derived metrics. It produces a single executable query with the
+    following layers:
 
-    Architecture:
-    - Layer 0 (Measures): Grain group CTEs from build_measures_sql()
-    - Layer 1 (Base Metrics): Combiner expressions applied
-    - Layer 2+ (Derived Metrics): Metrics referencing other metrics
+    Layer 1: Measures
+        (a) Checks if a materialized cube as the source of measures is available.
+        If so, it uses the cube's availability table as the source of measures.
+        (b) Otherwise, it generates measures SQL output as CTEs from either the
+        pre-aggregated tables or the source tables, and joins the grain groups
+        if metrics come from different facts/aggregabilities.
+    Layer 2: Base Metrics
+        Applies combiner expressions for multi-component metrics.
+    Layer 3: Derived Metrics
+        Computes derived metrics that reference other metrics.
     """
+    # Try cube match first (early exit)
+    if use_materialized:
+        cube = await find_matching_cube(session, metrics, dimensions)
+        if cube and cube.availability:
+            logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
+            return await build_sql_from_cube(
+                session=session,
+                cube=cube,
+                metrics=metrics,
+                dimensions=dimensions,
+                filters=filters,
+                dialect=dialect,
+            )
+
     # Get measures SQL with grain groups
     # This also returns context and decomposed metrics to avoid redundant work
     measures_result = await build_measures_sql(

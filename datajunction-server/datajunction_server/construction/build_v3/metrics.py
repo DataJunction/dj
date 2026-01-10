@@ -156,9 +156,12 @@ def _build_metric_aggregation(
     """
     Build aggregation expression for a metric.
 
-    Always applies re-aggregation using each component's merge function:
-    - FULL: Uses comp.merge (SUM for counts/sums, MIN for min, hll_union for HLL, etc.)
-    - LIMITED: COUNT(DISTINCT grain_col)
+    Always uses combiner_ast from decomposition to ensure correct handling of
+    complex combiners like HLL (which needs hll_sketch_estimate wrapped around
+    hll_union_agg), not just the bare merge function.
+
+    Special case: LIMITED aggregability (COUNT DISTINCT) is handled separately
+    since it can't be pre-aggregated.
 
     This works whether the CTE is at exact grain or finer grain:
     - Exact grain: re-aggregation is a no-op (SUM of one value = that value)
@@ -177,13 +180,14 @@ def _build_metric_aggregation(
             return gg.component_aggregabilities.get(comp_name, Aggregability.FULL)
         return decomposed.aggregability
 
+    # Handle LIMITED aggregability (COUNT DISTINCT) specially
+    # This can't be pre-aggregated, so we need COUNT(DISTINCT grain_col)
     if len(decomposed.components) == 1:
         comp = decomposed.components[0]
         orig_agg = get_comp_aggregability(comp.name)
-        _, col_name = comp_mappings[comp.name]
 
         if orig_agg == Aggregability.LIMITED:
-            # COUNT DISTINCT on grain column
+            _, col_name = comp_mappings[comp.name]
             distinct_col = make_column_ref(col_name, cte_alias)
             agg_name = comp.aggregation or "COUNT"
             return ast.Function(
@@ -191,14 +195,11 @@ def _build_metric_aggregation(
                 args=[distinct_col],
                 quantifier=ast.SetQuantifier.Distinct,
             )
-        else:
-            # Re-aggregate with merge function
-            col_ref = make_column_ref(col_name, cte_alias)
-            merge_func = comp.merge or "SUM"
-            return ast.Function(ast.Name(merge_func), args=[col_ref])
 
-    # Multi-component: build combiner with component refs
-    # The combiner AST already has the aggregation structure
+    # For all other cases (single-component like HLL, or multi-component),
+    # use combiner_ast to get the full expression structure.
+    # This ensures complex combiners like hll_sketch_estimate(hll_union_agg(...))
+    # are handled correctly, not just the bare merge function.
     expr_ast = deepcopy(decomposed.combiner_ast)
     replace_component_refs_in_ast(expr_ast, comp_mappings)
     return expr_ast

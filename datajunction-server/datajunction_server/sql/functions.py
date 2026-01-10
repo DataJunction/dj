@@ -1837,6 +1837,23 @@ def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.LongType:
     return ct.LongType()
 
 
+class SafeDivide(Function):
+    """
+    safe_divide(expr1, expr2) - Divides expr1 by expr2, returning NULL if expr2 is 0.
+
+    This is safer than regular division with NULLIF for some engines like Druid
+    where the division may be evaluated before the null check.
+    """
+
+    dialects = [Dialect.DRUID]
+    is_aggregation = False
+
+
+@SafeDivide.register
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
 class Double(Function):
     """
     double(expr) - Converts expr to a double precision floating-point number.
