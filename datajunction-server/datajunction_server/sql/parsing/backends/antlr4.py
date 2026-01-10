@@ -2,12 +2,14 @@
 import copy
 import inspect
 import logging
+import os
 from functools import lru_cache
 import re
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 import antlr4
 from antlr4 import InputStream, RecognitionException
+from antlr4.atn.PredictionMode import PredictionMode
 from antlr4.error.ErrorListener import ErrorListener
 from antlr4.error.Errors import ParseCancellationException
 from antlr4.error.ErrorStrategy import BailErrorStrategy
@@ -103,7 +105,16 @@ class EarlyBailSqlLexer(SqlBaseLexer):
         raise SqlLexicalError from recognition_exc
 
 
-def build_parser(stream, strict_mode=False, early_bail=True):
+def build_parser(stream, strict_mode=False, early_bail=True, prediction_mode=None):
+    """
+    Build an ANTLR4 parser for SQL.
+
+    Args:
+        stream: Input stream
+        strict_mode: If True, use case-sensitive parsing
+        early_bail: If True, bail out early on errors
+        prediction_mode: PredictionMode.SLL for fast parsing, PredictionMode.LL for full parsing
+    """
     if not strict_mode:
         stream = UpperCaseCharStream(stream)
     if early_bail:
@@ -119,6 +130,11 @@ def build_parser(stream, strict_mode=False, early_bail=True):
     parser.addErrorListener(ParseErrorListener())
     if early_bail:
         parser._errHandler = ExplicitBailErrorStrategy()
+
+    # Set prediction mode if specified
+    if prediction_mode is not None:
+        parser._interp.predictionMode = prediction_mode
+
     return parser
 
 
@@ -142,15 +158,40 @@ def string_to_ast(string, rule, *, strict_mode=False, debug=False, early_bail=Fa
     return tree
 
 
-def build_string_parser(string, strict_mode=False, early_bail=True):
+def build_string_parser(
+    string,
+    strict_mode=False,
+    early_bail=True,
+    prediction_mode=None,
+):
     string_as_stream = InputStream(string)
-    parser = build_parser(string_as_stream, strict_mode, early_bail)
+    parser = build_parser(string_as_stream, strict_mode, early_bail, prediction_mode)
     return parser
 
 
 def parse_sql(string, rule, converter=None, debug=False):
     tree = string_to_ast(string, rule, debug=debug)
     return converter(tree) if converter else tree
+
+
+def parse_sql_with_sll_fallback(string, rule, converter=None, debug=False):
+    """
+    Parse SQL using SLL mode first (faster), falling back to LL mode on failure.
+
+    SLL (Simple LL) mode is 2-10x faster but may fail on some complex queries.
+    LL mode always works but is slower.
+    """
+    try:
+        # Try SLL mode first (much faster)
+        parser = build_string_parser(string, prediction_mode=PredictionMode.SLL)
+        tree = getattr(parser, rule)()
+        if debug:
+            print_tree(tree, printer=logger.warning)
+        return converter(tree) if converter else tree
+    except Exception:
+        # SLL failed, fall back to LL mode
+        logger.debug(f"SLL parsing failed, falling back to LL mode for query")
+        return parse_sql(string, rule, converter, debug)
 
 
 def parse_statement(string, converter=None, debug=False):
@@ -175,8 +216,10 @@ def tree_to_strings(tree, indent=0):
 def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
     """
     Parse a string into a DJ ast using the ANTLR4 backend.
+
+    Uses SLL mode first (faster), falls back to LL mode if needed.
     """
-    antlr_tree = parse_sql(sql, rule)
+    antlr_tree = parse_sql_with_sll_fallback(sql, rule)
     ast_tree = visit(antlr_tree)
     return ast_tree
 
