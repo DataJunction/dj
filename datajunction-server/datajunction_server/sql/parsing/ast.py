@@ -1789,7 +1789,19 @@ class BinaryOp(Operation):
                 right = self.right.copy().use_alias_as_name()
             if isinstance(self.left, Column) and self.left.alias:
                 left = self.left.copy().use_alias_as_name()
-        ret = f"{left} {self.op.value} {right}"
+
+        # For Druid dialect, convert division to SAFE_DIVIDE to avoid
+        # runtime division-by-zero errors (Druid's NULLIF doesn't always
+        # protect against this due to vectorized execution)
+        dialect = get_render_dialect()
+        if (
+            dialect is not None
+            and str(dialect) == "druid"
+            and self.op == BinaryOpKind.Divide
+        ):
+            ret = f"SAFE_DIVIDE({left}, {right})"
+        else:
+            ret = f"{left} {self.op.value} {right}"
 
         if self.parenthesized:
             return f"({ret})"

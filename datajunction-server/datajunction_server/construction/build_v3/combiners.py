@@ -639,7 +639,6 @@ async def build_combiner_sql_from_preaggs(
         # Use the same grain_group_hash for the pre-agg table name
         # (must match the hash used when the pre-agg was created)
         table_name = _compute_preagg_table_name(gg.parent_name, grain_group_hash)
-        print(f"table_name: {table_name}")
 
         # Build full table reference
         full_table_ref = (
