@@ -55,18 +55,18 @@ async def find_matching_cube(
     require_availability: bool = True,
 ) -> Optional[NodeRevision]:
     """
-    Find a cube with availability that covers all requested metrics and dimensions.
+    Find a cube that covers all requested metrics and dimensions.
 
     A cube matches if:
-    1. cube_elements contains all requested metrics (by node name)
-    2. cube_dimensions contains all requested dimensions
-    3. Cube has availability state (materialized)
-    4. Cube has materialization config (for combiner expressions)
+    1. It contains all requested metrics (by node name)
+    2. It contains all requested dimensions
+    3. Cube has availability state (materialized) - configurable with require_availability
 
     Args:
         session: Database session
         metrics: List of metric node names
         dimensions: List of dimension references (e.g., "default.date_dim.date_id")
+        require_availability: If True, only consider cubes with availability defined
 
     Returns:
         Matching cube NodeRevision if found, None otherwise
