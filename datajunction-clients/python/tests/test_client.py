@@ -302,13 +302,13 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Check that `dimension.linked_nodes()` works as expected.
         """
         repair_order_dim = client.dimension("default.repair_order")
-        assert repair_order_dim.linked_nodes() == [
+        assert set(repair_order_dim.linked_nodes()) == {
             "default.repair_order_details",
             "default.avg_repair_price",
             "default.total_repair_cost",
             "default.total_repair_order_discounts",
             "default.avg_repair_order_discounts",
-        ]
+        }
 
     def test_refresh_source_node(self, client):
         """

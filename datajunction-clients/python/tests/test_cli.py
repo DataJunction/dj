@@ -680,3 +680,147 @@ def test_delete_namespace_cascade_hard(
             cascade=True,
             hard=True,
         )
+
+
+class TestPushDeploymentSourceFlags:
+    """Tests for the deployment source CLI flags on push command."""
+
+    def test_push_help_shows_source_flags(self, builder_client: DJBuilder):
+        """Test that --help shows the new deployment source flags."""
+        test_args = ["dj", "push", "--help"]
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                with pytest.raises(SystemExit) as excinfo:
+                    main(builder_client=builder_client)
+                assert excinfo.value.code == 0
+        output = mock_stdout.getvalue()
+        assert "--repo" in output
+        assert "--branch" in output
+        assert "--commit" in output
+        assert "--ci-system" in output
+        assert "--ci-run-url" in output
+
+    def test_push_with_repo_flag_sets_env_var(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+    ):
+        """Test that --repo flag sets DJ_DEPLOY_REPO env var."""
+        change_to_project_dir("./")
+
+        env_vars = {
+            "DJ_USER": "datajunction",
+            "DJ_PWD": "datajunction",
+        }
+        test_args = [
+            "dj",
+            "push",
+            "./deploy0",
+            "--repo",
+            "github.com/test/repo",
+        ]
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+            # Verify env var was set (check inside the patch.dict context)
+            assert os.environ.get("DJ_DEPLOY_REPO") == "github.com/test/repo"
+
+    def test_push_with_all_source_flags_sets_env_vars(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+    ):
+        """Test that all source flags set corresponding env vars."""
+        change_to_project_dir("./")
+
+        env_vars = {
+            "DJ_USER": "datajunction",
+            "DJ_PWD": "datajunction",
+        }
+        test_args = [
+            "dj",
+            "push",
+            "./deploy0",
+            "--namespace",
+            "source_flags_test",
+            "--repo",
+            "github.com/org/repo",
+            "--branch",
+            "main",
+            "--commit",
+            "abc123def",
+            "--ci-system",
+            "jenkins",
+            "--ci-run-url",
+            "https://jenkins.example.com/job/123",
+        ]
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+            # Verify all env vars were set (check inside the patch.dict context)
+            assert os.environ.get("DJ_DEPLOY_REPO") == "github.com/org/repo"
+            assert os.environ.get("DJ_DEPLOY_BRANCH") == "main"
+            assert os.environ.get("DJ_DEPLOY_COMMIT") == "abc123def"
+            assert os.environ.get("DJ_DEPLOY_CI_SYSTEM") == "jenkins"
+            assert (
+                os.environ.get("DJ_DEPLOY_CI_RUN_URL")
+                == "https://jenkins.example.com/job/123"
+            )
+
+    def test_push_flags_override_existing_env_vars(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+    ):
+        """Test that CLI flags override existing env vars."""
+        change_to_project_dir("./")
+
+        env_vars = {
+            "DJ_USER": "datajunction",
+            "DJ_PWD": "datajunction",
+            "DJ_DEPLOY_REPO": "old-repo",
+            "DJ_DEPLOY_BRANCH": "old-branch",
+        }
+        test_args = [
+            "dj",
+            "push",
+            "./deploy0",
+            "--namespace",
+            "override_test",
+            "--repo",
+            "new-repo",
+            "--branch",
+            "new-branch",
+        ]
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+            # CLI flags should override (check inside the patch.dict context)
+            assert os.environ.get("DJ_DEPLOY_REPO") == "new-repo"
+            assert os.environ.get("DJ_DEPLOY_BRANCH") == "new-branch"
+
+    def test_push_without_flags_uses_existing_env_vars(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+    ):
+        """Test that push without flags respects existing env vars."""
+        change_to_project_dir("./")
+
+        env_vars = {
+            "DJ_USER": "datajunction",
+            "DJ_PWD": "datajunction",
+            "DJ_DEPLOY_REPO": "existing-repo",
+            "DJ_DEPLOY_BRANCH": "existing-branch",
+        }
+        test_args = ["dj", "push", "./deploy0", "--namespace", "existing_env_test"]
+
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+            # Existing env vars should remain unchanged (check inside the patch.dict context)
+            assert os.environ.get("DJ_DEPLOY_REPO") == "existing-repo"
+            assert os.environ.get("DJ_DEPLOY_BRANCH") == "existing-branch"

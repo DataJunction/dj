@@ -284,4 +284,32 @@ describe('<NotificationsPage />', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('handles null response from getSubscribedHistory', async () => {
+    const mockDjClient = createMockDjClient({
+      getSubscribedHistory: jest.fn().mockResolvedValue(null),
+    });
+    renderWithContext(mockDjClient);
+
+    await waitFor(() => {
+      expect(mockDjClient.getSubscribedHistory).toHaveBeenCalled();
+    });
+
+    // Should show empty state when API returns null
+    expect(screen.getByText(/No notifications yet/i)).toBeInTheDocument();
+  });
+
+  it('handles undefined response from getSubscribedHistory', async () => {
+    const mockDjClient = createMockDjClient({
+      getSubscribedHistory: jest.fn().mockResolvedValue(undefined),
+    });
+    renderWithContext(mockDjClient);
+
+    await waitFor(() => {
+      expect(mockDjClient.getSubscribedHistory).toHaveBeenCalled();
+    });
+
+    // Should show empty state when API returns undefined
+    expect(screen.getByText(/No notifications yet/i)).toBeInTheDocument();
+  });
 });

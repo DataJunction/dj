@@ -166,6 +166,8 @@ export function NamespacePage() {
   const [retrieved, setRetrieved] = useState(false);
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
+  const [namespaceSources, setNamespaceSources] = useState({});
+  const [currentNamespaceSources, setCurrentNamespaceSources] = useState(null);
 
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
@@ -230,9 +232,31 @@ export function NamespacePage() {
       const namespaces = await djClient.namespaces();
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
+
+      // Fetch sources for all namespaces in bulk
+      const allNamespaceNames = namespaces.map(ns => ns.namespace);
+      if (allNamespaceNames.length > 0) {
+        const sourcesResponse = await djClient.namespaceSourcesBulk(
+          allNamespaceNames,
+        );
+        if (sourcesResponse && sourcesResponse.sources) {
+          setNamespaceSources(sourcesResponse.sources);
+        }
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
+
+  // Fetch sources for the current namespace (for the header badge)
+  useEffect(() => {
+    const fetchCurrentSources = async () => {
+      if (namespace) {
+        const sources = await djClient.namespaceSources(namespace);
+        setCurrentNamespaceSources(sources);
+      }
+    };
+    fetchCurrentSources().catch(console.error);
+  }, [djClient, namespace]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -458,7 +482,6 @@ export function NamespacePage() {
             }}
           >
             <h2 style={{ margin: 0 }}>Explore</h2>
-            <AddNodeDropdown namespace={namespace} />
           </div>
 
           {/* Unified Filter Bar */}
@@ -466,7 +489,7 @@ export function NamespacePage() {
             style={{
               marginBottom: '1rem',
               padding: '1rem',
-              backgroundColor: '#f8f9fa',
+              backgroundColor: '#f8fafc',
               borderRadius: '8px',
             }}
           >
@@ -482,7 +505,17 @@ export function NamespacePage() {
               <div
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <span style={{ fontSize: '12px', color: '#555' }}>Quick:</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    color: '#64748b',
+                  }}
+                >
+                  Quick
+                </span>
                 {presets.map(preset => (
                   <button
                     key={preset.id}
@@ -745,18 +778,23 @@ export function NamespacePage() {
           </div>
 
           <div className="table-responsive">
-            <div className={`sidebar`}>
+            <div
+              className={`sidebar`}
+              style={{ borderRight: '1px solid #e2e8f0', paddingRight: '1rem' }}
+            >
               <div
                 style={{
-                  padding: '1rem 1rem 1rem 0',
+                  paddingBottom: '12px',
+                  marginBottom: '8px',
                 }}
               >
                 <span
                   style={{
-                    textTransform: 'uppercase',
-                    fontSize: '0.8125rem',
+                    fontSize: '11px',
                     fontWeight: '600',
-                    color: '#95aac9',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    color: '#64748b',
                   }}
                 >
                   Namespaces
@@ -770,54 +808,232 @@ export function NamespacePage() {
                       defaultExpand={true}
                       isTopLevel={true}
                       key={child.namespace}
+                      namespaceSources={namespaceSources}
                     />
                   ))
                 : null}
             </div>
-            <table className="card-table table">
-              <thead>
-                <tr>
-                  {fields.map(field => {
-                    return (
-                      <th key={field}>
-                        <button
-                          type="button"
-                          onClick={() => requestSort(field)}
-                          className={'sortable ' + getClassNamesFor(field)}
-                        >
-                          {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
-                        </button>
-                      </th>
-                    );
-                  })}
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>{nodesList}</tbody>
-              <tfoot>
-                <tr>
-                  <td>
-                    {retrieved && hasPrevPage ? (
-                      <a
-                        onClick={loadPrev}
-                        className="previous round pagination"
+            <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
+              {/* Namespace Header */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingBottom: '12px',
+                  marginBottom: '16px',
+                  borderBottom: '1px solid #e2e8f0',
+                }}
+              >
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      fill="currentColor"
+                      viewBox="0 0 16 16"
+                    >
+                      <path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5 8 5.961 14.154 3.5 8.186 1.113zM15 4.239l-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923l6.5 2.6zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464L7.443.184z" />
+                    </svg>
+                  </a>
+                  <span style={{ color: '#6c757d' }}>/</span>
+                  {namespace ? (
+                    namespace.split('.').map((part, index, arr) => (
+                      <span
+                        key={index}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
                       >
-                        ← Previous
+                        <a
+                          href={`/namespaces/${arr
+                            .slice(0, index + 1)
+                            .join('.')}`}
+                          style={{
+                            fontWeight: '400',
+                            color: '#1e293b',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          {part}
+                        </a>
+                        {index < arr.length - 1 && (
+                          <span style={{ color: '#94a3b8', fontWeight: '400' }}>
+                            /
+                          </span>
+                        )}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ fontWeight: '600', color: '#1e293b' }}>
+                      All Namespaces
+                    </span>
+                  )}
+                  {currentNamespaceSources &&
+                    currentNamespaceSources.total_deployments > 0 &&
+                    (currentNamespaceSources.primary_source?.type === 'git' ? (
+                      <a
+                        href={`https://${currentNamespaceSources.primary_source.repository}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`${
+                          currentNamespaceSources.primary_source.repository
+                        }${
+                          currentNamespaceSources.primary_source.branch
+                            ? ` (${currentNamespaceSources.primary_source.branch})`
+                            : ''
+                        }`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          marginLeft: '8px',
+                          fontSize: '13px',
+                          borderRadius: '12px',
+                          backgroundColor: '#fff4de',
+                          border: '1px solid #d4edda',
+                          color: '#155724',
+                          textDecoration: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ marginRight: '2px' }}
+                        >
+                          <line x1="6" y1="3" x2="6" y2="15"></line>
+                          <circle cx="18" cy="6" r="3"></circle>
+                          <circle cx="6" cy="18" r="3"></circle>
+                          <path d="M18 9a9 9 0 0 1-9 9"></path>
+                        </svg>
+                        Git Managed
                       </a>
                     ) : (
-                      ''
-                    )}
-                    {retrieved && hasNextPage ? (
-                      <a onClick={loadNext} className="next round pagination">
-                        Next →
-                      </a>
-                    ) : (
-                      ''
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                      <span
+                        title={
+                          currentNamespaceSources.has_multiple_sources
+                            ? `Warning: ${currentNamespaceSources.sources.length} deployment sources`
+                            : 'Local/adhoc deployment'
+                        }
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          marginLeft: '8px',
+                          fontSize: '11px',
+                          borderRadius: '12px',
+                          backgroundColor:
+                            currentNamespaceSources.has_multiple_sources
+                              ? '#fff3cd'
+                              : '#e2e3e5',
+                          color: currentNamespaceSources.has_multiple_sources
+                            ? '#856404'
+                            : '#383d41',
+                          cursor: 'help',
+                        }}
+                      >
+                        {currentNamespaceSources.has_multiple_sources
+                          ? `⚠️ ${currentNamespaceSources.sources.length} sources`
+                          : 'Local'}
+                      </span>
+                    ))}
+                </div>
+                <AddNodeDropdown namespace={namespace} />
+              </div>
+              <table className="card-table table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    {fields.map(field => {
+                      const thStyle = {
+                        fontFamily:
+                          "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        color: '#64748b',
+                        padding: '12px 16px',
+                        borderBottom: '1px solid #e2e8f0',
+                        backgroundColor: 'transparent',
+                      };
+                      return (
+                        <th key={field} style={thStyle}>
+                          <button
+                            type="button"
+                            onClick={() => requestSort(field)}
+                            className={'sortable ' + getClassNamesFor(field)}
+                            style={{
+                              fontSize: 'inherit',
+                              fontWeight: 'inherit',
+                              letterSpacing: 'inherit',
+                              textTransform: 'inherit',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            {field.replace(/([a-z](?=[A-Z]))/g, '$1 ')}
+                          </button>
+                        </th>
+                      );
+                    })}
+                    <th
+                      style={{
+                        fontFamily:
+                          "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        color: '#64748b',
+                        padding: '12px 16px',
+                        borderBottom: '1px solid #e2e8f0',
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="nodes-table-body">{nodesList}</tbody>
+                <tfoot>
+                  <tr>
+                    <td>
+                      {retrieved && hasPrevPage ? (
+                        <a
+                          onClick={loadPrev}
+                          className="previous round pagination"
+                        >
+                          ← Previous
+                        </a>
+                      ) : (
+                        ''
+                      )}
+                      {retrieved && hasNextPage ? (
+                        <a onClick={loadNext} className="next round pagination">
+                          Next →
+                        </a>
+                      ) : (
+                        ''
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </div>
       </div>

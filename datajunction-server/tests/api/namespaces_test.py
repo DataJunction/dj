@@ -5,6 +5,23 @@ Tests for the namespaces API.
 from http import HTTPStatus
 from unittest import mock
 
+import asyncio
+from unittest import mock
+
+import pytest
+
+from datajunction_server.models.deployment import (
+    BulkNamespaceSourcesRequest,
+    BulkNamespaceSourcesResponse,
+    ColumnSpec,
+    DeploymentSourceType,
+    DeploymentSpec,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+    NamespaceSourcesResponse,
+    SourceSpec,
+)
+
 import pytest
 from httpx import AsyncClient
 
@@ -12,6 +29,19 @@ from datajunction_server.internal.access.authorization import (
     AuthorizationService,
 )
 from datajunction_server.models import access
+
+
+@pytest.fixture(autouse=True, scope="module")
+def patch_effective_writer_concurrency():
+    from datajunction_server.internal.deployment.deployment import settings
+
+    with mock.patch.object(
+        settings.__class__,
+        "effective_writer_concurrency",
+        new_callable=mock.PropertyMock,
+        return_value=1,
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -925,3 +955,465 @@ async def test_list_all_namespaces_deny_all(
 
     assert response.status_code in (200, 201)
     assert response.json() == []
+
+
+class TestNamespaceSourcesEndpoint:
+    """Tests for GET /namespaces/{namespace}/sources"""
+
+    @pytest.mark.asyncio
+    async def test_sources_empty_namespace(self, client_with_roads):
+        """Test sources endpoint on a namespace with no deployments"""
+        response = await client_with_roads.get("/namespaces/nonexistent_ns/sources")
+        # Returns 200 with empty data (no deployments to this namespace)
+        assert response.status_code == 200
+
+        sources_response = NamespaceSourcesResponse(**response.json())
+        assert sources_response.namespace == "nonexistent_ns"
+        assert sources_response.total_deployments == 0
+        assert sources_response.primary_source is None
+        assert sources_response.sources == []
+        assert sources_response.has_multiple_sources is False
+
+    @pytest.mark.asyncio
+    async def test_sources_after_git_deployment(self, client_with_roads):
+        """Test sources endpoint after a git-backed deployment"""
+        # Deploy with git source info
+        git_source = GitDeploymentSource(
+            repository="github.com/test/repo",
+            branch="main",
+            commit_sha="abc123",
+            ci_system="jenkins",
+            ci_run_url="https://jenkins.example.com/job/123",
+        )
+
+        deployment_spec = DeploymentSpec(
+            namespace="sources_test_git",
+            nodes=[
+                SourceSpec(
+                    name="test_source",
+                    catalog="default",
+                    schema_="test",
+                    table="test_table",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                    ],
+                ),
+            ],
+            source=git_source,
+        )
+
+        # Deploy
+        deploy_response = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec.model_dump(by_alias=True),
+        )
+        assert deploy_response.status_code == 200
+
+        # Wait for deployment to complete
+        deployment_id = deploy_response.json()["uuid"]
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id}",
+            )
+            if status_response.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Query sources
+        response = await client_with_roads.get("/namespaces/sources_test_git/sources")
+        assert response.status_code == 200
+
+        sources_response = NamespaceSourcesResponse(**response.json())
+        assert sources_response.namespace == "sources_test_git"
+        assert sources_response.total_deployments == 1
+        assert sources_response.has_multiple_sources is False
+
+        # Verify primary source is git
+        assert sources_response.primary_source is not None
+        assert sources_response.primary_source.type == "git"
+        assert sources_response.primary_source.repository == "github.com/test/repo"
+        assert sources_response.primary_source.branch == "main"
+
+        # Verify sources list
+        assert len(sources_response.sources) == 1
+        assert sources_response.sources[0].source.type == "git"
+        assert sources_response.sources[0].deployment_count == 1
+
+    @pytest.mark.asyncio
+    async def test_sources_after_local_deployment(self, client_with_roads):
+        """Test sources endpoint after a local/adhoc deployment"""
+        # Deploy with local source info
+        local_source = LocalDeploymentSource(
+            hostname="my-laptop",
+            reason="testing",
+        )
+
+        deployment_spec = DeploymentSpec(
+            namespace="sources_test_local",
+            nodes=[
+                SourceSpec(
+                    name="test_source",
+                    catalog="default",
+                    schema_="test",
+                    table="test_table",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                    ],
+                ),
+            ],
+            source=local_source,
+        )
+
+        # Deploy
+        deploy_response = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec.model_dump(by_alias=True),
+        )
+        assert deploy_response.status_code == 200
+
+        # Wait for deployment to complete
+        deployment_id = deploy_response.json()["uuid"]
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id}",
+            )
+            if status_response.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Query sources
+        response = await client_with_roads.get("/namespaces/sources_test_local/sources")
+        assert response.status_code == 200
+
+        sources_response = NamespaceSourcesResponse(**response.json())
+        assert sources_response.namespace == "sources_test_local"
+        assert sources_response.total_deployments == 1
+
+        # Verify primary source is local
+        assert sources_response.primary_source is not None
+        assert sources_response.primary_source.type == "local"
+
+    @pytest.mark.asyncio
+    async def test_sources_multiple_sources(self, client_with_roads):
+        """Test sources endpoint when multiple sources have deployed"""
+        namespace = "sources_test_multiple"
+
+        # First deployment from git
+        git_source = GitDeploymentSource(
+            repository="github.com/team-a/repo",
+            branch="main",
+        )
+        deployment_spec1 = DeploymentSpec(
+            namespace=namespace,
+            nodes=[
+                SourceSpec(
+                    name="source_a",
+                    catalog="default",
+                    schema_="test",
+                    table="table_a",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+            source=git_source,
+        )
+
+        deploy_response1 = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec1.model_dump(by_alias=True),
+        )
+        assert deploy_response1.status_code == 200
+
+        # Wait for first deployment
+        deployment_id1 = deploy_response1.json()["uuid"]
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id1}",
+            )
+            if status_response.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Second deployment from a different git repo
+        git_source2 = GitDeploymentSource(
+            repository="github.com/team-b/other-repo",
+            branch="develop",
+        )
+        deployment_spec2 = DeploymentSpec(
+            namespace=namespace,
+            nodes=[
+                SourceSpec(
+                    name="source_a",
+                    catalog="default",
+                    schema_="test",
+                    table="table_a",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                SourceSpec(
+                    name="source_b",
+                    catalog="default",
+                    schema_="test",
+                    table="table_b",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+            source=git_source2,
+        )
+
+        deploy_response2 = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec2.model_dump(by_alias=True),
+        )
+        assert deploy_response2.status_code == 200
+
+        # Wait for second deployment
+        deployment_id2 = deploy_response2.json()["uuid"]
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id2}",
+            )
+            if status_response.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Query sources
+        response = await client_with_roads.get(f"/namespaces/{namespace}/sources")
+        assert response.status_code == 200
+
+        sources_response = NamespaceSourcesResponse(**response.json())
+        assert sources_response.namespace == namespace
+        assert sources_response.total_deployments == 2
+        assert sources_response.has_multiple_sources is True
+
+        # Should have 2 distinct sources
+        assert len(sources_response.sources) == 2
+
+        # Primary source should be the most recent (team-b)
+        assert sources_response.primary_source is not None
+        assert (
+            sources_response.primary_source.repository == "github.com/team-b/other-repo"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sources_no_source_info_legacy(self, client_with_roads):
+        """Test sources endpoint with deployments that have no source info (legacy)"""
+        # Deploy without source info (like legacy deployments)
+        deployment_spec = DeploymentSpec(
+            namespace="sources_test_legacy",
+            nodes=[
+                SourceSpec(
+                    name="test_source",
+                    catalog="default",
+                    schema_="test",
+                    table="test_table",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                    ],
+                ),
+            ],
+            # No source field
+        )
+
+        # Deploy
+        deploy_response = await client_with_roads.post(
+            "/deployments",
+            json=deployment_spec.model_dump(by_alias=True),
+        )
+        assert deploy_response.status_code == 200
+
+        # Wait for deployment to complete
+        deployment_id = deploy_response.json()["uuid"]
+        for _ in range(30):
+            status_response = await client_with_roads.get(
+                f"/deployments/{deployment_id}",
+            )
+            if status_response.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Query sources
+        response = await client_with_roads.get(
+            "/namespaces/sources_test_legacy/sources",
+        )
+        assert response.status_code == 200
+
+        sources_response = NamespaceSourcesResponse(**response.json())
+        assert sources_response.namespace == "sources_test_legacy"
+        assert sources_response.total_deployments == 1
+
+        # Legacy deployments should be treated as local
+        assert sources_response.primary_source is not None
+        assert sources_response.primary_source.type == "local"
+
+
+class TestBulkNamespaceSources:
+    """Tests for POST /namespaces/sources/bulk endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_sources_empty(self, client_with_roads):
+        """Test bulk sources with no namespaces requested."""
+        request = BulkNamespaceSourcesRequest(namespaces=[])
+        response = await client_with_roads.post(
+            "/namespaces/sources/bulk",
+            json=request.model_dump(),
+        )
+        assert response.status_code == 200
+
+        bulk_response = BulkNamespaceSourcesResponse(**response.json())
+        assert bulk_response.sources == {}
+
+    @pytest.mark.asyncio
+    async def test_bulk_sources_nonexistent_namespaces(self, client_with_roads):
+        """Test bulk sources for namespaces that don't exist."""
+        request = BulkNamespaceSourcesRequest(
+            namespaces=["nonexistent_a", "nonexistent_b"],
+        )
+        response = await client_with_roads.post(
+            "/namespaces/sources/bulk",
+            json=request.model_dump(),
+        )
+        assert response.status_code == 200
+
+        bulk_response = BulkNamespaceSourcesResponse(**response.json())
+        assert len(bulk_response.sources) == 2
+
+        # Both should have empty sources
+        assert bulk_response.sources["nonexistent_a"].total_deployments == 0
+        assert bulk_response.sources["nonexistent_b"].total_deployments == 0
+
+    @pytest.mark.asyncio
+    async def test_bulk_sources_with_deployments(self, client_with_roads):
+        """Test bulk sources after deploying to multiple namespaces."""
+        # Deploy to namespace A with git source
+        git_source = GitDeploymentSource(
+            repository="github.com/bulk-test/repo-a",
+            branch="main",
+        )
+        spec_a = DeploymentSpec(
+            namespace="bulk_test_ns_a",
+            nodes=[
+                SourceSpec(
+                    name="source_a",
+                    catalog="default",
+                    schema_="test",
+                    table="table_a",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+            source=git_source,
+        )
+
+        deploy_a = await client_with_roads.post(
+            "/deployments",
+            json=spec_a.model_dump(by_alias=True),
+        )
+        assert deploy_a.status_code == 200
+
+        # Deploy to namespace B with local source
+        local_source = LocalDeploymentSource(hostname="test-machine")
+        spec_b = DeploymentSpec(
+            namespace="bulk_test_ns_b",
+            nodes=[
+                SourceSpec(
+                    name="source_b",
+                    catalog="default",
+                    schema_="test",
+                    table="table_b",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+            source=local_source,
+        )
+
+        deploy_b = await client_with_roads.post(
+            "/deployments",
+            json=spec_b.model_dump(by_alias=True),
+        )
+        assert deploy_b.status_code == 200
+
+        # Wait for both deployments
+        for deployment_id in [deploy_a.json()["uuid"], deploy_b.json()["uuid"]]:
+            for _ in range(30):
+                status = await client_with_roads.get(f"/deployments/{deployment_id}")
+                if status.json()["status"] in ("success", "failed"):
+                    break
+                await asyncio.sleep(0.1)
+
+        # Bulk query both namespaces
+        request = BulkNamespaceSourcesRequest(
+            namespaces=["bulk_test_ns_a", "bulk_test_ns_b", "bulk_test_ns_c"],
+        )
+        response = await client_with_roads.post(
+            "/namespaces/sources/bulk",
+            json=request.model_dump(),
+        )
+        assert response.status_code == 200
+
+        bulk_response = BulkNamespaceSourcesResponse(**response.json())
+        assert len(bulk_response.sources) == 3
+
+        # Namespace A should have git source
+        ns_a = bulk_response.sources["bulk_test_ns_a"]
+        assert ns_a.total_deployments == 1
+        assert ns_a.primary_source is not None
+        assert ns_a.primary_source.type == DeploymentSourceType.GIT
+        assert ns_a.primary_source.repository == "github.com/bulk-test/repo-a"
+
+        # Namespace B should have local source
+        ns_b = bulk_response.sources["bulk_test_ns_b"]
+        assert ns_b.total_deployments == 1
+        assert ns_b.primary_source is not None
+        assert ns_b.primary_source.type == DeploymentSourceType.LOCAL
+
+        # Namespace C should have no deployments
+        ns_c = bulk_response.sources["bulk_test_ns_c"]
+        assert ns_c.total_deployments == 0
+        assert ns_c.primary_source is None
+
+    @pytest.mark.asyncio
+    async def test_bulk_sources_single_namespace(self, client_with_roads):
+        """Test bulk sources with just one namespace (edge case)."""
+        # Deploy first
+        git_source = GitDeploymentSource(
+            repository="github.com/single-test/repo",
+            branch="develop",
+        )
+        spec = DeploymentSpec(
+            namespace="bulk_single_ns",
+            nodes=[
+                SourceSpec(
+                    name="single_source",
+                    catalog="default",
+                    schema_="test",
+                    table="single_table",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+            source=git_source,
+        )
+
+        deploy = await client_with_roads.post(
+            "/deployments",
+            json=spec.model_dump(by_alias=True),
+        )
+        assert deploy.status_code == 200
+
+        # Wait for deployment
+        deployment_id = deploy.json()["uuid"]
+        for _ in range(30):
+            status = await client_with_roads.get(f"/deployments/{deployment_id}")
+            if status.json()["status"] in ("success", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        # Bulk query with single namespace
+        request = BulkNamespaceSourcesRequest(namespaces=["bulk_single_ns"])
+        response = await client_with_roads.post(
+            "/namespaces/sources/bulk",
+            json=request.model_dump(),
+        )
+        assert response.status_code == 200
+
+        bulk_response = BulkNamespaceSourcesResponse(**response.json())
+        assert len(bulk_response.sources) == 1
+        assert "bulk_single_ns" in bulk_response.sources
+        assert bulk_response.sources["bulk_single_ns"].total_deployments == 1

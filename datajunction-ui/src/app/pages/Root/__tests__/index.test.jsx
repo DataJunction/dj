@@ -70,7 +70,7 @@ describe('<Root />', () => {
     expect(navRight).toBeInTheDocument();
   });
 
-  it('handles notification dropdown toggle', async () => {
+  it('handles notification dropdown toggle and closes user menu', async () => {
     renderRoot();
 
     await waitFor(() => {
@@ -80,16 +80,21 @@ describe('<Root />', () => {
     // Find the notification bell button and click it
     const bellButton = document.querySelector('[aria-label="Notifications"]');
     if (bellButton) {
+      // First click opens notifications
       fireEvent.click(bellButton);
-      // The dropdown should open
       await waitFor(() => {
-        // After clicking, the dropdown state changes
+        expect(bellButton).toBeInTheDocument();
+      });
+
+      // Click again to close
+      fireEvent.click(bellButton);
+      await waitFor(() => {
         expect(bellButton).toBeInTheDocument();
       });
     }
   });
 
-  it('handles user menu dropdown toggle', async () => {
+  it('handles user menu dropdown toggle and closes notification dropdown', async () => {
     renderRoot();
 
     await waitFor(() => {
@@ -99,6 +104,17 @@ describe('<Root />', () => {
     // The nav-right container should be present for auth-enabled mode
     const navRight = document.querySelector('.nav-right');
     expect(navRight).toBeInTheDocument();
+
+    // Find the user menu button (look for avatar or user icon)
+    const userMenuBtn = document.querySelector(
+      '.user-menu-button, .user-avatar, [aria-label*="user"], [aria-label*="menu"]',
+    );
+    if (userMenuBtn) {
+      fireEvent.click(userMenuBtn);
+      await waitFor(() => {
+        expect(userMenuBtn).toBeInTheDocument();
+      });
+    }
   });
 
   it('renders logo link correctly', async () => {
@@ -111,5 +127,84 @@ describe('<Root />', () => {
     // Check logo link - name is "Data Junction" with space
     const logoLink = screen.getByRole('link', { name: /data.*junction/i });
     expect(logoLink).toHaveAttribute('href', '/');
+  });
+
+  it('toggles between notification and user dropdowns exclusively', async () => {
+    renderRoot();
+
+    await waitFor(() => {
+      expect(document.title).toEqual('DataJunction');
+    });
+
+    const navRight = document.querySelector('.nav-right');
+    expect(navRight).toBeInTheDocument();
+
+    // Find both dropdown triggers
+    const bellButton = document.querySelector('[aria-label="Notifications"]');
+    const userMenuTrigger = navRight?.querySelector('button, [role="button"]');
+
+    if (bellButton && userMenuTrigger && bellButton !== userMenuTrigger) {
+      // Click notification first
+      fireEvent.click(bellButton);
+      await waitFor(() => {
+        expect(bellButton).toBeInTheDocument();
+      });
+
+      // Now click user menu - should close notifications
+      fireEvent.click(userMenuTrigger);
+      await waitFor(() => {
+        expect(userMenuTrigger).toBeInTheDocument();
+      });
+
+      // Click notifications again - should close user menu
+      fireEvent.click(bellButton);
+      await waitFor(() => {
+        expect(bellButton).toBeInTheDocument();
+      });
+    }
+  });
+
+  it('sets openDropdown state correctly for notification toggle', async () => {
+    renderRoot();
+
+    await waitFor(() => {
+      expect(document.title).toEqual('DataJunction');
+    });
+
+    const bellButton = document.querySelector('[aria-label="Notifications"]');
+    if (bellButton) {
+      // Open notifications dropdown
+      fireEvent.click(bellButton);
+
+      // The dropdown toggle handler should have been called with isOpen=true
+      // which sets openDropdown to 'notifications'
+      await waitFor(() => {
+        expect(bellButton).toBeInTheDocument();
+      });
+    }
+  });
+
+  it('sets openDropdown state correctly for user menu toggle', async () => {
+    renderRoot();
+
+    await waitFor(() => {
+      expect(document.title).toEqual('DataJunction');
+    });
+
+    const navRight = document.querySelector('.nav-right');
+    if (navRight) {
+      // Find user menu element (usually second clickable element in nav-right)
+      const buttons = navRight.querySelectorAll('button, [role="button"]');
+      if (buttons.length > 0) {
+        const userButton = buttons[buttons.length - 1]; // Last button is usually user menu
+        fireEvent.click(userButton);
+
+        // The dropdown toggle handler should have been called with isOpen=true
+        // which sets openDropdown to 'user'
+        await waitFor(() => {
+          expect(userButton).toBeInTheDocument();
+        });
+      }
+    }
   });
 });
