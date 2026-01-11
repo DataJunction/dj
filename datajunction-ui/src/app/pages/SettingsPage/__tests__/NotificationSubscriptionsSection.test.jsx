@@ -230,4 +230,99 @@ describe('NotificationSubscriptionsSection', () => {
 
     expect(screen.getByText('namespace')).toBeInTheDocument();
   });
+
+  it('handles onUpdate error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    window.alert = jest.fn();
+    mockOnUpdate.mockRejectedValue(new Error('Update failed'));
+
+    render(
+      <NotificationSubscriptionsSection
+        subscriptions={mockSubscriptions}
+        onUpdate={mockOnUpdate}
+        onUnsubscribe={mockOnUnsubscribe}
+      />,
+    );
+
+    const editButtons = screen.getAllByTitle('Edit subscription');
+    fireEvent.click(editButtons[0]);
+
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalledWith(
+        'Failed to update subscription',
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
+  it('handles onUnsubscribe error gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    window.confirm = jest.fn().mockReturnValue(true);
+    mockOnUnsubscribe.mockRejectedValue(new Error('Unsubscribe failed'));
+
+    render(
+      <NotificationSubscriptionsSection
+        subscriptions={mockSubscriptions}
+        onUpdate={mockOnUpdate}
+        onUnsubscribe={mockOnUnsubscribe}
+      />,
+    );
+
+    const unsubscribeButtons = screen.getAllByTitle('Unsubscribe');
+    fireEvent.click(unsubscribeButtons[0]);
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalled();
+    });
+
+    consoleSpy.mockRestore();
+  });
+
+  it('shows "All" when subscription has no activity_types', () => {
+    const subscriptionsWithoutActivityTypes = [
+      {
+        entity_name: 'default.some_node',
+        entity_type: 'node',
+        node_type: 'metric',
+        activity_types: null,
+        status: 'valid',
+      },
+    ];
+
+    render(
+      <NotificationSubscriptionsSection
+        subscriptions={subscriptionsWithoutActivityTypes}
+        onUpdate={mockOnUpdate}
+        onUnsubscribe={mockOnUnsubscribe}
+      />,
+    );
+
+    expect(screen.getByText('All')).toBeInTheDocument();
+  });
+
+  it('shows "All" when subscription has undefined activity_types', () => {
+    const subscriptionsWithUndefinedActivityTypes = [
+      {
+        entity_name: 'default.other_node',
+        entity_type: 'node',
+        node_type: 'dimension',
+        status: 'valid',
+        // activity_types not defined
+      },
+    ];
+
+    render(
+      <NotificationSubscriptionsSection
+        subscriptions={subscriptionsWithUndefinedActivityTypes}
+        onUpdate={mockOnUpdate}
+        onUnsubscribe={mockOnUnsubscribe}
+      />,
+    );
+
+    expect(screen.getByText('All')).toBeInTheDocument();
+  });
 });

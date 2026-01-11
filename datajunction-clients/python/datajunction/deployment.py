@@ -1,3 +1,5 @@
+import os
+import socket
 from pathlib import Path
 import time
 from typing import Any, Union
@@ -205,4 +207,66 @@ class DeploymentService:
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
         }
+
+        # Add deployment source if available from env vars
+        source = self._build_deployment_source()
+        if source:
+            deployment_spec["source"] = source
+
         return deployment_spec
+
+    @staticmethod
+    def _build_deployment_source() -> dict[str, Any] | None:
+        """
+        Build deployment source from environment variables.
+
+        Supports:
+        - DJ_DEPLOY_REPO: Git repository URL (triggers "git" source type)
+        - DJ_DEPLOY_BRANCH: Git branch name
+        - DJ_DEPLOY_COMMIT: Git commit SHA
+        - DJ_DEPLOY_CI_SYSTEM: CI system name (e.g., "github_actions", "jenkins", "rocket")
+        - DJ_DEPLOY_CI_RUN_URL: URL to the CI run/build
+
+        For local (non-git) deployments:
+        - DJ_DEPLOY_TRACK_LOCAL: Set to "true" to track local deployments
+        - DJ_DEPLOY_REASON: Optional reason for the deployment
+
+        Returns:
+            GitDeploymentSource dict if repo is specified,
+            LocalDeploymentSource dict if DJ_DEPLOY_TRACK_LOCAL is "true",
+            None otherwise (no source tracking)
+        """
+        repo = os.getenv("DJ_DEPLOY_REPO")
+
+        if repo:
+            # Git deployment source
+            source: dict[str, Any] = {
+                "type": "git",
+                "repository": repo,
+            }
+            branch = os.getenv("DJ_DEPLOY_BRANCH")
+            if branch:
+                source["branch"] = branch
+            commit = os.getenv("DJ_DEPLOY_COMMIT")
+            if commit:
+                source["commit_sha"] = commit
+            ci_system = os.getenv("DJ_DEPLOY_CI_SYSTEM")
+            if ci_system:
+                source["ci_system"] = ci_system
+            ci_run_url = os.getenv("DJ_DEPLOY_CI_RUN_URL")
+            if ci_run_url:
+                source["ci_run_url"] = ci_run_url
+            return source
+
+        # Check if we should create a local source
+        if os.getenv("DJ_DEPLOY_TRACK_LOCAL", "false").lower() == "true":
+            source = {
+                "type": "local",
+                "hostname": socket.gethostname(),
+            }
+            reason = os.getenv("DJ_DEPLOY_REASON")
+            if reason:
+                source["reason"] = reason
+            return source
+
+        return None  # No source tracking

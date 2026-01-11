@@ -254,6 +254,45 @@ tr {
   border-color: #12263f;
 }
 
+.nodes-table-body tr:hover td {
+  background-color: rgba(59, 130, 246, 0.03);
+}
+
+/* Sortable table headers */
+button.sortable {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s ease;
+}
+
+button.sortable:hover {
+  color: #1e293b;
+}
+
+button.sortable::after {
+  content: '↕';
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+button.sortable.ascending::after {
+  content: '↑';
+  opacity: 1;
+  color: #3b82f6;
+}
+
+button.sortable.descending::after {
+  content: '↓';
+  opacity: 1;
+  color: #3b82f6;
+}
+
 .card {
   box-shadow: 0 0.75rem 1.5rem rgba(18, 38, 63, 0.03);
   position: relative;
@@ -964,23 +1003,25 @@ pre {
 }
 
 .select-name {
-  margin-top: 5px;
-  padding: 7px 7px;
-  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  font-size: 14px;
+  font-weight: 400;
+  color: #1e293b;
   border-radius: 4px;
-  cursor: default;
-  font-size: 0.9125rem;
-  color: #95aac9;
 }
 
 .select-name:hover {
-  background-color: #bdbaba3c;
+  background-color: #f1f5f9;
 }
 
 .select-name-highlight {
-  font-weight: 600;
-  background-color: #bdbaba3c;
-  border: 1px solid rgba(94, 94, 94, 0.24);
+  background-color: #eef1f6;
 }
 
 .inactive {

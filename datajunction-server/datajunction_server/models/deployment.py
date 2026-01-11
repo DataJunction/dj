@@ -28,6 +28,13 @@ class DeploymentStatus(str, Enum):
     SUCCESS = "success"
 
 
+class DeploymentSourceType(str, Enum):
+    """Type of deployment source - git-managed or local/adhoc."""
+
+    GIT = "git"
+    LOCAL = "local"
+
+
 class TagSpec(BaseModel):
     """
     Specification for a tag
@@ -516,6 +523,85 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
     return changed_fields
 
 
+class GitDeploymentSource(BaseModel):
+    """
+    Deployment from a tracked git repository.
+    Indicates the source of truth is in version control with CI/CD automation.
+    """
+
+    type: Literal[DeploymentSourceType.GIT] = DeploymentSourceType.GIT
+    repository: str  # e.g., "github.com/org/repo"
+    branch: str | None = None  # e.g., "main", "feature/xyz"
+    commit_sha: str | None = None  # e.g., "abc123def456"
+    ci_system: str | None = None  # e.g., "jenkins", "github-actions"
+    ci_run_url: str | None = None  # Link to the CI build/run
+
+
+class LocalDeploymentSource(BaseModel):
+    """
+    Adhoc deployment without a git repository context.
+    Could be from CLI, direct API calls, scripts, or development/testing.
+    """
+
+    type: Literal[DeploymentSourceType.LOCAL] = DeploymentSourceType.LOCAL
+    # Optional context about the adhoc deployment
+    hostname: str | None = None  # Machine it was run from
+    reason: str | None = None  # Why this adhoc deployment?
+
+
+# Discriminated union - Pydantic will use the 'type' field to determine which model to use
+DeploymentSource = Annotated[
+    GitDeploymentSource | LocalDeploymentSource,
+    Field(discriminator="type"),
+]
+
+
+class NamespaceDeploymentSource(BaseModel):
+    """
+    Aggregated info about a deployment source for a namespace.
+    Used in the /namespaces/{namespace}/sources endpoint.
+    """
+
+    source: GitDeploymentSource | LocalDeploymentSource
+    deployment_count: int  # How many deployments from this source
+    first_deployed_at: str | None = None  # ISO datetime
+    last_deployed_at: str | None = None  # ISO datetime
+    last_deployment_id: str | None = None  # UUID of the most recent deployment
+
+
+class NamespaceSourcesResponse(BaseModel):
+    """
+    Response for the /namespaces/{namespace}/sources endpoint.
+    Shows all deployment sources that have deployed to a namespace.
+    """
+
+    namespace: str
+    primary_source: GitDeploymentSource | LocalDeploymentSource | None = None
+    sources: list[NamespaceDeploymentSource] = Field(default_factory=list)
+    total_deployments: int = 0
+    has_multiple_sources: bool = False  # Warning indicator
+
+
+class BulkNamespaceSourcesRequest(BaseModel):
+    """
+    Request body for fetching sources for multiple namespaces at once.
+    """
+
+    namespaces: list[str] = Field(
+        ...,
+        description="List of namespace names to fetch sources for",
+    )
+
+
+class BulkNamespaceSourcesResponse(BaseModel):
+    """
+    Response for bulk fetching namespace sources.
+    Maps namespace names to their deployment source info.
+    """
+
+    sources: dict[str, NamespaceSourcesResponse] = Field(default_factory=dict)
+
+
 class DeploymentSpec(BaseModel):
     """
     Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
@@ -525,6 +611,7 @@ class DeploymentSpec(BaseModel):
     namespace: str
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
+    source: DeploymentSource | None = None  # CI/CD provenance tracking
 
     @model_validator(mode="after")
     def set_namespaces(self):
