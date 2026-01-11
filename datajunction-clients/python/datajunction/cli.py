@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -334,6 +335,37 @@ class DJCLI:
             default=None,
             help="The namespace to push to (optionally overrides the namespace in the YAML files)",
         )
+        # Deployment source tracking flags
+        push_parser.add_argument(
+            "--repo",
+            type=str,
+            default=None,
+            help="Git repository URL for deployment tracking (overrides DJ_DEPLOY_REPO env var)",
+        )
+        push_parser.add_argument(
+            "--branch",
+            type=str,
+            default=None,
+            help="Git branch name (overrides DJ_DEPLOY_BRANCH env var)",
+        )
+        push_parser.add_argument(
+            "--commit",
+            type=str,
+            default=None,
+            help="Git commit SHA (overrides DJ_DEPLOY_COMMIT env var)",
+        )
+        push_parser.add_argument(
+            "--ci-system",
+            type=str,
+            default=None,
+            help="CI system name, e.g. 'github_actions', 'jenkins' (overrides DJ_DEPLOY_CI_SYSTEM)",
+        )
+        push_parser.add_argument(
+            "--ci-run-url",
+            type=str,
+            default=None,
+            help="URL to the CI run/build (overrides DJ_DEPLOY_CI_RUN_URL env var)",
+        )
 
         # `dj pull <namespace> <directory>`
         pull_parser = subparsers.add_parser(
@@ -514,6 +546,17 @@ class DJCLI:
         Dispatches the command based on the parsed args
         """
         if args.command == "push":
+            # CLI flags override env vars for deployment source tracking
+            if args.repo:
+                os.environ["DJ_DEPLOY_REPO"] = args.repo
+            if args.branch:
+                os.environ["DJ_DEPLOY_BRANCH"] = args.branch
+            if args.commit:
+                os.environ["DJ_DEPLOY_COMMIT"] = args.commit
+            if args.ci_system:
+                os.environ["DJ_DEPLOY_CI_SYSTEM"] = args.ci_system
+            if args.ci_run_url:
+                os.environ["DJ_DEPLOY_CI_RUN_URL"] = args.ci_run_url
             self.push(args.directory, namespace=args.namespace)
         elif args.command == "pull":
             self.pull(args.namespace, args.directory)

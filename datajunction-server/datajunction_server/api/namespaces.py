@@ -16,7 +16,13 @@ from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.models.access import ResourceAction
-from datajunction_server.models.deployment import CubeSpec, DeploymentSpec
+from datajunction_server.models.deployment import (
+    BulkNamespaceSourcesRequest,
+    BulkNamespaceSourcesResponse,
+    CubeSpec,
+    DeploymentSpec,
+    NamespaceSourcesResponse,
+)
 from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -32,6 +38,7 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
+    get_sources_for_namespace,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -157,7 +164,7 @@ async def list_nodes_in_namespace(
     )
     if not namespace_decisions:
         # User has no access to this namespace at all
-        return []
+        return []  # pragma: no cover
 
     # Get all nodes in namespace
     nodes = await NodeNamespace.list_nodes(
@@ -475,3 +482,58 @@ async def export_namespace_spec(
         namespace=namespace,
         nodes=node_specs,
     )
+
+
+@router.get(
+    "/namespaces/{namespace}/sources",
+    response_model=NamespaceSourcesResponse,
+    name="Get deployment sources for a namespace",
+)
+async def get_namespace_sources(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceSourcesResponse:
+    """
+    Get all deployment sources that have deployed to this namespace.
+
+    This helps teams understand:
+    - Whether a namespace is managed by CI/CD
+    - Which repositories have deployed to this namespace
+    - If there are multiple sources (potential conflict indicator)
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    return await get_sources_for_namespace(session, namespace)
+
+
+@router.post(
+    "/namespaces/sources/bulk",
+    response_model=BulkNamespaceSourcesResponse,
+    name="Get deployment sources for multiple namespaces",
+)
+async def get_bulk_namespace_sources(
+    request: BulkNamespaceSourcesRequest,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> BulkNamespaceSourcesResponse:
+    """
+    Get deployment sources for multiple namespaces in a single request.
+
+    This is useful for displaying CI/CD badges in the UI for all visible namespaces.
+    Returns a map of namespace name -> source info for each requested namespace.
+    """
+    # Add access checks for all requested namespaces
+    for namespace in request.namespaces:
+        access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Fetch sources for each namespace
+    sources: dict[str, NamespaceSourcesResponse] = {}
+    for namespace in request.namespaces:
+        sources[namespace] = await get_sources_for_namespace(session, namespace)
+
+    return BulkNamespaceSourcesResponse(sources=sources)

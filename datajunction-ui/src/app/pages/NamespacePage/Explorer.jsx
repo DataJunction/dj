@@ -4,7 +4,12 @@ import ExpandedIcon from '../../icons/ExpandedIcon';
 import AddItemIcon from '../../icons/AddItemIcon';
 import DJClientContext from '../../providers/djclient';
 
-const Explorer = ({ item = [], current, isTopLevel = false }) => {
+const Explorer = ({
+  item = [],
+  current,
+  isTopLevel = false,
+  namespaceSources = {},
+}) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [items, setItems] = useState([]);
   const [expand, setExpand] = useState(false);
@@ -106,13 +111,65 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
           }}
         >
           {items.children && items.children.length > 0 ? (
-            <span style={{ marginRight: '4px' }}>
+            <span
+              style={{
+                fontSize: '10px',
+                color: '#94a3b8',
+                width: '12px',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
               {!expand ? <CollapsedIcon /> : <ExpandedIcon />}
             </span>
           ) : (
-            <span style={{ left: '-18px' }} />
+            <span style={{ width: '12px' }} />
           )}
           <a href={`/namespaces/${items.path}`}>{items.namespace}</a>
+          {/* Deployment source badge */}
+          {namespaceSources[items.path] &&
+            namespaceSources[items.path].total_deployments > 0 &&
+            namespaceSources[items.path].primary_source?.type === 'git' && (
+              <span
+                title={`Git: ${
+                  namespaceSources[items.path].primary_source.repository ||
+                  'unknown'
+                }${
+                  namespaceSources[items.path].primary_source.branch
+                    ? ` (${namespaceSources[items.path].primary_source.branch})`
+                    : ''
+                }`}
+                style={{
+                  marginLeft: '6px',
+                  fontSize: '9px',
+                  padding: '1px 4px',
+                  borderRadius: '3px',
+                  backgroundColor: '#d4edda',
+                  color: '#155724',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '2px',
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="6" y1="3" x2="6" y2="15"></line>
+                  <circle cx="18" cy="6" r="3"></circle>
+                  <circle cx="6" cy="18" r="3"></circle>
+                  <path d="M18 9a9 9 0 0 1-9 9"></path>
+                </svg>
+                Git
+              </span>
+            )}
           <button
             className="namespace-add-button"
             onClick={e => {
@@ -144,10 +201,10 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
           {isCreatingChild && (
             <div
               style={{
-                paddingLeft: '1.4rem',
-                marginLeft: '1rem',
-                borderLeft: '1px solid rgb(218 233 255)',
-                marginTop: '5px',
+                paddingLeft: '0.55rem',
+                marginLeft: '0.25rem',
+                borderLeft: '1px solid #e2e8f0',
+                marginTop: '2px',
               }}
             >
               <form
@@ -205,9 +262,9 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
             items.children.map((item, index) => (
               <div
                 style={{
-                  paddingLeft: '1.4rem',
-                  marginLeft: '1rem',
-                  borderLeft: '1px solid rgb(218 233 255)',
+                  paddingLeft: '0.55rem',
+                  marginLeft: '0.25rem',
+                  borderLeft: '1px solid #e2e8f0',
                 }}
                 key={index}
               >
@@ -219,6 +276,7 @@ const Explorer = ({ item = [], current, isTopLevel = false }) => {
                     item={item}
                     current={highlight}
                     isTopLevel={false}
+                    namespaceSources={namespaceSources}
                   />
                 </div>
               </div>

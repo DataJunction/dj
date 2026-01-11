@@ -1014,6 +1014,27 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  namespaceSources: async function (namespace) {
+    return await (
+      await fetch(`${DJ_URL}/namespaces/${namespace}/sources`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  namespaceSourcesBulk: async function (namespaces) {
+    return await (
+      await fetch(`${DJ_URL}/namespaces/sources/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ namespaces }),
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   sql: async function (metric_name, selection) {
     const params = new URLSearchParams(selection);
     for (const [key, value] of Object.entries(selection)) {

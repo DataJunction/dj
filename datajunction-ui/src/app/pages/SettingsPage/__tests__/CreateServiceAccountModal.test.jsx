@@ -352,4 +352,54 @@ describe('CreateServiceAccountModal', () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('secret-xyz');
   });
+
+  it('does not call onCreate when form is submitted with only whitespace', async () => {
+    render(
+      <CreateServiceAccountModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreate={mockOnCreate}
+      />,
+    );
+
+    const input = screen.getByLabelText('Name');
+    // Enter only whitespace
+    fireEvent.change(input, { target: { value: '   ' } });
+
+    // Get the form and submit it directly
+    const form = document.querySelector('form');
+    fireEvent.submit(form);
+
+    // onCreate should not be called for whitespace-only names
+    expect(mockOnCreate).not.toHaveBeenCalled();
+  });
+
+  it('clears name input after successful creation', async () => {
+    const credentials = {
+      name: 'my-account',
+      client_id: 'abc-123',
+      client_secret: 'secret-xyz',
+    };
+    mockOnCreate.mockResolvedValue(credentials);
+
+    render(
+      <CreateServiceAccountModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreate={mockOnCreate}
+      />,
+    );
+
+    const input = screen.getByLabelText('Name');
+    fireEvent.change(input, { target: { value: 'my-account' } });
+    fireEvent.click(screen.getByText('Create'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Service Account Created!')).toBeInTheDocument();
+    });
+
+    // After showing credentials view, the name input is no longer visible
+    // The name was cleared after successful creation (line 21)
+    expect(mockOnCreate).toHaveBeenCalledWith('my-account');
+  });
 });

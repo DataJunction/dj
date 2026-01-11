@@ -14,6 +14,8 @@ const mockDjClient = {
   whoami: jest.fn(),
   users: jest.fn(),
   listTags: jest.fn(),
+  namespaceSources: jest.fn(),
+  namespaceSourcesBulk: jest.fn(),
 };
 
 const mockCurrentUser = { username: 'dj', email: 'dj@test.com' };
@@ -67,6 +69,10 @@ describe('NamespacePage', () => {
       { name: 'tag1' },
       { name: 'tag2' },
     ]);
+    mockDjClient.namespaceSources.mockResolvedValue({ sources: [] });
+    mockDjClient.namespaceSourcesBulk.mockResolvedValue({
+      namespace_sources: {},
+    });
     mockDjClient.namespaces.mockResolvedValue([
       {
         namespace: 'common.one',
@@ -280,13 +286,15 @@ describe('NamespacePage', () => {
 
     // Wait for namespaces to load
     await waitFor(() => {
-      expect(screen.getByText('default')).toBeInTheDocument();
+      expect(screen.getAllByText('default').length).toBeGreaterThan(0);
     });
 
-    // Find the namespace and hover to reveal add button
-    const defaultNamespace = screen
-      .getByText('default')
-      .closest('.select-name');
+    // Find the namespace in the sidebar by looking for the link with specific href
+    const allLinks = screen.getAllByRole('link');
+    const defaultNamespaceLink = allLinks.find(
+      link => link.getAttribute('href') === '/namespaces/default',
+    );
+    const defaultNamespace = defaultNamespaceLink.closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
@@ -340,13 +348,15 @@ describe('NamespacePage', () => {
 
     // Wait for namespaces to load
     await waitFor(() => {
-      expect(screen.getByText('default')).toBeInTheDocument();
+      expect(screen.getAllByText('default').length).toBeGreaterThan(0);
     });
 
-    // Find the namespace and hover to reveal add button
-    const defaultNamespace = screen
-      .getByText('default')
-      .closest('.select-name');
+    // Find the namespace in the sidebar by looking for the link with specific href
+    const allLinks = screen.getAllByRole('link');
+    const defaultNamespaceLink = allLinks.find(
+      link => link.getAttribute('href') === '/namespaces/default',
+    );
+    const defaultNamespace = defaultNamespaceLink.closest('.select-name');
     fireEvent.mouseEnter(defaultNamespace);
 
     // Find the add namespace button (it exists but is hidden, so use getAllByTitle)
@@ -384,7 +394,7 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quick:')).toBeInTheDocument();
+        expect(screen.getByText('Quick')).toBeInTheDocument();
       });
 
       // Check that preset buttons are rendered
