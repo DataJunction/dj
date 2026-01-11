@@ -450,7 +450,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     assert data["custom_metadata"] is None
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
+@pytest_asyncio.fixture(scope="module")
 async def module__current_user(module__session: AsyncSession) -> User:
     """
     A user fixture.
