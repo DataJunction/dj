@@ -174,3 +174,130 @@ def test_read_project_yaml_returns_empty(tmp_path: Path):
     svc = DeploymentService(client, console=Console(file=io.StringIO()))
     result = svc._read_project_yaml(project_dir)
     assert result == {}
+
+
+class TestBuildDeploymentSource:
+    """Tests for _build_deployment_source method."""
+
+    def test_no_env_vars_returns_none(self, monkeypatch):
+        """When no DJ_DEPLOY_* env vars are set, returns None."""
+        # Ensure none of the relevant env vars are set
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_BRANCH", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_TRACK_LOCAL", raising=False)
+
+        result = DeploymentService._build_deployment_source()
+        assert result is None
+
+    def test_git_source_with_all_fields(self, monkeypatch):
+        """When DJ_DEPLOY_REPO is set, returns git source with all fields."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.setenv("DJ_DEPLOY_BRANCH", "main")
+        monkeypatch.setenv("DJ_DEPLOY_COMMIT", "abc123")
+        monkeypatch.setenv("DJ_DEPLOY_CI_SYSTEM", "github-actions")
+        monkeypatch.setenv(
+            "DJ_DEPLOY_CI_RUN_URL",
+            "https://github.com/org/repo/actions/runs/123",
+        )
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result is not None
+        assert result["type"] == "git"
+        assert result["repository"] == "github.com/org/repo"
+        assert result["branch"] == "main"
+        assert result["commit_sha"] == "abc123"
+        assert result["ci_system"] == "github-actions"
+        assert result["ci_run_url"] == "https://github.com/org/repo/actions/runs/123"
+
+    def test_git_source_with_only_repo(self, monkeypatch):
+        """When only DJ_DEPLOY_REPO is set, other fields are omitted."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.delenv("DJ_DEPLOY_BRANCH", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result is not None
+        assert result["type"] == "git"
+        assert result["repository"] == "github.com/org/repo"
+        assert "branch" not in result
+        assert "commit_sha" not in result
+        assert "ci_system" not in result
+        assert "ci_run_url" not in result
+
+    def test_local_source_when_track_local_true(self, monkeypatch):
+        """When DJ_DEPLOY_TRACK_LOCAL=true, returns local source."""
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setenv("DJ_DEPLOY_TRACK_LOCAL", "true")
+        monkeypatch.setenv("DJ_DEPLOY_REASON", "testing locally")
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result is not None
+        assert result["type"] == "local"
+        assert "hostname" in result  # should be set to socket.gethostname()
+        assert result["reason"] == "testing locally"
+
+    def test_local_source_track_local_case_insensitive(self, monkeypatch):
+        """DJ_DEPLOY_TRACK_LOCAL should be case-insensitive."""
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setenv("DJ_DEPLOY_TRACK_LOCAL", "TRUE")
+        monkeypatch.delenv("DJ_DEPLOY_REASON", raising=False)
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result is not None
+        assert result["type"] == "local"
+
+    def test_git_takes_precedence_over_local(self, monkeypatch):
+        """When both DJ_DEPLOY_REPO and DJ_DEPLOY_TRACK_LOCAL are set, git wins."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.setenv("DJ_DEPLOY_TRACK_LOCAL", "true")
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result is not None
+        assert result["type"] == "git"
+
+    def test_reconstruct_deployment_spec_includes_source(self, tmp_path, monkeypatch):
+        """_reconstruct_deployment_spec should include source when env vars are set."""
+        # Set up project files
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "test"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "test.node"}))
+
+        # Set env vars for git source
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/test/repo")
+        monkeypatch.setenv("DJ_DEPLOY_BRANCH", "feature-branch")
+
+        svc = DeploymentService(MagicMock())
+        spec = svc._reconstruct_deployment_spec(tmp_path)
+
+        assert "source" in spec
+        assert spec["source"]["type"] == "git"
+        assert spec["source"]["repository"] == "github.com/test/repo"
+        assert spec["source"]["branch"] == "feature-branch"
+
+    def test_reconstruct_deployment_spec_no_source_without_env_vars(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """_reconstruct_deployment_spec should not include source when no env vars."""
+        # Set up project files
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "test"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "test.node"}))
+
+        # Ensure no env vars are set
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_TRACK_LOCAL", raising=False)
+
+        svc = DeploymentService(MagicMock())
+        spec = svc._reconstruct_deployment_spec(tmp_path)
+
+        assert "source" not in spec

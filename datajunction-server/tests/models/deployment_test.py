@@ -133,6 +133,7 @@ def test_deployment_spec():
             },
         ],
         "tags": [],
+        "source": None,
     }
 
 

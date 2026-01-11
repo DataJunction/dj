@@ -13,6 +13,14 @@ from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.models.deployment import (
+    DeploymentStatus,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+    NamespaceDeploymentSource,
+    NamespaceSourcesResponse,
+)
 from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
@@ -658,3 +666,89 @@ async def get_project_config(
         for node in sorted_nodes
     ]
     return project_components
+
+
+async def get_sources_for_namespace(
+    session: AsyncSession,
+    namespace: str,
+) -> NamespaceSourcesResponse:
+    """
+    Helper to get deployment sources for a single namespace.
+    """
+    # Query all successful deployments to this namespace
+    statement = (
+        select(Deployment)
+        .where(Deployment.namespace == namespace)
+        .where(Deployment.status == DeploymentStatus.SUCCESS)
+        .order_by(Deployment.created_at.desc())
+    )
+    result = await session.execute(statement)
+    deployments = result.scalars().all()
+
+    if not deployments:
+        return NamespaceSourcesResponse(
+            namespace=namespace,
+            primary_source=None,
+            sources=[],
+            total_deployments=0,
+            has_multiple_sources=False,
+        )
+
+    # Aggregate sources
+    source_map: dict[str, dict] = {}  # key = source identifier
+
+    for deployment in deployments:
+        source_data = deployment.spec.get("source") if deployment.spec else None
+
+        # Parse source based on type (discriminated union)
+        if source_data and source_data.get("type") == "git":
+            source: GitDeploymentSource | LocalDeploymentSource = GitDeploymentSource(
+                **source_data,
+            )
+            source_key = f"git:{source.repository}:{source.branch or 'default'}"
+        elif source_data and source_data.get("type") == "local":
+            source = LocalDeploymentSource(**source_data)
+            source_key = f"local:{source.hostname or 'unknown'}"
+        else:
+            # Legacy deployment without source info - treat as local
+            source = LocalDeploymentSource()
+            source_key = "local:unknown"
+
+        if source_key not in source_map:  # pragma: no branch
+            source_map[source_key] = {
+                "source": source,
+                "deployment_count": 0,
+                "first_deployed_at": deployment.created_at.isoformat(),
+                "last_deployed_at": deployment.created_at.isoformat(),
+                "last_deployment_id": str(deployment.uuid),
+            }
+
+        source_map[source_key]["deployment_count"] += 1
+        # Update first_deployed_at (we're iterating newest first)
+        source_map[source_key]["first_deployed_at"] = deployment.created_at.isoformat()
+
+    # Build response
+    sources = [
+        NamespaceDeploymentSource(
+            source=data["source"],
+            deployment_count=data["deployment_count"],
+            first_deployed_at=data["first_deployed_at"],
+            last_deployed_at=data["last_deployed_at"],
+            last_deployment_id=data["last_deployment_id"],
+        )
+        for data in source_map.values()
+    ]
+
+    # Sort by last deployment (most recent first)
+    sources.sort(key=lambda x: x.last_deployed_at or "", reverse=True)
+
+    # Primary source is the most recently deployed
+    primary_source = sources[0].source if sources else None
+
+    return NamespaceSourcesResponse(
+        namespace=namespace,
+        primary_source=primary_source,
+        sources=sources,
+        total_deployments=len(deployments),
+        has_multiple_sources=len(sources) > 1,
+    )
