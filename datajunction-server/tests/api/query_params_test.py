@@ -4,7 +4,7 @@ import pytest_asyncio
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def module__client_with_query_params(
     module__client_with_roads: AsyncClient,
 ) -> AsyncClient:

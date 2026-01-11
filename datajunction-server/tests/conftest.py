@@ -611,14 +611,11 @@ async def clean_client(
 @pytest.fixture(scope="module")
 def event_loop():
     """
-    This fixture is OK because we are pinning the pytest_asyncio to 0.21.x.
-    When they fix https://github.com/pytest-dev/pytest-asyncio/issues/718
-    we can remove the pytest_asyncio pin and remove this fixture.
+    Module-scoped event loop for async fixtures.
+    This ensures all async fixtures within a module share the same event loop.
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
     yield loop
     loop.close()
 

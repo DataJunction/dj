@@ -177,7 +177,7 @@ async def test_update_source_node(
     ]
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def user_one(module__client_with_roads: AsyncClient):
     await module__client_with_roads.post(
         "/basic/user/",
@@ -189,7 +189,7 @@ async def user_one(module__client_with_roads: AsyncClient):
     )
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def cube(module__client_with_roads: AsyncClient):
     await module__client_with_roads.post(
         "/nodes/cube/",
