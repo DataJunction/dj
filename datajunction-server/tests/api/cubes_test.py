@@ -269,7 +269,7 @@ async def test_raise_on_cube_with_multiple_catalogs(
     assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def client_with_repairs_cube(
     module__client_with_roads: AsyncClient,
 ):

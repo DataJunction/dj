@@ -3,7 +3,7 @@ import pytest
 import pytest_asyncio
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def module__client_with_system(
     module__client_with_roads: AsyncClient,
 ) -> AsyncClient:
