@@ -63,4 +63,3 @@ export const groupByDate = (items, dateField = 'created_at') => {
     .filter(g => groups[g]?.length > 0)
     .map(g => ({ label: g, items: groups[g] }));
 };
-

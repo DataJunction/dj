@@ -76,4 +76,3 @@ export function useCurrentUser() {
 }
 
 export default UserContext;
-
