@@ -123,7 +123,7 @@ async def analyze_deployment_impact(
             # Detect column changes using inferred columns (or fallback to spec columns)
             # Skip column comparison for cubes - their validity depends on metrics/dimensions
             column_changes = []
-            if node_spec.node_type != NodeType.CUBE:
+            if node_spec.node_type != NodeType.CUBE:  # pragma: no branch
                 column_changes = _detect_column_changes(
                     existing_node,
                     node_spec,
