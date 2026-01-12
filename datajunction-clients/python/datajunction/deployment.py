@@ -45,6 +45,56 @@ class DeploymentService:
                 result[k] = v  # type: ignore
         return result
 
+    @staticmethod
+    def filter_node_for_export(node: dict) -> dict:
+        """
+        Filter a node dict for export to YAML.
+
+        For columns:
+        - Cubes: columns are always excluded (they're inferred from metrics/dimensions)
+        - Other nodes: only includes columns with meaningful customizations
+          (display_name different from name, attributes, description, or partition).
+          Column types are excluded - let DJ infer them from the query/source.
+        """
+        result = DeploymentService.clean_dict(node)
+
+        # Cubes should never have columns in export - they're inferred from metrics/dimensions
+        if result.get("node_type") == "cube":
+            result.pop("columns", None)
+        # For other nodes, filter columns to only include meaningful customizations
+        elif "columns" in result and result["columns"]:
+            filtered_columns = []
+            for col in result["columns"]:
+                # Check for meaningful customizations
+                has_custom_display = col.get("display_name") and col.get(
+                    "display_name",
+                ) != col.get("name")
+                has_attributes = bool(col.get("attributes"))
+                has_description = bool(col.get("description"))
+                has_partition = bool(col.get("partition"))
+
+                if (
+                    has_custom_display
+                    or has_attributes
+                    or has_description
+                    or has_partition
+                ):
+                    # Include column but exclude type (let DJ infer)
+                    filtered_col = {
+                        k: v
+                        for k, v in col.items()
+                        if k != "type" and v  # Exclude type and empty values
+                    }
+                    filtered_columns.append(filtered_col)
+
+            if filtered_columns:
+                result["columns"] = filtered_columns
+            else:
+                # Remove columns entirely if none have customizations
+                del result["columns"]
+
+        return result
+
     def pull(
         self,
         namespace: str,
@@ -76,10 +126,10 @@ class DeploymentService:
             file_name = node_parts[-1] + ".yaml"
             file_path = node_namespace_path / file_name
 
-            # Write YAML for this node
+            # Write YAML for this node (filter columns for cleaner output)
             with open(file_path, "w") as yaml_file:
                 yaml.dump(
-                    DeploymentService.clean_dict(node),
+                    DeploymentService.filter_node_for_export(node),
                     yaml_file,
                     sort_keys=False,
                 )
@@ -169,6 +219,19 @@ class DeploymentService:
                 f"\nDeployment finished: [bold {color}]{deployment_data.get('status').upper()}[/bold {color}]",
             )
 
+    def get_impact(
+        self,
+        source_path: str | Path,
+        namespace: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get impact analysis for a deployment without deploying.
+        Returns the impact analysis response from the server.
+        """
+        deployment_spec = self._reconstruct_deployment_spec(source_path)
+        deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
+        return self.client.get_deployment_impact(deployment_spec)
+
     @staticmethod
     def read_yaml_file(path: str | Path) -> dict[str, Any]:
         with open(path, "r") as f:
@@ -210,31 +273,30 @@ class DeploymentService:
 
         # Add deployment source if available from env vars
         source = self._build_deployment_source()
-        if source:
+        if source:  # pragma: no branch
             deployment_spec["source"] = source
 
         return deployment_spec
 
     @staticmethod
-    def _build_deployment_source() -> dict[str, Any] | None:
+    def _build_deployment_source() -> dict[str, Any]:
         """
         Build deployment source from environment variables.
 
-        Supports:
+        For Git deployments (when DJ_DEPLOY_REPO is set):
         - DJ_DEPLOY_REPO: Git repository URL (triggers "git" source type)
         - DJ_DEPLOY_BRANCH: Git branch name
         - DJ_DEPLOY_COMMIT: Git commit SHA
         - DJ_DEPLOY_CI_SYSTEM: CI system name (e.g., "github_actions", "jenkins", "rocket")
         - DJ_DEPLOY_CI_RUN_URL: URL to the CI run/build
 
-        For local (non-git) deployments:
-        - DJ_DEPLOY_TRACK_LOCAL: Set to "true" to track local deployments
+        For local deployments (when DJ_DEPLOY_REPO is not set):
+        - Hostname is auto-filled from the machine
         - DJ_DEPLOY_REASON: Optional reason for the deployment
 
         Returns:
             GitDeploymentSource dict if repo is specified,
-            LocalDeploymentSource dict if DJ_DEPLOY_TRACK_LOCAL is "true",
-            None otherwise (no source tracking)
+            LocalDeploymentSource dict otherwise (with hostname auto-filled)
         """
         repo = os.getenv("DJ_DEPLOY_REPO")
 
@@ -258,15 +320,12 @@ class DeploymentService:
                 source["ci_run_url"] = ci_run_url
             return source
 
-        # Check if we should create a local source
-        if os.getenv("DJ_DEPLOY_TRACK_LOCAL", "false").lower() == "true":
-            source = {
-                "type": "local",
-                "hostname": socket.gethostname(),
-            }
-            reason = os.getenv("DJ_DEPLOY_REASON")
-            if reason:
-                source["reason"] = reason
-            return source
-
-        return None  # No source tracking
+        # Always track local deployments with auto-filled hostname
+        source = {
+            "type": "local",
+            "hostname": socket.gethostname(),
+        }
+        reason = os.getenv("DJ_DEPLOY_REASON")
+        if reason:
+            source["reason"] = reason
+        return source

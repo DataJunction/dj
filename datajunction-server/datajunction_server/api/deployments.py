@@ -20,7 +20,9 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DeploymentInfo,
 )
+from datajunction_server.models.impact import DeploymentImpactResponse
 from datajunction_server.internal.deployment.deployment import deploy
+from datajunction_server.internal.deployment.impact import analyze_deployment_impact
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -233,3 +235,42 @@ async def list_deployments(  # pragma: no cover
         )
         for deployment in deployments
     ]
+
+
+@router.post(
+    "/deployments/impact",
+    name="Preview deployment impact",
+    response_model=DeploymentImpactResponse,
+)
+async def preview_deployment_impact(
+    deployment_spec: DeploymentSpec,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> DeploymentImpactResponse:
+    """
+    Analyze the impact of a deployment WITHOUT actually deploying.
+
+    This endpoint takes a deployment specification and returns:
+    - Direct changes: What nodes will be created, updated, deleted, or skipped
+    - Downstream impacts: What existing nodes will be affected by these changes
+    - Warnings: Potential issues like breaking column changes or external impacts
+
+    Use this endpoint to preview changes before deploying, similar to a dry-run
+    but with more detailed impact analysis including second and third-order effects.
+    """
+    access_checker.add_request(
+        access.ResourceRequest(
+            verb=access.ResourceAction.READ,
+            access_object=access.Resource(
+                resource_type=access.ResourceType.NAMESPACE,
+                name=deployment_spec.namespace,
+            ),
+        ),
+    )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    return await analyze_deployment_impact(
+        session=session,
+        deployment_spec=deployment_spec,
+    )
