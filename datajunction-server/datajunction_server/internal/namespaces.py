@@ -50,6 +50,24 @@ from datajunction_server.sql.dag import (
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
+import logging
+from typing import Callable, Dict, List, cast
+
+import yaml
+from sqlalchemy.ext.asyncio import AsyncSession
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
+from datajunction_server.database.user import User
+from datajunction_server.models.deployment import (
+    CubeSpec,
+    NamespaceSourcesResponse,
+    NodeSpec,
+)
+from datajunction_server.models.dimensionlink import LinkType
+from datajunction_server.models.node import NodeMinimumDetail
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.utils import SEPARATOR
+
 logger = logging.getLogger(__name__)
 
 # A list of namespace names that cannot be used because they are
@@ -715,12 +733,16 @@ async def get_sources_for_namespace(
             source_key = "local:unknown"
 
         if source_key not in source_map:  # pragma: no branch
+            print("deployment", deployment.created_by, deployment.created_by_id)
             source_map[source_key] = {
                 "source": source,
                 "deployment_count": 0,
                 "first_deployed_at": deployment.created_at.isoformat(),
                 "last_deployed_at": deployment.created_at.isoformat(),
                 "last_deployment_id": str(deployment.uuid),
+                "last_deployed_by": (
+                    deployment.created_by.username if deployment.created_by else None
+                ),
             }
 
         source_map[source_key]["deployment_count"] += 1
@@ -735,6 +757,7 @@ async def get_sources_for_namespace(
             first_deployed_at=data["first_deployed_at"],
             last_deployed_at=data["last_deployed_at"],
             last_deployment_id=data["last_deployment_id"],
+            last_deployed_by=data["last_deployed_by"],
         )
         for data in source_map.values()
     ]
@@ -752,3 +775,138 @@ async def get_sources_for_namespace(
         total_deployments=len(deployments),
         has_multiple_sources=len(sources) > 1,
     )
+
+
+def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
+    """
+    Replaces a namespace in a string with ${prefix}
+    default.namespace.blah -> ${prefix}.blah
+    default.namespace.blah.foo -> ${prefix}.blah.foo
+    """
+    return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
+
+
+async def get_node_specs_for_export(
+    session: AsyncSession,
+    namespace: str,
+) -> list[NodeSpec]:
+    """
+    Get node specs for a namespace with ${prefix} injection applied.
+
+    This is shared between:
+    - /namespaces/{namespace}/export/spec (JSON API)
+    - /namespaces/{namespace}/export/yaml (ZIP download)
+    """
+    nodes = await NodeNamespace.list_all_nodes(
+        session,
+        namespace,
+        options=Node.cube_load_options(),
+    )
+    node_specs = [await node.to_spec(session) for node in nodes]
+
+    for node_spec in node_specs:
+        node_spec.name = inject_prefixes(node_spec.rendered_name, namespace)
+        if node_spec.node_type in (
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+            NodeType.METRIC,
+        ):
+            node_spec.query = inject_prefixes(node_spec.query, namespace)
+        if node_spec.node_type in (
+            NodeType.SOURCE,
+            NodeType.TRANSFORM,
+            NodeType.DIMENSION,
+        ):
+            for link in node_spec.dimension_links:
+                if link.type == LinkType.JOIN:
+                    link.dimension_node = inject_prefixes(
+                        link.dimension_node,
+                        namespace,
+                    )
+                    link.join_on = inject_prefixes(link.join_on, namespace)
+                else:  # pragma: no cover
+                    link.dimension = inject_prefixes(link.dimension, namespace)
+        if node_spec.node_type == NodeType.CUBE:
+            cube_spec = cast(CubeSpec, node_spec)
+            cube_spec.metrics = [
+                inject_prefixes(metric, namespace) for metric in node_spec.metrics
+            ]
+            cube_spec.dimensions = [
+                inject_prefixes(dimension, namespace)
+                for dimension in node_spec.dimensions
+            ]
+
+    return node_specs
+
+
+def _multiline_str_representer(dumper, data):
+    """
+    Custom YAML representer that uses literal block style (|) for multiline strings.
+    """
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+def _get_yaml_dumper():
+    """
+    Get a YAML dumper configured for clean node export.
+    Uses literal block style for multiline strings (like SQL queries).
+    """
+    dumper = yaml.SafeDumper
+    dumper.add_representer(str, _multiline_str_representer)
+    return dumper
+
+
+def _node_spec_to_yaml_dict(node_spec) -> dict:
+    """
+    Convert a NodeSpec to a dict suitable for YAML serialization.
+    Excludes None values and empty lists for cleaner output.
+
+    For columns:
+    - Cubes: columns are always excluded (they're inferred from metrics/dimensions)
+    - Other nodes: only includes columns with meaningful customizations
+      (display_name different from name, attributes, description, or partition).
+      Column types are excluded - let DJ infer them from the query/source.
+    """
+    # Use model_dump with mode="json" to convert Enums to strings
+    # Note: Don't use exclude_unset=True as it would exclude discriminator fields
+    # like 'type' on dimension_links which have default values
+    data = node_spec.model_dump(
+        mode="json",  # Converts Enums to strings, datetimes to ISO format, etc.
+        exclude_none=True,
+        exclude={"namespace"},  # namespace is part of file path, not content
+    )
+
+    # Cubes should never have columns in export - they're inferred from metrics/dimensions
+    if data.get("node_type") == "cube":
+        data.pop("columns", None)
+    # For other nodes, filter columns to only include meaningful customizations
+    elif "columns" in data and data["columns"]:
+        filtered_columns = []
+        for col in data["columns"]:
+            # Check for meaningful customizations
+            has_custom_display = col.get("display_name") and col.get(
+                "display_name",
+            ) != col.get("name")
+            has_attributes = bool(col.get("attributes"))
+            has_description = bool(col.get("description"))
+            has_partition = bool(col.get("partition"))
+
+            if has_custom_display or has_attributes or has_description or has_partition:
+                # Include column but exclude type (let DJ infer)
+                filtered_col = {
+                    k: v
+                    for k, v in col.items()
+                    if k != "type" and v  # Exclude type and empty values
+                }
+                filtered_columns.append(filtered_col)
+
+        if filtered_columns:
+            data["columns"] = filtered_columns
+        else:
+            # Remove columns entirely if none have customizations
+            del data["columns"]
+
+    # Remove empty lists/dicts for cleaner YAML
+    return {k: v for k, v in data.items() if v or v == 0 or v is False}
