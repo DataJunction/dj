@@ -7,6 +7,7 @@ import { useCurrentUser } from '../../providers/UserProvider';
 import Explorer from '../NamespacePage/Explorer';
 import AddNodeDropdown from '../../components/AddNodeDropdown';
 import NodeListActions from '../../components/NodeListActions';
+import NamespaceHeader from '../../components/NamespaceHeader';
 import LoadingIcon from '../../icons/LoadingIcon';
 import CompactSelect from './CompactSelect';
 import { getDJUrl } from '../../services/DJService';
@@ -65,7 +66,6 @@ export function NamespacePage() {
 
   const [filters, setFilters] = useState(getFiltersFromUrl);
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
-  const [deploymentsDropdownOpen, setDeploymentsDropdownOpen] = useState(false);
 
   // Sync filters state when URL changes
   useEffect(() => {
@@ -169,8 +169,6 @@ export function NamespacePage() {
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
   const [namespaceSources, setNamespaceSources] = useState({});
-  const [currentNamespaceSources, setCurrentNamespaceSources] = useState(null);
-  const [recentDeployments, setRecentDeployments] = useState([]);
 
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
@@ -249,26 +247,6 @@ export function NamespacePage() {
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
-
-  // Fetch sources for the current namespace (for the header badge)
-  useEffect(() => {
-    const fetchCurrentSources = async () => {
-      if (namespace) {
-        const sources = await djClient.namespaceSources(namespace);
-        setCurrentNamespaceSources(sources);
-
-        // Fetch recent deployments for this namespace
-        try {
-          const deployments = await djClient.listDeployments(namespace, 5);
-          setRecentDeployments(deployments || []);
-        } catch (err) {
-          console.error('Failed to fetch deployments:', err);
-          setRecentDeployments([]);
-        }
-      }
-    };
-    fetchCurrentSources().catch(console.error);
-  }, [djClient, namespace]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -826,496 +804,51 @@ export function NamespacePage() {
                 : null}
             </div>
             <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
-              {/* Namespace Header */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  paddingBottom: '12px',
-                  marginBottom: '16px',
-                  borderBottom: '1px solid #e2e8f0',
-                }}
-              >
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              <NamespaceHeader namespace={namespace}>
+                <a
+                  href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
+                  download
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    // padding: '6px 12px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: '#475569',
+                    // backgroundColor: '#f8fafc',
+                    // border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    textDecoration: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    margin: '0.5em 0px 0px 1em',
+                  }}
+                  onMouseOver={e => {
+                    e.currentTarget.style.color = '#333333';
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.color = '#475569';
+                  }}
+                  title="Export namespace to YAML"
                 >
-                  <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      fill="currentColor"
-                      viewBox="0 0 16 16"
-                    >
-                      <path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5 8 5.961 14.154 3.5 8.186 1.113zM15 4.239l-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923l6.5 2.6zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464L7.443.184z" />
-                    </svg>
-                  </a>
-                  <span style={{ color: '#6c757d' }}>/</span>
-                  {namespace ? (
-                    namespace.split('.').map((part, index, arr) => (
-                      <span
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}
-                      >
-                        <a
-                          href={`/namespaces/${arr
-                            .slice(0, index + 1)
-                            .join('.')}`}
-                          style={{
-                            fontWeight: '400',
-                            color: '#1e293b',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          {part}
-                        </a>
-                        {index < arr.length - 1 && (
-                          <span style={{ color: '#94a3b8', fontWeight: '400' }}>
-                            /
-                          </span>
-                        )}
-                      </span>
-                    ))
-                  ) : (
-                    <span style={{ fontWeight: '600', color: '#1e293b' }}>
-                      All Namespaces
-                    </span>
-                  )}
-                  {currentNamespaceSources &&
-                    currentNamespaceSources.total_deployments > 0 && (
-                      <div style={{ position: 'relative', marginLeft: '8px' }}>
-                        <button
-                          onClick={() =>
-                            setDeploymentsDropdownOpen(!deploymentsDropdownOpen)
-                          }
-                          style={{
-                            height: '32px',
-                            padding: '0 12px',
-                            fontSize: '12px',
-                            border: 'none',
-                            borderRadius: '4px',
-                            backgroundColor: '#ffffff',
-                            color: '#0b3d91',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {currentNamespaceSources.primary_source?.type ===
-                          'git' ? (
-                            <>
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <line x1="6" y1="3" x2="6" y2="15"></line>
-                                <circle cx="18" cy="6" r="3"></circle>
-                                <circle cx="6" cy="18" r="3"></circle>
-                                <path d="M18 9a9 9 0 0 1-9 9"></path>
-                              </svg>
-                              Git Managed
-                            </>
-                          ) : (
-                            <>
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <circle cx="12" cy="7" r="4" />
-                                <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
-                              </svg>
-                              Local Deploy
-                            </>
-                          )}
-                          <span style={{ fontSize: '8px' }}>
-                            {deploymentsDropdownOpen ? '▲' : '▼'}
-                          </span>
-                        </button>
-
-                        {deploymentsDropdownOpen && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '100%',
-                              left: 0,
-                              marginTop: '4px',
-                              padding: '12px',
-                              backgroundColor: 'white',
-                              border: '1px solid #ddd',
-                              borderRadius: '8px',
-                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                              zIndex: 1000,
-                              minWidth: '340px',
-                            }}
-                          >
-                            {currentNamespaceSources.primary_source?.type ===
-                            'git' ? (
-                              <a
-                                href={
-                                  currentNamespaceSources.primary_source.repository?.startsWith(
-                                    'http',
-                                  )
-                                    ? currentNamespaceSources.primary_source
-                                        .repository
-                                    : `https://${currentNamespaceSources.primary_source.repository}`
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  fontSize: '13px',
-                                  fontWeight: 400,
-                                  textDecoration: 'none',
-                                  marginBottom: '12px',
-                                }}
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <line x1="6" y1="3" x2="6" y2="15" />
-                                  <circle cx="18" cy="6" r="3" />
-                                  <circle cx="6" cy="18" r="3" />
-                                  <path d="M18 9a9 9 0 0 1-9 9" />
-                                </svg>
-                                {
-                                  currentNamespaceSources.primary_source
-                                    .repository
-                                }
-                                {currentNamespaceSources.primary_source
-                                  .branch &&
-                                  ` (${currentNamespaceSources.primary_source.branch})`}
-                              </a>
-                            ) : (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  fontSize: '13px',
-                                  fontWeight: 600,
-                                  color: '#0b3d91',
-                                  marginBottom: '12px',
-                                }}
-                              >
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <circle cx="12" cy="7" r="4" />
-                                  <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
-                                </svg>
-                                {recentDeployments?.[0]?.created_by
-                                  ? `Local deploys by ${recentDeployments[0].created_by}`
-                                  : 'Local/adhoc deployments'}
-                              </div>
-                            )}
-
-                            {/* Separator */}
-                            <div
-                              style={{
-                                height: '1px',
-                                backgroundColor: '#e2e8f0',
-                                marginBottom: '8px',
-                              }}
-                            />
-
-                            {/* Recent deployments list (no header) */}
-                            {recentDeployments?.length > 0 ? (
-                              recentDeployments.map((d, idx) => {
-                                const isGit = d.source?.type === 'git';
-                                const statusColor =
-                                  d.status === 'success'
-                                    ? '#22c55e'
-                                    : d.status === 'failed'
-                                    ? '#ef4444'
-                                    : '#94a3b8';
-
-                                // Build commit URL if available
-                                const commitUrl =
-                                  isGit &&
-                                  d.source?.repository &&
-                                  d.source?.commit_sha
-                                    ? `${
-                                        d.source.repository.startsWith('http')
-                                          ? d.source.repository
-                                          : `https://${d.source.repository}`
-                                      }/commit/${d.source.commit_sha}`
-                                    : null;
-
-                                // For git: show branch + short SHA; for local: reason or hostname
-                                const detail = isGit
-                                  ? d.source?.branch || 'main'
-                                  : d.source?.reason ||
-                                    d.source?.hostname ||
-                                    'adhoc';
-
-                                const shortSha = d.source?.commit_sha?.slice(
-                                  0,
-                                  7,
-                                );
-
-                                return (
-                                  <div
-                                    key={`${d.uuid}-${idx}`}
-                                    style={{
-                                      display: 'grid',
-                                      gridTemplateColumns: '18px 1fr auto auto',
-                                      alignItems: 'center',
-                                      gap: '8px',
-                                      padding: '6px 0',
-                                      borderBottom:
-                                        idx === recentDeployments.length - 1
-                                          ? 'none'
-                                          : '1px solid #f1f5f9',
-                                      fontSize: '12px',
-                                    }}
-                                  >
-                                    {/* Status dot */}
-                                    <div
-                                      style={{
-                                        width: '8px',
-                                        height: '8px',
-                                        borderRadius: '50%',
-                                        backgroundColor: statusColor,
-                                      }}
-                                      title={d.status}
-                                    />
-
-                                    {/* User + detail */}
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        minWidth: 0,
-                                      }}
-                                    >
-                                      <span
-                                        style={{
-                                          fontWeight: 500,
-                                          color: '#0f172a',
-                                          whiteSpace: 'nowrap',
-                                        }}
-                                      >
-                                        {d.created_by || 'unknown'}
-                                      </span>
-                                      <span style={{ color: '#cbd5e1' }}>
-                                        —
-                                      </span>
-                                      {isGit ? (
-                                        <>
-                                          <span
-                                            style={{
-                                              color: '#64748b',
-                                              whiteSpace: 'nowrap',
-                                            }}
-                                          >
-                                            {detail}
-                                          </span>
-                                          {shortSha && (
-                                            <>
-                                              <span
-                                                style={{ color: '#cbd5e1' }}
-                                              >
-                                                @
-                                              </span>
-                                              {commitUrl ? (
-                                                <a
-                                                  href={commitUrl}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  style={{
-                                                    fontFamily: 'monospace',
-                                                    fontSize: '11px',
-                                                    color: '#3b82f6',
-                                                    textDecoration: 'none',
-                                                  }}
-                                                >
-                                                  {shortSha}
-                                                </a>
-                                              ) : (
-                                                <span
-                                                  style={{
-                                                    fontFamily: 'monospace',
-                                                    fontSize: '11px',
-                                                    color: '#64748b',
-                                                  }}
-                                                >
-                                                  {shortSha}
-                                                </span>
-                                              )}
-                                            </>
-                                          )}
-                                        </>
-                                      ) : (
-                                        <span
-                                          style={{
-                                            color: '#64748b',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          {detail}
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    {/* Timestamp */}
-                                    <span
-                                      style={{
-                                        color: '#94a3b8',
-                                        fontSize: '11px',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {new Date(
-                                        d.created_at,
-                                      ).toLocaleDateString()}
-                                    </span>
-
-                                    {/* Icon */}
-                                    <div
-                                      style={{
-                                        color: isGit ? '#155724' : '#0b3d91',
-                                      }}
-                                    >
-                                      {isGit ? (
-                                        <svg
-                                          width="12"
-                                          height="12"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        >
-                                          <line x1="6" y1="3" x2="6" y2="15" />
-                                          <circle cx="18" cy="6" r="3" />
-                                          <circle cx="6" cy="18" r="3" />
-                                          <path d="M18 9a9 9 0 0 1-9 9" />
-                                        </svg>
-                                      ) : (
-                                        <svg
-                                          width="12"
-                                          height="12"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        >
-                                          <circle cx="12" cy="7" r="4" />
-                                          <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
-                                        </svg>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <div
-                                style={{
-                                  color: '#94a3b8',
-                                  fontSize: '12px',
-                                  textAlign: 'center',
-                                  padding: '8px 0',
-                                }}
-                              >
-                                No deployments yet
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                </div>
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  <a
-                    href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
-                    download
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      // padding: '6px 12px',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      color: '#475569',
-                      // backgroundColor: '#f8fafc',
-                      // border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      textDecoration: 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      margin: '0.5em 0px 0px 1em',
-                    }}
-                    onMouseOver={e => {
-                      e.currentTarget.style.color = '#333333';
-                    }}
-                    onMouseOut={e => {
-                      e.currentTarget.style.color = '#475569';
-                    }}
-                    title="Export namespace to YAML"
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                      <polyline points="7 10 12 15 17 10"></polyline>
-                      <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                  </a>
-                  <AddNodeDropdown namespace={namespace} />
-                </div>
-              </div>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                </a>
+                <AddNodeDropdown namespace={namespace} />
+              </NamespaceHeader>
               <table className="card-table table" style={{ marginBottom: 0 }}>
                 <thead>
                   <tr>
