@@ -41,7 +41,6 @@ export default function NamespaceHeader({ namespace }) {
     }
 
     const isGit = sources.primary_source?.type === 'git';
-    const hasMultiple = sources.has_multiple_sources;
 
     return (
       <li
@@ -50,9 +49,7 @@ export default function NamespaceHeader({ namespace }) {
       >
         <span
           title={
-            hasMultiple
-              ? `Warning: ${sources.sources.length} deployment sources`
-              : isGit
+            isGit
               ? `CI-managed: ${sources.primary_source.repository}${
                   sources.primary_source.branch
                     ? ` (${sources.primary_source.branch})`
@@ -67,21 +64,13 @@ export default function NamespaceHeader({ namespace }) {
             padding: '2px 8px',
             fontSize: '11px',
             borderRadius: '12px',
-            backgroundColor: hasMultiple
-              ? '#fff3cd'
-              : isGit
-              ? '#d4edda'
-              : '#e2e3e5',
-            color: hasMultiple ? '#856404' : isGit ? '#155724' : '#383d41',
+            backgroundColor: isGit ? '#d4edda' : '#e2e3e5',
+            color: isGit ? '#155724' : '#383d41',
             cursor: 'help',
           }}
         >
-          {hasMultiple ? '⚠️' : isGit ? '🔗' : '📁'}
-          {hasMultiple
-            ? `${sources.sources.length} sources`
-            : isGit
-            ? 'CI'
-            : 'Local'}
+          {isGit ? '🔗' : '📁'}
+          {isGit ? 'CI' : 'Local'}
         </span>
       </li>
     );

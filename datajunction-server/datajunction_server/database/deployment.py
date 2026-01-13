@@ -1,5 +1,5 @@
 from uuid import UUID, uuid4
-from sqlalchemy import String, Enum, JSON, DateTime
+from sqlalchemy import String, Enum, JSON, DateTime, Index
 from datetime import datetime
 from datajunction_server.models.deployment import (
     DeploymentResult,
@@ -18,6 +18,18 @@ from datajunction_server.database.base import Base
 
 class Deployment(Base):
     __tablename__ = "deployments"
+
+    __table_args__ = (
+        # For queries filtering by namespace + status, ordered by created_at
+        Index(
+            "ix_deployments_namespace_status_created",
+            "namespace",
+            "status",
+            "created_at",
+        ),
+        # For queries filtering by just namespace
+        Index("ix_deployments_namespace", "namespace"),
+    )
 
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4, primary_key=True)
 

@@ -19,6 +19,9 @@ from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentSpec,
     DeploymentInfo,
+    DeploymentSourceType,
+    GitDeploymentSource,
+    LocalDeploymentSource,
 )
 from datajunction_server.models.impact import DeploymentImpactResponse
 from datajunction_server.internal.deployment.deployment import deploy
@@ -220,21 +223,41 @@ async def get_deployment_status(
 @router.get("/deployments", response_model=list[DeploymentInfo])
 async def list_deployments(  # pragma: no cover
     namespace: str | None = None,
+    limit: int = 50,
     session: AsyncSession = Depends(get_session),
 ) -> list[DeploymentInfo]:
-    statement = select(Deployment)
+    statement = select(Deployment).order_by(Deployment.created_at.desc())
     if namespace:
         statement = statement.where(Deployment.namespace == namespace)
+    statement = statement.limit(limit)
     deployments = (await session.execute(statement)).scalars().all()
-    return [
-        DeploymentInfo(
-            uuid=str(deployment.uuid),
-            namespace=deployment.namespace,
-            status=deployment.status,
-            results=deployment.deployment_results,
+
+    results = []
+    for deployment in deployments:
+        # Parse source from spec
+        source_data = deployment.spec.get("source") if deployment.spec else None
+        source = None
+        if source_data and source_data.get("type") == DeploymentSourceType.GIT:
+            source = GitDeploymentSource(**source_data)
+        elif source_data and source_data.get("type") == DeploymentSourceType.LOCAL:
+            source = LocalDeploymentSource(**source_data)
+
+        results.append(
+            DeploymentInfo(
+                uuid=str(deployment.uuid),
+                namespace=deployment.namespace,
+                status=deployment.status,
+                results=deployment.deployment_results,
+                created_at=deployment.created_at.isoformat()
+                if deployment.created_at
+                else None,
+                created_by=deployment.created_by.username
+                if deployment.created_by
+                else None,
+                source=source,
+            ),
         )
-        for deployment in deployments
-    ]
+    return results
 
 
 @router.post(

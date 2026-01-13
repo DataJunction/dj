@@ -958,8 +958,6 @@ class TestNamespaceSourcesEndpoint:
         assert sources_response.namespace == "nonexistent_ns"
         assert sources_response.total_deployments == 0
         assert sources_response.primary_source is None
-        assert sources_response.sources == []
-        assert sources_response.has_multiple_sources is False
 
     @pytest.mark.asyncio
     async def test_sources_after_git_deployment(self, client_with_roads):
@@ -1013,18 +1011,12 @@ class TestNamespaceSourcesEndpoint:
         sources_response = NamespaceSourcesResponse(**response.json())
         assert sources_response.namespace == "sources_test_git"
         assert sources_response.total_deployments == 1
-        assert sources_response.has_multiple_sources is False
 
         # Verify primary source is git
         assert sources_response.primary_source is not None
         assert sources_response.primary_source.type == "git"
         assert sources_response.primary_source.repository == "github.com/test/repo"
         assert sources_response.primary_source.branch == "main"
-
-        # Verify sources list
-        assert len(sources_response.sources) == 1
-        assert sources_response.sources[0].source.type == "git"
-        assert sources_response.sources[0].deployment_count == 1
 
     @pytest.mark.asyncio
     async def test_sources_after_local_deployment(self, client_with_roads):
@@ -1169,16 +1161,11 @@ class TestNamespaceSourcesEndpoint:
         sources_response = NamespaceSourcesResponse(**response.json())
         assert sources_response.namespace == namespace
         assert sources_response.total_deployments == 2
-        assert sources_response.has_multiple_sources is True
 
-        # Should have 2 distinct sources
-        assert len(sources_response.sources) == 2
-
-        # Primary source should be the most recent (team-b)
+        # Primary source determined by majority among recent deployments
+        # Both are git so it should be git
         assert sources_response.primary_source is not None
-        assert (
-            sources_response.primary_source.repository == "github.com/team-b/other-repo"
-        )
+        assert sources_response.primary_source.type == "git"
 
     @pytest.mark.asyncio
     async def test_sources_no_source_info_legacy(self, client_with_roads):

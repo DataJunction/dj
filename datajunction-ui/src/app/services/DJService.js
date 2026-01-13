@@ -1038,6 +1038,19 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  listDeployments: async function (namespace, limit = 5) {
+    const params = new URLSearchParams();
+    if (namespace) {
+      params.append('namespace', namespace);
+    }
+    params.append('limit', limit);
+    return await (
+      await fetch(`${DJ_URL}/deployments?${params.toString()}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   sql: async function (metric_name, selection) {
     const params = new URLSearchParams(selection);
     for (const [key, value] of Object.entries(selection)) {
