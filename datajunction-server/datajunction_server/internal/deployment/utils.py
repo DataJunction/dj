@@ -56,7 +56,11 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
 
         # For derived metrics (no FROM clause), look for metric references
         # in Column nodes. E.g., SELECT default.metric_a / default.metric_b
-        if isinstance(node, MetricSpec) and not tables and query_ast.select.from_ is None:
+        if (
+            isinstance(node, MetricSpec)
+            and not tables
+            and query_ast.select.from_ is None
+        ):
             for col in query_ast.find_all(ast.Column):
                 col_identifier = col.identifier()
                 if SEPARATOR in col_identifier:
@@ -66,7 +70,6 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
                     parent_path = col_identifier.rsplit(SEPARATOR, 1)[0]
                     if SEPARATOR in parent_path:  # Only if there's still a namespace
                         tables.add(parent_path)
-            print("[derived] added tables", tables)
 
         return node.rendered_name, sorted(list(tables))
     if isinstance(node, CubeSpec):

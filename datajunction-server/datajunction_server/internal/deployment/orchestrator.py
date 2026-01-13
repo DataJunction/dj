@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import re
 import time
 from typing import Coroutine, cast
+from collections import Counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -246,11 +247,10 @@ class DeploymentOrchestrator:
         node_names = [node.rendered_name for node in self.deployment_spec.nodes]
         if len(node_names) != len(set(node_names)):
             from collections import Counter
-            duplicates = [name for name, count in Counter(node_names).items() if count > 1]
-            logger.error(
-                "DEBUG: Duplicate nodes in deployment spec: %s",
-                duplicates,
-            )
+
+            duplicates = [
+                name for name, count in Counter(node_names).items() if count > 1
+            ]
             self.errors.append(
                 DJError(
                     code=ErrorCode.INVALID_INPUT,
@@ -569,9 +569,6 @@ class DeploymentOrchestrator:
             for node_spec in plan.to_deploy
             if not isinstance(node_spec, CubeSpec)
         }
-        logger.info("DEBUG: Topological levels: %s", levels)
-        logger.info("DEBUG: name_to_node_specs keys: %s", list(name_to_node_specs.keys()))
-        logger.info("DEBUG: external_deps: %s", plan.external_deps)
         for level in levels:
             node_specs = [
                 name_to_node_specs[node_name]
@@ -1406,7 +1403,9 @@ class DeploymentOrchestrator:
 
                 # Check if this is a namespace prefix (some found node starts with dep.)
                 # This happens when rsplit of a metric gives its namespace
-                if dep == self.deployment_spec.namespace or any(name.startswith(dep + SEPARATOR) for name in found_dep_names):
+                if dep == self.deployment_spec.namespace or any(
+                    name.startswith(dep + SEPARATOR) for name in found_dep_names
+                ):
                     continue
                 missing_nodes.append(dep)
 
@@ -1477,10 +1476,6 @@ class DeploymentOrchestrator:
         """
         start = time.perf_counter()
         logger.info("Starting bulk deployment of %d nodes", len(node_specs))
-        logger.info(
-            "DEBUG: Deploying level with specs: %s",
-            [s.rendered_name for s in node_specs],
-        )
 
         dependency_nodes = await self.get_dependencies(node_graph)
 
@@ -1498,18 +1493,13 @@ class DeploymentOrchestrator:
             dependency_nodes,
             node_graph,
         )
-        logger.info(
-            "DEBUG: Created %d nodes: %s",
-            len(nodes),
-            [(n.name, n.namespace) for n in nodes],
-        )
         # Check for duplicates
         node_keys = [(n.name, n.namespace) for n in nodes]
         if len(node_keys) != len(set(node_keys)):
-            logger.error("DEBUG: DUPLICATE NODES DETECTED!")
-            from collections import Counter
-            duplicates = [k for k, v in Counter(node_keys).items() if v > 1]
-            logger.error("DEBUG: Duplicates: %s", duplicates)
+            duplicates = [k[0] for k, v in Counter(node_keys).items() if v > 1]
+            raise DJInvalidDeploymentConfig(
+                message=f"Duplicate nodes in deployment spec: {', '.join(duplicates)}",
+            )
         self.session.add_all(nodes)
         self.session.add_all(revisions)
         await self.session.commit()
