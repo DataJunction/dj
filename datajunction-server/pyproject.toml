@@ -14,6 +14,7 @@ include = ["alembic/**", "alembic.ini"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.pdm]
 [tool.pdm.build]
 includes = ["dj"]
 
@@ -144,7 +145,7 @@ norecursedirs = [
 ignore = ["F811"]
 exclude = ["datajunction_server/sql/parsing/backends/antlr4.py"]
 
-[dependency-groups]
+[tool.pdm.dev-dependencies]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",

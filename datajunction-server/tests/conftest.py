@@ -6,7 +6,7 @@ import asyncio
 import subprocess
 import sys
 from collections import namedtuple
-from sqlalchemy.pool import StaticPool, NullPool
+from sqlalchemy.pool import NullPool
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import timedelta
 import os
@@ -376,7 +376,7 @@ async def session(
     """
     engine = create_async_engine(
         url=func__postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # NullPool avoids lock binding issues across event loops
     )
 
     async_session_factory = async_sessionmaker(
@@ -417,7 +417,7 @@ async def clean_session(
 
     engine = create_async_engine(
         url=func__clean_postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # NullPool avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -537,7 +537,7 @@ async def clean_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -1365,7 +1365,7 @@ async def module__session(
     """
     engine = create_async_engine(
         url=module__postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
     # NOTE: Skip table creation - tables already exist from template clone
 
@@ -1625,7 +1625,7 @@ async def module__clean_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -1758,7 +1758,7 @@ async def isolated_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
