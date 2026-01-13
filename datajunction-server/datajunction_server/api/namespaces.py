@@ -39,6 +39,7 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
     get_sources_for_namespace,
+    get_sources_for_namespaces_bulk,
     get_node_specs_for_export,
     _get_yaml_dumper,
     _node_spec_to_yaml_dict,
@@ -570,9 +571,7 @@ async def get_bulk_namespace_sources(
         access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Fetch sources for each namespace
-    sources: dict[str, NamespaceSourcesResponse] = {}
-    for namespace in request.namespaces:
-        sources[namespace] = await get_sources_for_namespace(session, namespace)
+    # Fetch sources for all namespaces in optimized bulk query
+    sources = await get_sources_for_namespaces_bulk(session, request.namespaces)
 
     return BulkNamespaceSourcesResponse(sources=sources)

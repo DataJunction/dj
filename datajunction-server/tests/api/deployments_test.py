@@ -1200,6 +1200,9 @@ class TestDeployments:
                     "operation": "unknown",
                 },
             ],
+            "created_at": None,
+            "created_by": None,
+            "source": None,
         }
 
     @pytest.mark.asyncio
@@ -1233,6 +1236,9 @@ class TestDeployments:
                     "operation": "unknown",
                 },
             ],
+            "created_at": None,
+            "created_by": None,
+            "source": None,
         }
 
     @pytest.mark.asyncio
@@ -1316,6 +1322,9 @@ class TestDeployments:
                     "operation": "create",
                 },
             ],
+            "created_at": None,
+            "created_by": None,
+            "source": None,
         }
 
     @pytest.mark.asyncio
@@ -1843,6 +1852,9 @@ class TestDeployments:
                     "operation": "create",
                 },
             ],
+            "created_at": None,
+            "created_by": None,
+            "source": None,
         }
 
     @pytest.mark.asyncio
@@ -1909,6 +1921,9 @@ class TestDeployments:
                     "operation": "create",
                 },
             ],
+            "created_at": mock.ANY,
+            "created_by": mock.ANY,
+            "source": mock.ANY,
         }
 
         # Re-deploying the same setup should be a noop
@@ -2365,6 +2380,9 @@ class TestDeployments:
                     "operation": "create",
                 },
             ],
+            "created_at": mock.ANY,
+            "created_by": mock.ANY,
+            "source": mock.ANY,
         }
 
         response = await client.get("/nodes?prefix=base")
