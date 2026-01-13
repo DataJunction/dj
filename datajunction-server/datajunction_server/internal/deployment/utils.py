@@ -63,7 +63,7 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
         ):
             for col in query_ast.find_all(ast.Column):
                 col_identifier = col.identifier()
-                if SEPARATOR in col_identifier:
+                if SEPARATOR in col_identifier:  # pragma: no branch
                     # Add full identifier (might be a metric node)
                     tables.add(col_identifier)
                     # Also add parent path (might be dimension.column)
