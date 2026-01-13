@@ -3953,8 +3953,12 @@ class TestCubeDeactivateSuccessPaths:
         assert response.status_code == 200
         assert "deactivated" in response.json()["message"].lower()
 
-        # Verify workflow deactivation was called
-        mock_deactivate.assert_called_once()
+        # Verify workflow deactivation was called with version
+        mock_deactivate.assert_called_once_with(
+            cube_name,
+            version="v1",
+            request_headers=mocker.ANY,
+        )
 
     @pytest.mark.asyncio
     async def test_deactivate_cube_workflow_failure_still_deletes(

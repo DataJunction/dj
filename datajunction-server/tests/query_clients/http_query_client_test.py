@@ -64,6 +64,24 @@ class TestHttpQueryServiceClientCubeV2Methods:
 
         mock_inner.deactivate_cube_workflow.assert_called_once_with(
             cube_name="test.cube",
+            version=None,
+            request_headers={"X-Test": "1"},
+        )
+
+    def test_deactivate_cube_workflow_with_version(self, mock_client):
+        """Test deactivate_cube_workflow with version delegates to underlying client."""
+        client, mock_inner = mock_client
+        mock_inner.deactivate_cube_workflow.return_value = {"status": "deactivated"}
+
+        client.deactivate_cube_workflow(
+            "test.cube",
+            version="v3",
+            request_headers={"X-Test": "1"},
+        )
+
+        mock_inner.deactivate_cube_workflow.assert_called_once_with(
+            cube_name="test.cube",
+            version="v3",
             request_headers={"X-Test": "1"},
         )
 

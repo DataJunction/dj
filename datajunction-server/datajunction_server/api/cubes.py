@@ -739,9 +739,14 @@ async def deactivate_cube_materialization(
     try:
         query_service_client.deactivate_cube_workflow(
             name,
+            version=cube_revision.version,
             request_headers=request_headers,
         )
-        _logger.info("Deactivated workflow for cube=%s", name)
+        _logger.info(
+            "Deactivated workflow for cube=%s version=%s",
+            name,
+            cube_revision.version,
+        )
     except Exception as e:
         _logger.warning(
             "Failed to deactivate workflow for cube=%s: %s (continuing with deletion)",

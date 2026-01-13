@@ -1139,6 +1139,33 @@ class TestQueryServiceClient:
         result = query_service_client.deactivate_cube_workflow("test.cube")
 
         mock_request.assert_called_once()
+        # Verify URL doesn't have version parameter
+        assert mock_request.call_args[0][0] == "/cubes/test.cube/workflow"
+        assert result["status"] == "deactivated"
+
+    def test_deactivate_cube_workflow_with_version(self, mocker: MockerFixture) -> None:
+        """
+        Test cube workflow deactivation with version parameter.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"status": "deactivated"}'
+        mock_response.json.return_value = {"status": "deactivated"}
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.deactivate_cube_workflow(
+            "test.cube",
+            version="v3",
+        )
+
+        mock_request.assert_called_once()
+        # Verify URL has version parameter
+        assert mock_request.call_args[0][0] == "/cubes/test.cube/workflow?version=v3"
         assert result["status"] == "deactivated"
 
     def test_deactivate_cube_workflow_failure_returns_failed_status(
