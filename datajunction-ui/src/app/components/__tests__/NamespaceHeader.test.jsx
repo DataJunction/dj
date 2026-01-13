@@ -25,6 +25,7 @@ describe('<NamespaceHeader />', () => {
           branch: 'main',
         },
       }),
+      listDeployments: jest.fn().mockResolvedValue([]),
     };
 
     render(
@@ -41,8 +42,8 @@ describe('<NamespaceHeader />', () => {
       );
     });
 
-    // Should render CI badge for git source
-    expect(screen.getByText(/CI/)).toBeInTheDocument();
+    // Should render Git Managed badge for git source
+    expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
   });
 
   it('should render git source badge when source type is git without branch', async () => {
@@ -55,6 +56,7 @@ describe('<NamespaceHeader />', () => {
           branch: null,
         },
       }),
+      listDeployments: jest.fn().mockResolvedValue([]),
     };
 
     render(
@@ -71,8 +73,8 @@ describe('<NamespaceHeader />', () => {
       );
     });
 
-    // Should render CI badge for git source even without branch
-    expect(screen.getByText(/CI/)).toBeInTheDocument();
+    // Should render Git Managed badge for git source even without branch
+    expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
   });
 
   it('should render local source badge when source type is local', async () => {
@@ -84,6 +86,7 @@ describe('<NamespaceHeader />', () => {
           hostname: 'localhost',
         },
       }),
+      listDeployments: jest.fn().mockResolvedValue([]),
     };
 
     render(
@@ -100,8 +103,8 @@ describe('<NamespaceHeader />', () => {
       );
     });
 
-    // Should render Local badge for local source
-    expect(screen.getByText(/Local/)).toBeInTheDocument();
+    // Should render Local Deploy badge for local source
+    expect(screen.getByText(/Local Deploy/)).toBeInTheDocument();
   });
 
   it('should not render badge when no deployments', async () => {
@@ -110,6 +113,7 @@ describe('<NamespaceHeader />', () => {
         total_deployments: 0,
         primary_source: null,
       }),
+      listDeployments: jest.fn().mockResolvedValue([]),
     };
 
     render(
@@ -127,13 +131,14 @@ describe('<NamespaceHeader />', () => {
     });
 
     // Should not render any source badge
-    expect(screen.queryByText(/CI/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Local/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Git Managed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Local Deploy/)).not.toBeInTheDocument();
   });
 
   it('should handle API error gracefully', async () => {
     const mockDjClient = {
       namespaceSources: jest.fn().mockRejectedValue(new Error('API Error')),
+      listDeployments: jest.fn().mockResolvedValue([]),
     };
 
     render(
@@ -153,6 +158,6 @@ describe('<NamespaceHeader />', () => {
     // Should still render breadcrumb without badge
     expect(screen.getByText('test')).toBeInTheDocument();
     expect(screen.getByText('namespace')).toBeInTheDocument();
-    expect(screen.queryByText(/CI/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Git Managed/)).not.toBeInTheDocument();
   });
 });

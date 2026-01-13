@@ -246,8 +246,6 @@ class DeploymentOrchestrator:
         # Check for duplicate node specs
         node_names = [node.rendered_name for node in self.deployment_spec.nodes]
         if len(node_names) != len(set(node_names)):
-            from collections import Counter
-
             duplicates = [
                 name for name, count in Counter(node_names).items() if count > 1
             ]
