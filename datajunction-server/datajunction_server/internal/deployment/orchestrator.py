@@ -1776,14 +1776,14 @@ class DeploymentOrchestrator:
             metric_spec = cast(MetricSpec, result.spec)
             new_revision.columns[0].display_name = new_revision.display_name
             if (
-                metric_spec.unit
+                metric_spec.unit_enum
                 or metric_spec.direction
                 or metric_spec.significant_digits
                 or metric_spec.max_decimal_exponent
                 or metric_spec.min_decimal_exponent
             ):
                 new_revision.metric_metadata = MetricMetadata(
-                    unit=metric_spec.unit,
+                    unit=metric_spec.unit_enum,
                     direction=metric_spec.direction,
                     significant_digits=metric_spec.significant_digits,
                     max_decimal_exponent=metric_spec.max_decimal_exponent,

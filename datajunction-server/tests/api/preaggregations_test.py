@@ -126,7 +126,6 @@ async def _plan_preagg(
 @pytest_asyncio.fixture
 async def client_with_preaggs(
     client_with_build_v3: AsyncClient,
-    session: AsyncSession,
 ):
     """
     Creates pre-aggregations for testing using BUILD_V3 examples.
@@ -134,10 +133,17 @@ async def client_with_preaggs(
     Uses /preaggs/plan API to create preaggs, which is more realistic
     and ensures consistency with the actual API behavior.
 
-    NOTE: Using function-scoped fixtures to avoid Python 3.11 hanging issues
-    with module-scoped async fixtures in pytest-asyncio.
+    NOTE: Gets session from client's dependency override to ensure we use
+    the SAME session that the client uses, avoiding event loop binding issues
+    with pytest-xdist in Python 3.11.
     """
     client = client_with_build_v3
+
+    # Get session from the client's dependency override - this ensures we use
+    # the same session that the API handlers use, avoiding event loop issues
+    from datajunction_server.database.connection import get_session
+
+    session = client.app.dependency_overrides[get_session]()
 
     # preagg1: Basic preagg with FULL strategy, single grain
     # total_revenue + total_quantity by status

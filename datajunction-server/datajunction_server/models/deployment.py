@@ -561,31 +561,15 @@ DeploymentSource = Annotated[
 ]
 
 
-class NamespaceDeploymentSource(BaseModel):
-    """
-    Aggregated info about a deployment source for a namespace.
-    Used in the /namespaces/{namespace}/sources endpoint.
-    """
-
-    source: GitDeploymentSource | LocalDeploymentSource
-    deployment_count: int  # How many deployments from this source
-    first_deployed_at: str | None = None  # ISO datetime
-    last_deployed_at: str | None = None  # ISO datetime
-    last_deployment_id: str | None = None  # UUID of the most recent deployment
-    last_deployed_by: str | None = None  # Username of who made the last deployment
-
-
 class NamespaceSourcesResponse(BaseModel):
     """
     Response for the /namespaces/{namespace}/sources endpoint.
-    Shows all deployment sources that have deployed to a namespace.
+    Shows the primary deployment source for a namespace.
     """
 
     namespace: str
     primary_source: GitDeploymentSource | LocalDeploymentSource | None = None
-    sources: list[NamespaceDeploymentSource] = Field(default_factory=list)
     total_deployments: int = 0
-    has_multiple_sources: bool = False  # Warning indicator
 
 
 class BulkNamespaceSourcesRequest(BaseModel):
@@ -690,6 +674,9 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    created_at: str | None = None  # ISO datetime
+    created_by: str | None = None  # Username
+    source: GitDeploymentSource | LocalDeploymentSource | None = None
 
 
 def eq_or_fallback(a, b, fallback):

@@ -37,9 +37,7 @@ export const OverviewPanel = () => {
               <NodeIcon color="#FFBB28" style={{ marginTop: '0.75em' }} />
               <div style={{ display: 'inline-grid', alignItems: 'center' }}>
                 <strong className="horiz-box-value">{entry.value}</strong>
-                <span className={'horiz-box-label'}>
-                  {entry.name === 'true' ? 'Active Nodes' : 'Deactivated'}
-                </span>
+                <span className={'horiz-box-label'}>Active Nodes</span>
               </div>
             </div>
           ))}

@@ -310,4 +310,27 @@ describe('<NotificationBell />', () => {
     // onDropdownToggle should have been called with false
     expect(onDropdownToggle).toHaveBeenCalledWith(false);
   });
+
+  it('handles error when fetching notifications fails', async () => {
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const mockDjClient = createMockDjClient({
+      getSubscribedHistory: jest
+        .fn()
+        .mockRejectedValue(new Error('Network error')),
+    });
+
+    renderWithContext(mockDjClient);
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error fetching notifications:',
+        expect.any(Error),
+      );
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
 });

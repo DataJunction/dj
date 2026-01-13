@@ -15,23 +15,15 @@ describe('<NamespaceHeader />', () => {
     expect(renderedOutput).toMatchSnapshot();
   });
 
-  it('should render git source badge when source type is git', async () => {
+  it('should render git source badge when source type is git with branch', async () => {
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 5,
-        has_multiple_sources: false,
         primary_source: {
           type: 'git',
           repository: 'github.com/test/repo',
           branch: 'main',
         },
-        sources: [
-          {
-            type: 'git',
-            repository: 'github.com/test/repo',
-            branch: 'main',
-          },
-        ],
       }),
     };
 
@@ -53,21 +45,44 @@ describe('<NamespaceHeader />', () => {
     expect(screen.getByText(/CI/)).toBeInTheDocument();
   });
 
+  it('should render git source badge when source type is git without branch', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 3,
+        primary_source: {
+          type: 'git',
+          repository: 'github.com/test/repo',
+          branch: null,
+        },
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.namespaceSources).toHaveBeenCalledWith(
+        'test.namespace',
+      );
+    });
+
+    // Should render CI badge for git source even without branch
+    expect(screen.getByText(/CI/)).toBeInTheDocument();
+  });
+
   it('should render local source badge when source type is local', async () => {
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 2,
-        has_multiple_sources: false,
         primary_source: {
           type: 'local',
           hostname: 'localhost',
         },
-        sources: [
-          {
-            type: 'local',
-            hostname: 'localhost',
-          },
-        ],
       }),
     };
 
@@ -89,47 +104,11 @@ describe('<NamespaceHeader />', () => {
     expect(screen.getByText(/Local/)).toBeInTheDocument();
   });
 
-  it('should render warning badge when multiple sources exist', async () => {
-    const mockDjClient = {
-      namespaceSources: jest.fn().mockResolvedValue({
-        total_deployments: 10,
-        has_multiple_sources: true,
-        primary_source: {
-          type: 'git',
-          repository: 'github.com/test/repo',
-        },
-        sources: [
-          { type: 'git', repository: 'github.com/test/repo' },
-          { type: 'local', hostname: 'localhost' },
-        ],
-      }),
-    };
-
-    render(
-      <MemoryRouter>
-        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-          <NamespaceHeader namespace="test.namespace" />
-        </DJClientContext.Provider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(mockDjClient.namespaceSources).toHaveBeenCalledWith(
-        'test.namespace',
-      );
-    });
-
-    // Should render warning badge for multiple sources
-    expect(screen.getByText(/2 sources/)).toBeInTheDocument();
-  });
-
   it('should not render badge when no deployments', async () => {
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 0,
-        has_multiple_sources: false,
         primary_source: null,
-        sources: [],
       }),
     };
 
