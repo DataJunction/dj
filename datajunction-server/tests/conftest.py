@@ -6,7 +6,7 @@ import asyncio
 import subprocess
 import sys
 from collections import namedtuple
-from sqlalchemy.pool import StaticPool, NullPool
+from sqlalchemy.pool import NullPool
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import timedelta
 import os
@@ -376,7 +376,7 @@ async def session(
     """
     engine = create_async_engine(
         url=func__postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # NullPool avoids lock binding issues across event loops
     )
 
     async_session_factory = async_sessionmaker(
@@ -417,7 +417,7 @@ async def clean_session(
 
     engine = create_async_engine(
         url=func__clean_postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # NullPool avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -537,7 +537,7 @@ async def clean_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -611,14 +611,11 @@ async def clean_client(
 @pytest.fixture(scope="module")
 def event_loop():
     """
-    This fixture is OK because we are pinning the pytest_asyncio to 0.21.x.
-    When they fix https://github.com/pytest-dev/pytest-asyncio/issues/718
-    we can remove the pytest_asyncio pin and remove this fixture.
+    Module-scoped event loop for async fixtures.
+    This ensures all async fixtures within a module share the same event loop.
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
     yield loop
     loop.close()
 
@@ -1368,7 +1365,7 @@ async def module__session(
     """
     engine = create_async_engine(
         url=module__postgres_container.get_connection_url(),
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
     # NOTE: Skip table creation - tables already exist from template clone
 
@@ -1628,7 +1625,7 @@ async def module__clean_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
@@ -1761,7 +1758,7 @@ async def isolated_client(
     # Create engine and session
     engine = create_async_engine(
         url=db_url,
-        poolclass=StaticPool,
+        poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
     # Create tables in the clean database
