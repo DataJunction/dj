@@ -3956,7 +3956,7 @@ class TestCubeDeactivateSuccessPaths:
         # Verify workflow deactivation was called with version
         mock_deactivate.assert_called_once_with(
             cube_name,
-            version="v1",
+            version="v1.0",
             request_headers=mocker.ANY,
         )
 
