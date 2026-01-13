@@ -141,13 +141,17 @@ norecursedirs = [
     "tests/helpers",
 ]
 
+[tool.ruff.lint]
+ignore = ["F811"]
+exclude = ["datajunction_server/sql/parsing/backends/antlr4.py"]
+
 [tool.pdm.dev-dependencies]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
     "pre-commit>=3.2.2",
     "pylint>=3.0.3",
-    "pytest-asyncio<=0.22",
+    "pytest-asyncio>=1.2.0",
     "pytest-cov>=4.0.0",
     "pytest-integration>=0.2.2",
     "pytest-mock>=3.10.0",
@@ -163,7 +167,3 @@ test = [
     "sqlparse<1.0.0,>=0.4.3",
     "asgi-lifespan>=2",
 ]
-
-[tool.ruff.lint]
-ignore = ["F811"]
-exclude = ["datajunction_server/sql/parsing/backends/antlr4.py"]
