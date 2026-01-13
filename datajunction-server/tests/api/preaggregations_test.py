@@ -141,7 +141,7 @@ async def client_with_preaggs(
 
     # Get session from the client's dependency override - this ensures we use
     # the same session that the API handlers use, avoiding event loop issues
-    from datajunction_server.database.connection import get_session
+    from datajunction_server.utils import get_session
 
     session = client.app.dependency_overrides[get_session]()
 
