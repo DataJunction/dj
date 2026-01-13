@@ -9,16 +9,15 @@ import re
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Tuple
 
-from sqlalchemy import or_, select, delete
+from sqlalchemy import or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.models.deployment import (
-    DeploymentStatus,
+    DeploymentSourceType,
     GitDeploymentSource,
     LocalDeploymentSource,
-    NamespaceDeploymentSource,
     NamespaceSourcesResponse,
 )
 from datajunction_server.api.helpers import get_node_namespace
@@ -692,89 +691,141 @@ async def get_sources_for_namespace(
 ) -> NamespaceSourcesResponse:
     """
     Helper to get deployment sources for a single namespace.
+    Delegates to the bulk function for consistency.
     """
-    # Query all successful deployments to this namespace
-    statement = (
-        select(Deployment)
-        .where(Deployment.namespace == namespace)
-        .where(Deployment.status == DeploymentStatus.SUCCESS)
-        .order_by(Deployment.created_at.desc())
-    )
-    result = await session.execute(statement)
-    deployments = result.scalars().all()
-
-    if not deployments:
-        return NamespaceSourcesResponse(
+    results = await get_sources_for_namespaces_bulk(session, [namespace])
+    return results.get(
+        namespace,
+        NamespaceSourcesResponse(
             namespace=namespace,
             primary_source=None,
-            sources=[],
             total_deployments=0,
-            has_multiple_sources=False,
-        )
-
-    # Aggregate sources
-    source_map: dict[str, dict] = {}  # key = source identifier
-
-    for deployment in deployments:
-        source_data = deployment.spec.get("source") if deployment.spec else None
-
-        # Parse source based on type (discriminated union)
-        if source_data and source_data.get("type") == "git":
-            source: GitDeploymentSource | LocalDeploymentSource = GitDeploymentSource(
-                **source_data,
-            )
-            source_key = f"git:{source.repository}:{source.branch or 'default'}"
-        elif source_data and source_data.get("type") == "local":
-            source = LocalDeploymentSource(**source_data)
-            source_key = f"local:{source.hostname or 'unknown'}"
-        else:
-            # Legacy deployment without source info - treat as local
-            source = LocalDeploymentSource()
-            source_key = "local:unknown"
-
-        if source_key not in source_map:  # pragma: no branch
-            print("deployment", deployment.created_by, deployment.created_by_id)
-            source_map[source_key] = {
-                "source": source,
-                "deployment_count": 0,
-                "first_deployed_at": deployment.created_at.isoformat(),
-                "last_deployed_at": deployment.created_at.isoformat(),
-                "last_deployment_id": str(deployment.uuid),
-                "last_deployed_by": (
-                    deployment.created_by.username if deployment.created_by else None
-                ),
-            }
-
-        source_map[source_key]["deployment_count"] += 1
-        # Update first_deployed_at (we're iterating newest first)
-        source_map[source_key]["first_deployed_at"] = deployment.created_at.isoformat()
-
-    # Build response
-    sources = [
-        NamespaceDeploymentSource(
-            source=data["source"],
-            deployment_count=data["deployment_count"],
-            first_deployed_at=data["first_deployed_at"],
-            last_deployed_at=data["last_deployed_at"],
-            last_deployment_id=data["last_deployment_id"],
-            last_deployed_by=data["last_deployed_by"],
-        )
-        for data in source_map.values()
-    ]
-
-    # Sort by last deployment (most recent first)
-    sources.sort(key=lambda x: x.last_deployed_at or "", reverse=True)
-
-    # Primary source is the most recently deployed
-    primary_source = sources[0].source if sources else None
-
-    return NamespaceSourcesResponse(
-        namespace=namespace,
-        primary_source=primary_source,
-        sources=sources,
-        total_deployments=len(deployments),
-        has_multiple_sources=len(sources) > 1,
+        ),
     )
+
+
+async def get_sources_for_namespaces_bulk(
+    session: AsyncSession,
+    namespaces: list[str],
+) -> dict[str, NamespaceSourcesResponse]:
+    """
+    Get deployment sources for multiple namespaces in a single optimized query.
+
+    Uses window functions to efficiently fetch the most recent 20 deployments
+    per namespace in a single query, avoiding N database round trips.
+    """
+    if not namespaces:
+        return {}
+
+    # Get total counts per namespace in one query
+    count_stmt = (
+        select(
+            Deployment.namespace,
+            func.count().label("total"),
+        )
+        .where(Deployment.namespace.in_(namespaces))
+        .group_by(Deployment.namespace)
+    )
+    count_result = await session.execute(count_stmt)
+    counts_by_namespace = {row.namespace: row.total for row in count_result}
+
+    # Get the most recent 20 deployments per namespace using window function
+    # Create a subquery that ranks deployments within each namespace
+    row_num = (
+        func.row_number()
+        .over(
+            partition_by=Deployment.namespace,
+            order_by=Deployment.created_at.desc(),
+        )
+        .label("rn")
+    )
+
+    # Include all deployments since failed deploys still indicate the source
+    ranked_subquery = (
+        select(
+            Deployment.namespace,
+            Deployment.spec,
+            Deployment.created_at,
+            row_num,
+        ).where(Deployment.namespace.in_(namespaces))
+    ).subquery()
+
+    # Filter to only the top 20 per namespace
+    recent_stmt = select(
+        ranked_subquery.c.namespace,
+        ranked_subquery.c.spec,
+        ranked_subquery.c.created_at,
+    ).where(ranked_subquery.c.rn <= 20)
+
+    recent_result = await session.execute(recent_stmt)
+    recent_rows = recent_result.all()
+
+    # Process deployments and determine primary source for each namespace
+    # Group deployments by namespace
+    deployments_by_namespace: dict[str, list[dict]] = defaultdict(list)
+    for row in recent_rows:
+        deployments_by_namespace[row.namespace].append(
+            {"spec": row.spec, "created_at": row.created_at},
+        )
+
+    # Build response for each namespace
+    results: dict[str, NamespaceSourcesResponse] = {}
+    for namespace in namespaces:
+        total_deployments = counts_by_namespace.get(namespace, 0)
+
+        if total_deployments == 0:
+            results[namespace] = NamespaceSourcesResponse(
+                namespace=namespace,
+                primary_source=None,
+                total_deployments=0,
+            )
+            continue
+
+        recent_deployments = deployments_by_namespace.get(namespace, [])
+
+        # Count source types among recent deployments to determine primary
+        git_count = 0
+        local_count = 0
+        latest_git_source: GitDeploymentSource | None = None
+        latest_local_source: LocalDeploymentSource | None = None
+
+        for deployment in recent_deployments:
+            source_data = (
+                deployment["spec"].get("source") if deployment["spec"] else None
+            )
+
+            if source_data and source_data.get("type") == DeploymentSourceType.GIT:
+                git_count += 1
+                if latest_git_source is None:
+                    latest_git_source = GitDeploymentSource(**source_data)
+            elif source_data and source_data.get("type") == DeploymentSourceType.LOCAL:
+                local_count += 1
+                if latest_local_source is None:  # pragma: no branch
+                    latest_local_source = LocalDeploymentSource(**source_data)
+            else:
+                # Legacy deployment without source info - treat as local
+                local_count += 1
+                if latest_local_source is None:  # pragma: no branch
+                    latest_local_source = LocalDeploymentSource()
+
+        # Primary source is the type with more deployments among recent 20
+        # If tie, prefer git (managed) over local
+        if git_count >= local_count and latest_git_source:
+            primary_source: GitDeploymentSource | LocalDeploymentSource | None = (
+                latest_git_source
+            )
+        elif latest_local_source:
+            primary_source = latest_local_source
+        else:
+            primary_source = None  # pragma: no cover
+
+        results[namespace] = NamespaceSourcesResponse(
+            namespace=namespace,
+            primary_source=primary_source,
+            total_deployments=total_deployments,
+        )
+
+    return results
 
 
 def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
