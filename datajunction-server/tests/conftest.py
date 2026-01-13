@@ -608,18 +608,6 @@ async def clean_client(
     cleanup_database_for_module(postgres_container, dbname)
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    """
-    Module-scoped event loop for async fixtures.
-    This ensures all async fixtures within a module share the same event loop.
-    """
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest.fixture
 def query_service_client(
     mocker: MockerFixture,
