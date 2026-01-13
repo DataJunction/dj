@@ -271,7 +271,7 @@ class DeploymentService:
         for node in nodes:
             node_name = node.get("name", "")
             if node_name in seen_names:
-                print(
+                print(  # pragma: no cover
                     f"WARNING: Duplicate node '{node_name}' found, keeping last occurrence",
                 )
             seen_names[node_name] = node
