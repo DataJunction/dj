@@ -13,6 +13,7 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     TransformSpec,
 )
+from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.errors import DJGraphCycleException
@@ -52,6 +53,24 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
             for t in query_ast.find_all(ast.Table)
             if t.name.identifier() not in cte_names
         }
+
+        # For derived metrics (no FROM clause), look for metric references
+        # in Column nodes. E.g., SELECT default.metric_a / default.metric_b
+        if (
+            isinstance(node, MetricSpec)
+            and not tables
+            and query_ast.select.from_ is None
+        ):
+            for col in query_ast.find_all(ast.Column):
+                col_identifier = col.identifier()
+                if SEPARATOR in col_identifier:  # pragma: no branch
+                    # Add full identifier (might be a metric node)
+                    tables.add(col_identifier)
+                    # Also add parent path (might be dimension.column)
+                    parent_path = col_identifier.rsplit(SEPARATOR, 1)[0]
+                    if SEPARATOR in parent_path:  # Only if there's still a namespace
+                        tables.add(parent_path)
+
         return node.rendered_name, sorted(list(tables))
     if isinstance(node, CubeSpec):
         dimension_nodes = [dim.rsplit(".", 1)[0] for dim in node.rendered_dimensions]

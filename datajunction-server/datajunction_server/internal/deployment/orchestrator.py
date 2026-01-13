@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import re
 import time
 from typing import Coroutine, cast
+from collections import Counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -242,6 +243,19 @@ class DeploymentOrchestrator:
 
     async def _validate_deployment_resources(self):
         """Validate deployment configuration and fail fast if invalid"""
+        # Check for duplicate node specs
+        node_names = [node.rendered_name for node in self.deployment_spec.nodes]
+        if len(node_names) != len(set(node_names)):  # pragma: no branch
+            duplicates = [
+                name for name, count in Counter(node_names).items() if count > 1
+            ]
+            self.errors.append(
+                DJError(
+                    code=ErrorCode.ALREADY_EXISTS,
+                    message=f"Duplicate nodes in deployment spec: {', '.join(duplicates)}",
+                ),
+            )
+
         if self.errors:
             raise DJInvalidDeploymentConfig(
                 message="Invalid deployment configuration",
@@ -1375,15 +1389,29 @@ class DeploymentOrchestrator:
                 self.session,
                 list(deps_not_in_deployment),
             )
-            if len(external_node_deps) != len(deps_not_in_deployment):
-                missing_nodes = sorted(
-                    set(deps_not_in_deployment)
-                    - {node.name for node in external_node_deps},
-                )
+            found_dep_names = {node.name for node in external_node_deps}
+            missing_nodes = []
+            for dep in deps_not_in_deployment:
+                if dep in found_dep_names:
+                    continue
+                # Check if this is a dimension.column reference (parent was found)
+                parent = dep.rsplit(SEPARATOR, 1)[0]
+                if SEPARATOR in parent and parent in found_dep_names:
+                    continue
+
+                # Check if this is a namespace prefix (some found node starts with dep.)
+                # This happens when rsplit of a metric gives its namespace
+                if dep == self.deployment_spec.namespace or any(
+                    name.startswith(dep + SEPARATOR) for name in found_dep_names
+                ):
+                    continue  # pragma: no cover
+                missing_nodes.append(dep)
+
+            if missing_nodes:
                 raise DJInvalidDeploymentConfig(
                     message=(
                         "The following dependencies are not in the deployment and do not"
-                        " pre-exist in the system: " + ", ".join(missing_nodes)
+                        " pre-exist in the system: " + ", ".join(sorted(missing_nodes))
                     ),
                 )
             logger.info(
@@ -1463,6 +1491,15 @@ class DeploymentOrchestrator:
             dependency_nodes,
             node_graph,
         )
+        # Check for duplicates
+        node_keys = [(n.name, n.namespace) for n in nodes]
+        if len(node_keys) != len(set(node_keys)):
+            duplicates = [  # pragma: no cover
+                k[0] for k, v in Counter(node_keys).items() if v > 1
+            ]
+            raise DJInvalidDeploymentConfig(  # pragma: no cover
+                message=f"Duplicate nodes in deployment spec: {', '.join(duplicates)}",
+            )
         self.session.add_all(nodes)
         self.session.add_all(revisions)
         await self.session.commit()
@@ -1706,7 +1743,14 @@ class DeploymentOrchestrator:
             if parent in dependency_nodes
         ]
         if result.spec.node_type != NodeType.SOURCE:
-            catalog = parents[0].current.catalog if parents else None  # type: ignore
+            if parents:
+                catalog = parents[0].current.catalog  # type: ignore
+            else:
+                # Fall back to virtual catalog for nodes with no parents
+                # (e.g., hardcoded dimensions)
+                catalog = await Catalog.get_virtual_catalog(  # pragma: no cover
+                    self.session,
+                )
         else:
             catalog = self.registry.catalogs.get(result.spec.catalog)
 

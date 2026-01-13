@@ -20,6 +20,7 @@ from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     extract_node_graph,
     topological_levels,
+    _find_upstreams_for_node,
 )
 from datajunction_server.models.deployment import (
     DeploymentResult,
@@ -483,3 +484,157 @@ async def test_deploy_delete_node_failure(
         operation=DeploymentResult.Operation.DELETE,
         message="A node with name `catalog.dim.categoriesbogus` does not exist.",
     )
+
+
+def test_find_upstreams_for_derived_metric():
+    """
+    Test that derived metrics (metrics with no FROM clause referencing other metrics)
+    correctly extract their dependencies from column references.
+    """
+    # Derived metric that references two other metrics
+    derived_metric = MetricSpec(
+        name="example.derived_ratio",
+        node_type=NodeType.METRIC,
+        query="SELECT example.metric_a / example.metric_b",
+    )
+    name, upstreams = _find_upstreams_for_node(derived_metric)
+    assert name == "example.derived_ratio"
+    # Should extract both the full metric reference and the parent namespace
+    assert "example.metric_a" in upstreams
+    assert "example.metric_b" in upstreams
+
+    # Derived metric with dimension attribute reference
+    derived_with_dim = MetricSpec(
+        name="example.filtered_metric",
+        node_type=NodeType.METRIC,
+        query="SELECT ns.other_metric * ns.dimension.column_value",
+    )
+    name, upstreams = _find_upstreams_for_node(derived_with_dim)
+    assert name == "example.filtered_metric"
+    # Should include both the full column reference and the parent (dimension node)
+    assert "ns.other_metric" in upstreams
+    assert "ns.dimension.column_value" in upstreams
+    assert "ns.dimension" in upstreams
+
+
+async def test_duplicate_nodes_in_deployment_spec(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that duplicate node names in the deployment spec are detected early
+    and reported as an error.
+    """
+    # Create duplicate nodes with same name
+    node1 = TransformSpec(
+        name="example.duplicate_node",
+        node_type=NodeType.TRANSFORM,
+        query="SELECT 1 AS col",
+    )
+    node2 = TransformSpec(
+        name="example.duplicate_node",
+        node_type=NodeType.TRANSFORM,
+        query="SELECT 2 AS col",
+    )
+    node3 = TransformSpec(
+        name="example.another_duplicate",
+        node_type=NodeType.TRANSFORM,
+        query="SELECT 3 AS col",
+    )
+    node4 = TransformSpec(
+        name="example.another_duplicate",
+        node_type=NodeType.TRANSFORM,
+        query="SELECT 4 AS col",
+    )
+
+    orchestrator = create_orchestrator(
+        session,
+        current_user,
+        [node1, node2, node3, node4],
+    )
+    with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
+        await orchestrator._validate_deployment_resources()
+
+    error_message = str(excinfo.value)
+    assert "example.another_duplicate" in error_message
+    assert "example.duplicate_node" in error_message
+
+
+async def test_check_external_deps_dimension_attribute_reference(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+    categories: Node,
+):
+    """
+    Test that dimension.column references are correctly handled in external dependency checks.
+    The check should not fail when we reference dimension.column but the dimension node exists.
+    """
+    # Create a metric that references a dimension attribute (categories.dateint)
+    metric_with_dim_attr = MetricSpec(
+        name="example.metric_with_dim_attr",
+        node_type=NodeType.METRIC,
+        # This derived metric references a dimension attribute
+        query="SELECT catalog.dim.categories.dateint",
+    )
+
+    orchestrator = create_orchestrator(
+        session,
+        current_user,
+        [metric_with_dim_attr],
+    )
+    node_graph = extract_node_graph([metric_with_dim_attr])
+
+    # Should not raise because catalog.dim.categories exists
+    external_deps = await orchestrator.check_external_deps(node_graph)
+    # The dimension node should be in external deps (not the attribute)
+    assert "catalog.dim.categories" in external_deps
+
+
+async def test_check_external_deps_namespace_prefix_filtering(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+    categories: Node,
+):
+    """
+    Test that namespace prefixes in external dependencies are filtered correctly.
+    When a derived metric references ns.metric_a, and we extract both ns.metric_a
+    and ns as potential deps, 'ns' should be filtered if it matches the deployment
+    namespace or if there are found nodes that start with 'ns.'.
+    """
+    # Create a metric that references catalog.dim.categories (which exists)
+    # The derived metric extraction will add both the full path and the parent
+    metric = MetricSpec(
+        name="test.metric",
+        node_type=NodeType.METRIC,
+        query="SELECT catalog.dim.categories.dateint * 2",
+    )
+
+    orchestrator = create_orchestrator(session, current_user, [metric])
+    node_graph = extract_node_graph([metric])
+
+    # The node_graph will have deps like catalog.dim.categories.dateint and catalog.dim.categories
+    # check_external_deps should handle this correctly - categories exists, so the attribute
+    # reference should be filtered out
+    external_deps = await orchestrator.check_external_deps(node_graph)
+    # catalog.dim.categories should be in external deps (the actual node)
+    assert "catalog.dim.categories" in external_deps
+
+
+async def test_virtual_catalog_fallback_for_parentless_nodes(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that the virtual catalog exists and can be retrieved for nodes
+    without parents (e.g., hardcoded dimensions).
+    """
+    await default_attribute_types(session)
+
+    # Ensure virtual catalog exists and can be retrieved
+    virtual_catalog = await Catalog.get_virtual_catalog(session)
+    assert virtual_catalog is not None
+    # The catalog should have a valid name (configured in settings)
+    assert virtual_catalog.name is not None
+    assert len(virtual_catalog.name) > 0

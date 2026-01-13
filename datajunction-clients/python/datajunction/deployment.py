@@ -265,6 +265,18 @@ class DeploymentService:
         """
         project_metadata = self._read_project_yaml(base_dir)
         nodes = self._collect_nodes_from_dir(base_dir)
+
+        # Deduplicate nodes by name (keep last occurrence)
+        seen_names: dict[str, dict] = {}
+        for node in nodes:
+            node_name = node.get("name", "")
+            if node_name in seen_names:
+                print(  # pragma: no cover
+                    f"WARNING: Duplicate node '{node_name}' found, keeping last occurrence",
+                )
+            seen_names[node_name] = node
+        nodes = list(seen_names.values())
+
         deployment_spec = {
             "namespace": project_metadata.get("namespace", ""),  # fallback to empty
             "nodes": nodes,
