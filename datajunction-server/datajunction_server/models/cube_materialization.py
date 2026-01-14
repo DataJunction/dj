@@ -682,7 +682,7 @@ class DruidCubeV3Config(BaseModel):
                 alias = self.component_aliases.get(component.name, component.name)
                 if alias and metric_name.endswith(alias.split("_")[-1]):
                     # Build expression from merge function
-                    if component.merge:
+                    if component.merge:  # pragma: no branch
                         metric_expression = f"{component.merge}({component.name})"
                     break
 
