@@ -1041,6 +1041,7 @@ async def run_preagg_backfill(
     backfill_input = BackfillInput(
         preagg_id=preagg_id,
         output_table=output_table,
+        node_name=preagg.node_revision.name,
         start_date=data.start_date,
         end_date=end_date,
     )
