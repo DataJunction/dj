@@ -1204,6 +1204,7 @@ class TestQueryServiceClient:
 
         backfill_input = CubeBackfillInput(
             cube_name="test.cube",
+            cube_version="v1.0",
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 31),
         )
@@ -1229,6 +1230,7 @@ class TestQueryServiceClient:
 
         backfill_input = CubeBackfillInput(
             cube_name="test.cube",
+            cube_version="v1.0",
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 31),
         )
