@@ -584,6 +584,11 @@ class DruidCubeV3Config(BaseModel):
     - Uses pre-aggregation tables as intermediate storage
     - Stores metric components with their merge functions
     - Includes the combined SQL that joins pre-agg tables
+
+    Backwards compatibility:
+    - `dimensions` computed property aliases `combined_grain`
+    - `metrics` computed property transforms measure components
+    - `combiners` computed property wraps columns
     """
 
     version: Literal["v3"] = Field(
@@ -622,6 +627,12 @@ class DruidCubeV3Config(BaseModel):
         description="Mapping from component name to output column alias",
     )
 
+    # Cube's metric node names
+    cube_metrics: List[str] = Field(
+        default_factory=list,
+        description="List of metric node names in the cube",
+    )
+
     # Temporal partition info
     timestamp_column: str = Field(
         description="Name of the timestamp/partition column",
@@ -636,3 +647,116 @@ class DruidCubeV3Config(BaseModel):
         default_factory=list,
         description="URLs for the materialization workflow",
     )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def dimensions(self) -> List[str]:
+        """
+        Backwards compatibility: Returns dimensions (alias for combined_grain).
+
+        DruidCubeConfig expects `config.dimensions` to get the list of
+        dimension columns for the cube.
+        """
+        return self.combined_grain
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def metrics(self) -> List[Dict[str, Any]]:
+        """
+        Backwards compatibility: Returns metrics in DruidCubeConfig expected format.
+
+        DruidCubeConfig expects `config.metrics` to be an array where each item has:
+        - `node` or `name`: metric identifier
+        - `metric_expression`: SQL expression for the metric
+
+        We transform measure_components into this format.
+        """
+        metrics_list = []
+
+        # First, add cube metrics if available (these are the actual metric nodes)
+        for metric_name in self.cube_metrics:
+            # Find the corresponding measure component to get expression info
+            # The component_aliases maps component names to metric-derived aliases
+            metric_expression = None
+            for component in self.measure_components:
+                alias = self.component_aliases.get(component.name, component.name)
+                if alias and metric_name.endswith(alias.split("_")[-1]):
+                    # Build expression from merge function
+                    if component.merge:  # pragma: no branch
+                        metric_expression = f"{component.merge}({component.name})"
+                    break
+
+            metrics_list.append(
+                {
+                    "node": metric_name,
+                    "name": metric_name.split(".")[-1],  # Short name
+                    "metric_expression": metric_expression,
+                    "metric": {
+                        "name": metric_name,
+                        "display_name": metric_name.split(".")[-1]
+                        .replace("_", " ")
+                        .title(),
+                    },
+                },
+            )
+
+        # If no cube_metrics, fall back to measure_components
+        if not metrics_list:
+            for component in self.measure_components:
+                alias = self.component_aliases.get(component.name, component.name)
+                # Build metric_expression from merge function if available
+                if component.merge:
+                    metric_expression = f"{component.merge}({component.name})"
+                else:
+                    metric_expression = f"SUM({component.name})"
+
+                metrics_list.append(
+                    {
+                        "name": alias or component.name,
+                        "metric_expression": metric_expression,
+                        "metric": {
+                            "name": alias or component.name,
+                            "display_name": (alias or component.name)
+                            .replace("_", " ")
+                            .title(),
+                        },
+                    },
+                )
+
+        return metrics_list
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def combiners(self) -> List[Dict[str, Any]]:
+        """
+        Returns combiners with columns in expected format.
+
+        DruidCubeConfig expects `config.combiners[0].columns` to get column
+        metadata for building the options.columns mapping.
+        """
+        return [
+            {
+                "columns": [
+                    {
+                        "name": col.name,
+                        "column": col.semantic_entity or col.name,
+                    }
+                    for col in self.combined_columns
+                ],
+            },
+        ]
+
+    # =========================================================================
+    # Old UI Compatibility: Alias for workflow_urls
+    # =========================================================================
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def urls(self) -> List[str]:
+        """
+        Old UI compatibility: Alias for workflow_urls.
+
+        The old materialization UI looks for `config.urls` to display workflow links.
+        This computed property provides backwards compatibility.
+        """
+        return self.workflow_urls

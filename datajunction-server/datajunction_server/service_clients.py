@@ -466,21 +466,26 @@ class QueryServiceClient:
     def deactivate_cube_workflow(
         self,
         cube_name: str,
+        version: Optional[str] = None,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
-        Deactivate a cube's Druid materialization workflows by cube name.
+        Deactivate a cube's Druid materialization workflows by cube name and version.
 
         Args:
             cube_name: Full cube name (e.g., 'default.my_cube').
-                      Query Service owns the workflow naming pattern and reconstructs
-                      workflow names from this identifier.
+            version: Optional cube version. If provided, deactivates version-specific
+                     workflows. If not provided, falls back to legacy naming.
 
         Returns:
             Dict with 'status'
         """
+        url = f"/cubes/{cube_name}/workflow"
+        if version:
+            url = f"{url}?version={version}"
+
         response = self.requests_session.delete(
-            f"/cubes/{cube_name}/workflow",
+            url,
             headers={
                 **self.requests_session.headers,
                 **QueryServiceClient.filtered_headers(request_headers),
@@ -491,16 +496,18 @@ class QueryServiceClient:
         )
         if response.status_code not in (200, 201, 204):
             _logger.warning(
-                "[DJQS] Failed to deactivate cube workflow for cube=%s: %s",
+                "[DJQS] Failed to deactivate cube workflow for cube=%s version=%s: %s",
                 cube_name,
+                version,
                 response.text,
             )
             # Don't raise - the query service endpoint may not exist yet
             return {"status": "failed", "message": response.text}
         result = response.json() if response.text else {}
         _logger.info(
-            "[DJQS] Deactivated cube workflows for cube=%s",
+            "[DJQS] Deactivated cube workflows for cube=%s version=%s",
             cube_name,
+            version,
         )
         return result
 
