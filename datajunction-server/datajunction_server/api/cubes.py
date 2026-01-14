@@ -499,8 +499,10 @@ async def materialize_cube(
             ),
         )
 
-    # Generate Druid datasource name
-    druid_datasource = data.druid_datasource or f"dj__{name.replace('.', '_')}"
+    # Generate Druid datasource name (versioned to prevent overwrites)
+    safe_name = name.replace(".", "_")
+    safe_version = str(cube_revision.version).replace(".", "_")
+    druid_datasource = data.druid_datasource or f"dj_{safe_name}_{safe_version}"
 
     # Build Druid spec
     dimension_columns = [
@@ -644,6 +646,7 @@ async def materialize_cube(
         combined_grain=combined_result.shared_dimensions,
         measure_components=combined_result.measure_components,
         component_aliases=combined_result.component_aliases,
+        cube_metrics=cube_revision.cube_node_metrics,  # For DruidCubeConfig compatibility
         timestamp_column=timestamp_column,
         timestamp_format=timestamp_format or "yyyyMMdd",
         workflow_urls=workflow_urls,
@@ -825,6 +828,7 @@ async def run_cube_backfill(
     # Build backfill input for query service
     backfill_input = CubeBackfillInput(
         cube_name=name,
+        cube_version=str(cube_revision.version),
         start_date=data.start_date,
         end_date=end_date,
     )

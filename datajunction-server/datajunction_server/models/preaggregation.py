@@ -397,10 +397,14 @@ class CubeBackfillInput(BaseModel):
     Input for running a cube backfill in query service.
 
     The cube workflow must already exist (created via POST /cubes/{name}/materialize).
-    Query Service derives workflow names from cube_name.
+    Query Service derives workflow names from cube_name and cube_version.
     """
 
     cube_name: str = Field(description="Cube name (e.g., 'ads.my_cube')")
+    cube_version: Optional[str] = Field(
+        default=None,
+        description="Cube version (e.g., 'v1.0'). Required for versioned workflows.",
+    )
     start_date: date = Field(description="Backfill start date")
     end_date: date = Field(description="Backfill end date")
 
