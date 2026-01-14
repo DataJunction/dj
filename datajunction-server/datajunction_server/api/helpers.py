@@ -955,6 +955,11 @@ def get_node_revision_materialization(
             materialization_config_output = MaterializationConfigOutput.model_validate(
                 materialization,
             )
+            # Use workflow_urls from V3 config if available, otherwise fall back to
+            # query service urls
+            config_dict = materialization_config_output.config
+            if config_dict.get("workflow_urls"):  # pragma: no cover
+                info.urls = config_dict["workflow_urls"]
             materializations.append(
                 MaterializationConfigInfoUnified(
                     **materialization_config_output.model_dump(),

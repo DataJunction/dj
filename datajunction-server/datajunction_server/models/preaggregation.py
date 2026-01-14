@@ -379,14 +379,18 @@ class BackfillInput(BaseModel):
     Simplified input for running a backfill in query service.
 
     The workflow must already exist (created via POST /preaggs/{id}/materialize).
-    Query Service derives workflow names from output_table.
+    Query Service uses node_name for readable workflow names and output_table
+    checksum for uniqueness.
 
     Note: For single-date runs, use same start_date and end_date.
     """
 
     preagg_id: int = Field(description="Pre-aggregation ID")
     output_table: str = Field(
-        description="Output table name (used to derive workflow name)",
+        description="Output table name (used to derive workflow checksum)",
+    )
+    node_name: str = Field(
+        description="Node name (used for readable workflow name)",
     )
     start_date: date = Field(description="Backfill start date")
     end_date: date = Field(description="Backfill end date")
@@ -397,10 +401,13 @@ class CubeBackfillInput(BaseModel):
     Input for running a cube backfill in query service.
 
     The cube workflow must already exist (created via POST /cubes/{name}/materialize).
-    Query Service derives workflow names from cube_name.
+    Query Service uses cube_name and cube_version to derive workflow names via checksum.
     """
 
     cube_name: str = Field(description="Cube name (e.g., 'ads.my_cube')")
+    cube_version: str = Field(
+        description="Cube version (e.g., 'v1.0'). Required for workflow name checksum.",
+    )
     start_date: date = Field(description="Backfill start date")
     end_date: date = Field(description="Backfill end date")
 

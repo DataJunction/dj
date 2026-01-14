@@ -159,11 +159,13 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def deactivate_cube_workflow(
         self,
         cube_name: str,
+        version: Optional[str] = None,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Deactivate a cube's Druid materialization workflow via HTTP query service."""
         return self._client.deactivate_cube_workflow(  # pragma: no cover
             cube_name=cube_name,
+            version=version,
             request_headers=request_headers,
         )
 

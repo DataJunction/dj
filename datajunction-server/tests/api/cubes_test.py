@@ -3608,7 +3608,8 @@ class TestCubeMaterializeV2SuccessPaths:
 
         assert response.status_code == 200, response.json()
         data = response.json()
-        assert data["druid_datasource"] == f"dj__{cube_name.replace('.', '_')}"
+        # Druid datasource is versioned: dj_{cube_name}_{version}
+        assert data["druid_datasource"] == f"dj_{cube_name.replace('.', '_')}_v1_0"
         assert data["strategy"] == "full"
         assert data["schedule"] == "0 0 * * *"
         assert "workflow_urls" in data
@@ -3874,6 +3875,117 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["strategy"] == "incremental_time"
         assert data["schedule"] == "0 6 * * *"
 
+    @pytest.mark.asyncio
+    async def test_materialize_cube_stores_druid_cube_config_compatible_config(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """Test that materialization config includes DruidCubeConfig-compatible fields.
+
+        DruidCubeConfig expects the materialization config to have:
+        - dimensions: list of dimension column names
+        - metrics: list of metric objects with node/name/metric_expression
+        - combiners: list with columns in expected format
+        """
+        cube_name = "default.test_druid_cube_config_compat_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_entity="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="date_id",
+                type="int",
+                semantic_entity="default.hard_hat.hire_date",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="total_repair_cost",
+                type="double",
+                semantic_entity="default.total_repair_cost",
+                semantic_type="measure",
+            ),
+        ]
+
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
+            sql_string="SELECT state, date_id, SUM(cost) as total_repair_cost FROM preagg",
+        )
+
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="date_id",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                ["catalog.schema.preagg_table1"],
+                mock_temporal_info,
+            ),
+        )
+
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        )
+
+        # Create materialization
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify the response contains DruidCubeConfig-compatible fields
+        # The CubeMaterializeResponse includes all the fields that get stored in config
+
+        # Verify combined_grain (used by dimensions computed field)
+        assert "combined_grain" in data
+        assert data["combined_grain"] == [
+            "default.hard_hat.state",
+            "default.hard_hat.hire_date",
+        ]
+
+        # Verify combined_columns (used by combiners computed field)
+        assert "combined_columns" in data
+        assert len(data["combined_columns"]) == 3
+
+        # Verify the column structure
+        columns_by_name = {c["name"]: c for c in data["combined_columns"]}
+        assert "state" in columns_by_name
+        assert "date_id" in columns_by_name
+        assert "total_repair_cost" in columns_by_name
+
+        # Verify semantic_entity is included (for combiners)
+        assert columns_by_name["state"]["semantic_entity"] == "default.hard_hat.state"
+        assert (
+            columns_by_name["date_id"]["semantic_entity"]
+            == "default.hard_hat.hire_date"
+        )
+
+        # Verify combined_sql is present
+        assert "combined_sql" in data
+        assert data["combined_sql"] is not None
+
 
 class TestCubeDeactivateSuccessPaths:
     """
@@ -3953,8 +4065,12 @@ class TestCubeDeactivateSuccessPaths:
         assert response.status_code == 200
         assert "deactivated" in response.json()["message"].lower()
 
-        # Verify workflow deactivation was called
-        mock_deactivate.assert_called_once()
+        # Verify workflow deactivation was called with version
+        mock_deactivate.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mocker.ANY,
+        )
 
     @pytest.mark.asyncio
     async def test_deactivate_cube_workflow_failure_still_deletes(
@@ -4089,7 +4205,7 @@ class TestCubeBackfillSuccessPaths:
             "materialize_cube_v2",
             return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
         )
-        mocker.patch.object(
+        mock_backfill = mocker.patch.object(
             qs_client,
             "run_cube_backfill",
             return_value={"job_url": "http://workflow/backfill-job-123"},
@@ -4116,6 +4232,12 @@ class TestCubeBackfillSuccessPaths:
         assert data["start_date"] == "2024-01-01"
         assert data["end_date"] == "2024-01-31"
         assert data["status"] == "running"
+
+        # Verify cube_version was passed to run_cube_backfill
+        mock_backfill.assert_called_once()
+        backfill_input = mock_backfill.call_args[0][0]
+        assert backfill_input.cube_name == cube_name
+        assert backfill_input.cube_version == "v1.0"
 
     @pytest.mark.asyncio
     async def test_backfill_cube_with_default_end_date(
