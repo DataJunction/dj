@@ -627,7 +627,7 @@ class DruidCubeV3Config(BaseModel):
         description="Mapping from component name to output column alias",
     )
 
-    # Cube's metric node names (for DX compatibility)
+    # Cube's metric node names
     cube_metrics: List[str] = Field(
         default_factory=list,
         description="List of metric node names in the cube",
@@ -665,12 +665,11 @@ class DruidCubeV3Config(BaseModel):
         """
         Backwards compatibility: Returns metrics in DruidCubeConfig expected format.
 
-        Data Explorer expects `config.metrics` to be an array where each item has:
+        DruidCubeConfig expects `config.metrics` to be an array where each item has:
         - `node` or `name`: metric identifier
         - `metric_expression`: SQL expression for the metric
 
-        We transform measure_components into this format. DX will use the
-        `metric_expression` if provided, otherwise falls back to `SUM(name)`.
+        We transform measure_components into this format.
         """
         metrics_list = []
 

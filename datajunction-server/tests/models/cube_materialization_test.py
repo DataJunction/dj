@@ -14,8 +14,8 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.query import ColumnMetadata
 
 
-class TestDruidCubeV3ConfigDXCompatibility:
-    """Test Data Explorer compatibility computed properties."""
+class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
+    """Test DruidCubeConfig compatibility computed properties."""
 
     @pytest.fixture
     def sample_config(self):
@@ -87,7 +87,10 @@ class TestDruidCubeV3ConfigDXCompatibility:
         assert sample_config.dimensions == sample_config.combined_grain
 
     def test_metrics_property_with_cube_metrics(self, sample_config):
-        """Test that metrics property returns DX-compatible format with cube_metrics."""
+        """
+        Test that metrics property returns DruidCubeConfig-compatible
+        format with cube_metrics.
+        """
         metrics = sample_config.metrics
 
         assert len(metrics) == 2
@@ -139,7 +142,10 @@ class TestDruidCubeV3ConfigDXCompatibility:
         assert metrics[0]["metric_expression"] == "SUM(revenue_sum)"
 
     def test_combiners_property(self, sample_config):
-        """Test that combiners property returns columns in DX expected format."""
+        """
+        Test that combiners property returns columns in DruidCubeConfig
+        expected format.
+        """
         combiners = sample_config.combiners
 
         assert len(combiners) == 1
@@ -156,7 +162,10 @@ class TestDruidCubeV3ConfigDXCompatibility:
         assert columns[1]["column"] == "default.country_dim.country"
 
     def test_model_dump_includes_computed_fields(self, sample_config):
-        """Test that model_dump() includes the DX compatibility fields."""
+        """
+        Test that model_dump() includes the DruidCubeConfig
+        compatibility fields.
+        """
         data = sample_config.model_dump()
 
         assert "dimensions" in data
@@ -292,7 +301,7 @@ class TestDruidCubeV3ConfigDXCompatibility:
         json_str = sample_config.model_dump_json()
         data = json.loads(json_str)
 
-        # Verify DX fields are present
+        # Verify backwards compatibility fields are present
         assert "dimensions" in data
         assert "metrics" in data
         assert "combiners" in data
