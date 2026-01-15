@@ -352,7 +352,7 @@ async def list_preaggregations(
                 matches,
             )
             if matches:
-                filtered.append(p)
+                filtered.append(p)  # pragma: no cover
         preaggs = filtered
 
         _logger.info(

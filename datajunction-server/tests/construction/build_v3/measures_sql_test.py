@@ -75,7 +75,7 @@ class TestMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -90,10 +90,10 @@ class TestMeasuresSQLEndpoint:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -161,31 +161,31 @@ class TestMeasuresSQLEndpoint:
             FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
 
-            SELECT  SUM(t1.line_total) total_revenue,
-                MAX(t1.unit_price) max_unit_price,
-                MIN(t1.unit_price) min_unit_price
+            SELECT  SUM(t1.line_total) line_total_sum_e1f61696,
+                MAX(t1.unit_price) unit_price_max_55cff00f,
+                MIN(t1.unit_price) unit_price_min_55cff00f
             FROM v3_order_details t1
             """,
         )
 
         assert gg["columns"] == [
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "max_unit_price",
+                "name": "unit_price_max_55cff00f",
                 "type": "float",
-                "semantic_entity": "v3.max_unit_price",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.max_unit_price:unit_price_max_55cff00f",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "min_unit_price",
+                "name": "unit_price_min_55cff00f",
                 "type": "float",
-                "semantic_entity": "v3.min_unit_price",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.min_unit_price:unit_price_min_55cff00f",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -227,7 +227,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t2.name, SUM(t1.line_total) total_revenue
+            SELECT t1.status, t2.name, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t1.status, t2.name
@@ -249,10 +249,10 @@ class TestDimensionJoins:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -296,16 +296,16 @@ class TestDimensionJoins:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "total_quantity",
+                "name": "quantity_sum_06b64d2e",
                 "type": "bigint",
-                "semantic_entity": "v3.total_quantity",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_quantity:quantity_sum_06b64d2e",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -323,7 +323,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.name, SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t2.name
@@ -355,7 +355,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.name, SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             WHERE  t2.name = 'Abcd'
@@ -400,7 +400,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t2.name, SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT t1.status, t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t1.status, t2.name
@@ -420,16 +420,16 @@ class TestDimensionJoins:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "total_quantity",
+                "name": "quantity_sum_06b64d2e",
                 "type": "bigint",
-                "semantic_entity": "v3.total_quantity",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_quantity:quantity_sum_06b64d2e",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -517,9 +517,9 @@ class TestDimensionJoins:
             t3.month month_order,
             t5.year year_registration,
             t7.country country_home,
-            SUM(t1.line_total) total_revenue,
-            SUM(t1.quantity) total_quantity,
-            hll_sketch_agg(t1.customer_id) customer_count
+            SUM(t1.line_total) line_total_sum_e1f61696,
+            SUM(t1.quantity) quantity_sum_06b64d2e,
+            hll_sketch_agg(t1.customer_id) customer_id_hll_23002251
         FROM v3_order_details t1
         LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
         LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -545,12 +545,12 @@ class TestDimensionJoins:
 
         # Check all metrics present
         metric_names = [
-            c["name"] for c in gg["columns"] if c["semantic_type"] == "metric"
+            c["name"] for c in gg["columns"] if c["semantic_type"] == "metric_component"
         ]
         assert set(metric_names) == {
-            "total_revenue",
-            "total_quantity",
-            "customer_count",
+            "line_total_sum_e1f61696",
+            "quantity_sum_06b64d2e",
+            "customer_id_hll_23002251",
         }
 
         # Validate requested_dimensions
@@ -667,10 +667,10 @@ class TestMeasuresSQLRoles:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -692,7 +692,7 @@ class TestMeasuresSQLRoles:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.year year_order, t4.year year_registration, SUM(t1.line_total) total_revenue
+            SELECT t2.year year_order, t4.year year_registration, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
@@ -754,10 +754,10 @@ class TestMeasuresSQLRoles:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -779,7 +779,7 @@ class TestMeasuresSQLRoles:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.country country_from, t4.country country_home, SUM(t1.line_total) total_revenue
+            SELECT t2.country country_from, t4.country country_home, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
@@ -838,8 +838,11 @@ class TestMeasuresSQLRoles:
         assert gg["columns"][1]["name"] == "city_to"
         assert gg["columns"][2]["semantic_entity"] == "v3.location.city[customer->home]"
         assert gg["columns"][2]["name"] == "city_home"
-        assert gg["columns"][3]["semantic_entity"] == "v3.total_revenue"
-        assert gg["columns"][3]["name"] == "total_revenue"
+        assert (
+            gg["columns"][3]["semantic_entity"]
+            == "v3.total_revenue:line_total_sum_e1f61696"
+        )
+        assert gg["columns"][3]["name"] == "line_total_sum_e1f61696"
 
         # Validate SQL
         assert_sql_equal(
@@ -861,7 +864,7 @@ class TestMeasuresSQLRoles:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
             SELECT t2.city city_from, t3.city city_to, t5.city city_home,
-                   SUM(t1.line_total) total_revenue
+                   SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
             LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
@@ -909,8 +912,8 @@ class TestMeasuresSQLMultipleMetrics:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
             SELECT t1.status,
-                   SUM(t1.line_total) total_revenue,
-                   SUM(t1.quantity) total_quantity
+                   SUM(t1.line_total) line_total_sum_e1f61696,
+                   SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -925,16 +928,16 @@ class TestMeasuresSQLMultipleMetrics:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "total_quantity",
+                "name": "quantity_sum_06b64d2e",
                 "type": "bigint",
-                "semantic_entity": "v3.total_quantity",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_quantity:quantity_sum_06b64d2e",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -1002,7 +1005,7 @@ class TestMeasuresSQLMultipleMetrics:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t1.order_id, SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             GROUP BY t1.status, t1.order_id
             """,
@@ -1019,24 +1022,31 @@ class TestMeasuresSQLMultipleMetrics:
         components = sorted(gg["components"], key=lambda c: c["name"])
 
         # order_count component (LIMITED - grain column)
-        assert components[0]["name"] == "order_id"
-        assert components[0]["expression"] == "order_id"
-        assert components[0]["aggregation"] is None  # Grain column, no aggregation
-        assert components[0]["aggregability"] == "limited"
+        assert components[0] == {
+            "name": "line_total_sum_e1f61696",
+            "expression": "line_total",
+            "aggregation": "SUM",
+            "merge": "SUM",
+            "aggregability": "full",
+        }
 
         # total_revenue component
-        assert components[1]["name"] == "total_quantity"
-        assert components[1]["expression"] == "quantity"
-        assert components[1]["aggregation"] == "SUM"
-        assert components[1]["merge"] == "SUM"
-        assert components[1]["aggregability"] == "full"
+        assert components[1] == {
+            "name": "order_id",
+            "expression": "order_id",
+            "aggregation": None,
+            "merge": None,
+            "aggregability": "limited",
+        }
 
         # total_quantity component
-        assert components[2]["name"] == "total_revenue"
-        assert components[2]["expression"] == "line_total"
-        assert components[2]["aggregation"] == "SUM"
-        assert components[2]["merge"] == "SUM"
-        assert components[2]["aggregability"] == "full"
+        assert components[2] == {
+            "name": "quantity_sum_06b64d2e",
+            "expression": "quantity",
+            "aggregation": "SUM",
+            "merge": "SUM",
+            "aggregability": "full",
+        }
 
     @pytest.mark.asyncio
     async def test_page_views_full_metrics(self, client_with_build_v3):
@@ -1076,16 +1086,16 @@ class TestMeasuresSQLMultipleMetrics:
                 "semantic_type": "dimension",
             },
             {
-                "name": "page_view_count",
+                "name": "view_id_count_f41e2db4",
                 "type": "bigint",
-                "semantic_entity": "v3.page_view_count",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.page_view_count:view_id_count_f41e2db4",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "product_view_count",
+                "name": "is_product_view_sum_eb3a4b41",
                 "type": "bigint",
-                "semantic_entity": "v3.product_view_count",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.product_view_count:is_product_view_sum_eb3a4b41",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -1094,11 +1104,16 @@ class TestMeasuresSQLMultipleMetrics:
             gg["sql"],
             """
             WITH v3_page_views_enriched AS (
-                SELECT view_id, page_type,
-                       CASE WHEN page_type = 'product' THEN 1 ELSE 0 END AS is_product_view
-                FROM default.v3.page_views
+              SELECT
+                view_id,
+                page_type,
+                CASE WHEN page_type = 'product' THEN 1 ELSE 0 END AS is_product_view
+              FROM default.v3.page_views
             )
-            SELECT t1.page_type, COUNT(t1.view_id) page_view_count, SUM(t1.is_product_view) product_view_count
+            SELECT
+              t1.page_type,
+              COUNT(t1.view_id) view_id_count_f41e2db4,
+              SUM(t1.is_product_view) is_product_view_sum_eb3a4b41
             FROM v3_page_views_enriched t1
             GROUP BY t1.page_type
             """,
@@ -1208,10 +1223,10 @@ class TestMeasuresSQLCrossFact:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
         assert_sql_equal(
@@ -1227,7 +1242,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, SUM(t1.line_total) total_revenue
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category
@@ -1247,10 +1262,10 @@ class TestMeasuresSQLCrossFact:
                 "semantic_type": "dimension",
             },
             {
-                "name": "page_view_count",
+                "name": "view_id_count_f41e2db4",
                 "type": "bigint",
-                "semantic_entity": "v3.page_view_count",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.page_view_count:view_id_count_f41e2db4",
+                "semantic_type": "metric_component",
             },
         ]
         assert_sql_equal(
@@ -1265,7 +1280,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, COUNT(t1.view_id) page_view_count
+            SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category
@@ -1320,10 +1335,10 @@ class TestMeasuresSQLCrossFact:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
         assert_sql_equal(
@@ -1339,7 +1354,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, SUM(t1.line_total) total_revenue
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category
@@ -1574,7 +1589,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.order_id, SUM(t1.line_total) total_revenue
+            SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.order_id
@@ -1600,7 +1615,7 @@ class TestMeasuresSQLCrossFact:
                 SELECT product_id, category
                 FROM default.v3.products
             )
-            SELECT t2.category, t1.customer_id, COUNT(t1.view_id) page_view_count
+            SELECT t2.category, t1.customer_id, COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY t2.category, t1.customer_id
@@ -1734,10 +1749,10 @@ class TestMeasuresSQLComponents:
         }
         # Single-component metric has clean name and type "metric"
         assert gg["columns"][1] == {
-            "name": "total_revenue",
+            "name": "line_total_sum_e1f61696",
             "type": "double",
-            "semantic_entity": "v3.total_revenue",
-            "semantic_type": "metric",
+            "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+            "semantic_type": "metric_component",
         }
         # Multi-component metrics have type "metric_component"
         assert gg["columns"][2]["name"] == "unit_price_count_55cff00f"
@@ -1763,7 +1778,7 @@ class TestMeasuresSQLComponents:
                 SELECT o.status, oi.unit_price, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue, COUNT(t1.unit_price) unit_price_count_55cff00f, SUM(t1.unit_price) unit_price_sum_55cff00f
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696, COUNT(t1.unit_price) unit_price_count_55cff00f, SUM(t1.unit_price) unit_price_sum_55cff00f
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -1904,10 +1919,10 @@ class TestMetricTypesMeasuresSQL:
                 "semantic_type": "dimension",
             },
             {
-                "name": "customer_count",
+                "name": "customer_id_hll_23002251",
                 "type": "binary",
-                "semantic_entity": "v3.customer_count",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.customer_count:customer_id_hll_23002251",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -1921,7 +1936,7 @@ class TestMetricTypesMeasuresSQL:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, hll_sketch_agg(t1.customer_id) customer_count
+            SELECT t1.status, hll_sketch_agg(t1.customer_id) customer_id_hll_23002251
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -1975,7 +1990,7 @@ class TestMeasuresSQLDerived:
             )
 
             SELECT  t2.week week_order,
-                SUM(t1.line_total) total_revenue
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
             GROUP BY  t2.week
             """,
@@ -1989,10 +2004,10 @@ class TestMeasuresSQLDerived:
                 "semantic_type": "dimension",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
         ]
 
@@ -2066,10 +2081,10 @@ class TestMeasuresSQLDerived:
 
             SELECT  t1.status,
                 t2.category,
-                MAX(t1.unit_price) max_unit_price,
-                MIN(t1.unit_price) min_unit_price,
-                SUM(CASE WHEN t1.status = 'completed' THEN t1.line_total ELSE 0 END) completed_order_revenue,
-                SUM(t1.line_total) total_revenue,
+                MAX(t1.unit_price) unit_price_max_55cff00f,
+                MIN(t1.unit_price) unit_price_min_55cff00f,
+                SUM(CASE WHEN t1.status = 'completed' THEN t1.line_total ELSE 0 END) status_line_total_sum_43004dae,
+                SUM(t1.line_total) line_total_sum_e1f61696,
                 COUNT(t1.unit_price) unit_price_count_55cff00f,
                 SUM(t1.unit_price) unit_price_sum_55cff00f
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -2091,28 +2106,28 @@ class TestMeasuresSQLDerived:
                 "semantic_type": "dimension",
             },
             {
-                "name": "max_unit_price",
+                "name": "unit_price_max_55cff00f",
                 "type": "float",
-                "semantic_entity": "v3.max_unit_price",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.max_unit_price:unit_price_max_55cff00f",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "min_unit_price",
+                "name": "unit_price_min_55cff00f",
                 "type": "float",
-                "semantic_entity": "v3.min_unit_price",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.min_unit_price:unit_price_min_55cff00f",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "completed_order_revenue",
+                "name": "status_line_total_sum_43004dae",
                 "type": "double",
-                "semantic_entity": "v3.completed_order_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.completed_order_revenue:status_line_total_sum_43004dae",
+                "semantic_type": "metric_component",
             },
             {
-                "name": "total_revenue",
+                "name": "line_total_sum_e1f61696",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
             },
             {
                 "name": "unit_price_count_55cff00f",
@@ -2350,7 +2365,7 @@ class TestTemporalFilters:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.status
@@ -2388,7 +2403,7 @@ class TestTemporalFilters:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
                                     AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
@@ -2421,7 +2436,7 @@ class TestTemporalFilters:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -2457,7 +2472,7 @@ class TestTemporalFilters:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.status = 'active' AND t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
             GROUP BY t1.status
@@ -2555,7 +2570,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -2564,7 +2579,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Verify columns include dimensions and measures
         column_names = [col["name"] for col in data["columns"]]
         assert "status" in column_names
-        assert "total_revenue" in column_names
+        assert "line_total_sum_e1f61696" in column_names
 
     @pytest.mark.asyncio
     async def test_combined_cross_fact_metrics(self, client_with_build_v3):
@@ -2602,19 +2617,19 @@ class TestCombinedMeasuresSQLEndpoint:
             ),
             gg1 AS (
             SELECT  t1.date_id,
-                SUM(t1.line_total) total_revenue
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY  t1.date_id
             ),
             gg2 AS (
             SELECT  t1.date_id,
-                COUNT(t1.view_id) page_view_count
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1
             GROUP BY  t1.date_id
             )
             SELECT  COALESCE(gg1.date_id, gg2.date_id) date_id,
-                gg1.total_revenue,
-                gg2.page_view_count
+                gg1.line_total_sum_e1f61696,
+                gg2.view_id_count_f41e2db4
             FROM gg1 FULL OUTER JOIN gg2 ON gg1.date_id = gg2.date_id
             """,
         )
@@ -2622,8 +2637,8 @@ class TestCombinedMeasuresSQLEndpoint:
         # Verify columns include measures from both sources
         column_names = [col["name"] for col in data["columns"]]
         assert "date_id" in column_names
-        assert "total_revenue" in column_names
-        assert "page_view_count" in column_names
+        assert "line_total_sum_e1f61696" in column_names
+        assert "view_id_count_f41e2db4" in column_names
 
     @pytest.mark.asyncio
     async def test_combined_endpoint_returns_correct_metadata(
@@ -2653,7 +2668,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -2666,10 +2681,7 @@ class TestCombinedMeasuresSQLEndpoint:
         assert columns["status"]["semantic_type"] == "dimension"
 
         # Revenue should be a metric component (semantic type varies based on single-component)
-        assert columns["total_revenue"]["semantic_type"] in (
-            "metric",
-            "metric_component",
-        )
+        assert columns["line_total_sum_e1f61696"]["semantic_type"] == "metric_component"
 
     @pytest.mark.asyncio
     async def test_combined_empty_metrics_returns_error(self, client_with_build_v3):
@@ -2712,9 +2724,9 @@ class TestCombinedMeasuresSQLEndpoint:
                 "type": "string",
             },
             {
-                "name": "total_revenue",
-                "semantic_entity": "v3.total_revenue",
-                "semantic_type": "metric",
+                "name": "line_total_sum_e1f61696",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
                 "type": "double",
             },
         ]
@@ -2731,7 +2743,7 @@ class TestCombinedMeasuresSQLEndpoint:
             )
 
             SELECT  t1.status,
-                SUM(t1.line_total) total_revenue
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY  t1.status
             """,
@@ -2768,7 +2780,7 @@ class TestCombinedMeasuresSQLEndpoint:
         assert_sql_equal(
             data["sql"],
             """
-            SELECT status, SUM(total_revenue) total_revenue
+            SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
             FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
             GROUP BY status
             """,
@@ -2808,7 +2820,7 @@ class TestCombinedMeasuresSQLEndpoint:
         assert_sql_equal(
             data["sql"],
             """
-            SELECT status, SUM(total_revenue) total_revenue
+            SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
             FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
             GROUP BY status
             """,

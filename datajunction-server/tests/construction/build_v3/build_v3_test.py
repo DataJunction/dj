@@ -111,7 +111,7 @@ class TestInnerCTEFlattening:
               FROM v3_transform_with_cte__order_totals order_totals
               GROUP BY  customer_id
             )
-            SELECT  SUM(t1.total_spent) total_customer_spend
+            SELECT  SUM(t1.total_spent) total_spent_sum_c9824762
             FROM v3_transform_with_cte t1
             """,
         )
@@ -320,7 +320,7 @@ class TestMaterialization:
             )
             SELECT
               t2.category,
-              SUM(t1.line_total) total_revenue
+              SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN analytics.dim.product_dim t2 ON t1.product_id = t2.product_id
             GROUP BY

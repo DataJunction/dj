@@ -251,6 +251,7 @@ async def client_with_preaggs(
     }
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestListPreaggregations:
     """Tests for GET /preaggs/ endpoint."""
 
@@ -454,6 +455,7 @@ class TestListPreaggregations:
         assert "Version" in response.json()["message"]
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestGetPreaggregationById:
     """Tests for GET /preaggs/{preagg_id} endpoint."""
 
@@ -489,6 +491,7 @@ class TestGetPreaggregationById:
         assert "99999999" in response.json()["message"]
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestPreaggregationResponseFields:
     """Tests for pre-aggregation response field completeness."""
 
@@ -650,6 +653,7 @@ class TestPlanPreaggregations:
         assert preagg_id_1 == preagg_id_2
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestUpdatePreaggregationAvailability:
     """Tests for POST /preaggs/{id}/availability/ endpoint."""
 
@@ -695,6 +699,7 @@ class TestUpdatePreaggregationAvailability:
         assert response.status_code == 404
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestMaterializePreaggregation:
     """Tests for POST /preaggs/{id}/materialize endpoint."""
 
@@ -762,6 +767,7 @@ class TestMaterializePreaggregation:
         assert isinstance(mat_input.temporal_partitions, list)
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestUpdatePreaggregationConfig:
     """Tests for PATCH /preaggs/{id}/config endpoint."""
 
@@ -846,6 +852,7 @@ class TestUpdatePreaggregationConfig:
         assert response.status_code == 404
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestDeletePreaggWorkflow:
     """Tests for DELETE /preaggs/{id}/workflow endpoint."""
 
@@ -910,6 +917,7 @@ class TestDeletePreaggWorkflow:
         assert response.status_code == 404
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestRunPreaggBackfill:
     """Tests for POST /preaggs/{id}/backfill endpoint."""
 
@@ -991,6 +999,7 @@ class TestRunPreaggBackfill:
         assert response.status_code == 404
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestListPreaggregationsGrainSuperset:
     """Tests for grain superset mode in list_preaggs endpoint."""
 
@@ -1078,6 +1087,7 @@ class TestListPreaggregationsGrainSuperset:
         assert preagg2.id not in exact_ids
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestAvailabilityMerge:
     """Tests for availability temporal partition merge logic."""
 
@@ -1202,6 +1212,7 @@ class TestAvailabilityMerge:
         assert data2["max_partition"] == ["2024", "02", "15"]
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestIncrementalTimeValidation:
     """Tests for INCREMENTAL_TIME strategy validation requiring temporal partition columns."""
 
@@ -1261,6 +1272,7 @@ class TestIncrementalTimeValidation:
         assert "temporal partition columns" in data["message"]
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestQueryServiceExceptionHandling:
     """Tests for error handling when query service calls fail."""
 
@@ -1356,6 +1368,7 @@ class TestQueryServiceExceptionHandling:
         assert "Backfill service down" in data["message"]
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestWorkflowUrlExtraction:
     """Tests for workflow URL extraction and fallback logic in materialize."""
 
@@ -1615,6 +1628,7 @@ class TestWorkflowUrlExtraction:
         assert "adhoc" in backfill_urls[0].url.lower()
 
 
+@pytest.mark.xdist_group(name="preaggregations")
 class TestIncrementalTimeMaterialization:
     """
     Tests for INCREMENTAL_TIME materialization with temporal partition columns.

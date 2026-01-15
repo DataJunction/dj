@@ -719,14 +719,9 @@ def build_grain_group_from_preagg(  # pragma: no cover
                 f"Component {component.name} not found in pre-agg {preagg.id}",
             )
 
-        # Determine the output alias
-        num_components = components_per_metric.get(metric_node.name, 1)
-        if num_components == 1:
-            output_alias = get_short_name(metric_node.name)
-        else:
-            output_alias = (
-                measure_col  # Use the pre-agg column name for multi-component
-            )
+        # Always use the measure column name (component hash) as the output alias
+        # This ensures consistency with the non-preagg path
+        output_alias = measure_col
 
         component_aliases[component.name] = output_alias
 
@@ -836,7 +831,7 @@ def build_grain_group_sql(
 
     # Build list of component expressions with their aliases
     component_expressions: list[tuple[str, ast.Expression]] = []
-    component_metadata: list[tuple[str, MetricComponent, Node, bool]] = []
+    component_metadata: list[tuple[str, MetricComponent, Node]] = []
 
     # Track which metrics are covered by this grain group
     metrics_covered: set[str] = set()
@@ -872,7 +867,7 @@ def build_grain_group_sql(
                 component_alias = component.expression
                 component_expressions.append((component_alias, col_ast))
                 component_metadata.append(
-                    (component_alias, component, metric_node, False),
+                    (component_alias, component, metric_node),
                 )
                 component_aliases[component.name] = component_alias
             continue
@@ -897,16 +892,12 @@ def build_grain_group_sql(
                 continue
             else:
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
-                num_components = components_per_metric.get(metric_node.name, 1)
-                is_simple = num_components == 1
-                if is_simple:
-                    component_alias = get_short_name(metric_node.name)
-                else:
-                    component_alias = component.name  # pragma: no cover
+                # Always use component.name for consistency - no special case for single-component
+                component_alias = component.name
                 expr_ast = build_component_expression(component)
                 component_expressions.append((component_alias, expr_ast))
                 component_metadata.append(
-                    (component_alias, component, metric_node, is_simple),
+                    (component_alias, component, metric_node),
                 )
                 component_aliases[component.name] = component_alias
             continue
@@ -923,17 +914,12 @@ def build_grain_group_sql(
             component_aliases[component.name] = grain_col
             continue
 
-        num_components = components_per_metric.get(metric_node.name, 1)
-        is_simple = num_components == 1
-
-        if is_simple:
-            component_alias = metric_node.name.split(SEPARATOR)[-1]
-        else:
-            component_alias = component.name
+        # Always use component.name for consistency - no special case for single-component
+        component_alias = component.name
 
         expr_ast = build_component_expression(component)
         component_expressions.append((component_alias, expr_ast))
-        component_metadata.append((component_alias, component, metric_node, is_simple))
+        component_metadata.append((component_alias, component, metric_node))
 
         # Track the mapping from component name to actual SQL alias
         # This is needed for metrics SQL to correctly reference component columns
@@ -1039,7 +1025,8 @@ def build_grain_group_sql(
         )
 
     # Add metric component columns
-    for comp_alias, component, metric_node, is_simple in component_metadata:
+    # All decomposed metrics are now treated as components - no special case for single-component
+    for comp_alias, component, metric_node in component_metadata:
         # Get metric output type (metrics have exactly one output column)
         metric_type = str(metric_node.current.columns[0].type)
         if grain_group.aggregability == Aggregability.NONE:
@@ -1050,15 +1037,6 @@ def build_grain_group_sql(
                     semantic_name=f"{metric_node.name}:{component.expression}",
                     type=metric_type,
                     semantic_type="metric_input",  # Raw input for non-aggregatable metric
-                ),
-            )
-        elif is_simple:
-            columns_metadata.append(
-                ColumnMetadata(
-                    name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
-                    semantic_name=metric_node.name,
-                    type=infer_component_type(component, metric_type, parent_node),
-                    semantic_type="metric",
                 ),
             )
         else:

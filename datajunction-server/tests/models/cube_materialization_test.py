@@ -77,6 +77,27 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
                 "default.total_revenue",
                 "default.num_orders",
             ],
+            # metrics is now explicitly populated (no longer computed)
+            metrics=[
+                {
+                    "node": "default.total_revenue",
+                    "name": "total_revenue",
+                    "metric_expression": "SUM(revenue_sum)",
+                    "metric": {
+                        "name": "default.total_revenue",
+                        "display_name": "Total Revenue",
+                    },
+                },
+                {
+                    "node": "default.num_orders",
+                    "name": "num_orders",
+                    "metric_expression": "SUM(order_count)",
+                    "metric": {
+                        "name": "default.num_orders",
+                        "display_name": "Num Orders",
+                    },
+                },
+            ],
             timestamp_column="date_id",
             timestamp_format="yyyyMMdd",
         )
@@ -112,7 +133,7 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
         assert metrics[1]["metric_expression"] == "SUM(order_count)"
 
     def test_metrics_property_fallback_to_components(self):
-        """Test that metrics property falls back to measure_components if no cube_metrics."""
+        """Test that metrics field stores explicit metrics list."""
         config = DruidCubeV3Config(
             druid_datasource="dj_test_cube_v1_0",
             preagg_tables=[],
@@ -131,7 +152,14 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
                 ),
             ],
             component_aliases={"revenue_sum": "total_revenue"},
-            cube_metrics=[],  # Empty - should fall back to components
+            cube_metrics=[],
+            # metrics is now explicitly populated
+            metrics=[
+                {
+                    "name": "total_revenue",
+                    "metric_expression": "SUM(revenue_sum)",
+                },
+            ],
             timestamp_column="date_id",
         )
 
@@ -189,7 +217,7 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
         assert config.dimensions == []
 
     def test_metrics_with_no_merge_function(self):
-        """Test metrics fallback when merge function is None."""
+        """Test metrics can be stored with SUM fallback expression."""
         config = DruidCubeV3Config(
             druid_datasource="dj_test_cube_v1_0",
             preagg_tables=[],
@@ -207,16 +235,23 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
             ],
             component_aliases={},
             cube_metrics=[],
+            # metrics is now explicitly populated (endpoint provides SUM fallback)
+            metrics=[
+                {
+                    "name": "some_metric",
+                    "metric_expression": "SUM(some_metric)",
+                },
+            ],
             timestamp_column="date_id",
         )
 
         metrics = config.metrics
         assert len(metrics) == 1
-        # Should fall back to SUM(name) when merge is None
+        # Should have SUM(name) expression
         assert metrics[0]["metric_expression"] == "SUM(some_metric)"
 
     def test_metrics_with_hll_merge_function(self):
-        """Test metrics with HLL (HyperLogLog) merge function."""
+        """Test metrics can store HLL (HyperLogLog) merge expressions."""
         config = DruidCubeV3Config(
             druid_datasource="dj_test_cube_v1_0",
             preagg_tables=[],
@@ -234,6 +269,13 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
             ],
             component_aliases={"user_hll": "unique_users"},
             cube_metrics=[],
+            # metrics is now explicitly populated
+            metrics=[
+                {
+                    "name": "unique_users",
+                    "metric_expression": "hll_union(user_hll)",
+                },
+            ],
             timestamp_column="date_id",
         )
 
@@ -271,7 +313,7 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
         assert columns[1]["column"] == "some.entity"
 
     def test_metrics_display_name_formatting(self):
-        """Test that display_name is properly formatted from metric name."""
+        """Test that display_name can be properly formatted in stored metrics."""
         config = DruidCubeV3Config(
             druid_datasource="dj_test_cube_v1_0",
             preagg_tables=[],
@@ -281,6 +323,27 @@ class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
             cube_metrics=[
                 "default.my_complex_metric_name",
                 "sales.total_revenue_usd",
+            ],
+            # metrics is now explicitly populated (endpoint formats display_name)
+            metrics=[
+                {
+                    "node": "default.my_complex_metric_name",
+                    "name": "my_complex_metric_name",
+                    "metric_expression": "SUM(some_component)",
+                    "metric": {
+                        "name": "default.my_complex_metric_name",
+                        "display_name": "My Complex Metric Name",
+                    },
+                },
+                {
+                    "node": "sales.total_revenue_usd",
+                    "name": "total_revenue_usd",
+                    "metric_expression": "SUM(revenue)",
+                    "metric": {
+                        "name": "sales.total_revenue_usd",
+                        "display_name": "Total Revenue Usd",
+                    },
+                },
             ],
             timestamp_column="date_id",
         )
