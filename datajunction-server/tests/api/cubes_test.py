@@ -3512,6 +3512,7 @@ def _create_mock_combined_result(
     sql_string,
     measure_components=None,
     component_aliases=None,
+    metric_combiners=None,
 ):
     """Helper to create a properly mocked CombinedGrainGroupResult."""
     mock_result = mocker.MagicMock()
@@ -3521,6 +3522,7 @@ def _create_mock_combined_result(
     # V3 config requires these fields to be real values, not MagicMocks
     mock_result.measure_components = measure_components or []
     mock_result.component_aliases = component_aliases or {}
+    mock_result.metric_combiners = metric_combiners or {}
     return mock_result
 
 
@@ -3916,11 +3918,23 @@ class TestCubeMaterializeV2SuccessPaths:
             ),
         ]
 
+        # Create metric_combiners with combiner expressions for each metric
+        # This maps metric names to their combiner SQL expressions
+        mock_metric_combiners = {
+            "default.total_repair_cost": "SUM(cost_sum_abc123)",
+            "default.num_repair_orders": "SUM(repair_order_count_def456)",
+            "default.avg_repair_price": "SUM(price_sum_ghi789) / SUM(price_count_jkl012)",
+            "default.discounted_orders_rate": "SUM(discount_sum_mno345) / SUM(orders_count_pqr678)",
+            "default.total_repair_order_discounts": "SUM(discount_total_stu901)",
+            "default.double_total_repair_cost": "SUM(double_cost_vwx234)",
+        }
+
         mock_combined_result = _create_mock_combined_result(
             mocker,
             columns=mock_columns,
             shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
             sql_string="SELECT state, date_id, SUM(cost) as total_repair_cost FROM preagg",
+            metric_combiners=mock_metric_combiners,
         )
 
         mock_temporal_info = TemporalPartitionInfo(
@@ -3985,6 +3999,40 @@ class TestCubeMaterializeV2SuccessPaths:
         # Verify combined_sql is present
         assert "combined_sql" in data
         assert data["combined_sql"] is not None
+
+        # Verify the stored materialization has correct metrics with metric_expression
+        # Fetch the materialization config via the node endpoint
+        node_response = await client_with_repairs_cube.get(f"/nodes/{cube_name}")
+        assert node_response.status_code == 200
+        node_data = node_response.json()
+
+        # The materialization config is stored on the node
+        materializations = node_data.get("materializations", [])
+        assert len(materializations) > 0, "No materializations found"
+
+        mat = materializations[0]
+        mat_config = mat.get("config", {})
+
+        # Verify the metrics list has metric_expression values from metric_combiners
+        metrics_list = mat_config.get("metrics", [])
+        assert len(metrics_list) > 0, "No metrics in materialization config"
+
+        # Build a lookup for metrics by name
+        metrics_by_name = {m["node"]: m for m in metrics_list}
+
+        # Verify a sample metric has the correct metric_expression
+        assert "default.total_repair_cost" in metrics_by_name
+        assert (
+            metrics_by_name["default.total_repair_cost"]["metric_expression"]
+            == "SUM(cost_sum_abc123)"
+        )
+
+        # Verify a multi-component metric (avg) has correct expression
+        assert "default.avg_repair_price" in metrics_by_name
+        assert (
+            metrics_by_name["default.avg_repair_price"]["metric_expression"]
+            == "SUM(price_sum_ghi789) / SUM(price_count_jkl012)"
+        )
 
 
 class TestCubeDeactivateSuccessPaths:

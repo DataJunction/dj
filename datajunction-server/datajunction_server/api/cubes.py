@@ -637,6 +637,23 @@ async def materialize_cube(
         [materialization_name],
     )
 
+    # Build metrics list with combiner expressions
+    metrics_list = []
+    for metric_name in cube_revision.cube_node_metrics:
+        metric_expression = combined_result.metric_combiners.get(metric_name)
+        short_name = metric_name.split(".")[-1]
+        metrics_list.append(
+            {
+                "node": metric_name,
+                "name": short_name,
+                "metric_expression": metric_expression,
+                "metric": {
+                    "name": metric_name,
+                    "display_name": short_name.replace("_", " ").title(),
+                },
+            },
+        )
+
     # Build V3 config using the proper Pydantic model
     mat_config = DruidCubeV3Config(
         druid_datasource=druid_datasource,
@@ -646,7 +663,8 @@ async def materialize_cube(
         combined_grain=combined_result.shared_dimensions,
         measure_components=combined_result.measure_components,
         component_aliases=combined_result.component_aliases,
-        cube_metrics=cube_revision.cube_node_metrics,  # For DruidCubeConfig compatibility
+        cube_metrics=cube_revision.cube_node_metrics,
+        metrics=metrics_list,
         timestamp_column=timestamp_column,
         timestamp_format=timestamp_format or "yyyyMMdd",
         workflow_urls=workflow_urls,
