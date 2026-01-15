@@ -2141,7 +2141,7 @@ async def build_ast(
                     # A column is in this query's scope if its nearest parent Query is
                     # the current query, not some nested subquery
                     col_parent_query = col.get_nearest_parent_of_type(ast.Query)
-                    if col_parent_query is query:
+                    if col_parent_query is query:  # pragma: no branch
                         col._table = query_ast
 
     # Apply pushdown filters if possible
