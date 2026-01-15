@@ -87,10 +87,13 @@ class TestBuildCombinerSql:
         Single grain group should return unchanged (no JOIN needed).
         """
         gg = _create_grain_group(
-            sql="SELECT date_id, SUM(amount) AS total_revenue FROM orders GROUP BY date_id",
+            sql="SELECT date_id, SUM(amount) AS line_total_sum_e1f61696 FROM orders GROUP BY date_id",
             columns=[
                 {"name": "date_id", "semantic_type": "dimension"},
-                {"name": "total_revenue", "semantic_type": "metric_component"},
+                {
+                    "name": "line_total_sum_e1f61696",
+                    "semantic_type": "metric_component",
+                },
             ],
             grain=["date_id"],
             metrics=["revenue"],
@@ -100,14 +103,14 @@ class TestBuildCombinerSql:
 
         assert result.grain_groups_combined == 1
         assert result.shared_dimensions == ["date_id"]
-        assert result.all_measures == ["total_revenue"]
+        assert result.all_measures == ["line_total_sum_e1f61696"]
         assert len(result.columns) == 2
 
         # SQL should be unchanged (no CTEs or JOINs)
         assert_sql_equal(
             result.sql,
             """
-            SELECT date_id, SUM(amount) AS total_revenue
+            SELECT date_id, SUM(amount) AS line_total_sum_e1f61696
             FROM orders
             GROUP BY date_id
             """,
@@ -118,11 +121,14 @@ class TestBuildCombinerSql:
         Two grain groups should be combined with FULL OUTER JOIN.
         """
         gg1 = _create_grain_group(
-            sql="SELECT date_id, status, SUM(amount) AS total_revenue FROM orders GROUP BY date_id, status",
+            sql="SELECT date_id, status, SUM(amount) AS line_total_sum_e1f61696 FROM orders GROUP BY date_id, status",
             columns=[
                 {"name": "date_id", "semantic_type": "dimension"},
                 {"name": "status", "semantic_type": "dimension"},
-                {"name": "total_revenue", "semantic_type": "metric_component"},
+                {
+                    "name": "line_total_sum_e1f61696",
+                    "semantic_type": "metric_component",
+                },
             ],
             grain=["date_id", "status"],
             parent_name="orders",
@@ -145,7 +151,7 @@ class TestBuildCombinerSql:
 
         assert result.grain_groups_combined == 2
         assert set(result.shared_dimensions) == {"date_id", "status"}
-        assert set(result.all_measures) == {"total_revenue", "page_views"}
+        assert set(result.all_measures) == {"line_total_sum_e1f61696", "page_views"}
 
         # Verify the SQL structure with FULL OUTER JOIN and COALESCE
         # Note: The combiner doesn't use AS for the COALESCE aliases
@@ -154,7 +160,7 @@ class TestBuildCombinerSql:
             """
             WITH
             gg1 AS (
-                SELECT date_id, status, SUM(amount) AS total_revenue
+                SELECT date_id, status, SUM(amount) AS line_total_sum_e1f61696
                 FROM orders
                 GROUP BY date_id, status
             ),
@@ -166,7 +172,7 @@ class TestBuildCombinerSql:
             SELECT
                 COALESCE(gg1.date_id, gg2.date_id) date_id,
                 COALESCE(gg1.status, gg2.status) status,
-                gg1.total_revenue,
+                gg1.line_total_sum_e1f61696,
                 gg2.page_views
             FROM gg1
             FULL OUTER JOIN gg2
@@ -550,7 +556,10 @@ class TestCombinerSqlValidity:
             sql="SELECT date_id, COUNT(*) AS order_count FROM orders GROUP BY date_id",
             columns=[
                 {"name": "date_id", "semantic_type": "dimension"},
-                {"name": "order_count", "semantic_type": "metric_component"},
+                {
+                    "name": "order_id_count_78d2e5eb",
+                    "semantic_type": "metric_component",
+                },
             ],
             grain=["date_id"],
         )
@@ -580,7 +589,7 @@ class TestCombinerSqlValidity:
             SELECT
                 COALESCE(gg1.date_id, gg2.date_id) date_id,
                 gg1.revenue,
-                gg2.order_count
+                gg2.order_id_count_78d2e5eb
             FROM gg1
             FULL OUTER JOIN gg2
                 ON gg1.date_id = gg2.date_id
@@ -876,7 +885,7 @@ class TestSingleGrainGroupSemanticTypes:
             columns=[
                 {"name": "date_id", "semantic_type": "dimension"},
                 {
-                    "name": "total_revenue",
+                    "name": "line_total_sum_e1f61696",
                     "semantic_type": "metric",
                 },  # "metric" not "metric_component"
             ],
@@ -887,7 +896,7 @@ class TestSingleGrainGroupSemanticTypes:
         result = build_combiner_sql([gg])
 
         assert result.grain_groups_combined == 1
-        assert "total_revenue" in result.all_measures
+        assert "line_total_sum_e1f61696" in result.all_measures
 
     def test_single_grain_group_with_measure_semantic_type(self):
         """
@@ -1217,7 +1226,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Validate columns
         column_names = [col["name"] for col in data["columns"]]
         assert "status" in column_names
-        assert "total_revenue" in column_names
+        assert "line_total_sum_e1f61696" in column_names
 
         # Validate grain
         assert "status" in data["grain"]
@@ -1231,7 +1240,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -1260,8 +1269,8 @@ class TestCombinedMeasuresSQLEndpoint:
 
         # Should have both measures
         column_names = [col["name"] for col in data["columns"]]
-        assert "total_revenue" in column_names
-        assert "total_quantity" in column_names
+        assert "line_total_sum_e1f61696" in column_names
+        assert "quantity_sum_06b64d2e" in column_names
 
         # Validate SQL structure
         assert_sql_equal(
@@ -1272,7 +1281,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             GROUP BY t1.status
             """,
@@ -1301,8 +1310,8 @@ class TestCombinedMeasuresSQLEndpoint:
 
         # Should have measures from both grain groups
         column_names = [col["name"] for col in data["columns"]]
-        assert "total_revenue" in column_names
-        assert "page_view_count" in column_names
+        assert "line_total_sum_e1f61696" in column_names
+        assert "view_id_count_f41e2db4" in column_names
 
         # Should have the shared dimension
         assert "category" in data["grain"]
@@ -1328,20 +1337,20 @@ class TestCombinedMeasuresSQLEndpoint:
             ),
             gg1 AS (
             SELECT  t2.category,
-                SUM(t1.line_total) total_revenue
+                SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY  t2.category
             ),
             gg2 AS (
             SELECT  t2.category,
-                COUNT(t1.view_id) page_view_count
+                COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             GROUP BY  t2.category
             )
 
             SELECT  COALESCE(gg1.category, gg2.category) category,
-                gg1.total_revenue,
-                gg2.page_view_count
+                gg1.line_total_sum_e1f61696,
+                gg2.view_id_count_f41e2db4
             FROM gg1 FULL OUTER JOIN gg2 ON gg1.category = gg2.category
             """,
         )
@@ -1391,8 +1400,8 @@ class TestCombinedMeasuresSQLEndpoint:
 
         # Should still have the measures
         column_names = [col["name"] for col in data["columns"]]
-        assert "total_revenue" in column_names
-        assert "total_quantity" in column_names
+        assert "line_total_sum_e1f61696" in column_names
+        assert "quantity_sum_06b64d2e" in column_names
 
         # Validate SQL - no GROUP BY when no dimensions
         assert_sql_equal(
@@ -1403,7 +1412,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT SUM(t1.line_total) total_revenue, SUM(t1.quantity) total_quantity
+            SELECT SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             """,
         )
@@ -1464,7 +1473,9 @@ class TestCombinedMeasuresSQLEndpoint:
         assert dim_cols[0]["semantic_entity"] == "v3.order_details.status"
 
         # Find the measure column
-        measure_cols = [c for c in data["columns"] if c["name"] == "total_revenue"]
+        measure_cols = [
+            c for c in data["columns"] if c["name"] == "line_total_sum_e1f61696"
+        ]
         assert len(measure_cols) == 1
         # Measures come through as metric_component in the combined output
         assert measure_cols[0]["semantic_type"] in ("metric", "metric_component")
@@ -1536,7 +1547,7 @@ class TestCombinedMeasuresSQLEndpoint:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) total_revenue
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.status = 'active'
             GROUP BY t1.status

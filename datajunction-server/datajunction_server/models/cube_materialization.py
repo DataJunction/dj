@@ -503,6 +503,12 @@ class CubeMaterializeResponse(BaseModel):
     schedule: str
     lookback_window: str
 
+    # Metric combiner expressions (metric_name -> combiner SQL)
+    metric_combiners: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of metric names to their combiner SQL expressions",
+    )
+
     # Workflow info
     workflow_urls: List[str] = Field(
         default_factory=list,
@@ -627,10 +633,17 @@ class DruidCubeV3Config(BaseModel):
         description="Mapping from component name to output column alias",
     )
 
-    # Cube's metric node names
+    # Cube's metric node names (deprecated - use metrics field instead)
     cube_metrics: List[str] = Field(
         default_factory=list,
         description="List of metric node names in the cube",
+    )
+
+    # Metrics with their combiner expressions
+    # This replaces the computed `metrics` property with stored values
+    metrics: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of metrics with metric_expression for querying the materialized cube",
     )
 
     # Temporal partition info
@@ -658,72 +671,6 @@ class DruidCubeV3Config(BaseModel):
         dimension columns for the cube.
         """
         return self.combined_grain
-
-    @computed_field  # type: ignore[misc]
-    @property
-    def metrics(self) -> List[Dict[str, Any]]:
-        """
-        Backwards compatibility: Returns metrics in DruidCubeConfig expected format.
-
-        DruidCubeConfig expects `config.metrics` to be an array where each item has:
-        - `node` or `name`: metric identifier
-        - `metric_expression`: SQL expression for the metric
-
-        We transform measure_components into this format.
-        """
-        metrics_list = []
-
-        # First, add cube metrics if available (these are the actual metric nodes)
-        for metric_name in self.cube_metrics:
-            # Find the corresponding measure component to get expression info
-            # The component_aliases maps component names to metric-derived aliases
-            metric_expression = None
-            for component in self.measure_components:
-                alias = self.component_aliases.get(component.name, component.name)
-                if alias and metric_name.endswith(alias.split("_")[-1]):
-                    # Build expression from merge function
-                    if component.merge:  # pragma: no branch
-                        metric_expression = f"{component.merge}({component.name})"
-                    break
-
-            metrics_list.append(
-                {
-                    "node": metric_name,
-                    "name": metric_name.split(".")[-1],  # Short name
-                    "metric_expression": metric_expression,
-                    "metric": {
-                        "name": metric_name,
-                        "display_name": metric_name.split(".")[-1]
-                        .replace("_", " ")
-                        .title(),
-                    },
-                },
-            )
-
-        # If no cube_metrics, fall back to measure_components
-        if not metrics_list:
-            for component in self.measure_components:
-                alias = self.component_aliases.get(component.name, component.name)
-                # Build metric_expression from merge function if available
-                if component.merge:
-                    metric_expression = f"{component.merge}({component.name})"
-                else:
-                    metric_expression = f"SUM({component.name})"
-
-                metrics_list.append(
-                    {
-                        "name": alias or component.name,
-                        "metric_expression": metric_expression,
-                        "metric": {
-                            "name": alias or component.name,
-                            "display_name": (alias or component.name)
-                            .replace("_", " ")
-                            .title(),
-                        },
-                    },
-                )
-
-        return metrics_list
 
     @computed_field  # type: ignore[misc]
     @property

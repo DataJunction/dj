@@ -33,7 +33,6 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
     DecomposedMetricInfo,
 )
-from datajunction_server.construction.build_v3.utils import get_short_name
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.decompose import Aggregability
@@ -242,10 +241,8 @@ def build_synthetic_grain_group(
     cube: NodeRevision,
 ) -> GrainGroupSQL:
     """
-    Collect components from base metrics only (not derived)
-    V3 cube column naming follows the same pattern as measures SQL:
-    - Single-component metric: column = metric short name (e.g., "total_revenue")
-    - Multi-component metric: column = component hash (e.g., "sum_amount_abc123")
+    Collect components from base metrics only (not derived).
+    V3 cube column naming always uses component.name (the hashed name) for consistency.
     """
     all_components = []
     component_aliases: dict[str, str] = {}
@@ -263,17 +260,10 @@ def build_synthetic_grain_group(
         if metric_node and is_derived_metric(ctx, metric_node):
             continue
 
-        num_components = len(decomposed.components)
-        is_simple = num_components == 1
-
         for comp in decomposed.components:
             if comp.name not in component_aliases:  # pragma: no branch
-                if is_simple:
-                    # Single-component: cube column = metric short name
-                    cube_col_name = get_short_name(metric_name)
-                else:
-                    # Multi-component: cube column = component hash name
-                    cube_col_name = comp.name
+                # Always use component.name for consistency - no special case for single-component
+                cube_col_name = comp.name
 
                 component_aliases[comp.name] = cube_col_name
                 all_components.append(comp)
@@ -281,11 +271,13 @@ def build_synthetic_grain_group(
     # Build column metadata for the synthetic grain group
     grain_group_columns: list[ColumnMetadata] = []
 
-    # Add dimension columns (short names)
+    # Add dimension columns (short names with role suffix if present)
     dim_short_names = []
     for dim_ref in ctx.dimensions:
         parsed_dim = parse_dimension_ref(dim_ref)
         col_name = parsed_dim.column_name
+        if parsed_dim.role:
+            col_name = f"{col_name}_{parsed_dim.role}"
         dim_short_names.append(col_name)
         grain_group_columns.append(
             ColumnMetadata(

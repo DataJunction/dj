@@ -649,12 +649,12 @@ class TestBuildSqlFromCube:
         WITH test_cube_sql_single_0 AS (
           SELECT
             category,
-            total_revenue
+            line_total_sum_e1f61696
           FROM default.analytics.cube_single
         )
         SELECT
           COALESCE(test_cube_sql_single_0.category) AS category,
-          SUM(test_cube_sql_single_0.total_revenue) AS total_revenue
+          SUM(test_cube_sql_single_0.line_total_sum_e1f61696) AS total_revenue
         FROM test_cube_sql_single_0
         GROUP BY  test_cube_sql_single_0.category
         """
@@ -725,14 +725,14 @@ class TestBuildSqlFromCube:
         WITH test_cube_sql_multi_0 AS (
           SELECT
             category,
-            total_revenue,
-            total_quantity
+            line_total_sum_e1f61696,
+            quantity_sum_06b64d2e
           FROM default.analytics.cube_multi
         )
         SELECT
           COALESCE(test_cube_sql_multi_0.category) AS category,
-          SUM(test_cube_sql_multi_0.total_revenue) AS total_revenue,
-          SUM(test_cube_sql_multi_0.total_quantity) AS total_quantity
+          SUM(test_cube_sql_multi_0.line_total_sum_e1f61696) AS total_revenue,
+          SUM(test_cube_sql_multi_0.quantity_sum_06b64d2e) AS total_quantity
         FROM test_cube_sql_multi_0
         GROUP BY  test_cube_sql_multi_0.category
         """
@@ -828,29 +828,29 @@ class TestBuildSqlFromCube:
         WITH test_cube_all_order_metrics_0 AS (
           SELECT
             category,
-            total_revenue,
-            total_quantity,
-            order_count,
-            customer_count,
+            line_total_sum_e1f61696,
+            quantity_sum_06b64d2e,
+            order_id_distinct_f93d50ab,
+            customer_id_hll_23002251,
             unit_price_count_55cff00f,
             unit_price_sum_55cff00f,
-            max_unit_price,
-            min_unit_price
+            unit_price_max_55cff00f,
+            unit_price_min_55cff00f
           FROM default.analytics.cube_all_order_metrics
         )
         SELECT
           COALESCE(test_cube_all_order_metrics_0.category) AS category,
-          SUM(test_cube_all_order_metrics_0.total_revenue) AS total_revenue,
-          SUM(test_cube_all_order_metrics_0.total_quantity) AS total_quantity,
-          COUNT( DISTINCT test_cube_all_order_metrics_0.order_id) AS order_count,
-          hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_count)) AS customer_count,
+          SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) AS total_revenue,
+          SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) AS total_quantity,
+          COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab) AS order_count,
+          hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_id_hll_23002251)) AS customer_count,
           SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f) AS avg_unit_price,
-          MAX(test_cube_all_order_metrics_0.max_unit_price) AS max_unit_price,
-          MIN(test_cube_all_order_metrics_0.min_unit_price) AS min_unit_price,
-          SUM(test_cube_all_order_metrics_0.total_revenue) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id), 0) AS avg_order_value,
-          SUM(test_cube_all_order_metrics_0.total_quantity) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id), 0) AS avg_items_per_order,
-          SUM(test_cube_all_order_metrics_0.total_revenue) / NULLIF(hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_count)), 0) AS revenue_per_customer,
-          (MAX(test_cube_all_order_metrics_0.max_unit_price) - MIN(test_cube_all_order_metrics_0.min_unit_price)) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0) * 100 AS price_spread_pct
+          MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) AS max_unit_price,
+          MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f) AS min_unit_price,
+          SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0) AS avg_order_value,
+          SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) / NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0) AS avg_items_per_order,
+          SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) / NULLIF(hll_sketch_estimate(hll_union_agg(test_cube_all_order_metrics_0.customer_id_hll_23002251)), 0) AS revenue_per_customer,
+          (MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)) / NULLIF(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f) / SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f), 0) * 100 AS price_spread_pct
         FROM test_cube_all_order_metrics_0
         GROUP BY
           test_cube_all_order_metrics_0.category
@@ -874,29 +874,29 @@ class TestBuildSqlFromCube:
         WITH test_cube_all_order_metrics_0 AS (
           SELECT
             category,
-            total_revenue,
-            total_quantity,
-            order_count,
-            customer_count,
+            line_total_sum_e1f61696,
+            quantity_sum_06b64d2e,
+            order_id_distinct_f93d50ab,
+            customer_id_hll_23002251,
             unit_price_count_55cff00f,
             unit_price_sum_55cff00f,
-            max_unit_price,
-            min_unit_price
+            unit_price_max_55cff00f,
+            unit_price_min_55cff00f
           FROM default.analytics.cube_all_order_metrics
         )
         SELECT
           COALESCE(test_cube_all_order_metrics_0.category) AS category,
-          SUM(test_cube_all_order_metrics_0.total_revenue) AS total_revenue,
-          SUM(test_cube_all_order_metrics_0.total_quantity) AS total_quantity,
-          COUNT( DISTINCT test_cube_all_order_metrics_0.order_id) AS order_count,
-          hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_count)) AS customer_count,
+          SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696) AS total_revenue,
+          SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e) AS total_quantity,
+          COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab) AS order_count,
+          hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_id_hll_23002251)) AS customer_count,
           SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f)) AS avg_unit_price,
-          MAX(test_cube_all_order_metrics_0.max_unit_price) AS max_unit_price,
-          MIN(test_cube_all_order_metrics_0.min_unit_price) AS min_unit_price,
-          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.total_revenue), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id), 0)) AS avg_order_value,
-          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.total_quantity), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id), 0)) AS avg_items_per_order,
-          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.total_revenue), NULLIF(hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_count)), 0)) AS revenue_per_customer,
-          SAFE_DIVIDE((MAX(test_cube_all_order_metrics_0.max_unit_price) - MIN(test_cube_all_order_metrics_0.min_unit_price)), NULLIF(SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f)), 0)) * 100 AS price_spread_pct
+          MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) AS max_unit_price,
+          MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f) AS min_unit_price,
+          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0)) AS avg_order_value,
+          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.quantity_sum_06b64d2e), NULLIF(COUNT( DISTINCT test_cube_all_order_metrics_0.order_id_distinct_f93d50ab), 0)) AS avg_items_per_order,
+          SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.line_total_sum_e1f61696), NULLIF(hll_sketch_estimate(ds_hll(test_cube_all_order_metrics_0.customer_id_hll_23002251)), 0)) AS revenue_per_customer,
+          SAFE_DIVIDE((MAX(test_cube_all_order_metrics_0.unit_price_max_55cff00f) - MIN(test_cube_all_order_metrics_0.unit_price_min_55cff00f)), NULLIF(SAFE_DIVIDE(SUM(test_cube_all_order_metrics_0.unit_price_sum_55cff00f), SUM(test_cube_all_order_metrics_0.unit_price_count_55cff00f)), 0)) * 100 AS price_spread_pct
         FROM test_cube_all_order_metrics_0
         GROUP BY
           test_cube_all_order_metrics_0.category
@@ -998,22 +998,22 @@ class TestBuildSqlFromCube:
         expected_sql = """
         WITH test_cube_window_metrics_0 AS (
           SELECT
-            week,
+            week_order,
             category,
-            total_revenue,
-            order_count
+            line_total_sum_e1f61696,
+            order_id_distinct_f93d50ab
           FROM default.analytics.cube_window_metrics
         )
         SELECT
           COALESCE(test_cube_window_metrics_0.week_order) AS week_order,
           COALESCE(test_cube_window_metrics_0.category) AS category,
-          SUM(test_cube_window_metrics_0.total_revenue) AS total_revenue,
-          COUNT( DISTINCT test_cube_window_metrics_0.order_id) AS order_count,
-          (SUM(test_cube_window_metrics_0.total_revenue) - LAG(SUM(test_cube_window_metrics_0.total_revenue), 1) OVER ( PARTITION BY category
-        ORDER BY week_order) ) / NULLIF(LAG(SUM(test_cube_window_metrics_0.total_revenue), 1) OVER ( PARTITION BY category
+          SUM(test_cube_window_metrics_0.line_total_sum_e1f61696) AS total_revenue,
+          COUNT( DISTINCT test_cube_window_metrics_0.order_id_distinct_f93d50ab) AS order_count,
+          (SUM(test_cube_window_metrics_0.line_total_sum_e1f61696) - LAG(SUM(test_cube_window_metrics_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category
+        ORDER BY week_order) ) / NULLIF(LAG(SUM(test_cube_window_metrics_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category
         ORDER BY week_order) , 0) * 100 AS wow_revenue_change,
-          (CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category
-        ORDER BY week_order) ) / NULLIF(LAG(CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category
+          (CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id_distinct_f93d50ab) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id_distinct_f93d50ab) AS DOUBLE), 1) OVER ( PARTITION BY category
+        ORDER BY week_order) ) / NULLIF(LAG(CAST(COUNT( DISTINCT test_cube_window_metrics_0.order_id_distinct_f93d50ab) AS DOUBLE), 1) OVER ( PARTITION BY category
         ORDER BY week_order) , 0) * 100 AS wow_order_growth
         FROM test_cube_window_metrics_0
         GROUP BY
@@ -1107,17 +1107,17 @@ class TestBuildSqlFromCube:
         expected_sql = """
         WITH test_cube_trailing_metrics_0 AS (
           SELECT
-            date_id,
+            date_id_order,
             category,
-            total_revenue
+            line_total_sum_e1f61696
           FROM default.analytics.cube_trailing_metrics
         )
         SELECT
           COALESCE(test_cube_trailing_metrics_0.date_id_order) AS date_id_order,
           COALESCE(test_cube_trailing_metrics_0.category) AS category,
-          SUM(test_cube_trailing_metrics_0.total_revenue) AS total_revenue,
-          SUM(SUM(test_cube_trailing_metrics_0.total_revenue)) OVER ( ORDER BY date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue,
-          (SUM(SUM(test_cube_trailing_metrics_0.total_revenue)) OVER ( ORDER BY date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(SUM(test_cube_trailing_metrics_0.total_revenue)) OVER ( ORDER BY date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(SUM(test_cube_trailing_metrics_0.total_revenue)) OVER ( ORDER BY date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
+          SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696) AS total_revenue,
+          SUM(SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696)) OVER ( ORDER BY date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue,
+          (SUM(SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696)) OVER ( ORDER BY date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696)) OVER ( ORDER BY date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696)) OVER ( ORDER BY date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
         FROM test_cube_trailing_metrics_0
         GROUP BY
           test_cube_trailing_metrics_0.date_id_order,
@@ -1193,12 +1193,12 @@ class TestBuildSqlFromCube:
         WITH test_cube_sql_rollup_0 AS (
           SELECT
             category,
-            total_revenue
+            line_total_sum_e1f61696
           FROM default.analytics.cube_rollup
         )
         SELECT
           COALESCE(test_cube_sql_rollup_0.category) AS category,
-          SUM(test_cube_sql_rollup_0.total_revenue) AS total_revenue
+          SUM(test_cube_sql_rollup_0.line_total_sum_e1f61696) AS total_revenue
         FROM test_cube_sql_rollup_0
         GROUP BY  test_cube_sql_rollup_0.category
         """
@@ -1274,12 +1274,12 @@ class TestBuildSqlFromCube:
         WITH test_cube_dialect_0 AS (
           SELECT
             category,
-            total_revenue
+            line_total_sum_e1f61696
           FROM default.analytics.cube_dialect
         )
         SELECT
           COALESCE(test_cube_dialect_0.category) AS category,
-          SUM(test_cube_dialect_0.total_revenue) AS total_revenue
+          SUM(test_cube_dialect_0.line_total_sum_e1f61696) AS total_revenue
         FROM test_cube_dialect_0
         GROUP BY  test_cube_dialect_0.category
         """
@@ -1361,14 +1361,14 @@ class TestBuildSyntheticGrainGroup:
         # Verify columns include dimension and metric component
         column_names = [col.name for col in grain_group.columns]
         assert "category" in column_names
-        assert "total_revenue" in column_names
+        assert "line_total_sum_e1f61696" in column_names
 
         # Verify component_aliases mapping
         assert len(grain_group.component_aliases) > 0
 
         # Verify query SQL using assert_sql_equal
         expected_sql = """
-        SELECT category, total_revenue
+        SELECT category, line_total_sum_e1f61696
         FROM default.analytics.cube_grain
         """
         assert_sql_equal(str(grain_group.query), expected_sql)
@@ -1435,7 +1435,7 @@ class TestBuildSyntheticGrainGroup:
 
         # Verify query references the cube table using assert_sql_equal
         expected_sql = """
-        SELECT category, total_revenue
+        SELECT category, line_total_sum_e1f61696
         FROM my_catalog.my_schema.my_cube_table
         """
         assert_sql_equal(str(grain_group.query), expected_sql)
@@ -1507,12 +1507,12 @@ class TestBuildSyntheticGrainGroup:
 
         # Verify component columns for both metrics
         column_names = [col.name for col in grain_group.columns]
-        assert "total_revenue" in column_names
-        assert "total_quantity" in column_names
+        assert "line_total_sum_e1f61696" in column_names
+        assert "quantity_sum_06b64d2e" in column_names
 
         # Verify query SQL using assert_sql_equal
         expected_sql = """
-        SELECT category, total_revenue, total_quantity
+        SELECT category, line_total_sum_e1f61696, quantity_sum_06b64d2e
         FROM default.analytics.cube_multi_grain
         """
         assert_sql_equal(str(grain_group.query), expected_sql)
@@ -1628,12 +1628,12 @@ class TestBuildMetricsSqlCubePath:
             """
             WITH
             cube_for_metrics_sql_0 AS (
-                SELECT category, total_revenue
+                SELECT category, line_total_sum_e1f61696
                 FROM default.analytics.cube_for_metrics_sql
             )
             SELECT
                 COALESCE(cube_for_metrics_sql_0.category) AS category,
-                SUM(cube_for_metrics_sql_0.total_revenue) AS total_revenue
+                SUM(cube_for_metrics_sql_0.line_total_sum_e1f61696) AS total_revenue
             FROM cube_for_metrics_sql_0
             GROUP BY cube_for_metrics_sql_0.category
             """,
@@ -1678,14 +1678,14 @@ class TestBuildMetricsSqlCubePath:
                 FROM default.v3.products
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category, COUNT(t1.view_id) page_view_count
+                SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category
             )
             SELECT
                 COALESCE(page_views_enriched_0.category) AS category,
-                SUM(page_views_enriched_0.page_view_count) AS page_view_count
+                SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
             FROM page_views_enriched_0
             GROUP BY page_views_enriched_0.category
             """,
@@ -1755,14 +1755,14 @@ class TestBuildMetricsSqlCubePath:
                 FROM default.v3.products
             ),
             order_details_0 AS (
-                SELECT t2.category, SUM(t1.line_total) total_revenue
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category
             )
             SELECT
                 COALESCE(order_details_0.category) AS category,
-                SUM(order_details_0.total_revenue) AS total_revenue
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.category
             """,
@@ -1886,13 +1886,13 @@ class TestBuildMetricsSqlCubePath:
             """
             WITH
             cube_multi_metrics_0 AS (
-                SELECT category, total_revenue, total_quantity
+                SELECT category, line_total_sum_e1f61696, quantity_sum_06b64d2e
                 FROM default.analytics.cube_multi_metrics
             )
             SELECT
                 COALESCE(cube_multi_metrics_0.category) AS category,
-                SUM(cube_multi_metrics_0.total_revenue) AS total_revenue,
-                SUM(cube_multi_metrics_0.total_quantity) AS total_quantity
+                SUM(cube_multi_metrics_0.line_total_sum_e1f61696) AS total_revenue,
+                SUM(cube_multi_metrics_0.quantity_sum_06b64d2e) AS total_quantity
             FROM cube_multi_metrics_0
             GROUP BY cube_multi_metrics_0.category
             """,
@@ -1957,12 +1957,12 @@ class TestBuildMetricsSqlCubePath:
             """
             WITH
             cube_rollup_test_0 AS (
-                SELECT category, total_revenue
+                SELECT category, line_total_sum_e1f61696
                 FROM default.analytics.cube_rollup_test
             )
             SELECT
                 COALESCE(cube_rollup_test_0.category) AS category,
-                SUM(cube_rollup_test_0.total_revenue) AS total_revenue
+                SUM(cube_rollup_test_0.line_total_sum_e1f61696) AS total_revenue
             FROM cube_rollup_test_0
             GROUP BY cube_rollup_test_0.category
             """,
