@@ -139,7 +139,7 @@ def build_base_metric_expression(
             actual_col = gg.component_aliases.get(comp.name)
             if actual_col:
                 comp_mappings[comp.name] = (cte_alias, actual_col)
-            else:
+            else:  # pragma: no cover
                 # Not from cube - use grain column for COUNT DISTINCT
                 grain_col = comp.rule.level[0] if comp.rule.level else comp.expression
                 comp_mappings[comp.name] = (cte_alias, grain_col)

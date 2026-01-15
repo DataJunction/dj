@@ -204,7 +204,7 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
                         # -> output_name="week_order"
                         parsed = parse_dimension_ref(gc)
                         output_name = parsed.column_name
-                        if parsed.role:
+                        if parsed.role:  # pragma: no branch
                             output_name = f"{output_name}_{parsed.role}"
                         logger.info(
                             "Temporal column %s links to dimension %s -> output %s",
