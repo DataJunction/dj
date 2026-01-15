@@ -503,6 +503,12 @@ class CubeMaterializeResponse(BaseModel):
     schedule: str
     lookback_window: str
 
+    # Metric combiner expressions (metric_name -> combiner SQL)
+    metric_combiners: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of metric names to their combiner SQL expressions",
+    )
+
     # Workflow info
     workflow_urls: List[str] = Field(
         default_factory=list,

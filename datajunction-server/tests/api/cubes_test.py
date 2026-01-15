@@ -19,6 +19,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
 from tests.sql.utils import compare_query_strings
+from tests.construction.build_v3 import assert_sql_equal
 
 
 async def make_a_test_cube(
@@ -3878,161 +3879,197 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["schedule"] == "0 6 * * *"
 
     @pytest.mark.asyncio
-    async def test_materialize_cube_stores_druid_cube_config_compatible_config(
+    async def test_materialize_cube_returns_metric_combiners(
         self,
-        client_with_repairs_cube: AsyncClient,
+        client_with_build_v3: AsyncClient,
         mocker,
     ):
-        """Test that materialization config includes DruidCubeConfig-compatible fields.
+        """Test that materialize_cube returns correct metric_combiners.
 
-        DruidCubeConfig expects the materialization config to have:
-        - dimensions: list of dimension column names
-        - metrics: list of metric objects with node/name/metric_expression
-        - combiners: list with columns in expected format
+        This integration test uses real v3 metrics of various types:
+        - Simple: v3.total_revenue (SUM), v3.order_count (COUNT DISTINCT)
+        - Derived: v3.avg_order_value (total_revenue / order_count)
+        - Period-over-period: v3.wow_revenue_change (week-over-week)
+
+        It plans a preagg with needed components, sets availability, creates
+        a cube, calls materialize, and verifies the metric_combiners in response.
         """
-        cube_name = "default.test_druid_cube_config_compat_cube"
-        await make_a_test_cube(
-            client_with_repairs_cube,
-            cube_name,
-            with_materialization=False,
+        client = client_with_build_v3
+
+        # Set up mock query service client via dependency override
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/test-cube"],
+        )
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
-        mock_columns = [
-            V3ColumnMetadata(
-                name="state",
-                type="string",
-                semantic_entity="default.hard_hat.state",
-                semantic_type="dimension",
-            ),
-            V3ColumnMetadata(
-                name="date_id",
-                type="int",
-                semantic_entity="default.hard_hat.hire_date",
-                semantic_type="dimension",
-            ),
-            V3ColumnMetadata(
-                name="total_repair_cost",
-                type="double",
-                semantic_entity="default.total_repair_cost",
-                semantic_type="measure",
-            ),
-        ]
+        try:
+            # Set up temporal partition on v3.order_details.order_date column
+            # This is required for cube materialization timestamp detection
+            # (preagg temporal partition comes from the source node)
+            partition_response = await client.post(
+                "/nodes/v3.order_details/columns/order_date/partition",
+                json={
+                    "type_": "temporal",
+                    "granularity": "day",
+                    "format": "yyyyMMdd",
+                },
+            )
+            assert partition_response.status_code in (
+                200,
+                201,
+                409,
+            ), f"Failed to set source partition: {partition_response.text}"
 
-        # Create metric_combiners with combiner expressions for each metric
-        # This maps metric names to their combiner SQL expressions
-        mock_metric_combiners = {
-            "default.total_repair_cost": "SUM(cost_sum_abc123)",
-            "default.num_repair_orders": "SUM(repair_order_count_def456)",
-            "default.avg_repair_price": "SUM(price_sum_ghi789) / SUM(price_count_jkl012)",
-            "default.discounted_orders_rate": "SUM(discount_sum_mno345) / SUM(orders_count_pqr678)",
-            "default.total_repair_order_discounts": "SUM(discount_total_stu901)",
-            "default.double_total_repair_cost": "SUM(double_cost_vwx234)",
-        }
+            # Plan a preagg that covers total_revenue and order_count (for derived)
+            # with week[order] dimension (for period-over-period metric)
+            plan_response = await client.post(
+                "/preaggs/plan",
+                json={
+                    "metrics": ["v3.total_revenue", "v3.order_count"],
+                    "dimensions": [
+                        "v3.product.category",
+                        "v3.date.week[order]",
+                    ],
+                    "strategy": "full",
+                    "schedule": "0 0 * * *",
+                },
+            )
+            assert plan_response.status_code == 201, (
+                f"Failed to plan preagg: {plan_response.text}"
+            )
+            preagg_id = plan_response.json()["preaggs"][0]["id"]
 
-        mock_combined_result = _create_mock_combined_result(
-            mocker,
-            columns=mock_columns,
-            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
-            sql_string="SELECT state, date_id, SUM(cost) as total_repair_cost FROM preagg",
-            metric_combiners=mock_metric_combiners,
-        )
+            # Set availability on the preagg so it can be used
+            avail_response = await client.post(
+                f"/preaggs/{preagg_id}/availability/",
+                json={
+                    "catalog": "analytics",
+                    "schema": "preaggs",
+                    "table": "v3_revenue_orders_by_week",
+                    "valid_through_ts": 1704067200,
+                },
+            )
+            assert avail_response.status_code == 200
 
-        mock_temporal_info = TemporalPartitionInfo(
-            column_name="date_id",
-            format="yyyyMMdd",
-            granularity="day",
-        )
+            # Create a cube with multiple metric types:
+            # - Simple: total_revenue, order_count
+            # - Derived: avg_order_value (uses total_revenue / order_count)
+            # - Period-over-period: wow_revenue_change (week-over-week)
+            cube_name = "v3.test_materialize_cube"
+            cube_response = await client.post(
+                "/nodes/cube/",
+                json={
+                    "name": cube_name,
+                    "display_name": "Test Materialize Cube",
+                    "description": "Cube for testing materialization with multiple metric types",
+                    "metrics": [
+                        "v3.total_revenue",
+                        "v3.order_count",
+                        "v3.avg_order_value",
+                        "v3.wow_revenue_change",
+                    ],
+                    "dimensions": [
+                        "v3.product.category",
+                        "v3.date.week[order]",
+                    ],
+                    "mode": "published",
+                },
+            )
+            assert cube_response.status_code == 201, (
+                f"Failed to create cube: {cube_response.text}"
+            )
 
-        mocker.patch(
-            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
-            return_value=(
-                mock_combined_result,
-                ["catalog.schema.preagg_table1"],
-                mock_temporal_info,
-            ),
-        )
+            # Set temporal partition on the cube's date dimension column
+            # This maps the order_date partition to the cube's dimension
+            partition_response = await client.post(
+                f"/nodes/{cube_name}/columns/v3.date.week/partition",
+                json={
+                    "type_": "temporal",
+                    "granularity": "week",
+                    "format": "yyyyww",
+                },
+            )
+            assert partition_response.status_code in (
+                200,
+                201,
+            ), f"Failed to set cube partition: {partition_response.text}"
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
-        )
+            # Call materialize endpoint
+            mat_response = await client.post(
+                f"/cubes/{cube_name}/materialize",
+                json={"strategy": "full", "schedule": "0 0 * * *"},
+            )
+            assert mat_response.status_code == 200, (
+                f"Materialize failed: {mat_response.text}"
+            )
+            data = mat_response.json()
 
-        # Create materialization
-        response = await client_with_repairs_cube.post(
-            f"/cubes/{cube_name}/materialize",
-            json={"strategy": "full", "schedule": "0 0 * * *"},
-        )
-        assert response.status_code == 200
-        data = response.json()
+            # Verify metric_combiners are in the response
+            assert "metric_combiners" in data
+            metric_combiners = data["metric_combiners"]
+            assert metric_combiners == {
+                "v3.total_revenue": "SUM(line_total_sum_e1f61696)",
+                "v3.order_count": "COUNT( DISTINCT order_id_distinct_f93d50ab)",
+                "v3.avg_order_value": "SUM(line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_id_distinct_f93d50ab), 0)",
+                "v3.wow_revenue_change": "(SUM(line_total_sum_e1f61696) - LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) ) / NULLIF(LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) , 0) * 100",
+            }
 
-        # Verify the response contains DruidCubeConfig-compatible fields
-        # The CubeMaterializeResponse includes all the fields that get stored in config
-
-        # Verify combined_grain (used by dimensions computed field)
-        assert "combined_grain" in data
-        assert data["combined_grain"] == [
-            "default.hard_hat.state",
-            "default.hard_hat.hire_date",
-        ]
-
-        # Verify combined_columns (used by combiners computed field)
-        assert "combined_columns" in data
-        assert len(data["combined_columns"]) == 3
-
-        # Verify the column structure
-        columns_by_name = {c["name"]: c for c in data["combined_columns"]}
-        assert "state" in columns_by_name
-        assert "date_id" in columns_by_name
-        assert "total_repair_cost" in columns_by_name
-
-        # Verify semantic_entity is included (for combiners)
-        assert columns_by_name["state"]["semantic_entity"] == "default.hard_hat.state"
-        assert (
-            columns_by_name["date_id"]["semantic_entity"]
-            == "default.hard_hat.hire_date"
-        )
-
-        # Verify combined_sql is present
-        assert "combined_sql" in data
-        assert data["combined_sql"] is not None
-
-        # Verify the stored materialization has correct metrics with metric_expression
-        # Fetch the materialization config via the node endpoint
-        node_response = await client_with_repairs_cube.get(f"/nodes/{cube_name}")
-        assert node_response.status_code == 200
-        node_data = node_response.json()
-
-        # The materialization config is stored on the node
-        materializations = node_data.get("materializations", [])
-        assert len(materializations) > 0, "No materializations found"
-
-        mat = materializations[0]
-        mat_config = mat.get("config", {})
-
-        # Verify the metrics list has metric_expression values from metric_combiners
-        metrics_list = mat_config.get("metrics", [])
-        assert len(metrics_list) > 0, "No metrics in materialization config"
-
-        # Build a lookup for metrics by name
-        metrics_by_name = {m["node"]: m for m in metrics_list}
-
-        # Verify a sample metric has the correct metric_expression
-        assert "default.total_repair_cost" in metrics_by_name
-        assert (
-            metrics_by_name["default.total_repair_cost"]["metric_expression"]
-            == "SUM(cost_sum_abc123)"
-        )
-
-        # Verify a multi-component metric (avg) has correct expression
-        assert "default.avg_repair_price" in metrics_by_name
-        assert (
-            metrics_by_name["default.avg_repair_price"]["metric_expression"]
-            == "SUM(price_sum_ghi789) / SUM(price_count_jkl012)"
-        )
+            # Verify other response fields
+            assert "combined_sql" in data
+            assert_sql_equal(
+                data["combined_sql"],
+                """
+                SELECT
+                  category,
+                  order_id,
+                  SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
+                  week_order
+                FROM default.dj_preaggs.v3_order_details_preagg_3983c442
+                GROUP BY  category, order_id, week_order
+                """,
+            )
+            assert data["combined_grain"] == ["category", "order_id", "week_order"]
+            assert data["combined_columns"] == [
+                {
+                    "column": None,
+                    "name": "category",
+                    "node": None,
+                    "semantic_entity": "v3.product.category",
+                    "semantic_type": "dimension",
+                    "type": "string",
+                },
+                {
+                    "column": None,
+                    "name": "order_id",
+                    "node": None,
+                    "semantic_entity": "v3.order_details.order_id",
+                    "semantic_type": "dimension",
+                    "type": "int",
+                },
+                {
+                    "column": None,
+                    "name": "line_total_sum_e1f61696",
+                    "node": None,
+                    "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                    "semantic_type": "metric_component",
+                    "type": "double",
+                },
+                {
+                    "column": None,
+                    "name": "week_order",
+                    "node": None,
+                    "semantic_entity": "v3.date.week[order]",
+                    "semantic_type": "dimension",
+                    "type": "int",
+                },
+            ]
+        finally:
+            # Clean up dependency override
+            if get_query_service_client in client.app.dependency_overrides:
+                del client.app.dependency_overrides[get_query_service_client]
 
 
 class TestCubeDeactivateSuccessPaths:

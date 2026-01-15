@@ -19,6 +19,7 @@ from datajunction_server.database.preaggregation import (
 from datajunction_server.models.decompose import MetricComponent
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
@@ -198,7 +199,13 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
                 # Check if this dimension attribute or its parent node is in grain_columns
                 for gc in preagg.grain_columns:
                     if gc == dim_attr or gc.startswith(dim_node + SEPARATOR):
-                        output_name = gc.split(SEPARATOR)[-1]
+                        # Parse the dimension ref to handle role syntax properly
+                        # e.g., "v3.date.week[order]" -> column_name="week", role="order"
+                        # -> output_name="week_order"
+                        parsed = parse_dimension_ref(gc)
+                        output_name = parsed.column_name
+                        if parsed.role:
+                            output_name = f"{output_name}_{parsed.role}"
                         logger.info(
                             "Temporal column %s links to dimension %s -> output %s",
                             source_name,
@@ -212,7 +219,11 @@ def get_temporal_partitions(preagg: PreAggregation) -> list[TemporalPartitionCol
                 dim_name = temporal_col.dimension.name
                 for gc in preagg.grain_columns:
                     if gc.startswith(dim_name + SEPARATOR):
-                        output_name = gc.split(SEPARATOR)[-1]
+                        # Parse the dimension ref to handle role syntax properly
+                        parsed = parse_dimension_ref(gc)
+                        output_name = parsed.column_name
+                        if parsed.role:
+                            output_name = f"{output_name}_{parsed.role}"
                         break
 
             # Map output column to source type (for DDL generation)
