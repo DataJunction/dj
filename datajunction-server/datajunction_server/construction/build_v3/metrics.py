@@ -134,13 +134,19 @@ def build_base_metric_expression(
             orig_agg = decomposed.aggregability
 
         if orig_agg == Aggregability.LIMITED:
-            # LIMITED: use grain column (for COUNT DISTINCT)
-            grain_col = comp.rule.level[0] if comp.rule.level else comp.expression
-            comp_mappings[comp.name] = (cte_alias, grain_col)
+            # LIMITED: use component alias if available (cube case), else grain column
+            # For cubes, the component is pre-aggregated and we need to use its column name
+            actual_col = gg.component_aliases.get(comp.name)
+            if actual_col:
+                comp_mappings[comp.name] = (cte_alias, actual_col)
+            else:
+                # Not from cube - use grain column for COUNT DISTINCT
+                grain_col = comp.rule.level[0] if comp.rule.level else comp.expression
+                comp_mappings[comp.name] = (cte_alias, grain_col)
         else:
             # FULL/NONE: use pre-aggregated column
             actual_col = gg.component_aliases.get(comp.name, comp.name)
-            comp_mappings[comp.name] = (cte_alias, actual_col)
+            comp_mappings[comp.name] = (cte_alias, actual_col)  # type: ignore
 
     # Build the aggregation expression
     expr_ast = _build_metric_aggregation(decomposed, cte_alias, gg, comp_mappings)

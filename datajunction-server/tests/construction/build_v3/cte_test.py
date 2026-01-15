@@ -52,16 +52,16 @@ class TestReplaceMetricRefsInAst:
         expr = query.select.projection[0]
 
         metric_aliases = {
-            "v3.total_revenue": ("order_details_0", "total_revenue"),
-            "v3.order_count": ("order_details_0", "order_count"),
+            "v3.total_revenue": ("order_details_0", "line_total_sum_e1f61696"),
+            "v3.order_count": ("order_details_0", "order_id_count_78d2e5eb"),
         }
 
         replace_metric_refs_in_ast(expr, metric_aliases)
 
         # Check that columns were replaced with CTE references
         result_sql = str(expr)
-        assert "order_details_0.total_revenue" in result_sql
-        assert "order_details_0.order_count" in result_sql
+        assert "order_details_0.line_total_sum_e1f61696" in result_sql
+        assert "order_details_0.order_id_count_78d2e5eb" in result_sql
         # Original references should be gone
         assert "v3.total_revenue" not in result_sql
         assert "v3.order_count" not in result_sql
@@ -102,15 +102,15 @@ class TestReplaceMetricRefsInAst:
         expr = query.select.projection[0]
 
         metric_aliases = {
-            "v3.order_count": ("orders_0", "order_count"),
-            "v3.visitor_count": ("visitors_0", "visitor_count"),
+            "v3.order_count": ("orders_0", "order_id_count_78d2e5eb"),
+            "v3.visitor_count": ("visitors_0", "visitor_id_hll_1c4f5e47"),
         }
 
         replace_metric_refs_in_ast(expr, metric_aliases)
 
         result_sql = str(expr)
-        assert "orders_0.order_count" in result_sql
-        assert "visitors_0.visitor_count" in result_sql
+        assert "orders_0.order_id_count_78d2e5eb" in result_sql
+        assert "visitors_0.visitor_id_hll_1c4f5e47" in result_sql
 
     def test_handles_multiple_references_same_metric(self):
         """Should replace all occurrences of the same metric reference."""
@@ -118,14 +118,14 @@ class TestReplaceMetricRefsInAst:
         expr = query.select.projection[0]
 
         metric_aliases = {
-            "v3.revenue": ("cte_0", "total_revenue"),
+            "v3.revenue": ("cte_0", "line_total_sum_e1f61696"),
         }
 
         replace_metric_refs_in_ast(expr, metric_aliases)
 
         result_sql = str(expr)
         # Both occurrences should be replaced
-        assert result_sql.count("cte_0.total_revenue") == 2
+        assert result_sql.count("cte_0.line_total_sum_e1f61696") == 2
         assert "v3.revenue" not in result_sql
 
 

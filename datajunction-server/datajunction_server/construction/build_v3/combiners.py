@@ -62,6 +62,9 @@ class CombinedGrainGroupResult:
     # Mapping from component name to output column alias
     # e.g., {"account_id_hll_e7b21ce4": "approx_unique_accounts_rating"}
     component_aliases: dict[str, str] = field(default_factory=dict)
+    # Mapping from metric name to combiner expression SQL
+    # e.g., {"v3.avg_rating": "SUM(rating_sum_abc123) / SUM(rating_count_def456)"}
+    metric_combiners: dict[str, str] = field(default_factory=dict)
     # Dialect for rendering SQL (used for dialect-specific function names)
     dialect: Dialect = Dialect.SPARK
 
@@ -660,6 +663,11 @@ async def build_combiner_sql_from_preaggs(
         output_table_names=[f"gg{i + 1}" for i in range(len(preagg_grain_groups))],
     )
 
+    # Populate metric_combiners from decomposed_metrics
+    # These are the expressions that combine pre-aggregated components into final metric values
+    for metric_name, decomposed in result.decomposed_metrics.items():
+        combined_result.metric_combiners[metric_name] = str(decomposed.combiner_ast)
+
     # Determine temporal partition info
     # If all grain groups agree on temporal partition, use it; otherwise None
     temporal_partition_info: TemporalPartitionInfo | None = None
@@ -776,6 +784,7 @@ def _reorder_partition_column_last(
             all_measures=result.all_measures,
             measure_components=result.measure_components,
             component_aliases=result.component_aliases,
+            metric_combiners=result.metric_combiners,
             dialect=result.dialect,
         )
 
