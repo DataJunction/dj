@@ -215,10 +215,12 @@ async def build_sql_from_cube(
     )
 
     # Create GeneratedMeasuresSQL and call generate_metrics_sql
+    # Use ctx.dimensions (not original dimensions arg) to include auto-added
+    # required dimensions from metrics with window functions (e.g., LAG ORDER BY)
     measures_result = GeneratedMeasuresSQL(
         grain_groups=[synthetic_grain_group],
         dialect=dialect,
-        requested_dimensions=dimensions,
+        requested_dimensions=ctx.dimensions,
         ctx=ctx,
         decomposed_metrics=decomposed_metrics,
     )
