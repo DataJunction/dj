@@ -63,7 +63,9 @@ class TestNestedSubqueryColumnScoping:
                 "table": "valid_product_ids",
             },
         )
-        assert valid_ids_response.status_code in (200, 201, 409), valid_ids_response.json()
+        assert valid_ids_response.status_code in (200, 201, 409), (
+            valid_ids_response.json()
+        )
 
         # Create a transform with nested subquery and LEFT JOIN
         # The key pattern is:
