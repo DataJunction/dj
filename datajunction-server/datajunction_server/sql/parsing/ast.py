@@ -3135,6 +3135,17 @@ class Query(TableExpression, UnNamed):
                         col for expr in expression for col in expr.find_all(Column)
                     ]
 
+            # Filter to only columns that are directly in THIS query's scope.
+            # Columns in nested subqueries should be compiled when those
+            # subqueries are compiled, not with the outer query's table_options.
+            # This prevents columns in inner subqueries from incorrectly
+            # referencing tables that are only available in the outer scope.
+            columns_to_compile = [
+                col
+                for col in columns_to_compile
+                if col.get_nearest_parent_of_type(Query) is self
+            ]
+
             if columns_to_compile:
                 with ThreadPoolExecutor() as executor:
                     list(
