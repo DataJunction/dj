@@ -247,7 +247,7 @@ export default function NodeValidateTab({ node, djClient }) {
                       queryInfo?.state !== 'CANCELED' &&
                       queryInfo?.state !== 'FAILED')
                   }
-                  className="button-3 execute-button"
+                  className="action-btn action-btn-success"
                   style={{ marginTop: '1rem' }}
                 >
                   {isSubmitting || running === true ? <LoadingIcon /> : '► Run'}

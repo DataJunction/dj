@@ -24,11 +24,7 @@ export default function NotebookDownload({ node }) {
 
   return (
     <>
-      <button
-        className="button-3"
-        onClick={downloadFile}
-        style={{ height: '2.5rem' }}
-      >
+      <button className="action-btn" onClick={downloadFile}>
         <JupyterExportIcon /> Export as Notebook
       </button>
     </>

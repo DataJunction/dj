@@ -1,10 +1,11 @@
 import { useContext, useState, useRef, useEffect } from 'react';
 import DJClientContext from '../../providers/djclient';
 import EyeIcon from '../../icons/EyeIcon';
-import ExpandedIcon from '../../icons/ExpandedIcon';
-import CollapsedIcon from '../../icons/CollapsedIcon';
 
-const EVENT_TYPES = ['delete', 'update'];
+const EVENT_TYPES = [
+  { id: 'delete', label: 'On Delete' },
+  { id: 'update', label: 'On Update' },
+];
 
 export default function WatchButton({ node }) {
   // All hooks must be called before any early returns
@@ -58,17 +59,17 @@ export default function WatchButton({ node }) {
     return null;
   }
 
-  const toggleEvent = async event => {
-    const isSelected = selectedEvents.includes(event);
+  const toggleEvent = async eventId => {
+    const isSelected = selectedEvents.includes(eventId);
 
     try {
       setLoading(true);
       let updatedEvents;
 
       if (!isSelected) {
-        updatedEvents = Array.from(new Set([...selectedEvents, event]));
+        updatedEvents = Array.from(new Set([...selectedEvents, eventId]));
       } else {
-        updatedEvents = selectedEvents.filter(e => e !== event);
+        updatedEvents = selectedEvents.filter(e => e !== eventId);
       }
 
       if (updatedEvents.length === 0) {
@@ -93,140 +94,95 @@ export default function WatchButton({ node }) {
     }
   };
 
-  const handleWatchClick = async () => {
-    try {
-      setLoading(true);
-      if (selectedEvents.length === 0) {
-        await djClient.subscribeToNotifications({
-          entity_type: 'node',
-          entity_name: node.name,
-          activity_types: EVENT_TYPES,
-          alert_types: ['web'],
-        });
-        setSelectedEvents(EVENT_TYPES);
-      } else {
-        await djClient.unsubscribeFromNotifications({
-          entity_type: 'node',
-          entity_name: node.name,
-        });
-        setSelectedEvents([]);
-      }
-    } catch (err) {
-      console.error('Watch toggle failed', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const isWatching = selectedEvents.length > 0;
 
   return (
     <div
-      className="btn-group"
       ref={dropdownRef}
       style={{
         position: 'relative',
-        display: 'inline-flex',
-        verticalAlign: 'middle',
+        display: 'inline-block',
       }}
     >
       <button
-        className="button-3"
-        onClick={handleWatchClick}
-        disabled={loading}
-        style={{
-          borderTopRightRadius: 0,
-          borderBottomRightRadius: 0,
-          marginRight: 0,
-          height: '2.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}
-      >
-        <EyeIcon />
-        Watch
-        {selectedEvents.length > 0 && (
-          <span
-            style={{
-              backgroundColor: '#e2e6ed',
-              color: '#333',
-              padding: '2px 6px',
-              borderRadius: '999px',
-              fontSize: '0.75rem',
-              fontWeight: 500,
-              lineHeight: 1,
-            }}
-          >
-            {selectedEvents.length}
-          </span>
-        )}
-      </button>
-
-      <button
-        className="button-3"
+        className="action-btn"
         onClick={() => setDropdownOpen(prev => !prev)}
         disabled={loading}
         style={{
-          borderTopLeftRadius: 0,
-          borderBottomLeftRadius: 0,
-          marginLeft: 0,
-          height: '2.5rem',
+          backgroundColor: isWatching ? '#e3f2fd' : undefined,
+          borderColor: isWatching ? '#1976d2' : undefined,
+          color: isWatching ? '#1976d2' : undefined,
         }}
-        aria-label="Toggle dropdown"
       >
-        {dropdownOpen ? <ExpandedIcon /> : <CollapsedIcon />}
+        <EyeIcon />
+        {isWatching ? `Watching (${selectedEvents.length})` : 'Watch'}
+        <span
+          style={{
+            fontSize: '8px',
+            marginLeft: '4px',
+            opacity: 0.7,
+          }}
+        >
+          {dropdownOpen ? '▲' : '▼'}
+        </span>
       </button>
 
       {dropdownOpen && (
-        <ul
-          className="p-2"
+        <div
           style={{
-            display: 'block',
-            minWidth: '220px',
             position: 'absolute',
             top: '100%',
             right: 0,
-            zIndex: 9999,
-            backgroundColor: '#fff',
-            border: '1px solid #ccc',
-            borderRadius: '0.5rem',
-            marginTop: '0.25rem',
-            boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.1)',
-            padding: '0.5rem 0',
+            marginTop: '4px',
+            padding: '12px',
+            backgroundColor: 'white',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            minWidth: '180px',
           }}
         >
+          <div
+            style={{
+              fontSize: '10px',
+              fontWeight: '600',
+              color: '#666',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              marginBottom: '8px',
+            }}
+          >
+            Notify me
+          </div>
           {EVENT_TYPES.map(event => {
-            const isSelected = selectedEvents.includes(event);
+            const isSelected = selectedEvents.includes(event.id);
             return (
-              <li
-                key={event}
-                onClick={() => toggleEvent(event)}
+              <label
+                key={event.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  padding: '0.5rem 1rem',
-                  cursor: 'pointer',
-                  backgroundColor: isSelected ? '#f0f4f8' : 'transparent',
-                  fontWeight: isSelected ? '600' : '400',
-                  fontSize: '0.9rem',
-                  color: '#333',
-                  borderLeft: isSelected
-                    ? '4px solid #7983ff'
-                    : '4px solid transparent',
-                  transition: 'background 0.2s',
+                  gap: '8px',
+                  fontSize: '12px',
+                  color: '#444',
+                  marginBottom: '8px',
+                  cursor: loading ? 'wait' : 'pointer',
+                  opacity: loading ? 0.6 : 1,
                 }}
               >
                 <input
-                  className="form-check-input"
                   type="checkbox"
                   checked={isSelected}
-                  readOnly
-                  style={{ marginRight: '0.75rem' }}
+                  onChange={() => toggleEvent(event.id)}
+                  disabled={loading}
+                  style={{ accentColor: '#1976d2' }}
                 />
-                {event}
-              </li>
+                {event.label}
+              </label>
             );
           })}
-        </ul>
+        </div>
       )}
     </div>
   );

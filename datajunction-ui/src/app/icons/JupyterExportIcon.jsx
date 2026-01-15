@@ -1,9 +1,9 @@
-const JupyterExportIcon = props => (
+const JupyterExportIcon = ({ size = 16, ...props }) => (
   <svg
     className="feather feather-jupyter-export"
     fill="none"
-    height="24"
-    width="24"
+    height={size}
+    width={size}
     viewBox="0 0 24 24"
     stroke="currentColor"
     strokeWidth="2"

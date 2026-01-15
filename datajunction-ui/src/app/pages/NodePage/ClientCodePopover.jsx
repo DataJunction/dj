@@ -2,7 +2,7 @@ import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { useEffect, useRef, useState, useContext } from 'react';
 import { nightOwl } from 'react-syntax-highlighter/dist/esm/styles/hljs';
-import PythonIcon from '../../icons/PythonIcon';
+import CodeIcon from '../../icons/CodeIcon';
 import LoadingIcon from 'app/icons/LoadingIcon';
 
 export default function ClientCodePopover({ nodeName }) {
@@ -43,12 +43,8 @@ export default function ClientCodePopover({ nodeName }) {
 
   return (
     <>
-      <button
-        className="button-3"
-        onClick={() => setShowModal(true)}
-        style={{ height: '2.5rem' }}
-      >
-        <PythonIcon /> See Python
+      <button className="action-btn" onClick={() => setShowModal(true)}>
+        <CodeIcon /> Python
       </button>
 
       {showModal && (

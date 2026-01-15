@@ -299,35 +299,35 @@ export function SQLBuilderPage() {
             {query ? (
               <>
                 {loadingData ? (
-                  <span
-                    className="button-3 executing-button"
-                    onClick={getData}
+                  <button
+                    className="action-btn action-btn-success"
+                    disabled
                     role="button"
                     aria-label="RunQuery"
                     aria-hidden="false"
                   >
-                    {'Running Query'}
-                  </span>
+                    Running Query
+                  </button>
                 ) : (
-                  <span
-                    className="button-3 execute-button"
+                  <button
+                    className="action-btn action-btn-success"
                     onClick={getData}
                     role="button"
                     aria-label="RunQuery"
                     aria-hidden="false"
                   >
-                    {'Run Query'}
-                  </span>
+                    Run Query
+                  </button>
                 )}
                 {data ? (
                   viewData ? (
                     <>
-                      <span
-                        className="button-3 neutral-button"
+                      <button
+                        className="action-btn action-btn-secondary"
                         onClick={toggleViewData}
                       >
-                        {'View Query'}
-                      </span>
+                        View Query
+                      </button>
                       <span style={{ display: 'inline-block' }}>
                         <Select
                           name="num-rows"
@@ -338,12 +338,12 @@ export function SQLBuilderPage() {
                       </span>
                     </>
                   ) : (
-                    <span
-                      className="button-3 neutral-button"
+                    <button
+                      className="action-btn action-btn-secondary"
                       onClick={toggleViewData}
                     >
-                      {'View Data'}
-                    </span>
+                      View Data
+                    </button>
                   )
                 ) : (
                   <></>
