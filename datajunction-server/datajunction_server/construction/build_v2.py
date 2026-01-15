@@ -2136,7 +2136,13 @@ async def build_ast(
                     and col.table.dj_node
                     and col.table.dj_node.name == referenced_node.name
                 ):
-                    col._table = query_ast
+                    # Only update columns that are in this query's scope
+                    # (not in nested subqueries where query_ast wouldn't be accessible)
+                    # A column is in this query's scope if its nearest parent Query is
+                    # the current query, not some nested subquery
+                    col_parent_query = col.get_nearest_parent_of_type(ast.Query)
+                    if col_parent_query is query:  # pragma: no branch
+                        col._table = query_ast
 
     # Apply pushdown filters if possible
     apply_filters_to_node(node, query, to_filter_asts(filters))
