@@ -15,12 +15,9 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from datajunction_server.construction.build_v3.decomposition import (
-    decompose_and_group_metrics,
-    is_derived_metric,
-)
+from datajunction_server.construction.build_v3.decomposition import is_derived_metric
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-from datajunction_server.construction.build_v3.loaders import load_nodes
 from datajunction_server.construction.build_v3.metrics import (
     compute_metric_layers,
     generate_metrics_sql,
@@ -36,7 +33,6 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.decompose import Aggregability
-from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
@@ -153,60 +149,26 @@ async def find_matching_cube(
     return best_match
 
 
-async def build_sql_from_cube(
-    session: AsyncSession,
+def build_sql_from_cube_impl(
+    ctx: BuildContext,
     cube: NodeRevision,
-    metrics: list[str],
-    dimensions: list[str],
-    filters: list[str] | None,
-    dialect: Dialect,
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
 ) -> GeneratedSQL:
     """
-    Build final metrics SQL by querying directly from a cube's availability table.
+    Internal: Build SQL from cube with pre-computed context and decomposed metrics.
 
-    This reuses the standard V3 metrics SQL generation by creating a synthetic
-    GrainGroupSQL that represents the cube table as a pre-aggregated data source.
-
-    The approach:
-    1. Create BuildContext and load/decompose metrics
-    2. Build synthetic GrainGroupSQL representing the cube table:
-       - Contains all components from all metrics at the cube's grain
-       - component_aliases maps component names to cube column names
-    3. Call generate_metrics_sql() which handles:
-       - Re-aggregation using merge functions (GROUP BY requested dims)
-       - Combining components using combiner expressions
-       - Proper handling of derived metrics
-
-    This ensures consistency with standard V3 SQL output and avoids
-    duplicating combiner logic.
+    This is the core implementation used by both:
+    - build_sql_from_cube() for direct calls
+    - build_metrics_sql() when a matching cube is found
 
     Args:
-        session: Database session
+        ctx: BuildContext with nodes loaded and dimensions updated
         cube: The cube NodeRevision to query from
-        metrics: List of metric node names (full paths like "default.total_revenue")
-        dimensions: List of dimension references (full paths like "default.date_dim.date_id")
-        filters: Optional filter expressions
-        dialect: SQL dialect for output
+        decomposed_metrics: Pre-computed decomposed metrics
 
     Returns:
         GeneratedSQL with the query and column metadata.
     """
-    # Create BuildContext and decompose metrics
-    ctx = BuildContext(
-        session=session,
-        metrics=metrics,
-        dimensions=list(dimensions),
-        filters=filters or [],
-        dialect=dialect,
-        use_materialized=False,  # We're handling materialization ourselves
-    )
-
-    # Load metric nodes (needed for decomposition)
-    await load_nodes(ctx)
-
-    # Decompose metrics to get components and combiner expressions
-    _, decomposed_metrics = await decompose_and_group_metrics(ctx)
-
     # Build synthetic GrainGroupSQL for cube table
     synthetic_grain_group = build_synthetic_grain_group(
         ctx,
@@ -215,11 +177,9 @@ async def build_sql_from_cube(
     )
 
     # Create GeneratedMeasuresSQL and call generate_metrics_sql
-    # Use ctx.dimensions (not original dimensions arg) to include auto-added
-    # required dimensions from metrics with window functions (e.g., LAG ORDER BY)
     measures_result = GeneratedMeasuresSQL(
         grain_groups=[synthetic_grain_group],
-        dialect=dialect,
+        dialect=ctx.dialect,
         requested_dimensions=ctx.dimensions,
         ctx=ctx,
         decomposed_metrics=decomposed_metrics,
@@ -235,6 +195,48 @@ async def build_sql_from_cube(
         decomposed_metrics,
         metric_layers,
     )
+
+
+async def build_sql_from_cube(
+    session: AsyncSession,
+    cube: NodeRevision,
+    metrics: list[str],
+    dimensions: list[str],
+    filters: list[str] | None,
+    dialect: Dialect,
+) -> GeneratedSQL:
+    """
+    Build final metrics SQL by querying directly from a cube's availability table.
+
+    This is the public API for direct calls (e.g., from tests).
+    For the internal path from build_metrics_sql(), use build_sql_from_cube_impl().
+
+    Args:
+        session: Database session
+        cube: The cube NodeRevision to query from
+        metrics: List of metric node names (full paths like "default.total_revenue")
+        dimensions: List of dimension references (full paths like "default.date_dim.date_id")
+        filters: Optional filter expressions
+        dialect: SQL dialect for output
+
+    Returns:
+        GeneratedSQL with the query and column metadata.
+    """
+    # Import here to avoid circular dependency
+    from datajunction_server.construction.build_v3.builder import setup_build_context
+
+    # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
+    ctx = await setup_build_context(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        dialect=dialect,
+        use_materialized=False,
+    )
+
+    # Use shared implementation
+    return build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
 
 
 def build_synthetic_grain_group(
