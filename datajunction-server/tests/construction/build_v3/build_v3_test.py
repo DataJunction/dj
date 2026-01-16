@@ -8,6 +8,9 @@ These tests cover:
 """
 
 import pytest
+from datajunction_server.construction.build_v3.builder import (
+    setup_build_context,
+)
 from datajunction_server.construction.build_v3.metrics import (
     compute_metric_layers,
 )
@@ -424,3 +427,87 @@ class TestErrorHandling:
             compute_metric_layers(ctx, decomposed_metrics)
 
         assert "Circular dependency" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+class TestAddDimensionsFromMetricExpressions:
+    """Test auto-detection of dimensions from metric expressions."""
+
+    async def test_adds_dimension_from_metric_expression_when_not_requested(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """
+        When a metric uses a dimension in ORDER BY (e.g., LAG) but the user
+        doesn't request it and it's not in required_dimensions, the dimension
+        should be auto-added to ctx.dimensions.
+        """
+        # Create a derived metric without required_dimensions set
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.test_wow_no_required_dims",
+                "description": "WoW metric without required_dimensions",
+                "query": """
+                    SELECT
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week_code))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week_code), 0) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Query the metric without requesting the week dimension
+        # The dimension should be auto-added from the metric expression
+        ctx = await setup_build_context(
+            session=session,
+            metrics=["v3.test_wow_no_required_dims"],
+            dimensions=["v3.product.category"],  # Only request category, not week
+        )
+
+        # The week dimension should have been auto-added
+        assert any("week_code" in dim for dim in ctx.dimensions), (
+            f"Expected week_code to be auto-added, got: {ctx.dimensions}"
+        )
+
+    async def test_dimension_not_added_when_already_covered(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """
+        When a metric uses a dimension that's already covered by a user-requested
+        dimension (same node.column), it should NOT be added again.
+        """
+        # Create a metric that uses v3.date.week in ORDER BY
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.test_wow_week_plain",
+                "description": "WoW metric using plain week reference",
+                "query": """
+                    SELECT
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Request the same dimension with a role - v3.date.week[order]
+        # The metric expression uses v3.date.week (no role)
+        # These should be treated as "covered" (same node.column)
+        ctx = await setup_build_context(
+            session=session,
+            metrics=["v3.test_wow_week_plain"],
+            dimensions=["v3.date.week[order]"],  # Requested WITH role
+        )
+
+        # Should only have one week dimension, not two
+        week_dims = [d for d in ctx.dimensions if "week" in d]
+        assert len(week_dims) == 1, (
+            f"Expected only one week dimension, got: {week_dims}"
+        )
