@@ -13,13 +13,11 @@ from functools import reduce
 from typing import Any, Optional
 
 from datajunction_server.construction.build_v3.cte import (
-    get_column_full_name,
     inject_partition_by_into_windows,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
 )
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
 )
@@ -348,30 +346,6 @@ def generate_metrics_sql(
             if base_ref not in dimension_aliases:  # pragma: no branch
                 dimension_aliases[base_ref] = col_alias
 
-    # Scan combiner ASTs for dimension references not yet in dimension_aliases
-    # This handles cases where:
-    # 1. A metric uses a dimension in ORDER BY (e.g., LAG(...) OVER (ORDER BY week_code))
-    # 2. But that dimension wasn't explicitly requested by the user
-    # 3. We detect these references and add mappings using the column name
-    for decomposed in decomposed_metrics.values():
-        combiner_ast = decomposed.combiner_ast
-        for col in combiner_ast.find_all(ast.Column):
-            full_name = get_column_full_name(col)
-            if full_name and full_name not in dimension_aliases:
-                # Check if this looks like a dimension reference (has SEPARATOR)
-                if SEPARATOR in full_name:
-                    # Extract column name using same logic as parse_dimension_ref
-                    parsed = parse_dimension_ref(full_name)
-                    col_alias = parsed.column_name
-                    if parsed.role:
-                        col_alias = f"{col_alias}_{parsed.role}"
-                    dimension_aliases[full_name] = col_alias
-                    # Also add base ref without role if applicable
-                    if "[" in full_name:
-                        base_ref = full_name.split("[")[0]
-                        if base_ref not in dimension_aliases:
-                            dimension_aliases[base_ref] = parsed.column_name
-
     # Collect all metrics in grain groups
     all_grain_group_metrics = set()
     for gg in grain_groups:
@@ -440,6 +414,7 @@ def generate_metrics_sql(
         replace_metric_refs_in_ast(expr_ast, metric_column_refs)
         # Also try component refs (for backward compatibility)
         replace_component_refs_in_ast(expr_ast, component_columns)
+        # Replace dimension refs (all should be in dimension_aliases now, thanks to pre-scan)
         replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
         # Inject PARTITION BY for window functions (e.g., LAG in WoW metrics)
         # This ensures window calculations are partitioned by all non-ORDER-BY dimensions
