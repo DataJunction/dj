@@ -247,7 +247,7 @@ async def create_new_materialization(
     generic_config = None
     try:
         await session.refresh(current_revision, ["columns"])
-    except InvalidRequestError:
+    except InvalidRequestError:  # pragma: no cover
         pass
     temporal_partition = current_revision.temporal_partition_columns()
     timestamp_columns = [

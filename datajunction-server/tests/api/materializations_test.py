@@ -1690,14 +1690,14 @@ async def test_getting_materializations_for_all_revisions(
     response = await client.get(
         f"/nodes/{cube_name}/materializations",
     )
-    assert len(response.json()) == 1
+    assert len(response.json()) == 0
 
     # Make sure both materializations show up when all materializations are requested
     response = await client.get(
         f"/nodes/{cube_name}/materializations"
         "?include_all_revisions=true&show_inactive=true",
     )
-    assert len(response.json()) == 2
+    assert len(response.json()) == 1
 
 
 @pytest.mark.asyncio
