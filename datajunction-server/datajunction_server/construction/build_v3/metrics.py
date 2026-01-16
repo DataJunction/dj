@@ -414,6 +414,7 @@ def generate_metrics_sql(
         replace_metric_refs_in_ast(expr_ast, metric_column_refs)
         # Also try component refs (for backward compatibility)
         replace_component_refs_in_ast(expr_ast, component_columns)
+        # Replace dimension refs (all should be in dimension_aliases now, thanks to pre-scan)
         replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
         # Inject PARTITION BY for window functions (e.g., LAG in WoW metrics)
         # This ensures window calculations are partitioned by all non-ORDER-BY dimensions

@@ -1,6 +1,19 @@
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
 from datajunction_server.database.node import Node
 from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import SEPARATOR
+
+if TYPE_CHECKING:
+    from datajunction_server.construction.build_v3.types import (
+        BuildContext,
+        DecomposedMetricInfo,
+    )
+
+logger = logging.getLogger(__name__)
 
 
 def get_short_name(full_name: str) -> str:
@@ -147,3 +160,47 @@ def collect_required_dimensions(
 
     # Sort for deterministic ordering
     return sorted(required_dims)
+
+
+def add_dimensions_from_metric_expressions(
+    ctx: "BuildContext",
+    decomposed_metrics: dict[str, "DecomposedMetricInfo"],
+) -> None:
+    """
+    Scan combiner ASTs for dimension references and add them to ctx.dimensions.
+
+    This handles dimensions used in metric expressions (e.g., LAG ORDER BY) that
+    weren't explicitly requested by the user or marked as required_dimensions.
+    We add them so they're included in the grain group SQL.
+
+    Args:
+        ctx: BuildContext with dimensions list to update
+        decomposed_metrics: Dict of metric_name -> DecomposedMetricInfo with combiner ASTs
+    """
+    # Import here to avoid circular imports
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+
+    existing_dims = set(ctx.dimensions)
+    for decomposed in decomposed_metrics.values():
+        combiner_ast = decomposed.combiner_ast
+        for col in combiner_ast.find_all(ast.Column):
+            full_name = get_column_full_name(col)
+            if full_name and SEPARATOR in full_name and full_name not in existing_dims:
+                # Check if any existing dimension already covers this (node, column)
+                dim_ref = parse_dimension_ref(full_name)
+                is_covered = False
+                for existing_dim in ctx.dimensions:
+                    existing_ref = parse_dimension_ref(existing_dim)
+                    if (
+                        existing_ref.node_name == dim_ref.node_name
+                        and existing_ref.column_name == dim_ref.column_name
+                    ):
+                        is_covered = True
+                        break
+                if not is_covered:
+                    logger.info(
+                        f"[BuildV3] Auto-adding dimension {full_name} from metric expression",
+                    )
+                    ctx.dimensions.append(full_name)
+                    existing_dims.add(full_name)

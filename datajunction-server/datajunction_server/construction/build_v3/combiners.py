@@ -33,7 +33,7 @@ from datajunction_server.construction.build_v3.types import GrainGroupSQL
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.ast import to_sql
+from datajunction_server.sql.parsing.ast import render_for_dialect, to_sql
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.utils import get_settings
@@ -665,8 +665,10 @@ async def build_combiner_sql_from_preaggs(
 
     # Populate metric_combiners from decomposed_metrics
     # These are the expressions that combine pre-aggregated components into final metric values
-    for metric_name, decomposed in result.decomposed_metrics.items():
-        combined_result.metric_combiners[metric_name] = str(decomposed.combiner_ast)
+    # Render in Druid dialect since these are used by viz tools that query Druid directly
+    with render_for_dialect(Dialect.DRUID):
+        for metric_name, decomposed in result.decomposed_metrics.items():
+            combined_result.metric_combiners[metric_name] = str(decomposed.combiner_ast)
 
     # Determine temporal partition info
     # If all grain groups agree on temporal partition, use it; otherwise None

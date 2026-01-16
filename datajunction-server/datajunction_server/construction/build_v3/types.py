@@ -75,6 +75,10 @@ class BuildContext:
     # Populated by load_available_preaggs() when use_materialized=True
     available_preaggs: dict[int, list["PreAggregation"]] = field(default_factory=dict)
 
+    # Populated by setup_build_context() after decomposition
+    metric_groups: list["MetricGroup"] = field(default_factory=list)
+    decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

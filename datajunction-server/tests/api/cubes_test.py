@@ -3732,7 +3732,13 @@ class TestCubeMaterializeV2SuccessPaths:
             plan_response = await client.post(
                 "/preaggs/plan",
                 json={
-                    "metrics": ["v3.total_revenue", "v3.order_count"],
+                    "metrics": [
+                        "v3.total_revenue",
+                        "v3.order_count",
+                        "v3.customer_count",
+                        "v3.avg_order_value",
+                        "v3.wow_revenue_change",
+                    ],
                     "dimensions": [
                         "v3.product.category",
                         "v3.date.week[order]",
@@ -3772,6 +3778,7 @@ class TestCubeMaterializeV2SuccessPaths:
                     "metrics": [
                         "v3.total_revenue",
                         "v3.order_count",
+                        "v3.customer_count",
                         "v3.avg_order_value",
                         "v3.wow_revenue_change",
                     ],
@@ -3817,8 +3824,9 @@ class TestCubeMaterializeV2SuccessPaths:
             assert metric_combiners == {
                 "v3.total_revenue": "SUM(line_total_sum_e1f61696)",
                 "v3.order_count": "COUNT( DISTINCT order_id_distinct_f93d50ab)",
-                "v3.avg_order_value": "SUM(line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_id_distinct_f93d50ab), 0)",
-                "v3.wow_revenue_change": "(SUM(line_total_sum_e1f61696) - LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) ) / NULLIF(LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) , 0) * 100",
+                "v3.avg_order_value": "SAFE_DIVIDE(SUM(line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT order_id_distinct_f93d50ab), 0))",
+                "v3.wow_revenue_change": "SAFE_DIVIDE((SUM(line_total_sum_e1f61696) - LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) ), NULLIF(LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) , 0)) * 100",
+                "v3.customer_count": "hll_sketch_estimate(ds_hll(customer_id_hll_23002251))",
             }
 
             # Verify other response fields
@@ -3830,6 +3838,7 @@ class TestCubeMaterializeV2SuccessPaths:
                   category,
                   order_id,
                   SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
+                  hll_union_agg(customer_id_hll_23002251) customer_id_hll_23002251,
                   week_order
                 FROM default.dj_preaggs.v3_order_details_preagg_3983c442
                 GROUP BY  category, order_id, week_order
@@ -3860,6 +3869,14 @@ class TestCubeMaterializeV2SuccessPaths:
                     "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
                     "semantic_type": "metric_component",
                     "type": "double",
+                },
+                {
+                    "column": None,
+                    "name": "customer_id_hll_23002251",
+                    "node": None,
+                    "semantic_entity": "v3.customer_count:customer_id_hll_23002251",
+                    "semantic_type": "metric_component",
+                    "type": "binary",
                 },
                 {
                     "column": None,

@@ -9,7 +9,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3.cube_matcher import (
-    build_sql_from_cube,
+    build_sql_from_cube_impl,
     find_matching_cube,
 )
 from datajunction_server.construction.build_v3.decomposition import (
@@ -32,10 +32,73 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
+from datajunction_server.construction.build_v3.utils import (
+    add_dimensions_from_metric_expressions,
+)
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.dialect import Dialect
 
 logger = logging.getLogger(__name__)
+
+
+async def setup_build_context(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+    filters: list[str] | None = None,
+    dialect: Dialect = Dialect.SPARK,
+    use_materialized: bool = True,
+    include_temporal_filters: bool = False,
+    lookback_window: str | None = None,
+) -> BuildContext:
+    """
+    Create and initialize a BuildContext with all setup done.
+
+    This is the single source of truth for loading nodes and decomposing metrics.
+    After this returns, ctx has:
+    - nodes loaded
+    - metric_groups populated
+    - decomposed_metrics populated
+    - dimensions updated with any auto-added dims from metric expressions
+
+    Args:
+        session: Database session
+        metrics: List of metric node names
+        dimensions: List of dimension names
+        filters: Optional list of filter expressions
+        dialect: SQL dialect for output
+        use_materialized: Whether to use materialized tables
+        include_temporal_filters: Whether to add temporal filters
+        lookback_window: Lookback window for temporal filters
+
+    Returns:
+        Fully initialized BuildContext
+    """
+    ctx = BuildContext(
+        session=session,
+        metrics=metrics,
+        dimensions=list(dimensions),
+        filters=filters or [],
+        dialect=dialect,
+        use_materialized=use_materialized,
+        include_temporal_filters=include_temporal_filters,
+        lookback_window=lookback_window,
+    )
+
+    # Load all required nodes (single DB round trip)
+    await load_nodes(ctx)
+
+    # Validate we have at least one metric
+    if not ctx.metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
+    # Decompose metrics and group by parent node
+    ctx.metric_groups, ctx.decomposed_metrics = await decompose_and_group_metrics(ctx)
+
+    # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
+    add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+
+    return ctx
 
 
 async def build_measures_sql(
@@ -75,41 +138,52 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
-    ctx = BuildContext(
+    # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
+    ctx = await setup_build_context(
         session=session,
         metrics=metrics,
-        dimensions=list(dimensions),
-        filters=filters or [],
+        dimensions=dimensions,
+        filters=filters,
         dialect=dialect,
         use_materialized=use_materialized,
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
     )
 
-    # Load all required nodes (single DB round trip)
-    await load_nodes(ctx)
+    # Build grain groups from context
+    return await build_grain_groups(ctx, metrics)
 
+
+async def build_grain_groups(
+    ctx: BuildContext,
+    metrics: list[str],
+) -> GeneratedMeasuresSQL:
+    """
+    Build grain groups from a fully initialized BuildContext.
+
+    This is the shared grain group building logic used by both
+    build_measures_sql and build_metrics_sql (non-cube path).
+
+    Args:
+        ctx: Fully initialized BuildContext (from setup_build_context)
+        metrics: Original metrics list (for sanity checks)
+
+    Returns:
+        GeneratedMeasuresSQL with grain groups
+    """
     # Load available pre-aggregations (if use_materialized=True)
     await load_available_preaggs(ctx)
-
-    # Validate we have at least one metric
-    if not ctx.metrics:
-        raise DJInvalidInputException("At least one metric is required")
-
-    # Decompose metrics and group by parent node
-    # Also returns the decomposed metrics to avoid redundant work
-    metric_groups, decomposed_metrics = await decompose_and_group_metrics(ctx)
 
     # Process each metric group into grain group SQLs
     # Cross-fact metrics produce separate grain groups (one per parent node)
     all_grain_group_sqls: list[GrainGroupSQL] = []
-    for metric_group in metric_groups:
+    for metric_group in ctx.metric_groups:
         grain_group_sqls = process_metric_group(ctx, metric_group)
         all_grain_group_sqls.extend(grain_group_sqls)
 
-    # Sanity check: all requested metrics should already be decomposed by group_metrics_by_parent
+    # Sanity check: all requested metrics should already be decomposed
     for metric_name in metrics:
-        if metric_name not in decomposed_metrics:  # pragma: no cover
+        if metric_name not in ctx.decomposed_metrics:  # pragma: no cover
             logger.warning(
                 f"[BuildV3] Metric {metric_name} was not decomposed - this indicates a bug",
             )
@@ -120,7 +194,7 @@ async def build_measures_sql(
         all_grain_group_metrics.update(gg.metrics)
 
     for metric_name in all_grain_group_metrics:
-        if metric_name not in decomposed_metrics:  # pragma: no cover
+        if metric_name not in ctx.decomposed_metrics:  # pragma: no cover
             logger.warning(
                 f"[BuildV3] Grain group metric {metric_name} was not decomposed - "
                 "this indicates a bug",
@@ -128,10 +202,10 @@ async def build_measures_sql(
 
     return GeneratedMeasuresSQL(
         grain_groups=all_grain_group_sqls,
-        dialect=dialect,
-        requested_dimensions=ctx.dimensions,  # Use ctx.dimensions which includes required dims
+        dialect=ctx.dialect,
+        requested_dimensions=ctx.dimensions,
         ctx=ctx,
-        decomposed_metrics=decomposed_metrics,
+        decomposed_metrics=ctx.decomposed_metrics,
     )
 
 
@@ -161,7 +235,17 @@ async def build_metrics_sql(
     Layer 3: Derived Metrics
         Computes derived metrics that reference other metrics.
     """
-    # Try cube match first (early exit)
+    # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
+    ctx = await setup_build_context(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        dialect=dialect,
+        use_materialized=use_materialized,
+    )
+
+    # Try cube match - if found, use cube path
     if use_materialized:
         cube = await find_matching_cube(
             session,
@@ -171,42 +255,20 @@ async def build_metrics_sql(
         )
         if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
-            return await build_sql_from_cube(
-                session=session,
-                cube=cube,
-                metrics=metrics,
-                dimensions=dimensions,
-                filters=filters,
-                dialect=dialect,
-            )
+            return build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
 
-    # Get measures SQL with grain groups
-    # This also returns context and decomposed metrics to avoid redundant work
-    measures_result = await build_measures_sql(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        dialect=dialect,
-        use_materialized=use_materialized,
-    )
+    # No cube - build grain groups
+    measures_result = await build_grain_groups(ctx, metrics)
 
     if not measures_result.grain_groups:  # pragma: no cover
         raise DJInvalidInputException("No grain groups produced from measures SQL")
 
-    # Reuse context and decomposed metrics from measures SQL
-    # This avoids redundant database queries and metric decomposition
-    ctx = measures_result.ctx
+    # Finalize: compute layers and generate metrics SQL
+    metric_layers = compute_metric_layers(ctx, ctx.decomposed_metrics)
 
-    decomposed_metrics = measures_result.decomposed_metrics
-
-    # Build metric dependency DAG and compute layers
-    metric_layers = compute_metric_layers(ctx, decomposed_metrics)
-
-    # Generate the combined SQL (returns GeneratedSQL with AST query)
     return generate_metrics_sql(
         ctx,
         measures_result,
-        decomposed_metrics,
+        ctx.decomposed_metrics,
         metric_layers,
     )
