@@ -1719,24 +1719,10 @@ async def test_updating_cube_with_existing_cube_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that the configured materialization was updated
+    # Check that there is no longer a materialization configured
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
     data = response.json()
-    assert [
-        col["semantic_entity"]
-        for col in data["materializations"][0]["config"]["columns"]
-    ] == [
-        "default.hard_hat.city",
-        "default.hard_hat.hire_date",
-        "default.discounted_orders_rate.default_DOT_discounted_orders_rate",
-    ]
-    assert data["materializations"][0]["job"] == "DruidMetricsCubeMaterializationJob"
-    assert (
-        data["materializations"][0]["name"]
-        == "druid_metrics_cube__incremental_time__default.hard_hat.hire_date"
-    )
-    assert data["materializations"][0]["strategy"] == "incremental_time"
-    assert data["materializations"][0]["schedule"] == "@daily"
+    assert len(data["materializations"]) == 0
 
 
 @pytest.mark.asyncio
@@ -1776,7 +1762,7 @@ async def test_updating_cube_with_existing_materialization(
         "urls": [["http://fake.url/job"]],
     }
 
-    # Check that the configured materialization was updated
+    # Check that there is no longer a materialization configured
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube_2/")
     data = response.json()
     assert data["materializations"][0]["config"]["spark"] == {
@@ -1794,193 +1780,11 @@ async def test_updating_cube_with_existing_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that the query service was called to materialize
-    assert len(module__query_service_client.materialize.call_args_list) >= 1  # type: ignore
-    last_call_args = (
-        module__query_service_client.materialize.call_args_list[-1].args[0].model_dump()  # type: ignore
-    )
-    assert (
-        last_call_args["name"]
-        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
-    )
-    assert last_call_args["node_name"] == "default.repairs_cube_2"
-    assert last_call_args["node_version"] == "v2.0"
-    assert last_call_args["node_type"] == "cube"
-    assert last_call_args["schedule"] == "@daily"
-    assert last_call_args["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
-        "timestampSpec"
-    ] == {
-        "column": "default_DOT_hard_hat_DOT_hire_date",
-        "format": "yyyyMMdd",
-    }
-
     # Check that the cube was updated
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube_2/")
     data = response.json()
+    assert len(data["materializations"]) == 0
     assert_updated_repairs_cube(data)
-
-    # Check that the existing materialization was updated
-    assert data["materializations"][0]["backfills"] == []
-    assert sorted(
-        data["materializations"][0]["config"]["columns"],
-        key=lambda x: x["name"],
-    ) == sorted(
-        [
-            {
-                "column": "city",
-                "name": "default_DOT_hard_hat_DOT_city",
-                "node": "default.hard_hat",
-                "semantic_entity": "default.hard_hat.city",
-                "semantic_type": "dimension",
-                "type": "string",
-            },
-            {
-                "column": "hire_date",
-                "name": "default_DOT_hard_hat_DOT_hire_date",
-                "node": "default.hard_hat",
-                "semantic_entity": "default.hard_hat.hire_date",
-                "semantic_type": "dimension",
-                "type": "timestamp",
-            },
-            {
-                "column": "discount",
-                "name": "default_DOT_repair_orders_fact_DOT_discount",
-                "node": "default.repair_orders_fact",
-                "semantic_entity": "default.repair_orders_fact.discount",
-                "semantic_type": "measure",
-                "type": "float",
-            },
-        ],
-        key=lambda x: x["name"],
-    )
-    assert data["materializations"][0]["config"]["dimensions"] == [
-        "default_DOT_hard_hat_DOT_city",
-        "default_DOT_hard_hat_DOT_hire_date",
-    ]
-    assert data["materializations"][0]["config"]["druid"] is None
-    assert data["materializations"][0]["config"]["measures"] == {
-        "default.discounted_orders_rate": {
-            "combiner": "CAST(sum(if(default_DOT_repair_orders_fact_DOT_discount "
-            "> 0.0, 1, 0)) AS DOUBLE) / "
-            "count(*) AS ",
-            "measures": [
-                {
-                    "agg": "sum",
-                    "field_name": "default_DOT_repair_orders_fact_DOT_discount",
-                    "name": "default.repair_orders_fact.discount",
-                    "type": "float",
-                },
-            ],
-            "metric": "default.discounted_orders_rate",
-        },
-    }
-    assert data["materializations"][0]["config"]["prefix"] == ""
-    assert data["materializations"][0]["config"]["suffix"] == ""
-    assert data["materializations"][0]["config"]["spark"] == {
-        "spark.executor.memory": "6g",
-    }
-    assert set(data["materializations"][0]["config"]["upstream_tables"]) == {
-        "default.roads.repair_order_details",
-        "default.roads.repair_orders",
-        "default.roads.hard_hats",
-    }
-    assert data["materializations"][0]["strategy"] == "incremental_time"
-    assert data["materializations"][0]["job"] == "DruidMeasuresCubeMaterializationJob"
-    assert (
-        data["materializations"][0]["name"]
-        == "druid_measures_cube__incremental_time__default.hard_hat.hire_date"
-    )
-    assert data["materializations"][0]["schedule"] == "@daily"
-
-    response = await client_with_repairs_cube.get(
-        "/history?node=default.repairs_cube_2",
-    )
-    assert [
-        event for event in response.json() if event["activity_type"] == "update"
-    ] == [
-        {
-            "activity_type": "update",
-            "created_at": mock.ANY,
-            "details": {},
-            "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
-            "entity_type": "materialization",
-            "id": mock.ANY,
-            "node": "default.repairs_cube_2",
-            "post": {},
-            "pre": {},
-            "user": "dj",
-        },
-        {
-            "activity_type": "update",
-            "created_at": mock.ANY,
-            "details": {"version": "v2.0"},
-            "entity_name": "default.repairs_cube_2",
-            "entity_type": "node",
-            "id": mock.ANY,
-            "node": "default.repairs_cube_2",
-            "post": {
-                "dimensions": [
-                    "default.hard_hat.city",
-                    "default.hard_hat.hire_date",
-                ],
-                "metrics": [
-                    "default.discounted_orders_rate",
-                ],
-            },
-            "pre": {
-                "dimensions": [
-                    "default.hard_hat.country",
-                    "default.hard_hat.postal_code",
-                    "default.hard_hat.city",
-                    "default.hard_hat.hire_date",
-                    "default.hard_hat.state",
-                    "default.dispatcher.company_name",
-                    "default.municipality_dim.local_region",
-                ],
-                "metrics": [
-                    "default.discounted_orders_rate",
-                    "default.num_repair_orders",
-                    "default.avg_repair_price",
-                    "default.total_repair_cost",
-                    "default.total_repair_order_discounts",
-                    "default.double_total_repair_cost",
-                ],
-            },
-            "user": "dj",
-        },
-        {
-            "activity_type": "update",
-            "created_at": mock.ANY,
-            "details": {
-                "materialization": "druid_measures_cube__incremental_time__"
-                "default.hard_hat.hire_date",
-                "node": "default.repairs_cube_2",
-            },
-            "entity_name": "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
-            "entity_type": "materialization",
-            "id": mock.ANY,
-            "node": "default.repairs_cube_2",
-            "post": {},
-            "pre": {},
-            "user": "dj",
-        },
-    ]
-
-    # Update the cube, but remove the temporal partition column. This should fail when
-    # trying to update the cube's materialization config
-    response = await client_with_repairs_cube.patch(
-        "/nodes/default.repairs_cube_2",
-        json={
-            "metrics": ["default.discounted_orders_rate"],
-            "dimensions": ["default.hard_hat.city"],
-        },
-    )
-    result = response.json()
-    assert result["message"] == (
-        "The cube materialization cannot be configured if there is no temporal partition "
-        "specified on the cube. Please make sure at least one cube element has a temporal "
-        "partition defined"
-    )
 
 
 @pytest.mark.asyncio

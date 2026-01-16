@@ -52,7 +52,6 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.materializations import (
     create_new_materialization,
-    schedule_materialization_jobs,
     schedule_materialization_jobs_bg,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -71,7 +70,6 @@ from datajunction_server.models.dimensionlink import (
 )
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
-    MaterializationConfigOutput,
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
@@ -985,28 +983,32 @@ async def update_node_with_query(
     if not new_revision:
         return node  # type: ignore
 
-    node.current_version = new_revision.version  # type: ignore
+    # Disable autoflush to prevent partial state from being persisted if an error
+    # occurs during revision creation. This ensures that node.current_version and
+    # the new NodeRevision are committed atomically.
+    with session.no_autoflush:
+        node.current_version = new_revision.version  # type: ignore
 
-    new_revision.extra_validation()
+        new_revision.extra_validation()
 
-    session.add(new_revision)
-    session.add(node)
-    await save_history(
-        event=node_update_history_event(new_revision, current_user),
-        session=session,
-    )
-
-    if new_revision.status != old_revision.status:  # type: ignore
+        session.add(new_revision)
+        session.add(node)
         await save_history(
-            event=status_change_history(
-                new_revision,  # type: ignore
-                old_revision.status,
-                new_revision.status,  # type: ignore
-                current_user=current_user,
-            ),
+            event=node_update_history_event(new_revision, current_user),
             session=session,
         )
-    await session.commit()
+
+        if new_revision.status != old_revision.status:  # type: ignore
+            await save_history(
+                event=status_change_history(
+                    new_revision,  # type: ignore
+                    old_revision.status,
+                    new_revision.status,  # type: ignore
+                    current_user=current_user,
+                ),
+                session=session,
+            )
+        await session.commit()
 
     await session.refresh(new_revision)
     await session.refresh(node)
@@ -1217,120 +1219,98 @@ async def update_cube_node(
     if not major_changes and not minor_changes:
         return None
 
-    new_cube_revision = await create_cube_node_revision(
-        session,
-        create_cube,
-        current_user,
-    )
+    # Disable autoflush to prevent partial state from being persisted if an error
+    # occurs during revision creation. This ensures that node.current_version and
+    # the new NodeRevision are committed atomically - either both succeed or both
+    # fail, preventing data integrity issues where a node points to a non-existent
+    # revision.
+    with session.no_autoflush:
+        new_cube_revision = await create_cube_node_revision(
+            session,
+            create_cube,
+            current_user,
+        )
 
-    old_version = Version.parse(node_revision.version)
-    if major_changes:
-        new_cube_revision.version = str(old_version.next_major_version())
-    elif minor_changes:  # pragma: no cover
-        new_cube_revision.version = str(old_version.next_minor_version())
-    new_cube_revision.node = node_revision.node
-    new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
+        old_version = Version.parse(node_revision.version)
+        if major_changes:
+            new_cube_revision.version = str(old_version.next_major_version())
+        elif minor_changes:  # pragma: no cover
+            new_cube_revision.version = str(old_version.next_minor_version())
+        new_cube_revision.node = node_revision.node
+        new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
-    await save_history(
-        event=History(
-            entity_type=EntityType.NODE,
-            entity_name=new_cube_revision.name,
-            node=new_cube_revision.name,
-            activity_type=ActivityType.UPDATE,
-            details={
-                "version": new_cube_revision.version,  # type: ignore
-            },
-            pre={
-                "metrics": old_metrics,
-                "dimensions": old_dimensions,
-            },
-            post={
-                "metrics": new_cube_revision.cube_node_metrics,
-                "dimensions": new_cube_revision.cube_node_dimensions,
-            },
-            user=current_user.username,
-        ),
-        session=session,
-    )
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=new_cube_revision.name,
+                node=new_cube_revision.name,
+                activity_type=ActivityType.UPDATE,
+                details={
+                    "version": new_cube_revision.version,  # type: ignore
+                },
+                pre={
+                    "metrics": old_metrics,
+                    "dimensions": old_dimensions,
+                },
+                post={
+                    "metrics": new_cube_revision.cube_node_metrics,
+                    "dimensions": new_cube_revision.cube_node_dimensions,
+                },
+                user=current_user.username,
+            ),
+            session=session,
+        )
 
-    # Bring over existing partition columns, if any
-    new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
-    for col in node_revision.columns:
-        new_col = new_columns_mapping.get(col.name)
-        if col.partition and new_col:
-            new_col.partition = Partition(
-                column=new_col,
-                type_=col.partition.type_,
-                format=col.partition.format,
-                granularity=col.partition.granularity,
-            )
+        # Bring over existing partition columns, if any
+        new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
+        for col in node_revision.columns:
+            new_col = new_columns_mapping.get(col.name)
+            if col.partition and new_col:
+                new_col.partition = Partition(
+                    column=new_col,
+                    type_=col.partition.type_,
+                    format=col.partition.format,
+                    granularity=col.partition.granularity,
+                )
 
-    # Update existing materializations
-    active_materializations = [
-        mat
-        for mat in node_revision.materializations
-        if not mat.deactivated_at and mat.name != "default"
-    ]
-    if active_materializations and (major_changes or refresh_materialization):
-        for old in active_materializations:
-            # Once we've migrated all materializations to the new format, we should only
-            # be using UpsertCubeMaterialization for cube nodes
-            job_type = MaterializationJobTypeEnum.find_match(old.job)
-            materialization_upsert_class = UpsertMaterialization
-            if job_type == MaterializationJobTypeEnum.DRUID_CUBE:
-                materialization_upsert_class = UpsertCubeMaterialization
-            new_cube_revision.materializations.append(
-                await create_new_materialization(
-                    session,
-                    new_cube_revision,
-                    materialization_upsert_class(
-                        **MaterializationConfigOutput.model_validate(
-                            old,
-                        ).model_dump(
-                            exclude={"job", "node_revision_id", "deactivated_at"},
-                        ),
-                        job=MaterializationJobTypeEnum.find_match(old.job).value.name,
-                    ),
-                    access_checker,
-                    current_user=current_user,
-                ),
-            )
+        # Note: Materializations are NOT auto-recreated on cube update.
+        # Users should explicitly set up materializations for the new cube version
+        # after updating the cube definition.
+
+        # Notify if the old revision had active materializations that won't be migrated
+        active_materializations = [
+            mat
+            for mat in node_revision.materializations
+            if not mat.deactivated_at and mat.name != "default"
+        ]
+        if active_materializations:
             await save_history(
                 event=History(
                     entity_type=EntityType.MATERIALIZATION,
-                    entity_name=old.name,
+                    entity_name=node_revision.name,
                     node=node_revision.name,
-                    activity_type=ActivityType.UPDATE,
-                    details={},
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    details={
+                        "message": (
+                            f"Cube updated to {new_cube_revision.version}. "
+                            "Active materializations from the previous version were not migrated. "
+                            "Please reconfigure materializations if you want to continue "
+                            "materializing this cube."
+                        ),
+                        "previous_version": node_revision.version,
+                        "new_version": new_cube_revision.version,
+                        "invalidated_materializations": [
+                            mat.name for mat in active_materializations
+                        ],
+                    },
                     user=current_user.username,
                 ),
                 session=session,
             )
-    session.add(new_cube_revision)
-    session.add(new_cube_revision.node)
-    await session.commit()
 
-    await session.refresh(new_cube_revision, ["materializations"])
-    if background_tasks:
-        background_tasks.add_task(  # pragma: no cover
-            schedule_materialization_jobs_bg,
-            node_revision_id=new_cube_revision.id,
-            materialization_names=[
-                mat.name for mat in new_cube_revision.materializations
-            ],
-            query_service_client=query_service_client,
-            request_headers=request_headers,
-        )
-    else:
-        await schedule_materialization_jobs(  # pragma: no cover
-            session=session,
-            node_revision_id=new_cube_revision.id,
-            materialization_names=[
-                mat.name for mat in new_cube_revision.materializations
-            ],
-            query_service_client=query_service_client,
-            request_headers=request_headers,
-        )
+        session.add(new_cube_revision)
+        session.add(new_cube_revision.node)
+        await session.commit()
 
     await session.refresh(new_cube_revision)
     await session.refresh(new_cube_revision.node)
