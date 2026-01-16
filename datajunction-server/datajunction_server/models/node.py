@@ -870,7 +870,6 @@ class GenericNodeOutputModel(BaseModel):
         for k, v in current_dict.items():
             final_dict[k] = v
 
-        print("final_dict", final_dict)
         final_dict["dimension_links"] = [
             link
             for link in final_dict["dimension_links"]  # type: ignore
