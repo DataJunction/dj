@@ -1895,6 +1895,7 @@ export const DataJunctionAPI = {
     if (filters.grain_mode) params.append('grain_mode', filters.grain_mode);
     if (filters.measures) params.append('measures', filters.measures);
     if (filters.status) params.append('status', filters.status);
+    if (filters.include_stale) params.append('include_stale', 'true');
 
     return await (
       await fetch(`${DJ_URL}/preaggs/?${params}`, {
@@ -2045,6 +2046,31 @@ export const DataJunctionAPI = {
         _error: true,
         _status: response.status,
         message: result.message || result.detail || 'Failed to run backfill',
+      };
+    }
+    return result;
+  },
+
+  // Bulk deactivate pre-aggregation workflows for a node
+  bulkDeactivatePreaggWorkflows: async function (nodeName, staleOnly = false) {
+    const params = new URLSearchParams();
+    params.append('node_name', nodeName);
+    if (staleOnly) params.append('stale_only', 'true');
+
+    const response = await fetch(`${DJ_URL}/preaggs/workflows?${params}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message:
+          result.message ||
+          result.detail ||
+          'Failed to bulk deactivate workflows',
       };
     }
     return result;

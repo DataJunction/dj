@@ -1,0 +1,547 @@
+/**
+ * Pre-aggregations Tab Styles
+ *
+ * Reusable CSS classes for the pre-aggregations UI components.
+ */
+
+/* =============================================================================
+   Layout
+   ============================================================================= */
+
+.preagg-container {
+  padding: 10px 0;
+}
+
+.preagg-section {
+  margin-bottom: 30px;
+}
+
+.preagg-two-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.preagg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5em;
+}
+
+/* =============================================================================
+   Section Headers
+   ============================================================================= */
+
+.preagg-section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.preagg-section-header--stale {
+  border-bottom-color: #fcd34d;
+  justify-content: space-between;
+}
+
+.preagg-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.preagg-section-title--stale {
+  color: #92400e;
+}
+
+.preagg-section-count {
+  margin-left: 12px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.preagg-section-count--stale {
+  color: #b45309;
+}
+
+/* =============================================================================
+   Pre-agg Row (Card Container)
+   ============================================================================= */
+
+.preagg-row {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background-color: #fff;
+}
+
+.preagg-row--stale {
+  background-color: #fffbeb;
+}
+
+/* Collapsed Header */
+.preagg-row-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  gap: 12px;
+}
+
+.preagg-row-toggle {
+  font-size: 14px;
+  color: #666;
+}
+
+.preagg-row-grain-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.preagg-grain-chip {
+  padding: 2px 8px;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+.preagg-grain-chip--more {
+  background-color: #e2e8f0;
+  color: #64748b;
+}
+
+.preagg-row-measures {
+  font-size: 12px;
+  color: #563a12;
+  background: #fff6e9;
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+
+.preagg-row-schedule {
+  font-size: 12px;
+  color: #888;
+}
+
+.preagg-row-version {
+  font-size: 12px;
+  color: #b45309;
+  font-style: italic;
+}
+
+/* Expanded Details */
+.preagg-details {
+  padding: 20px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #f8fafc;
+}
+
+.preagg-details--stale {
+  background-color: #fefce8;
+}
+
+/* =============================================================================
+   Stale Warning Banner
+   ============================================================================= */
+
+.preagg-stale-banner {
+  background-color: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preagg-stale-banner-icon {
+  font-size: 18px;
+}
+
+.preagg-stale-banner-text {
+  color: #78350f;
+}
+
+/* =============================================================================
+   Card Boxes (Config, Grain, etc.)
+   ============================================================================= */
+
+.preagg-card {
+  background-color: #ffffff;
+  border-radius: 8px;
+  /* border: 1px solid #e2e8f0; */
+  padding: 16px;
+  height: fit-content;
+  box-sizing: border-box;
+}
+
+.preagg-card--compact {
+  padding: 12px 16px;
+}
+
+.preagg-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.preagg-card-label--with-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* =============================================================================
+   Config Table
+   ============================================================================= */
+
+.preagg-config-table {
+  font-size: 13px;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.preagg-config-key {
+  padding: 4px 12px 4px 0;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  width: 100px;
+}
+
+.preagg-config-value {
+  padding: 4px 0;
+  color: #1e293b;
+}
+
+.preagg-config-value code {
+  font-size: 12px;
+  background-color: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.preagg-config-schedule-cron {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+/* =============================================================================
+   Actions
+   ============================================================================= */
+
+.preagg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.preagg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.preagg-action-btn:hover {
+  background-color: #f8fafc;
+  text-decoration: none;
+}
+
+.preagg-action-btn--danger {
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.preagg-action-btn--danger:hover {
+  background-color: #fef2f2;
+}
+
+.preagg-action-btn--danger-fill {
+  background-color: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.preagg-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* =============================================================================
+   Badges
+   ============================================================================= */
+
+/* Base badge */
+.preagg-badge {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-block;
+}
+
+/* Status badges (pill style) */
+.preagg-status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.preagg-status-badge--active {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.preagg-status-badge--paused {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.preagg-status-badge--pending {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Metric count badge (in header row) */
+.preagg-metric-count-badge {
+  font-size: 12px;
+  color: #be123c;
+  background-color: #fff1f2;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+/* Grain badge */
+.preagg-grain-badge,
+.preagg-grain-badge:hover {
+  padding: 4px 10px;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  font-family: monospace;
+}
+
+.preagg-grain-badge:hover {
+  background-color: #e2e8f0;
+  text-decoration: none;
+}
+
+/* Aggregation badge (blue) */
+.preagg-agg-badge {
+  background-color: #dbeafe;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Merge badge (green) */
+.preagg-merge-badge {
+  background-color: #dcfce7;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Rule badge (gray) */
+.preagg-rule-badge {
+  color: #475569;
+  background-color: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Metric badge (red/rose) */
+.preagg-metric-badge {
+  font-size: 11px;
+  color: #be123c;
+  background-color: #fff1f2;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  border: 1px solid #fecdd3;
+  font-weight: 500;
+}
+
+.preagg-metric-badge:hover {
+  background-color: #ffe4e6;
+  text-decoration: none;
+}
+
+/* Expand/collapse button (used in grain section) */
+.preagg-expand-btn {
+  padding: 4px 10px;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+}
+
+.preagg-expand-btn:hover {
+  background-color: #e2e8f0;
+}
+
+/* =============================================================================
+   Grain List
+   ============================================================================= */
+
+.preagg-grain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* =============================================================================
+   Measures Table
+   ============================================================================= */
+
+.preagg-measures-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.preagg-measures-table thead {
+  background-color: #fafafa;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.preagg-measures-table th {
+  padding: 10px 16px;
+  text-align: left;
+  font-weight: 500;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.preagg-measures-table td {
+  padding: 12px 16px;
+}
+
+.preagg-measures-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.preagg-measures-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.preagg-measure-name {
+  font-weight: 500;
+  color: #1e293b;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.preagg-metrics-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* =============================================================================
+   Info Icon
+   ============================================================================= */
+
+.preagg-info-icon {
+  cursor: help;
+  color: #94a3b8;
+  font-weight: normal;
+  margin-left: 4px;
+}
+
+/* =============================================================================
+   Empty State
+   ============================================================================= */
+
+.preagg-empty {
+  padding: 16px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+/* =============================================================================
+   Loading & Error States
+   ============================================================================= */
+
+.preagg-loading {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+}
+
+.preagg-error {
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.preagg-no-data {
+  padding: 20px;
+}
+
+.preagg-no-data-alert {
+  margin-bottom: 20px;
+  padding: 16px;
+}
+
+.preagg-no-data-text {
+  font-size: 14px;
+  color: #666;
+}
+
+/* =============================================================================
+   Section Header (Stale section - left side)
+   ============================================================================= */
+
+.preagg-section-header-left {
+  display: flex;
+  align-items: center;
+}
+
+/* =============================================================================
+   Card Modifier for Tables
+   ============================================================================= */
+
+.preagg-card--table {
+  padding: 0;
+  overflow: hidden;
+}

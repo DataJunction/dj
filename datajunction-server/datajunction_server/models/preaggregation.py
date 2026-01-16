@@ -17,6 +17,13 @@ from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.query import V3ColumnMetadata
 
 
+class WorkflowStatus(StrEnum):
+    """Status of a pre-aggregation workflow."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+
+
 class WorkflowUrl(BaseModel):
     """A labeled workflow URL for scheduler-agnostic display."""
 
@@ -150,12 +157,17 @@ class PreAggregationInfo(BaseModel):
 
     # Workflow state (persisted)
     workflow_urls: Optional[List[WorkflowUrl]] = None  # Labeled workflow URLs
-    workflow_status: Optional[str] = None  # "active" | "paused" | None
+    workflow_status: Optional[str] = (
+        None  # WorkflowStatus.ACTIVE | WorkflowStatus.PAUSED | None
+    )
 
     # Availability (derived from AvailabilityState)
     status: str = "pending"  # "pending" | "running" | "active"
     materialized_table_ref: Optional[str] = None
     max_partition: Optional[List[str]] = None
+
+    # Related metrics (computed from FrozenMeasure relationships)
+    related_metrics: Optional[List[str]] = None  # Metric names that use these measures
 
     # Metadata
     created_at: datetime
@@ -323,6 +335,36 @@ class WorkflowResponse(BaseModel):
     )
     status: str = Field(
         description="Workflow status: 'active', 'paused', or 'none'",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Additional information about the operation",
+    )
+
+
+class DeactivatedWorkflowInfo(BaseModel):
+    """Info about a single deactivated workflow."""
+
+    id: int = Field(description="Pre-aggregation ID")
+    workflow_name: Optional[str] = Field(
+        default=None,
+        description="Name of the deactivated workflow",
+    )
+
+
+class BulkDeactivateWorkflowsResponse(BaseModel):
+    """Response model for bulk workflow deactivation."""
+
+    deactivated_count: int = Field(
+        description="Number of workflows successfully deactivated",
+    )
+    deactivated: List[DeactivatedWorkflowInfo] = Field(
+        default_factory=list,
+        description="Details of each deactivated workflow",
+    )
+    skipped_count: int = Field(
+        default=0,
+        description="Number of pre-aggs skipped (no active workflow)",
     )
     message: Optional[str] = Field(
         default=None,

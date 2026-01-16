@@ -454,6 +454,117 @@ class TestListPreaggregations:
         assert response.status_code == 404
         assert "Version" in response.json()["message"]
 
+    @pytest.mark.asyncio
+    async def test_list_preaggs_include_stale(self, client_with_preaggs):
+        """
+        Test include_stale parameter returns pre-aggs from all node versions.
+
+        This test:
+        1. Gets current pre-aggs for a node
+        2. Updates the node to create a new version (making existing pre-aggs stale)
+        3. Creates new pre-aggs on the new version
+        4. Verifies include_stale=false (default) only returns current version pre-aggs
+        5. Verifies include_stale=true returns pre-aggs from all versions
+        """
+        client = client_with_preaggs["client"]
+
+        # Get current version and pre-aggs for v3.order_details
+        node_response = await client.get("/nodes/v3.order_details/")
+        assert node_response.status_code == 200
+        original_version = node_response.json()["version"]
+
+        # Get pre-aggs for current version (without include_stale)
+        current_response = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert current_response.status_code == 200
+        original_preagg_count = current_response.json()["total"]
+        assert original_preagg_count >= 1
+        original_preagg_ids = {item["id"] for item in current_response.json()["items"]}
+
+        # Update the node to create a new version (this makes existing pre-aggs stale)
+        update_response = await client.patch(
+            "/nodes/v3.order_details/",
+            json={"description": "Updated description to create new version"},
+        )
+        assert update_response.status_code == 200
+        new_version = update_response.json()["version"]
+        assert new_version != original_version, "Node version should have changed"
+
+        # Create a new pre-agg on the new version
+        plan_response = await client.post(
+            "/preaggs/plan",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.order_id"],  # Different grain
+            },
+        )
+        assert plan_response.status_code == 201
+        new_preagg_id = plan_response.json()["preaggs"][0]["id"]
+
+        # Without include_stale (default): should only return new version pre-aggs
+        default_response = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert default_response.status_code == 200
+        default_ids = {item["id"] for item in default_response.json()["items"]}
+
+        # Should include the new pre-agg
+        assert new_preagg_id in default_ids
+        # Should NOT include original pre-aggs (they're on old version)
+        assert len(default_ids & original_preagg_ids) == 0, (
+            "Default (no include_stale) should not return stale pre-aggs"
+        )
+
+        # With include_stale=true: should return pre-aggs from ALL versions
+        stale_response = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details", "include_stale": "true"},
+        )
+        assert stale_response.status_code == 200
+        stale_data = stale_response.json()
+        stale_ids = {item["id"] for item in stale_data["items"]}
+
+        # Should include the new pre-agg
+        assert new_preagg_id in stale_ids
+        # Should also include original pre-aggs (stale ones)
+        assert original_preagg_ids <= stale_ids, (
+            "include_stale=true should return stale pre-aggs"
+        )
+        # Total should be more than just current version
+        assert stale_data["total"] > len(default_ids)
+
+        # Verify versions are different for stale vs current
+        versions_in_response = {item["node_version"] for item in stale_data["items"]}
+        assert original_version in versions_in_response
+        assert new_version in versions_in_response
+
+    @pytest.mark.asyncio
+    async def test_list_preaggs_include_stale_false_explicit(self, client_with_preaggs):
+        """Test that include_stale=false behaves same as default (no param)."""
+        client = client_with_preaggs["client"]
+
+        # Get pre-aggs with default (no include_stale param)
+        default_response = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details"},
+        )
+        assert default_response.status_code == 200
+
+        # Get pre-aggs with explicit include_stale=false
+        explicit_response = await client.get(
+            "/preaggs/",
+            params={"node_name": "v3.order_details", "include_stale": "false"},
+        )
+        assert explicit_response.status_code == 200
+
+        # Should return same results
+        default_ids = {item["id"] for item in default_response.json()["items"]}
+        explicit_ids = {item["id"] for item in explicit_response.json()["items"]}
+        assert default_ids == explicit_ids
+
 
 @pytest.mark.xdist_group(name="preaggregations")
 class TestGetPreaggregationById:
@@ -473,7 +584,78 @@ class TestGetPreaggregationById:
         assert data["id"] == preagg1.id
         assert data["node_revision_id"] == preagg1.node_revision_id
         assert data["grain_columns"] == preagg1.grain_columns
-        assert data["measures"] == [m.model_dump() for m in preagg1.measures]
+        assert data["measures"] == [
+            {
+                "aggregation": "SUM",
+                "expr_hash": "83632b779d87",
+                "expression": "line_total",
+                "merge": "SUM",
+                "name": "line_total_sum_e1f61696",
+                "rule": {
+                    "level": None,
+                    "type": "full",
+                },
+                "used_by_metrics": [
+                    {
+                        "display_name": "Avg Order Value",
+                        "name": "v3.avg_order_value",
+                    },
+                    {
+                        "display_name": "Mom Revenue Change",
+                        "name": "v3.mom_revenue_change",
+                    },
+                    {
+                        "display_name": "Revenue Per Customer",
+                        "name": "v3.revenue_per_customer",
+                    },
+                    {
+                        "display_name": "Revenue Per Page View",
+                        "name": "v3.revenue_per_page_view",
+                    },
+                    {
+                        "display_name": "Revenue Per Visitor",
+                        "name": "v3.revenue_per_visitor",
+                    },
+                    {
+                        "display_name": "Total Revenue",
+                        "name": "v3.total_revenue",
+                    },
+                    {
+                        "display_name": "Trailing 7D Revenue",
+                        "name": "v3.trailing_7d_revenue",
+                    },
+                    {
+                        "display_name": "Trailing Wow Revenue Change",
+                        "name": "v3.trailing_wow_revenue_change",
+                    },
+                    {
+                        "display_name": "Wow Revenue Change",
+                        "name": "v3.wow_revenue_change",
+                    },
+                ],
+            },
+            {
+                "aggregation": "SUM",
+                "expr_hash": "221d2a4bfdae",
+                "expression": "quantity",
+                "merge": "SUM",
+                "name": "quantity_sum_06b64d2e",
+                "rule": {
+                    "level": None,
+                    "type": "full",
+                },
+                "used_by_metrics": [
+                    {
+                        "display_name": "Avg Items Per Order",
+                        "name": "v3.avg_items_per_order",
+                    },
+                    {
+                        "display_name": "Total Quantity",
+                        "name": "v3.total_quantity",
+                    },
+                ],
+            },
+        ]
         assert data["sql"] == preagg1.sql
         assert data["grain_group_hash"] == preagg1.grain_group_hash
         assert data["strategy"] == preagg1.strategy.value
@@ -915,6 +1097,136 @@ class TestDeletePreaggWorkflow:
         response = await client.delete("/preaggs/99999999/workflow")
 
         assert response.status_code == 404
+
+
+@pytest.mark.xdist_group(name="preaggregations")
+class TestBulkDeactivateWorkflows:
+    """Tests for DELETE /preaggs/workflows endpoint (bulk deactivation)."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_no_active_workflows(self, client_with_preaggs):
+        """Test bulk deactivate when no active workflows exist returns empty result."""
+        client = client_with_preaggs["client"]
+
+        # None of the preaggs have active workflows by default
+        response = await client.delete(
+            "/preaggs/workflows",
+            params={"node_name": "v3.order_details"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deactivated_count"] == 0
+        assert data["deactivated"] == []
+        assert "No active workflows found" in data["message"]
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_node_not_found(self, client_with_preaggs):
+        """Test bulk deactivate for non-existent node returns 404."""
+        client = client_with_preaggs["client"]
+
+        response = await client.delete(
+            "/preaggs/workflows",
+            params={"node_name": "nonexistent.node"},
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_success(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+    ):
+        """Test successfully bulk deactivating workflows for a node."""
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg8 = client_with_preaggs["preagg8"]
+        preagg9 = client_with_preaggs["preagg9"]
+
+        # Set up active workflows on preagg8 and preagg9 (both use v3.product.category)
+        preagg8_obj = await session.get(PreAggregation, preagg8.id)
+        preagg8_obj.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/preagg8"),
+        ]
+        preagg8_obj.workflow_status = "active"
+
+        preagg9_obj = await session.get(PreAggregation, preagg9.id)
+        preagg9_obj.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/preagg9"),
+        ]
+        preagg9_obj.workflow_status = "active"
+        await session.commit()
+
+        # Mock the deactivate method
+        mock_qs_for_preaggs.deactivate_preagg_workflow.return_value = {
+            "status": "paused",
+        }
+
+        # Bulk deactivate all workflows for v3.page_views_enriched node
+        # (preagg8 and preagg9 are based on metrics from v3.page_views_enriched)
+        response = await client.delete(
+            "/preaggs/workflows",
+            params={"node_name": "v3.page_views_enriched"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deactivated_count"] == 2
+        assert len(data["deactivated"]) == 2
+
+        # Verify query service was called twice
+        assert mock_qs_for_preaggs.deactivate_preagg_workflow.call_count == 2
+
+        # Verify the deactivated IDs include our preaggs
+        deactivated_ids = {item["id"] for item in data["deactivated"]}
+        assert preagg8.id in deactivated_ids
+        assert preagg9.id in deactivated_ids
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_stale_only(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+    ):
+        """Test bulk deactivate with stale_only=true only deactivates stale preaggs."""
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg10 = client_with_preaggs["preagg10"]
+
+        # Set up active workflow on preagg10
+        preagg10_obj = await session.get(PreAggregation, preagg10.id)
+        preagg10_obj.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/preagg10"),
+        ]
+        preagg10_obj.workflow_status = "active"
+        await session.commit()
+
+        # With stale_only=true, since all preaggs are on current revision,
+        # nothing should be deactivated
+        response = await client.delete(
+            "/preaggs/workflows",
+            params={"node_name": "v3.page_views_enriched", "stale_only": "true"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # No stale preaggs exist (all are on current revision)
+        assert data["deactivated_count"] == 0
+        assert "No active workflows found" in data["message"]
+
+        # Verify query service was NOT called
+        mock_qs_for_preaggs.deactivate_preagg_workflow.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_missing_node_name(self, client_with_preaggs):
+        """Test bulk deactivate requires node_name parameter."""
+        client = client_with_preaggs["client"]
+
+        response = await client.delete("/preaggs/workflows")
+
+        # FastAPI returns 422 for missing required query params
+        assert response.status_code == 422
 
 
 @pytest.mark.xdist_group(name="preaggregations")
