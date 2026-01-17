@@ -62,14 +62,23 @@ describe('<NotificationsPage />', () => {
     const mockDjClient = createMockDjClient();
     renderWithContext(mockDjClient);
 
+    // Wait for async effects to complete
+    await waitFor(() => {
+      expect(mockDjClient.getSubscribedHistory).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Notifications')).toBeInTheDocument();
   });
 
-  it('shows loading state initially', () => {
+  it('shows loading state initially', async () => {
+    // Use a controlled promise that we can resolve after the test
+    let resolvePromise;
+    const pendingPromise = new Promise(resolve => {
+      resolvePromise = resolve;
+    });
+
     const mockDjClient = createMockDjClient({
-      getSubscribedHistory: jest.fn().mockImplementation(
-        () => new Promise(() => {}), // Never resolves
-      ),
+      getSubscribedHistory: jest.fn().mockImplementation(() => pendingPromise),
     });
     renderWithContext(mockDjClient);
 
@@ -78,6 +87,12 @@ describe('<NotificationsPage />', () => {
       '[style*="text-align: center"]',
     );
     expect(loadingContainer).toBeInTheDocument();
+
+    // Resolve the promise to allow cleanup without act() warnings
+    resolvePromise([]);
+    await waitFor(() => {
+      expect(mockDjClient.getSubscribedHistory).toHaveBeenCalled();
+    });
   });
 
   it('shows empty state when no notifications', async () => {

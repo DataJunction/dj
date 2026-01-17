@@ -185,30 +185,48 @@ describe('CubeBuilderPage', () => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <CubeBuilderPage />
       </DJClientContext.Provider>,
     );
+
+    // Wait for async effects to complete
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Cube')).toBeInTheDocument();
   });
 
-  it('renders the Metrics section', () => {
+  it('renders the Metrics section', async () => {
     render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <CubeBuilderPage />
       </DJClientContext.Provider>,
     );
+
+    // Wait for async effects to complete
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Metrics *')).toBeInTheDocument();
   });
 
-  it('renders the Dimensions section', () => {
+  it('renders the Dimensions section', async () => {
     render(
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <CubeBuilderPage />
       </DJClientContext.Provider>,
     );
+
+    // Wait for async effects to complete
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Dimensions *')).toBeInTheDocument();
   });
 
@@ -237,22 +255,31 @@ describe('CubeBuilderPage', () => {
     }
     fireEvent.click(screen.getAllByText('Dimensions *')[0]);
 
-    expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+    // Wait for commonDimensions to be called and state to update
+    await waitFor(() => {
+      expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+    });
 
     const selectDimensions = screen.getAllByTestId('select-dimensions')[0];
     expect(selectDimensions).toBeDefined();
     expect(selectDimensions).not.toBeNull();
-    expect(
-      screen.getByText(
-        'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
-      ),
-    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
+        ),
+      ).toBeInTheDocument();
+    });
 
     const selectDimensionsDate = screen.getAllByTestId(
       'dimensions-default.date_dim',
     )[0];
 
     fireEvent.keyDown(selectDimensionsDate.firstChild, { key: 'ArrowDown' });
+    await waitFor(() => {
+      expect(screen.getByText('Day')).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('Day'));
     fireEvent.click(screen.getByText('Month'));
     fireEvent.click(screen.getByText('Year'));
@@ -264,9 +291,8 @@ describe('CubeBuilderPage', () => {
     })[0];
     expect(createCube).toBeInTheDocument();
 
-    await waitFor(() => {
-      fireEvent.click(createCube);
-    });
+    fireEvent.click(createCube);
+
     await waitFor(() => {
       expect(mockDjClient.createCube).toHaveBeenCalledWith(
         '',
@@ -322,22 +348,31 @@ describe('CubeBuilderPage', () => {
 
     fireEvent.click(screen.getAllByText('Dimensions *')[0]);
 
-    expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+    // Wait for commonDimensions to be called and state to update
+    await waitFor(() => {
+      expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+    });
 
     const selectDimensions = screen.getAllByTestId('select-dimensions')[0];
     expect(selectDimensions).toBeDefined();
     expect(selectDimensions).not.toBeNull();
-    expect(
-      screen.getByText(
-        'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
-      ),
-    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'default.repair_order_details.repair_order_id → default.repair_order.hard_hat_id → default.hard_hat.birth_date',
+        ),
+      ).toBeInTheDocument();
+    });
 
     const selectDimensionsDate = screen.getAllByTestId(
       'dimensions-default.date_dim',
     )[0];
 
     fireEvent.keyDown(selectDimensionsDate.firstChild, { key: 'ArrowDown' });
+    await waitFor(() => {
+      expect(screen.getByText('Day')).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('Day'));
     fireEvent.click(screen.getByText('Month'));
     fireEvent.click(screen.getByText('Year'));
@@ -349,9 +384,8 @@ describe('CubeBuilderPage', () => {
     })[0];
     expect(createCube).toBeInTheDocument();
 
-    await waitFor(() => {
-      fireEvent.click(createCube);
-    });
+    fireEvent.click(createCube);
+
     await waitFor(() => {
       expect(mockDjClient.patchCube).toHaveBeenCalledWith(
         'default.repair_orders_cube',
