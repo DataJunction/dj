@@ -11,6 +11,7 @@ import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
 import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
+import NodePreAggregationsTab from './NodePreAggregationsTab';
 import ClientCodePopover from './ClientCodePopover';
 import WatchButton from './WatchNodeButton';
 import NodesWithDimension from './NodesWithDimension';
@@ -131,7 +132,14 @@ export function NodePage() {
       tabToDisplay = <NodeValidateTab node={node} djClient={djClient} />;
       break;
     case 'materializations':
-      tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
+      // Cube nodes use cube-specific materialization tab
+      // Other nodes (transform, metric, dimension) use pre-aggregations tab
+      tabToDisplay =
+        node?.type === 'cube' ? (
+          <NodeMaterializationTab node={node} djClient={djClient} />
+        ) : (
+          <NodePreAggregationsTab node={node} />
+        );
       break;
     case 'linked':
       tabToDisplay = <NodesWithDimension node={node} djClient={djClient} />;

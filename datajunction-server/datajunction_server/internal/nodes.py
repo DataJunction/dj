@@ -2786,6 +2786,12 @@ async def revalidate_node(
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
+
+    # For metric nodes, derive frozen measures (ensures they exist even for
+    # metrics created via deployment or updated after initial creation)
+    if current_node_revision.type == NodeType.METRIC and background_tasks:
+        background_tasks.add_task(derive_frozen_measures, node.current.id)  # type: ignore
+
     return node_validator
 
 
