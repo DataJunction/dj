@@ -1613,3 +1613,386 @@ class TestYamlHelpers:
 
         # columns key should be removed entirely
         assert "columns" not in result
+
+
+class TestNamespaceDiff:
+    """Tests for GET /namespaces/{namespace}/diff endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_diff_identical_namespaces(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test diffing a namespace against itself returns no changes.
+        """
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["base_namespace"] == "foo.bar"
+        assert data["compare_namespace"] == "foo.bar"
+        assert data["added"] == []
+        assert data["removed"] == []
+        assert data["direct_changes"] == []
+        assert data["propagated_changes"] == []
+        assert data["unchanged_count"] > 0  # Should have nodes
+
+    @pytest.mark.asyncio
+    async def test_diff_with_added_nodes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that nodes only in compare namespace show as 'added'.
+        """
+        # Create a new namespace that's a copy of foo.bar with an extra node
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.feature/")
+
+        # Create a new source node in the feature namespace
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.feature.new_source",
+                "description": "A new source for testing",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "some_table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "name", "type": "string"},
+                ],
+            },
+        )
+
+        # Diff feature against empty namespace - should show new_source as added
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.feature/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["base_namespace"] == "foo.bar"
+        assert data["compare_namespace"] == "foo.bar.feature"
+        assert data["added_count"] == 1
+        assert len(data["added"]) == 1
+        assert data["added"][0]["name"] == "new_source"
+        assert data["added"][0]["node_type"] == "source"
+
+    @pytest.mark.asyncio
+    async def test_diff_with_removed_nodes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that nodes only in base namespace show as 'removed'.
+        """
+        # Create an empty feature namespace
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.empty/")
+
+        # Diff empty against foo.bar - all foo.bar nodes should show as removed
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.empty/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["base_namespace"] == "foo.bar"
+        assert data["compare_namespace"] == "foo.bar.empty"
+        assert data["removed_count"] > 0
+        assert data["added_count"] == 0
+
+        # All nodes from foo.bar should be in removed list
+        removed_names = [r["name"] for r in data["removed"]]
+        assert "repair_orders" in removed_names
+
+    @pytest.mark.asyncio
+    async def test_diff_with_direct_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that nodes with user-provided field changes show as 'direct_changes'.
+        """
+        # Create a feature namespace
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.modified/")
+
+        # Copy a source node but modify the description
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.modified.repair_orders",
+                "description": "MODIFIED - All repair orders",  # Changed
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.modified/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # repair_orders exists in both but with different description
+        assert data["direct_change_count"] == 1
+        assert len(data["direct_changes"]) == 1
+
+        direct_change = data["direct_changes"][0]
+        assert direct_change["name"] == "repair_orders"
+        assert direct_change["change_type"] == "direct"
+        assert "description" in direct_change["changed_fields"]
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_query_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that changes to transform queries are detected as direct changes.
+        """
+        # First, get the nodes in foo.bar to understand what transforms exist
+        response = await client_with_namespaced_roads.get("/namespaces/foo.bar/")
+        assert response.status_code == 200
+        nodes = response.json()
+
+        # Find a transform node if one exists
+        transforms = [n for n in nodes if n["type"] == "transform"]
+
+        if not transforms:
+            # Create a transform in both namespaces if none exist
+            await client_with_namespaced_roads.post(
+                "/nodes/transform/",
+                json={
+                    "name": "foo.bar.test_transform",
+                    "description": "Test transform",
+                    "mode": "published",
+                    "query": "SELECT repair_order_id FROM foo.bar.repair_orders",
+                },
+            )
+
+        # Create feature namespace with modified transform
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.query_change/")
+        await client_with_namespaced_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "foo.bar.query_change.test_transform",
+                "description": "Test transform",
+                "mode": "published",
+                "query": "SELECT repair_order_id, municipality_id FROM foo.bar.query_change.repair_orders",  # Different query
+            },
+        )
+
+        # Also create the source it depends on
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.query_change.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.query_change/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check that test_transform shows as a direct change due to query difference
+        direct_changes = [
+            d for d in data["direct_changes"] if d["name"] == "test_transform"
+        ]
+        if direct_changes:
+            assert direct_changes[0]["change_type"] == "direct"
+            assert "query" in direct_changes[0]["changed_fields"]
+
+    @pytest.mark.asyncio
+    async def test_diff_column_changes_detected(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that column additions/removals are detected.
+        """
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.col_change/")
+
+        # Create source with different columns
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.col_change.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    # Missing order_date, required_date, dispatched_date, dispatcher_id
+                    {"name": "new_column", "type": "string"},  # Added column
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.col_change/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find repair_orders in direct changes
+        repair_orders_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert repair_orders_change is not None
+
+        # Should have column changes
+        column_changes = repair_orders_change["column_changes"]
+        added_cols = [
+            c["column"] for c in column_changes if c["change_type"] == "added"
+        ]
+        removed_cols = [
+            c["column"] for c in column_changes if c["change_type"] == "removed"
+        ]
+
+        assert "new_column" in added_cols
+        assert "order_date" in removed_cols
+
+    @pytest.mark.asyncio
+    async def test_diff_namespace_not_found(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that diffing with a non-existent namespace returns empty results.
+        """
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/nonexistent.namespace/diff",
+            params={"base": "foo.bar"},
+        )
+        # The compare namespace doesn't exist, so it should have 0 nodes
+        # All foo.bar nodes should show as "removed"
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_diff_response_structure(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test the complete structure of the diff response.
+        """
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.struct_test/")
+
+        # Create a mix of scenarios
+        # 1. Add a new node
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.struct_test.added_source",
+                "description": "Added source",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "some_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        # 2. Copy an existing node with modification
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.struct_test.repair_orders",
+                "description": "Modified repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.struct_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all expected fields are present
+        assert "base_namespace" in data
+        assert "compare_namespace" in data
+        assert "added" in data
+        assert "removed" in data
+        assert "direct_changes" in data
+        assert "propagated_changes" in data
+        assert "unchanged_count" in data
+        assert "added_count" in data
+        assert "removed_count" in data
+        assert "direct_change_count" in data
+        assert "propagated_change_count" in data
+
+        # Verify added node structure
+        added = [a for a in data["added"] if a["name"] == "added_source"]
+        assert len(added) == 1
+        added_node = added[0]
+        assert "name" in added_node
+        assert "full_name" in added_node
+        assert "node_type" in added_node
+
+        # Verify direct change structure
+        direct = [d for d in data["direct_changes"] if d["name"] == "repair_orders"]
+        assert len(direct) == 1
+        direct_change = direct[0]
+        assert "name" in direct_change
+        assert "full_name" in direct_change
+        assert "node_type" in direct_change
+        assert "change_type" in direct_change
+        assert "base_version" in direct_change
+        assert "compare_version" in direct_change
+        assert "changed_fields" in direct_change
