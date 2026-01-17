@@ -1,0 +1,5 @@
+query: |-
+  SELECT *
+  FROM table
+  WHERE x = 1
+name: test_node
