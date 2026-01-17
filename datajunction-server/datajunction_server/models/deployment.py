@@ -271,12 +271,97 @@ class NodeSpec(BaseModel):
     def diff(self, other: "NodeSpec") -> list[str]:
         """
         Return a list of fields that differ between this and another NodeSpec.
+        Compares user-provided fields and returns names of fields that changed.
         """
-        return diff(
-            self,
-            other,
-            ignore_fields=["name", "namespace", "query", "columns"],
-        )
+        changed = []
+
+        # Compare display_name
+        if self.display_name != other.display_name:
+            changed.append("display_name")
+
+        # Compare description
+        if self.description != other.description:
+            changed.append("description")
+
+        # Compare owners (as sets for order-independence)
+        if set(self.owners or []) != set(other.owners or []):
+            changed.append("owners")
+
+        # Compare tags (as sets for order-independence)
+        if set(self.tags or []) != set(other.tags or []):
+            changed.append("tags")
+
+        # Compare mode
+        if self.mode != other.mode:
+            changed.append("mode")
+
+        # Compare custom_metadata
+        if (self.custom_metadata or {}) != (other.custom_metadata or {}):
+            changed.append("custom_metadata")
+
+        # Compare dimension_links for LinkableNodeSpec
+        if hasattr(self, "dimension_links") and hasattr(other, "dimension_links"):
+            self_links = sorted(
+                [link.model_dump() for link in (self.dimension_links or [])],
+                key=lambda x: (
+                    x.get("type", ""),
+                    x.get("dimension_node", "") or x.get("dimension", ""),
+                    x.get("role", ""),
+                ),
+            )
+            other_links = sorted(
+                [link.model_dump() for link in (other.dimension_links or [])],
+                key=lambda x: (
+                    x.get("type", ""),
+                    x.get("dimension_node", "") or x.get("dimension", ""),
+                    x.get("role", ""),
+                ),
+            )
+            if self_links != other_links:
+                changed.append("dimension_links")
+
+        # Compare primary_key for LinkableNodeSpec
+        if hasattr(self, "primary_key") and hasattr(other, "primary_key"):
+            if set(self.primary_key or []) != set(other.primary_key or []):
+                changed.append("primary_key")
+
+        # Type-specific comparisons
+        if self.node_type == NodeType.SOURCE:
+            if hasattr(self, "catalog") and hasattr(other, "catalog"):
+                if self.catalog != other.catalog:
+                    changed.append("catalog")
+            if hasattr(self, "schema_") and hasattr(other, "schema_"):
+                if self.schema_ != other.schema_:
+                    changed.append("schema_")
+            if hasattr(self, "table") and hasattr(other, "table"):
+                if self.table != other.table:
+                    changed.append("table")
+
+        elif self.node_type == NodeType.METRIC:
+            if hasattr(self, "required_dimensions") and hasattr(
+                other,
+                "required_dimensions",
+            ):
+                if set(self.required_dimensions or []) != set(
+                    other.required_dimensions or [],
+                ):
+                    changed.append("required_dimensions")
+            if hasattr(self, "direction") and hasattr(other, "direction"):
+                if self.direction != other.direction:
+                    changed.append("direction")
+            if hasattr(self, "unit_enum") and hasattr(other, "unit_enum"):
+                if self.unit_enum != other.unit_enum:
+                    changed.append("unit_enum")
+
+        elif self.node_type == NodeType.CUBE:
+            if hasattr(self, "metrics") and hasattr(other, "metrics"):
+                if set(self.metrics or []) != set(other.metrics or []):
+                    changed.append("metrics")
+            if hasattr(self, "dimensions") and hasattr(other, "dimensions"):
+                if set(self.dimensions or []) != set(other.dimensions or []):
+                    changed.append("dimensions")
+
+        return changed
 
 
 class LinkableNodeSpec(NodeSpec):
@@ -493,38 +578,66 @@ NodeUnion = Annotated[
 ]
 
 
+def _normalize_for_comparison(value):
+    """
+    Normalize a value for comparison. Converts lists to frozensets for
+    order-independent comparison, and handles nested structures.
+    """
+    if isinstance(value, list):
+        # Convert list items to comparable format
+        normalized_items = []
+        for item in value:
+            if isinstance(item, BaseModel):
+                # Convert BaseModel to a hashable tuple of sorted items
+                normalized_items.append(
+                    tuple(sorted(_normalize_for_comparison(item.model_dump()).items()))
+                    if isinstance(_normalize_for_comparison(item.model_dump()), dict)
+                    else _normalize_for_comparison(item.model_dump()),
+                )
+            elif isinstance(item, dict):
+                normalized_items.append(
+                    tuple(sorted(_normalize_for_comparison(item).items())),
+                )
+            else:
+                normalized_items.append(item)
+        return frozenset(normalized_items)
+    elif isinstance(value, dict):
+        return {k: _normalize_for_comparison(v) for k, v in value.items()}
+    else:
+        return value
+
+
 def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> list[str]:
     """
     Compare two Pydantic models and return a list of fields that have changed.
+
+    Uses model_dump() to get all fields including inherited ones, then compares
+    values with proper handling for lists (order-independent) and nested objects.
     """
-    changed_fields = [
-        field
-        for field in one.model_fields.keys()
-        if field not in (ignore_fields or [])
-        and hasattr(one, field)
-        and hasattr(two, field)
-        and (
-            (
-                isinstance(getattr(one, field), (list, dict))
-                and {
-                    tuple(sorted(item.model_dump().items()))
-                    if isinstance(item, BaseModel)
-                    else item
-                    for item in getattr(one, field) or []
-                }
-                != {
-                    tuple(sorted(item.model_dump().items()))
-                    if isinstance(item, BaseModel)
-                    else item
-                    for item in getattr(two, field) or []
-                }
-            )
-            or (
-                not isinstance(getattr(one, field), (list, dict))
-                and getattr(one, field) != getattr(two, field)
-            )
-        )
-    ]
+    ignore = set(ignore_fields or [])
+
+    # Use model_dump to get all fields including inherited ones
+    one_dict = one.model_dump()
+    two_dict = two.model_dump()
+
+    changed_fields = []
+    # Check all fields from both models
+    all_fields = set(one_dict.keys()) | set(two_dict.keys())
+
+    for field in all_fields:
+        if field in ignore:
+            continue
+
+        one_value = one_dict.get(field)
+        two_value = two_dict.get(field)
+
+        # Normalize values for comparison (handles lists as sets, etc.)
+        one_normalized = _normalize_for_comparison(one_value)
+        two_normalized = _normalize_for_comparison(two_value)
+
+        if one_normalized != two_normalized:
+            changed_fields.append(field)
+
     return changed_fields
 
 

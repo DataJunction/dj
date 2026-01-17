@@ -153,6 +153,7 @@ async def create_a_source_node(
         type=NodeType.SOURCE,
         current_version=0,
         created_by_id=current_user.id,
+        owners=data.owners or [],
     )
     catalog = await get_catalog_by_name(session=session, name=data.catalog)
 
@@ -185,6 +186,7 @@ async def create_a_source_node(
         parents=[],
         created_by_id=current_user.id,
         query=data.query,
+        mode=data.mode,
     )
     node.display_name = node_revision.display_name
 
