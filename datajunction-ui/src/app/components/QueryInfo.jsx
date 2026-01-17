@@ -122,8 +122,9 @@ export default function QueryInfo({
         <li className={'query-info'}>
           <label>Logs</label>{' '}
           {errors?.length ? (
-            errors.map(error => (
+            errors.map((error, idx) => (
               <div
+                key={`error-${idx}`}
                 style={{
                   height: '800px',
                   width: '80%',

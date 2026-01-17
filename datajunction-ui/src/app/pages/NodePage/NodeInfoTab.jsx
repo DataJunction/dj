@@ -37,9 +37,13 @@ export default function NodeInfoTab({ node }) {
   const [metricInfo, setMetricInfo] = useState(null);
 
   const nodeTags = node?.tags.map(tag => (
-    <div className={'badge tag_value'}>
+    <span
+      key={tag.name}
+      className={'badge tag_value'}
+      style={{ marginRight: '4px' }}
+    >
       <a href={`/tags/${tag.name}`}>{tag.display_name}</a>
-    </div>
+    </span>
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
@@ -314,13 +318,19 @@ export default function NodeInfoTab({ node }) {
         }
       >
         {node?.type !== 'metric'
-          ? node?.primary_key?.map(dim => (
-              <span className="rounded-pill badge bg-secondary-soft PrimaryKey">
+          ? node?.primary_key?.map((dim, idx) => (
+              <span
+                key={`pk-${idx}`}
+                className="rounded-pill badge bg-secondary-soft PrimaryKey"
+              >
                 <a href={`/nodes/${node?.name}`}>{dim}</a>
               </span>
             ))
-          : node?.required_dimensions?.map(dim => (
-              <span className="rounded-pill badge bg-secondary-soft PrimaryKey">
+          : node?.required_dimensions?.map((dim, idx) => (
+              <span
+                key={`rd-${idx}`}
+                className="rounded-pill badge bg-secondary-soft PrimaryKey"
+              >
                 <a href={`/nodes/${node?.upstream_node}`}>{dim.name}</a>
               </span>
             ))}
@@ -341,6 +351,7 @@ export default function NodeInfoTab({ node }) {
             <p className="mb-0 opacity-75">
               {node?.owners.map(owner => (
                 <span
+                  key={owner.username}
                   className="badge node_type__transform"
                   style={{ margin: '2px', fontSize: '16px', cursor: 'pointer' }}
                 >

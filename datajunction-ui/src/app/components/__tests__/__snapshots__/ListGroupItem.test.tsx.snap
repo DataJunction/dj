@@ -13,7 +13,7 @@ exports[`<ListGroupItem /> should render and match the snapshot 1`] = `
       >
         Name
       </h6>
-      <p
+      <div
         aria-hidden="false"
         aria-label="Name"
         className="mb-0 opacity-75"
@@ -24,7 +24,7 @@ exports[`<ListGroupItem /> should render and match the snapshot 1`] = `
             Something
           </span>
         </Markdown>
-      </p>
+      </div>
     </div>
   </div>
 </div>
