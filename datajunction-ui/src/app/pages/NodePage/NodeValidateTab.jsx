@@ -342,8 +342,8 @@ export default function NodeValidateTab({ node, djClient }) {
                               .slice(0, 100)
                               .map((rowData, index) => (
                                 <tr key={`data-row:${index}`}>
-                                  {rowData.map(rowValue => (
-                                    <td key={rowValue}>{rowValue}</td>
+                                  {rowData.map((rowValue, colIndex) => (
+                                    <td key={`${index}-${colIndex}`}>{rowValue}</td>
                                   ))}
                                 </tr>
                               ))}

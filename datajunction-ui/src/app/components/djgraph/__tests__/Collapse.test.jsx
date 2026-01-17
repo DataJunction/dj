@@ -35,10 +35,13 @@ describe('<Collapse />', () => {
         <Collapse
           {...defaultProps}
           data={{
+            name: 'test.transform',
             type: 'transform',
-            column_names: Array(11).fill(idx => {
-              return `column-${idx}`;
-            }),
+            column_names: Array.from({ length: 11 }, (_, idx) => ({
+              name: `column_${idx}`,
+              type: 'string',
+              order: idx,
+            })),
             primary_key: [],
           }}
         />
