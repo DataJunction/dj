@@ -6,6 +6,14 @@ import { NodePage } from '../Loadable';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 
+// Mock cronstrue for NodePreAggregationsTab
+jest.mock('cronstrue', () => ({
+  toString: () => 'Every day at midnight',
+}));
+
+// Mock CSS imports
+jest.mock('../../../../styles/preaggregations.css', () => ({}));
+
 describe('<NodePage />', () => {
   const domTestingLib = require('@testing-library/dom');
   const { queryHelpers } = domTestingLib;
@@ -61,6 +69,8 @@ describe('<NodePage />', () => {
         removeComplexDimensionLink: jest
           .fn()
           .mockResolvedValue({ status: 200 }),
+        listPreaggs: jest.fn().mockResolvedValue({ items: [] }),
+        deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 200 }),
       },
     };
   };
@@ -609,13 +619,13 @@ describe('<NodePage />', () => {
 
   it('renders an empty NodeMaterialization tab correctly', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.node.mockResolvedValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.getMetric.mockResolvedValue(
       mocks.mockMetricNodeJson,
     );
-    djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
-    djClient.DataJunctionAPI.materializations.mockReturnValue([]);
-    djClient.DataJunctionAPI.availabilityStates.mockReturnValue([]);
+    djClient.DataJunctionAPI.columns.mockResolvedValue(mocks.metricNodeColumns);
+    // For metric nodes, listPreaggs is called, not materializations
+    djClient.DataJunctionAPI.listPreaggs.mockResolvedValue({ items: [] });
 
     const element = (
       <DJClientContext.Provider value={djClient}>
@@ -631,35 +641,40 @@ describe('<NodePage />', () => {
         </Routes>
       </MemoryRouter>,
     );
-    await waitFor(
-      () => {
-        fireEvent.click(
-          screen.getByRole('button', { name: 'Materializations' }),
-        );
-        expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
-          mocks.mockMetricNode.name,
-        );
-        screen.getByText(
-          'No materialization workflows configured for this revision.',
-        );
-      },
-      { timeout: 5000 },
-    );
+
+    // For metric nodes, NodePreAggregationsTab is used, which calls listPreaggs
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.listPreaggs).toHaveBeenCalledWith({
+        node_name: mocks.mockMetricNode.name,
+        include_stale: true,
+      });
+    });
+
+    // Check for the empty state text (for NodePreAggregationsTab)
+    expect(
+      screen.getByText('No pre-aggregations found for this node.'),
+    ).toBeInTheDocument();
   });
 
   it('renders the NodeMaterialization tab with materializations correctly', async () => {
     const djClient = mockDJClient();
-    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockTransformNode);
-    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
-      mocks.mockMetricNodeJson,
-    );
-    djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
-    djClient.DataJunctionAPI.materializations.mockReturnValue(
+    // Use cube node - only cubes use NodeMaterializationTab
+    // Override columns with explicit partition: null to avoid undefined.type_ error
+    const cubeNodeWithPartitions = {
+      ...mocks.mockCubeNode,
+      columns: mocks.mockCubeNode.columns.map(col => ({
+        ...col,
+        partition: null,
+      })),
+    };
+    djClient.DataJunctionAPI.node.mockResolvedValue(cubeNodeWithPartitions);
+    djClient.DataJunctionAPI.cube.mockResolvedValue(mocks.mockCubesCube);
+    djClient.DataJunctionAPI.columns.mockResolvedValue([]);
+    djClient.DataJunctionAPI.materializations.mockResolvedValue(
       mocks.nodeMaterializations,
     );
-    djClient.DataJunctionAPI.availabilityStates.mockReturnValue([]);
-
-    djClient.DataJunctionAPI.materializationInfo.mockReturnValue(
+    djClient.DataJunctionAPI.availabilityStates.mockResolvedValue([]);
+    djClient.DataJunctionAPI.materializationInfo.mockResolvedValue(
       mocks.materializationInfo,
     );
 
@@ -670,30 +685,28 @@ describe('<NodePage />', () => {
     );
     render(
       <MemoryRouter
-        initialEntries={[
-          '/nodes/default.repair_order_transform/materializations',
-        ]}
+        initialEntries={['/nodes/default.repair_orders_cube/materializations']}
       >
         <Routes>
           <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
-    await waitFor(
-      () => {
-        fireEvent.click(
-          screen.getByRole('button', { name: 'Materializations' }),
-        );
-        expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
-          mocks.mockTransformNode.name,
-        );
-        expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
-          mocks.mockTransformNode.name,
-        );
-      },
-      { timeout: 3000 },
-    );
-  }, 60000);
+
+    // Wait for the node to load first
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
+        'default.repair_orders_cube',
+      );
+    });
+
+    // Then wait for materializations to be fetched
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
+        mocks.mockCubeNode.name,
+      );
+    });
+  });
 
   it('renders the NodeValidate tab', async () => {
     const djClient = mockDJClient();

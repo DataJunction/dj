@@ -152,6 +152,27 @@ class FrozenMeasure(Base):
         return result.unique().scalar_one_or_none()
 
     @classmethod
+    async def get_by_names(
+        cls,
+        session: AsyncSession,
+        names: list[str],
+    ) -> list["FrozenMeasure"]:
+        """
+        Get multiple measures by names in a single query.
+        """
+        if not names:
+            return []  # pragma: no cover
+        statement = (
+            select(FrozenMeasure)
+            .where(FrozenMeasure.name.in_(names))
+            .options(
+                selectinload(FrozenMeasure.used_by_node_revisions),
+            )
+        )
+        result = await session.execute(statement)
+        return list(result.unique().scalars().all())
+
+    @classmethod
     async def find_by(
         cls,
         session: AsyncSession,

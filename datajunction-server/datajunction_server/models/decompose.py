@@ -26,6 +26,13 @@ class Aggregability(StrEnum):
     NONE = "none"
 
 
+class MetricRef(BaseModel):
+    """Reference to a metric with name and display name."""
+
+    name: str
+    display_name: str | None = None
+
+
 class AggregationRule(BaseModel):
     """
     The aggregation rule for the metric component.
@@ -98,6 +105,7 @@ class PreAggMeasure(MetricComponent):
     """
 
     expr_hash: str | None = None  # Hash of expression for identity matching
+    used_by_metrics: list[MetricRef] | None = None  # Metrics that use this measure
 
 
 class DecomposedMetric(BaseModel):

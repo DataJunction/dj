@@ -11,6 +11,11 @@ import AvailabilityStateBlock from './AvailabilityStateBlock';
 
 const cronstrue = require('cronstrue');
 
+/**
+ * Cube materialization tab - shows cube-specific materializations.
+ * For non-cube nodes, the parent component (index.jsx) renders
+ * NodePreAggregationsTab instead.
+ */
 export default function NodeMaterializationTab({ node, djClient }) {
   const [rawMaterializations, setRawMaterializations] = useState([]);
   const [selectedRevisionTab, setSelectedRevisionTab] = useState(null);
