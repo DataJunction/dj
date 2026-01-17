@@ -95,3 +95,92 @@ class DeploymentImpactResponse(BaseModel):
 
     # Warnings about potential issues
     warnings: list[str] = Field(default_factory=list)
+
+
+# =============================================================================
+# Namespace Diff Models
+# =============================================================================
+
+
+class NamespaceDiffChangeType(str, Enum):
+    """Type of change detected in namespace diff"""
+
+    DIRECT = "direct"  # User-provided fields changed
+    PROPAGATED = "propagated"  # Only system-derived fields changed (status, version)
+
+
+class NamespaceDiffNodeChange(BaseModel):
+    """Represents a changed node in namespace diff"""
+
+    name: str  # Node name without namespace prefix
+    full_name: str  # Full node name with namespace
+    node_type: NodeType
+    change_type: NamespaceDiffChangeType
+
+    # Version info
+    base_version: str | None = None
+    compare_version: str | None = None
+
+    # Status info
+    base_status: NodeStatus | None = None
+    compare_status: NodeStatus | None = None
+
+    # For direct changes: which user-provided fields changed
+    changed_fields: list[str] = Field(default_factory=list)
+    column_changes: list[ColumnChange] = Field(default_factory=list)
+
+    # For propagated changes: what caused it
+    caused_by: list[str] = Field(default_factory=list)
+    propagation_reason: str | None = None
+
+
+class NamespaceDiffAddedNode(BaseModel):
+    """Represents a node that exists only in the compare namespace"""
+
+    name: str  # Node name without namespace prefix
+    full_name: str  # Full node name with namespace
+    node_type: NodeType
+    display_name: str | None = None
+    description: str | None = None
+    status: NodeStatus | None = None
+    version: str | None = None
+
+
+class NamespaceDiffRemovedNode(BaseModel):
+    """Represents a node that exists only in the base namespace"""
+
+    name: str  # Node name without namespace prefix
+    full_name: str  # Full node name with namespace
+    node_type: NodeType
+    display_name: str | None = None
+    description: str | None = None
+    status: NodeStatus | None = None
+    version: str | None = None
+
+
+class NamespaceDiffResponse(BaseModel):
+    """Response for namespace diff comparison"""
+
+    base_namespace: str
+    compare_namespace: str
+
+    # Nodes that exist only in compare namespace (added in compare)
+    added: list[NamespaceDiffAddedNode] = Field(default_factory=list)
+
+    # Nodes that exist only in base namespace (removed in compare)
+    removed: list[NamespaceDiffRemovedNode] = Field(default_factory=list)
+
+    # Nodes with direct changes (user-provided fields differ)
+    direct_changes: list[NamespaceDiffNodeChange] = Field(default_factory=list)
+
+    # Nodes with propagated changes (only system-derived fields differ)
+    propagated_changes: list[NamespaceDiffNodeChange] = Field(default_factory=list)
+
+    # Nodes that are identical in both namespaces
+    unchanged_count: int = 0
+
+    # Summary counts
+    added_count: int = 0
+    removed_count: int = 0
+    direct_change_count: int = 0
+    propagated_change_count: int = 0

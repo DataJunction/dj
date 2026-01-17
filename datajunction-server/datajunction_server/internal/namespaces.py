@@ -39,7 +39,7 @@ from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.nodes import (
     get_single_cube_revision_metadata,
 )
-from datajunction_server.models.node import NodeMinimumDetail
+from datajunction_server.models.node import NodeMinimumDetail, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_downstream_nodes,
@@ -66,6 +66,11 @@ from datajunction_server.models.dimensionlink import LinkType
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
+from datajunction_server.models.impact import (
+    NamespaceDiffResponse,
+    ColumnChange,
+    ColumnChangeType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -964,3 +969,733 @@ def _node_spec_to_yaml_dict(node_spec) -> dict:
 
     # Remove empty lists/dicts for cleaner YAML
     return {k: v for k, v in data.items() if v or v == 0 or v is False}
+
+
+# =============================================================================
+# Namespace Diff
+# =============================================================================
+
+
+async def compare_namespaces(
+    session: AsyncSession,
+    base_namespace: str,
+    compare_namespace: str,
+) -> NamespaceDiffResponse:
+    """
+    Compare two namespaces and return a diff showing:
+    - Nodes added in compare (exist only in compare)
+    - Nodes removed in compare (exist only in base)
+    - Direct changes (user-provided fields differ)
+    - Propagated changes (only system-derived fields differ: status, version)
+
+    Args:
+        session: Database session
+        base_namespace: The "before" namespace (e.g., "dj.main")
+        compare_namespace: The "after" namespace (e.g., "dj.feature-123")
+
+    Returns:
+        NamespaceDiffResponse with categorized changes
+    """
+    from datajunction_server.models.impact import (
+        NamespaceDiffAddedNode,
+        NamespaceDiffChangeType,
+        NamespaceDiffNodeChange,
+        NamespaceDiffRemovedNode,
+        NamespaceDiffResponse,
+    )
+
+    # Fetch all nodes from both namespaces
+    base_nodes = await NodeNamespace.list_all_nodes(
+        session,
+        base_namespace,
+        options=Node.cube_load_options(),
+    )
+    compare_nodes = await NodeNamespace.list_all_nodes(
+        session,
+        compare_namespace,
+        options=Node.cube_load_options(),
+    )
+
+    # Convert to specs for comparison
+    base_specs = {node.name: await node.to_spec(session) for node in base_nodes}
+    compare_specs = {node.name: await node.to_spec(session) for node in compare_nodes}
+
+    # Create maps by node name (without namespace prefix) for matching
+    base_nodes_map = {node.name: node for node in base_nodes}
+    compare_nodes_map = {node.name: node for node in compare_nodes}
+
+    def strip_namespace(full_name: str, namespace: str) -> str:
+        """Strip namespace prefix from node name."""
+        prefix = namespace + SEPARATOR
+        if full_name.startswith(prefix):
+            return full_name[len(prefix) :]
+        return full_name
+
+    # Map nodes by relative name (without namespace) for matching
+    base_by_relative = {
+        strip_namespace(name, base_namespace): (name, spec)
+        for name, spec in base_specs.items()
+    }
+    compare_by_relative = {
+        strip_namespace(name, compare_namespace): (name, spec)
+        for name, spec in compare_specs.items()
+    }
+
+    # Find added, removed, and common nodes
+    base_relative_names = set(base_by_relative.keys())
+    compare_relative_names = set(compare_by_relative.keys())
+
+    added_relative = compare_relative_names - base_relative_names
+    removed_relative = base_relative_names - compare_relative_names
+    common_relative = base_relative_names & compare_relative_names
+
+    # Build response
+    added: list[NamespaceDiffAddedNode] = []
+    removed: list[NamespaceDiffRemovedNode] = []
+    direct_changes: list[NamespaceDiffNodeChange] = []
+    propagated_changes: list[NamespaceDiffNodeChange] = []
+    unchanged_count = 0
+
+    # Process added nodes
+    for rel_name in sorted(added_relative):
+        full_name, spec = compare_by_relative[rel_name]
+        node = compare_nodes_map.get(full_name)
+        added.append(
+            NamespaceDiffAddedNode(
+                name=rel_name,
+                full_name=full_name,
+                node_type=spec.node_type,
+                display_name=spec.display_name,
+                description=spec.description,
+                status=node.current.status if node and node.current else None,
+                version=node.current.version if node and node.current else None,
+            ),
+        )
+
+    # Process removed nodes
+    for rel_name in sorted(removed_relative):
+        full_name, spec = base_by_relative[rel_name]
+        node = base_nodes_map.get(full_name)
+        removed.append(
+            NamespaceDiffRemovedNode(
+                name=rel_name,
+                full_name=full_name,
+                node_type=spec.node_type,
+                display_name=spec.display_name,
+                description=spec.description,
+                status=node.current.status if node and node.current else None,
+                version=node.current.version if node and node.current else None,
+            ),
+        )
+
+    # Process common nodes - compare specs
+    for rel_name in sorted(common_relative):
+        base_full_name, base_spec = base_by_relative[rel_name]
+        compare_full_name, compare_spec = compare_by_relative[rel_name]
+
+        base_node = base_nodes_map.get(base_full_name)
+        compare_node = compare_nodes_map.get(compare_full_name)
+
+        # Get system-derived fields
+        base_version = (
+            base_node.current.version if base_node and base_node.current else None
+        )
+        compare_version = (
+            compare_node.current.version
+            if compare_node and compare_node.current
+            else None
+        )
+        base_status = (
+            base_node.current.status if base_node and base_node.current else None
+        )
+        compare_status = (
+            compare_node.current.status
+            if compare_node and compare_node.current
+            else None
+        )
+
+        # Compare user-provided fields via spec comparison
+        # The spec __eq__ compares user-provided fields (query, display_name, etc.)
+        specs_equal = _compare_specs_for_diff(
+            base_spec,
+            compare_spec,
+            base_namespace,
+            compare_namespace,
+        )
+
+        if specs_equal:
+            # User-provided fields are the same
+            # Check if system-derived fields differ (propagated change)
+            if base_version != compare_version or base_status != compare_status:
+                # Propagated change - only system fields differ
+                propagated_changes.append(
+                    NamespaceDiffNodeChange(
+                        name=rel_name,
+                        full_name=compare_full_name,
+                        node_type=compare_spec.node_type,
+                        change_type=NamespaceDiffChangeType.PROPAGATED,
+                        base_version=base_version,
+                        compare_version=compare_version,
+                        base_status=base_status,
+                        compare_status=compare_status,
+                        propagation_reason=_get_propagation_reason(
+                            base_version,
+                            compare_version,
+                            base_status,
+                            compare_status,
+                        ),
+                    ),
+                )
+            else:
+                # Completely unchanged
+                unchanged_count += 1
+        else:
+            # User-provided fields differ - direct change
+            changed_fields = (
+                base_spec.diff(compare_spec) if hasattr(base_spec, "diff") else []
+            )
+            column_changes = _detect_column_changes_for_diff(
+                base_node,
+                compare_node,
+                base_namespace,
+                compare_namespace,
+            )
+
+            direct_changes.append(
+                NamespaceDiffNodeChange(
+                    name=rel_name,
+                    full_name=compare_full_name,
+                    node_type=compare_spec.node_type,
+                    change_type=NamespaceDiffChangeType.DIRECT,
+                    base_version=base_version,
+                    compare_version=compare_version,
+                    base_status=base_status,
+                    compare_status=compare_status,
+                    changed_fields=changed_fields,
+                    column_changes=column_changes,
+                ),
+            )
+
+    # Try to trace causes for propagated changes
+    # A propagated change is likely caused by a direct change in an upstream node
+    direct_change_names = {dc.name for dc in direct_changes}
+    for prop_change in propagated_changes:
+        compare_full_name = prop_change.full_name
+        compare_node = compare_nodes_map.get(compare_full_name)
+        if compare_node and compare_node.current:
+            # Check if any parent is in the direct changes
+            parent_names = [p.name for p in compare_node.current.parents]
+            for parent_name in parent_names:
+                parent_rel_name = strip_namespace(parent_name, compare_namespace)
+                if parent_rel_name in direct_change_names:
+                    prop_change.caused_by.append(parent_rel_name)
+
+    return NamespaceDiffResponse(
+        base_namespace=base_namespace,
+        compare_namespace=compare_namespace,
+        added=added,
+        removed=removed,
+        direct_changes=direct_changes,
+        propagated_changes=propagated_changes,
+        unchanged_count=unchanged_count,
+        added_count=len(added),
+        removed_count=len(removed),
+        direct_change_count=len(direct_changes),
+        propagated_change_count=len(propagated_changes),
+    )
+
+
+def _strip_namespace_from_ref(ref: str, namespace: str) -> str:
+    """
+    Strip namespace prefix from a reference (node name, column ref, etc.).
+
+    Handles both regular format (namespace.node) and amenable name format
+    (namespace_DOT_node) where dots are replaced with _DOT_.
+    """
+    # Try regular format first: "namespace.node"
+    prefix = namespace + SEPARATOR
+    if ref.startswith(prefix):
+        return ref[len(prefix) :]
+
+    # Try amenable name format: "namespace_DOT_node"
+    amenable_prefix = namespace.replace(".", "_DOT_") + "_DOT_"
+    if ref.startswith(amenable_prefix):
+        return ref[len(amenable_prefix) :]
+
+    return ref
+
+
+def _normalize_refs_in_set(refs: set[str], namespace: str) -> set[str]:
+    """Normalize a set of references by stripping namespace prefix."""
+    return {_strip_namespace_from_ref(r, namespace) for r in refs}
+
+
+def _compare_specs_for_diff(
+    base_spec: NodeSpec,
+    compare_spec: NodeSpec,
+    base_namespace: str,
+    compare_namespace: str,
+) -> bool:
+    """
+    Compare two specs for the namespace diff.
+
+    This compares user-provided fields only, ignoring namespace differences.
+    We need to normalize the specs to compare them fairly since they have
+    different namespace prefixes.
+    """
+    # Node types must match
+    if base_spec.node_type != compare_spec.node_type:
+        return False
+
+    # Compare user-provided metadata fields
+    if base_spec.display_name != compare_spec.display_name:
+        # Handle None vs empty string as equivalent
+        if not (
+            base_spec.display_name in (None, "")
+            and compare_spec.display_name in (None, "")
+        ):
+            return False
+
+    if base_spec.description != compare_spec.description:
+        if not (
+            base_spec.description in (None, "")
+            and compare_spec.description in (None, "")
+        ):
+            return False
+
+    if set(base_spec.owners or []) != set(compare_spec.owners or []):
+        return False
+
+    if set(base_spec.tags or []) != set(compare_spec.tags or []):
+        return False
+
+    if base_spec.mode != compare_spec.mode:
+        return False
+
+    if (base_spec.custom_metadata or {}) != (compare_spec.custom_metadata or {}):
+        return False
+
+    # Type-specific comparisons
+    if base_spec.node_type == NodeType.SOURCE:
+        # Compare catalog, schema, table
+        if (
+            base_spec.catalog != compare_spec.catalog
+            or base_spec.schema_ != compare_spec.schema_
+            or base_spec.table != compare_spec.table
+        ):
+            return False
+        # Compare columns for sources (user-provided)
+        if not _compare_columns_for_diff(
+            base_spec.columns,
+            compare_spec.columns,
+            base_namespace,
+            compare_namespace,
+            compare_types=True,
+        ):
+            return False
+
+    elif base_spec.node_type in (NodeType.TRANSFORM, NodeType.DIMENSION):
+        # Compare query (normalize namespace references)
+        if not _compare_queries_for_diff(
+            base_spec.query,
+            compare_spec.query,
+            base_namespace,
+            compare_namespace,
+        ):
+            return False
+        # Compare columns (only user-provided metadata like display_name, attributes)
+        if not _compare_columns_for_diff(
+            base_spec.columns,
+            compare_spec.columns,
+            base_namespace,
+            compare_namespace,
+            compare_types=False,
+        ):
+            return False
+
+    elif base_spec.node_type == NodeType.METRIC:
+        # Compare query (normalize namespace references)
+        if not _compare_queries_for_diff(
+            base_spec.query,
+            compare_spec.query,
+            base_namespace,
+            compare_namespace,
+        ):
+            return False
+        # Compare required_dimensions (normalize namespace)
+        base_req_dims = _normalize_refs_in_set(
+            set(base_spec.required_dimensions or []),
+            base_namespace,
+        )
+        compare_req_dims = _normalize_refs_in_set(
+            set(compare_spec.required_dimensions or []),
+            compare_namespace,
+        )
+        if base_req_dims != compare_req_dims:
+            return False
+        # Compare metric metadata
+        if base_spec.direction != compare_spec.direction:
+            return False
+        # Compare unit_enum - handle None vs falsy cases
+        base_unit = base_spec.unit_enum
+        compare_unit = compare_spec.unit_enum
+        if base_unit != compare_unit:
+            # Both None is equal, handle value comparison
+            if not (base_unit is None and compare_unit is None):
+                return False
+
+    elif base_spec.node_type == NodeType.CUBE:
+        # Compare metrics and dimensions lists (normalize namespace)
+        base_metrics = _normalize_refs_in_set(
+            set(base_spec.metrics or []),
+            base_namespace,
+        )
+        compare_metrics = _normalize_refs_in_set(
+            set(compare_spec.metrics or []),
+            compare_namespace,
+        )
+        if base_metrics != compare_metrics:
+            return False
+
+        base_dims = _normalize_refs_in_set(
+            set(base_spec.dimensions or []),
+            base_namespace,
+        )
+        compare_dims = _normalize_refs_in_set(
+            set(compare_spec.dimensions or []),
+            compare_namespace,
+        )
+        if base_dims != compare_dims:
+            return False
+
+        # Compare cube columns (normalize namespace in column names)
+        if not _compare_cube_columns_for_diff(
+            base_spec.columns,
+            compare_spec.columns,
+            base_namespace,
+            compare_namespace,
+        ):
+            return False
+
+    # Compare dimension links for linkable nodes
+    if base_spec.node_type in (NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION):
+        if not _compare_dimension_links_for_diff(
+            base_spec.dimension_links or [],
+            compare_spec.dimension_links or [],
+            base_namespace,
+            compare_namespace,
+        ):
+            return False
+
+    return True
+
+
+def _compare_queries_for_diff(
+    base_query: str | None,
+    compare_query: str | None,
+    base_namespace: str,
+    compare_namespace: str,
+) -> bool:
+    """
+    Compare two SQL queries for semantic equivalence.
+
+    Normalizes namespace references so that queries referencing nodes
+    in their respective namespaces are compared as equivalent.
+    """
+    if base_query is None and compare_query is None:
+        return True
+    if base_query is None or compare_query is None:
+        return False
+
+    def normalize(q: str, namespace: str) -> str:
+        # Normalize whitespace and case
+        normalized = " ".join(q.split()).lower().strip()
+        # Replace namespace prefix with a placeholder for comparison
+        # This handles references like "namespace.node" -> "${ns}.node"
+        ns_prefix = namespace.lower() + "."
+        normalized = normalized.replace(ns_prefix, "${ns}.")
+        return normalized
+
+    return normalize(base_query, base_namespace) == normalize(
+        compare_query,
+        compare_namespace,
+    )
+
+
+def _compare_columns_for_diff(
+    base_columns: list | None,
+    compare_columns: list | None,
+    base_namespace: str,
+    compare_namespace: str,
+    compare_types: bool = False,
+) -> bool:
+    """
+    Compare column lists for equivalence.
+
+    Args:
+        base_columns: Columns from base spec
+        compare_columns: Columns from compare spec
+        base_namespace: Base namespace for normalizing references
+        compare_namespace: Compare namespace for normalizing references
+        compare_types: If True, compare column types (for SOURCE nodes)
+    """
+    if not base_columns and not compare_columns:
+        return True
+    if not base_columns or not compare_columns:
+        # One is empty, the other is not
+        return False
+
+    if len(base_columns) != len(compare_columns):
+        return False
+
+    # Normalize column names by stripping namespace prefix
+    base_by_name = {
+        _strip_namespace_from_ref(c.name, base_namespace): c for c in base_columns
+    }
+    compare_by_name = {
+        _strip_namespace_from_ref(c.name, compare_namespace): c for c in compare_columns
+    }
+
+    if set(base_by_name.keys()) != set(compare_by_name.keys()):
+        return False
+
+    for name, base_col in base_by_name.items():
+        compare_col = compare_by_name[name]
+
+        if compare_types and base_col.type != compare_col.type:
+            return False
+
+        # Compare user-provided metadata
+        if base_col.display_name != compare_col.display_name:
+            return False
+        if base_col.description != compare_col.description:
+            return False
+        if set(base_col.attributes or []) != set(compare_col.attributes or []):
+            return False
+
+    return True
+
+
+def _compare_cube_columns_for_diff(
+    base_columns: list | None,
+    compare_columns: list | None,
+    base_namespace: str,
+    compare_namespace: str,
+) -> bool:
+    """
+    Compare cube column lists for equivalence.
+
+    Cube columns have names that are fully qualified metric/dimension references
+    (e.g., "namespace.metric_name"), so we need to normalize these.
+    """
+    if not base_columns and not compare_columns:
+        return True
+    if not base_columns or not compare_columns:
+        return False
+
+    if len(base_columns) != len(compare_columns):
+        return False
+
+    # Normalize column names by stripping namespace prefix
+    base_by_name = {
+        _strip_namespace_from_ref(c.name, base_namespace): c for c in base_columns
+    }
+    compare_by_name = {
+        _strip_namespace_from_ref(c.name, compare_namespace): c for c in compare_columns
+    }
+
+    if set(base_by_name.keys()) != set(compare_by_name.keys()):
+        return False
+
+    # For cube columns, we mainly care about the names matching
+    # Types are derived so we don't compare them strictly
+    for name, base_col in base_by_name.items():
+        compare_col = compare_by_name[name]
+
+        # Compare user-provided metadata if present
+        if base_col.display_name != compare_col.display_name:
+            # Allow if both are None or match the normalized name
+            base_display = base_col.display_name or ""
+            compare_display = compare_col.display_name or ""
+            if base_display and compare_display and base_display != compare_display:
+                return False
+
+        if base_col.description != compare_col.description:
+            if base_col.description and compare_col.description:
+                return False
+
+        # Compare partition config if present
+        base_partition = getattr(base_col, "partition", None)
+        compare_partition = getattr(compare_col, "partition", None)
+        if base_partition != compare_partition:
+            return False
+
+    return True
+
+
+def _compare_dimension_links_for_diff(
+    base_links: list,
+    compare_links: list,
+    base_namespace: str,
+    compare_namespace: str,
+) -> bool:
+    """
+    Compare dimension link lists for equivalence.
+
+    Normalizes namespace references in dimension_node and join_on fields.
+    """
+    if len(base_links) != len(compare_links):
+        return False
+
+    # Sort by a consistent key for comparison (with normalized names)
+    def link_key(link, namespace):
+        if hasattr(link, "dimension_node"):
+            dim = _strip_namespace_from_ref(link.dimension_node or "", namespace)
+            return (link.type, dim, link.role or "")
+        dim = _strip_namespace_from_ref(link.dimension or "", namespace)
+        return (link.type, dim, link.role or "")
+
+    base_sorted = sorted(base_links, key=lambda link: link_key(link, base_namespace))
+    compare_sorted = sorted(
+        compare_links,
+        key=lambda link: link_key(link, compare_namespace),
+    )
+
+    for base_link, compare_link in zip(base_sorted, compare_sorted):
+        if base_link.type != compare_link.type:
+            return False
+        if base_link.role != compare_link.role:
+            return False
+
+        if hasattr(base_link, "dimension_node"):
+            # JOIN link - normalize dimension_node references
+            base_dim = _strip_namespace_from_ref(
+                base_link.dimension_node or "",
+                base_namespace,
+            )
+            compare_dim = _strip_namespace_from_ref(
+                compare_link.dimension_node or "",
+                compare_namespace,
+            )
+            if base_dim != compare_dim:
+                return False
+
+            if base_link.join_type != compare_link.join_type:
+                return False
+
+            # Normalize join_on for comparison (whitespace and namespace)
+            base_join = " ".join((base_link.join_on or "").split()).lower()
+            compare_join = " ".join((compare_link.join_on or "").split()).lower()
+            # Replace namespace references
+            base_join = base_join.replace(base_namespace.lower() + ".", "${ns}.")
+            compare_join = compare_join.replace(
+                compare_namespace.lower() + ".",
+                "${ns}.",
+            )
+            if base_join != compare_join:
+                return False
+        else:
+            # REFERENCE link - normalize dimension column comparison
+            base_dim = _strip_namespace_from_ref(
+                base_link.dimension or "",
+                base_namespace,
+            )
+            compare_dim = _strip_namespace_from_ref(
+                compare_link.dimension or "",
+                compare_namespace,
+            )
+            if base_dim != compare_dim:
+                return False
+
+    return True
+
+
+def _detect_column_changes_for_diff(
+    base_node: Node | None,
+    compare_node: Node | None,
+    base_namespace: str,
+    compare_namespace: str,
+) -> list[ColumnChange]:
+    """
+    Detect column changes between two nodes.
+
+    Column names are normalized by stripping namespace prefixes to ensure
+    columns like "ns1.metric_name" and "ns2.metric_name" are compared as equal.
+    """
+    changes: list[ColumnChange] = []
+
+    if (
+        not base_node
+        or not base_node.current
+        or not compare_node
+        or not compare_node.current
+    ):
+        return changes
+
+    # Normalize column names by stripping namespace prefix
+    base_columns = {
+        _strip_namespace_from_ref(col.name, base_namespace): col
+        for col in base_node.current.columns
+    }
+    compare_columns = {
+        _strip_namespace_from_ref(col.name, compare_namespace): col
+        for col in compare_node.current.columns
+    }
+
+    # Removed columns
+    for col_name in base_columns.keys() - compare_columns.keys():
+        changes.append(
+            ColumnChange(
+                column=col_name,
+                change_type=ColumnChangeType.REMOVED,
+                old_type=str(base_columns[col_name].type),
+            ),
+        )
+
+    # Added columns
+    for col_name in compare_columns.keys() - base_columns.keys():
+        changes.append(
+            ColumnChange(
+                column=col_name,
+                change_type=ColumnChangeType.ADDED,
+                new_type=str(compare_columns[col_name].type),
+            ),
+        )
+
+    # Type changes
+    for col_name in base_columns.keys() & compare_columns.keys():
+        old_type = str(base_columns[col_name].type)
+        new_type = str(compare_columns[col_name].type)
+        if old_type != new_type:
+            changes.append(
+                ColumnChange(
+                    column=col_name,
+                    change_type=ColumnChangeType.TYPE_CHANGED,
+                    old_type=old_type,
+                    new_type=new_type,
+                ),
+            )
+
+    return changes
+
+
+def _get_propagation_reason(
+    base_version: str | None,
+    compare_version: str | None,
+    base_status: NodeStatus | None,
+    compare_status: NodeStatus | None,
+) -> str:
+    """
+    Generate a human-readable reason for a propagated change.
+    """
+    reasons = []
+
+    if base_version != compare_version:
+        reasons.append(f"version changed from {base_version} to {compare_version}")
+
+    if base_status != compare_status:
+        base_status_str = base_status.value if base_status else "unknown"
+        compare_status_str = compare_status.value if compare_status else "unknown"
+        reasons.append(f"status changed from {base_status_str} to {compare_status_str}")
+
+    return "; ".join(reasons) if reasons else "system-derived fields changed"
