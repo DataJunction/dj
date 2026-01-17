@@ -1996,3 +1996,365 @@ class TestNamespaceDiff:
         assert "base_version" in direct_change
         assert "compare_version" in direct_change
         assert "changed_fields" in direct_change
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_tag_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that tag changes are detected as direct changes.
+        """
+        # Create a tag first
+        await client_with_namespaced_roads.post(
+            "/tags/",
+            json={
+                "name": "test_tag",
+                "description": "A test tag",
+                "tag_type": "default",
+            },
+        )
+
+        # Add tag to a node in foo.bar
+        await client_with_namespaced_roads.post(
+            "/nodes/foo.bar.repair_orders/tags",
+            json=["test_tag"],
+        )
+
+        # Create feature namespace with same node but no tag
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.tag_test/")
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.tag_test.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.tag_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # repair_orders should be in direct changes due to tag difference
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None
+        assert direct_change["change_type"] == "direct"
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_mode_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that mode changes (draft vs published) are detected.
+        """
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.mode_test/")
+
+        # Create same node but in draft mode
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.mode_test.repair_orders",
+                "description": "All repair orders",
+                "mode": "draft",  # Changed from published
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.mode_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None
+        assert "mode" in direct_change["changed_fields"]
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_source_table_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that catalog/schema/table changes for source nodes are detected.
+        """
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.table_test/")
+
+        # Create same source but pointing to different table
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.table_test.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders_v2",  # Different table
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.table_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None
+        assert direct_change["change_type"] == "direct"
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_column_type_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that column type changes are detected (not just add/remove).
+        """
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.type_test/")
+
+        # Create same source but with different column type
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.type_test.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "bigint"},  # Changed from int
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.type_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None
+
+        # Should have column type change
+        type_changes = [
+            c
+            for c in direct_change["column_changes"]
+            if c["change_type"] == "type_changed"
+        ]
+        assert len(type_changes) > 0
+        assert type_changes[0]["column"] == "repair_order_id"
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_metric_metadata_changes(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Test that metric direction/unit changes are detected.
+        """
+        # Create a metric in default namespace
+        await client_with_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.test_metric_for_diff",
+                "description": "Test metric",
+                "mode": "published",
+                "query": "SELECT COUNT(*) FROM default.repair_orders",
+                "metric_metadata": {
+                    "direction": "higher_is_better",
+                    "unit": "unitless",
+                },
+            },
+        )
+
+        # Create feature namespace with same metric but different metadata
+        await client_with_roads.post("/namespaces/default.metric_test/")
+
+        # Copy the source first
+        await client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.metric_test.repair_orders",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        await client_with_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.metric_test.test_metric_for_diff",
+                "description": "Test metric",
+                "mode": "published",
+                "query": "SELECT COUNT(*) FROM default.metric_test.repair_orders",
+                "metric_metadata": {
+                    "direction": "lower_is_better",  # Changed
+                    "unit": "unitless",
+                },
+            },
+        )
+
+        response = await client_with_roads.get(
+            "/namespaces/default.metric_test/diff",
+            params={"base": "default"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find the metric in direct changes
+        metric_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "test_metric_for_diff"),
+            None,
+        )
+        if metric_change:
+            assert metric_change["change_type"] == "direct"
+
+    @pytest.mark.asyncio
+    async def test_diff_detects_display_name_changes(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Test that display_name changes are detected.
+        """
+        # Update display_name in foo.bar
+        await client_with_namespaced_roads.patch(
+            "/nodes/foo.bar.repair_orders",
+            json={"display_name": "Original Display Name"},
+        )
+
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.display_test/")
+
+        # Create with different display_name
+        await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.display_test.repair_orders",
+                "display_name": "Different Display Name",
+                "description": "All repair orders",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": "repair_order_id", "type": "int"},
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                ],
+            },
+        )
+
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.display_test/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None
+        assert "display_name" in direct_change["changed_fields"]
+
+    @pytest.mark.asyncio
+    async def test_diff_with_empty_namespaces(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """
+        Test diffing two empty namespaces.
+        """
+        await client_with_service_setup.post("/namespaces/empty_ns_a/")
+        await client_with_service_setup.post("/namespaces/empty_ns_b/")
+
+        response = await client_with_service_setup.get(
+            "/namespaces/empty_ns_a/diff",
+            params={"base": "empty_ns_b"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["added_count"] == 0
+        assert data["removed_count"] == 0
+        assert data["direct_change_count"] == 0
+        assert data["propagated_change_count"] == 0
+        assert data["unchanged_count"] == 0
