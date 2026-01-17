@@ -114,31 +114,65 @@ describe('SQLBuilderPage', () => {
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
     mockDjClient.sqls.mockResolvedValue({ sql: 'SELECT ...' });
     mockDjClient.data.mockResolvedValue({});
-
-    render(
-      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-        <SQLBuilderPage />
-      </DJClientContext.Provider>,
-    );
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Using the SQL Builder')).toBeInTheDocument();
   });
 
-  it('renders the Metrics section', () => {
+  it('renders the Metrics section', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Metrics')).toBeInTheDocument();
   });
 
-  it('renders the Group By section', () => {
+  it('renders the Group By section', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Group By')).toBeInTheDocument();
   });
 
-  it('renders the Filter By section', () => {
+  it('renders the Filter By section', async () => {
+    render(
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <SQLBuilderPage />
+      </DJClientContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.metrics).toHaveBeenCalled();
+    });
+
     expect(screen.getByText('Filter By')).toBeInTheDocument();
   });
 
@@ -179,7 +213,11 @@ describe('SQLBuilderPage', () => {
       expect(screen.getAllByText(dim.name)[0]).toBeInTheDocument();
       fireEvent.click(screen.getAllByText(dim.name)[0]);
     }
-    expect(mockDjClient.sqls).toHaveBeenCalled();
+
+    // Wait for SQL fetch to complete to avoid act() warnings
+    await waitFor(() => {
+      expect(mockDjClient.sqls).toHaveBeenCalled();
+    });
   });
 });
 

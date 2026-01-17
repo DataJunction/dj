@@ -181,8 +181,8 @@ export function SQLBuilderPage() {
       setDisplayedRows(
         data[0]?.rows.slice(0, showNumRows).map((rowData, index) => (
           <tr key={`data-row:${index}`}>
-            {rowData.map(rowValue => (
-              <td key={rowValue}>{rowValue}</td>
+            {rowData.map((rowValue, colIndex) => (
+              <td key={`${index}-${colIndex}`}>{rowValue}</td>
             ))}
           </tr>
         )),

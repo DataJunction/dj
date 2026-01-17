@@ -53,7 +53,7 @@ export function AddEditNodePage({ extensions = {} }) {
     primary_key: '',
     mode: 'published',
     owners: [],
-    custom_metadata: null,
+    custom_metadata: '',
   };
 
   const validator = values => {
