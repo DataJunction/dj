@@ -90,7 +90,7 @@ export function AddEditTagPage() {
                             name="display_name"
                             id="display_name"
                             placeholder="Display Name"
-                            class="FullNameField"
+                            className="FullNameField"
                           />
                         </div>
                         <br />
