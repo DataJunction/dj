@@ -24,6 +24,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     NamespaceSourcesResponse,
 )
+from datajunction_server.models.impact import NamespaceDiffResponse
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -521,6 +522,56 @@ async def export_namespace_yaml(
         headers={
             "Content-Disposition": f'attachment; filename="{safe_namespace}_export.zip"',
         },
+    )
+
+
+@router.get(
+    "/namespaces/{namespace}/diff",
+    response_model=NamespaceDiffResponse,
+    name="Compare namespace to another namespace",
+)
+async def compare_namespace(
+    namespace: str,
+    base: str = Query(
+        ...,
+        description="The base namespace to compare against (e.g., 'dj.main')",
+    ),
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceDiffResponse:
+    """
+    Compare two namespaces and return a diff showing what changed.
+
+    This is useful for branch-based deployments where you want to see:
+    - Which nodes were directly modified (user-provided fields changed)
+    - Which nodes changed due to propagation (only status/version changed)
+    - Which nodes were added or removed
+
+    The `namespace` parameter is the "compare" namespace (e.g., feature branch).
+    The `base` query parameter is the "base" namespace (e.g., main branch).
+
+    Example:
+        GET /namespaces/dj.feature-123/diff?base=dj.main
+
+    Returns changes categorized as:
+    - `added`: Nodes that exist only in the compare namespace
+    - `removed`: Nodes that exist only in the base namespace
+    - `direct_changes`: Nodes where user-provided fields differ (query, description, etc.)
+    - `propagated_changes`: Nodes where only system-derived fields differ (status, version)
+    """
+    from datajunction_server.internal.namespaces import compare_namespaces
+
+    # Check access to both namespaces
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    access_checker.add_namespace(base, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Perform the diff comparison
+    return await compare_namespaces(
+        session=session,
+        base_namespace=base,
+        compare_namespace=namespace,
     )
 
 

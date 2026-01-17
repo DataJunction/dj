@@ -870,12 +870,11 @@ class GenericNodeOutputModel(BaseModel):
         for k, v in current_dict.items():
             final_dict[k] = v
 
-        if "dimension_links" in final_dict:  # pragma: no branch
-            final_dict["dimension_links"] = [
-                link
-                for link in final_dict["dimension_links"]  # type: ignore
-                if link.dimension.deactivated_at is None  # type: ignore
-            ]
+        final_dict["dimension_links"] = [
+            link
+            for link in final_dict.get("dimension_links", [])  # type: ignore
+            if link.dimension.deactivated_at is None  # type: ignore
+        ]
         final_dict["node_revision_id"] = final_dict["id"]
         return final_dict
 
