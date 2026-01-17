@@ -904,9 +904,12 @@ def _get_yaml_dumper():
     Get a YAML dumper configured for clean node export.
     Uses literal block style for multiline strings (like SQL queries).
     """
-    dumper = yaml.SafeDumper
-    dumper.add_representer(str, _multiline_str_representer)
-    return dumper
+
+    class MultilineStrDumper(yaml.SafeDumper):
+        pass
+
+    MultilineStrDumper.add_representer(str, _multiline_str_representer)
+    return MultilineStrDumper
 
 
 def _node_spec_to_yaml_dict(node_spec) -> dict:
