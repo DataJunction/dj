@@ -1361,8 +1361,8 @@ def _compare_specs_for_diff(
             print(f"[DIFF]   DIFF: direction mismatch: {base_spec.direction} vs {compare_spec.direction}")
             return False
         # Compare unit_enum - handle None vs falsy cases
-        base_unit = base_spec.unit_enum.name
-        compare_unit = compare_spec.unit_enum.name
+        base_unit = base_spec.unit_enum
+        compare_unit = compare_spec.unit_enum
         print(f"[DIFF]   Metric unit_enum: base={base_unit!r} (type={type(base_unit).__name__}), compare={compare_unit!r} (type={type(compare_unit).__name__})")
         if base_unit != compare_unit:
             # Both None is equal, handle value comparison
@@ -1683,12 +1683,6 @@ def _detect_column_changes_for_diff(
         for col in compare_node.current.columns
     }
 
-    print(f"[DIFF] _detect_column_changes_for_diff:")
-    print(f"[DIFF]   base_node={base_node.name}, compare_node={compare_node.name}")
-    print(f"[DIFF]   base_namespace={base_namespace}, compare_namespace={compare_namespace}")
-    print(f"[DIFF]   base_columns={list(base_columns.keys())}")
-    print(f"[DIFF]   compare_columns={list(compare_columns.keys())}")
-
     # Removed columns
     for col_name in base_columns.keys() - compare_columns.keys():
         changes.append(
@@ -1714,7 +1708,6 @@ def _detect_column_changes_for_diff(
         old_type = str(base_columns[col_name].type)
         new_type = str(compare_columns[col_name].type)
         if old_type != new_type:
-            print(f"[DIFF]   Type change detected: {col_name} base_type={old_type}, compare_type={new_type}")
             changes.append(
                 ColumnChange(
                     column=col_name,
