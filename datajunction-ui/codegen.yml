@@ -1,5 +1,6 @@
 overwrite: true
-schema: http://localhost:8000/graphql
+# Use static schema file from server (no live server needed)
+schema: ../datajunction-server/datajunction_server/api/graphql/schema.graphql
 documents: src/graphql/**/*.graphql
 generates:
   src/types/graphql.ts:
