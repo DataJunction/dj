@@ -1299,6 +1299,229 @@ class TestBuildSqlFromCube:
         assert_sql_equal(spark_result.sql, expected_sql)
         assert_sql_equal(druid_result.sql, expected_sql)
 
+    @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_filter(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should build SQL from cube with filter applied."""
+        # Create a cube with availability
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_with_filter",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Test cube for filter tests",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_with_filter/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_filter_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Find the cube
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        # Build SQL from the cube with a filter
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["v3.product.category = 'Electronics'"],
+            dialect=Dialect.SPARK,
+        )
+
+        # Verify result structure
+        assert result is not None
+        assert result.sql is not None
+
+        # Verify SQL structure with WHERE clause
+        expected_sql = """
+        WITH test_cube_with_filter_0 AS (
+          SELECT
+            category,
+            line_total_sum_e1f61696
+          FROM default.analytics.cube_filter_test
+        )
+        SELECT
+          COALESCE(test_cube_with_filter_0.category) AS category,
+          SUM(test_cube_with_filter_0.line_total_sum_e1f61696) AS total_revenue
+        FROM test_cube_with_filter_0
+        WHERE test_cube_with_filter_0.category = 'Electronics'
+        GROUP BY  test_cube_with_filter_0.category
+        """
+        assert_sql_equal(result.sql, expected_sql)
+
+        # Verify columns
+        column_names = [col.name for col in result.columns]
+        assert "category" in column_names
+        assert "total_revenue" in column_names
+
+    @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_multiple_metrics_and_filter(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should build SQL from cube with multiple metrics and filter."""
+        # Create a cube with multiple metrics
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_multi_filter",
+                "metrics": ["v3.total_revenue", "v3.total_quantity"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Test cube with multiple metrics for filter tests",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_multi_filter/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_multi_filter_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Find the cube
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue", "v3.total_quantity"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        # Build SQL with filter
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue", "v3.total_quantity"],
+            dimensions=["v3.product.category"],
+            filters=["v3.product.category = 'Electronics'"],
+            dialect=Dialect.SPARK,
+        )
+
+        # Verify result
+        assert result is not None
+        assert result.sql is not None
+
+        # Verify SQL has WHERE clause
+        expected_sql = """
+        WITH test_cube_multi_filter_0 AS (
+          SELECT
+            category,
+            line_total_sum_e1f61696,
+            quantity_sum_06b64d2e
+          FROM default.analytics.cube_multi_filter_test
+        )
+        SELECT
+          COALESCE(test_cube_multi_filter_0.category) AS category,
+          SUM(test_cube_multi_filter_0.line_total_sum_e1f61696) AS total_revenue,
+          SUM(test_cube_multi_filter_0.quantity_sum_06b64d2e) AS total_quantity
+        FROM test_cube_multi_filter_0
+        WHERE test_cube_multi_filter_0.category = 'Electronics'
+        GROUP BY  test_cube_multi_filter_0.category
+        """
+        assert_sql_equal(result.sql, expected_sql)
+
+    @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_in_filter(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Should build SQL from cube with IN filter operator."""
+        # Create a cube with availability
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_in_filter",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Test cube for IN filter tests",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_in_filter/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_in_filter_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Find the cube
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        # Build SQL from the cube with an IN filter
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=["v3.product.category IN ('Electronics', 'Clothing')"],
+            dialect=Dialect.SPARK,
+        )
+
+        # Verify result structure
+        assert result is not None
+        assert result.sql is not None
+
+        # Verify SQL structure with IN filter
+        expected_sql = """
+        WITH test_cube_in_filter_0 AS (
+          SELECT
+            category,
+            line_total_sum_e1f61696
+          FROM default.analytics.cube_in_filter_test
+        )
+        SELECT
+          COALESCE(test_cube_in_filter_0.category) AS category,
+          SUM(test_cube_in_filter_0.line_total_sum_e1f61696) AS total_revenue
+        FROM test_cube_in_filter_0
+        WHERE test_cube_in_filter_0.category IN ('Electronics', 'Clothing')
+        GROUP BY  test_cube_in_filter_0.category
+        """
+        assert_sql_equal(result.sql, expected_sql)
+
 
 class TestBuildSyntheticGrainGroup:
     """Tests for build_synthetic_grain_group function."""
