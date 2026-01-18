@@ -1,0 +1,13 @@
+name: ${prefix}geography
+node_type: dimension
+display_name: Geography
+description: Geographic hierarchy dimension - shared across customers and stores
+primary_key:
+  - state
+  - country
+query: |
+  SELECT DISTINCT
+    ca_state AS state,
+    ca_country AS country
+  FROM ${prefix}customer_address
+  WHERE ca_state IS NOT NULL

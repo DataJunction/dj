@@ -1,0 +1,34 @@
+name: ${prefix}store_returns_clean
+node_type: transform
+display_name: Store Returns Clean
+description: Cleaned store returns with business-friendly column names
+query: |
+  SELECT
+    sr_returned_date_sk AS returned_date_key,
+    sr_item_sk AS item_key,
+    sr_customer_sk AS customer_key,
+    sr_store_sk AS store_key,
+    sr_reason_sk AS reason_key,
+    sr_ticket_number AS ticket_number,
+    sr_return_quantity AS return_quantity,
+    sr_return_amt AS return_amount,
+    sr_return_tax AS return_tax,
+    sr_fee AS fee,
+    sr_refunded_cash AS refunded_cash,
+    sr_reversed_charge AS reversed_charge,
+    sr_store_credit AS store_credit,
+    sr_net_loss AS net_loss
+  FROM ${prefix}store_returns
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}date
+    join_on: ${prefix}store_returns_clean.returned_date_key = ${prefix}date.date_key
+  - type: join
+    dimension_node: ${prefix}product
+    join_on: ${prefix}store_returns_clean.item_key = ${prefix}product.item_key
+  - type: join
+    dimension_node: ${prefix}customer_dim
+    join_on: ${prefix}store_returns_clean.customer_key = ${prefix}customer_dim.customer_key
+  - type: join
+    dimension_node: ${prefix}store_dim
+    join_on: ${prefix}store_returns_clean.store_key = ${prefix}store_dim.store_key

@@ -1,0 +1,15 @@
+name: ${prefix}cross_channel_cube
+node_type: cube
+description: Cross-channel analysis cube comparing store, web, and catalog metrics
+metrics:
+  - ${prefix}store_revenue
+  - ${prefix}web_revenue
+  - ${prefix}catalog_revenue
+  - ${prefix}store_revenue_share
+  - ${prefix}web_revenue_share
+  - ${prefix}store_unique_customers
+  - ${prefix}web_unique_customers
+dimensions:
+  - ${prefix}product.category
+  - ${prefix}date.year
+  - ${prefix}date.quarter_of_year

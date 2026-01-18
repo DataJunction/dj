@@ -1,0 +1,7 @@
+name: ${prefix}web_revenue
+node_type: metric
+display_name: Web Revenue
+description: Total revenue from web channel sales
+query: SELECT SUM(net_paid) FROM ${prefix}web_sales_clean
+direction: higher_is_better
+unit: dollar

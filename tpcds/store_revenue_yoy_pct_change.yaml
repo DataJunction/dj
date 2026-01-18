@@ -1,0 +1,9 @@
+name: ${prefix}store_revenue_yoy_pct_change
+node_type: metric
+display_name: Store Revenue YoY % Change
+description: Year-over-year percentage change in store revenue
+query: |
+  SELECT
+    (${prefix}store_revenue - LAG(${prefix}store_revenue, 1) OVER (ORDER BY ${prefix}date.year))
+    / NULLIF(LAG(${prefix}store_revenue, 1) OVER (ORDER BY ${prefix}date.year), 0) * 100
+unit: percentage

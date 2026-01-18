@@ -1,0 +1,7 @@
+name: ${prefix}store_revenue
+node_type: metric
+display_name: Store Revenue
+description: Total revenue from store channel sales
+query: SELECT SUM(net_paid) FROM ${prefix}store_sales_clean
+direction: higher_is_better
+unit: dollar

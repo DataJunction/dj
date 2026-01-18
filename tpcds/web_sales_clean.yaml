@@ -1,0 +1,38 @@
+name: ${prefix}web_sales_clean
+node_type: transform
+display_name: Web Sales Clean
+description: Cleaned web sales with business-friendly column names
+query: |
+  SELECT
+    ws_sold_date_sk AS sold_date_key,
+    ws_ship_date_sk AS ship_date_key,
+    ws_item_sk AS item_key,
+    ws_bill_customer_sk AS customer_key,
+    ws_warehouse_sk AS warehouse_key,
+    ws_promo_sk AS promo_key,
+    ws_order_number AS order_number,
+    ws_quantity AS quantity,
+    ws_sales_price AS sales_price,
+    ws_ext_sales_price AS extended_sales_price,
+    ws_ext_discount_amt AS discount_amount,
+    ws_ext_tax AS tax_amount,
+    ws_coupon_amt AS coupon_amount,
+    ws_ext_ship_cost AS shipping_cost,
+    ws_net_paid AS net_paid,
+    ws_net_paid_inc_tax AS net_paid_inc_tax,
+    ws_net_paid_inc_ship AS net_paid_inc_ship,
+    ws_net_profit AS net_profit
+  FROM ${prefix}web_sales
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}date
+    join_on: ${prefix}web_sales_clean.sold_date_key = ${prefix}date.date_key
+  - type: join
+    dimension_node: ${prefix}product
+    join_on: ${prefix}web_sales_clean.item_key = ${prefix}product.item_key
+  - type: join
+    dimension_node: ${prefix}customer_dim
+    join_on: ${prefix}web_sales_clean.customer_key = ${prefix}customer_dim.customer_key
+  - type: join
+    dimension_node: ${prefix}promo
+    join_on: ${prefix}web_sales_clean.promo_key = ${prefix}promo.promo_key

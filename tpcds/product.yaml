@@ -1,0 +1,26 @@
+name: ${prefix}product
+node_type: dimension
+display_name: Product
+description: Product dimension with category hierarchy - conformed across all sales channels
+primary_key:
+  - item_key
+query: |
+  SELECT
+    i_item_sk AS item_key,
+    i_item_id AS item_id,
+    i_item_desc AS item_description,
+    i_product_name AS product_name,
+    i_current_price AS current_price,
+    i_wholesale_cost AS wholesale_cost,
+    i_brand_id AS brand_id,
+    i_brand AS brand,
+    i_class_id AS class_id,
+    i_class AS class,
+    i_category_id AS category_id,
+    i_category AS category,
+    i_manufact_id AS manufacturer_id,
+    i_manufact AS manufacturer,
+    i_size AS size,
+    i_color AS color
+  FROM ${prefix}item
+  WHERE i_rec_end_date IS NULL
