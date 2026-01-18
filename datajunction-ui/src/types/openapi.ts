@@ -68,6 +68,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collections
+         * @description List all collections
+         */
+        get: operations["list_collections_collections_get"];
+        put?: never;
+        /**
+         * Create A Collection
+         * @description Create a Collection
+         */
+        post: operations["create_a_collection_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Collection
+         * @description Get a collection and its nodes
+         */
+        get: operations["get_collection_collections__name__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete A Collection
+         * @description Delete a collection
+         */
+        delete: operations["delete_a_collection_collections__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{name}/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Nodes To A Collection
+         * @description Add one or more nodes to a collection
+         */
+        post: operations["Add_Nodes_to_a_Collection_collections__name__nodes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/collections/{name}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Nodes From A Collection
+         * @description Delete one or more nodes from a collection
+         */
+        post: operations["Delete_Nodes_from_a_Collection_collections__name__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deployments */
+        get: operations["list_deployments_deployments_get"];
+        put?: never;
+        /**
+         * Creates A Bulk Deployment
+         * @description This endpoint takes a deployment specification (namespace, nodes, tags), topologically
+         *     sorts and validates the deployable objects, and deploys the nodes in parallel where
+         *     possible. It returns a summary of the deployment.
+         */
+        post: operations["Creates_a_bulk_deployment_deployments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deployments/{deployment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Deployment Status */
+        get: operations["get_deployment_status_deployments__deployment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deployments/impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Deployment Impact
+         * @description Analyze the impact of a deployment WITHOUT actually deploying.
+         *
+         *     This endpoint takes a deployment specification and returns:
+         *     - Direct changes: What nodes will be created, updated, deleted, or skipped
+         *     - Downstream impacts: What existing nodes will be affected by these changes
+         *     - Warnings: Potential issues like breaking column changes or external impacts
+         *
+         *     Use this endpoint to preview changes before deploying, similar to a dry-run
+         *     but with more detailed impact analysis including second and third-order effects.
+         */
+        post: operations["Preview_deployment_impact_deployments_impact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dialects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dialects
+         * @description Returns a list of registered SQL dialects and their associated transpilation plugin class names.
+         */
+        get: operations["list_dialects_dialects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/engines": {
         parameters: {
             query?: never;
@@ -543,6 +719,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/register/view/{catalog}/{schema_}/{view}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register View
+         * @description Register a view by creating the view in the database and adding a source node for it.
+         *     The source node is created in the SOURCE_NODE_NAMESPACE and
+         *     its schema will be inferred using the configured query service.
+         */
+        post: operations["register_view_register_view__catalog___schema____view__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/nodes/{name}/columns/{column}": {
         parameters: {
             query?: never;
@@ -554,7 +752,10 @@ export interface paths {
         put?: never;
         /**
          * Link Dimension
-         * @description Add information to a node column
+         * @description Add a simple dimension link from a node column to a dimension node.
+         *     1. If a specific `dimension_column` is provided, it will be used as join column for the link.
+         *     2. If no `dimension_column` is provided, the primary key column of the dimension node will
+         *        be used as the join column for the link.
          */
         post: operations["link_dimension_nodes__name__columns__column__post"];
         /**
@@ -562,6 +763,30 @@ export interface paths {
          * @description Remove the link between a node column and a dimension node
          */
         delete: operations["delete_dimension_link_nodes__name__columns__column__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{node_name}/columns/{node_column}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Reference Dimension Link
+         * @description Add reference dimension link to a node column
+         */
+        post: operations["add_reference_dimension_link_nodes__node_name__columns__node_column__link_post"];
+        /**
+         * Remove Reference Dimension Link
+         * @description Remove reference dimension link from a node column
+         */
+        delete: operations["remove_reference_dimension_link_nodes__node_name__columns__node_column__link_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -587,26 +812,6 @@ export interface paths {
          * @description Removes a complex dimension link based on the dimension node and its role (if any).
          */
         delete: operations["remove_complex_dimension_link_nodes__node_name__link_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/nodes/{name}/migrate_dim_link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Migrate Dimension Link
-         * @description Migrate dimension link from column-level to node-level
-         */
-        post: operations["migrate_dimension_link_nodes__name__migrate_dim_link_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -681,7 +886,8 @@ export interface paths {
         };
         /**
          * List Downstream Nodes For A Node
-         * @description List all nodes that are downstream from the given node, filterable by type.
+         * @description List all nodes that are downstream from the given node, filterable by type and max depth.
+         *     Setting a max depth of -1 will include all downstream nodes.
          */
         get: operations["List_Downstream_Nodes_For_A_Node_nodes__name__downstream_get"];
         put?: never;
@@ -791,6 +997,26 @@ export interface paths {
          * @description Set column name for the node
          */
         patch: operations["set_column_display_name_nodes__node_name__columns__column_name__patch"];
+        trace?: never;
+    };
+    "/nodes/{node_name}/columns/{column_name}/description": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Column Description
+         * @description Set column description for the node
+         */
+        patch: operations["set_column_description_nodes__node_name__columns__column_name__description_patch"];
         trace?: never;
     };
     "/nodes/{node_name}/columns/{column_name}/partition": {
@@ -945,6 +1171,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/namespaces/{namespace}/export/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Namespace As A Deployment Specification
+         * @description Generates a deployment spec for a namespace
+         */
+        get: operations["Export_namespace_as_a_deployment_specification_namespaces__namespace__export_spec_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/namespaces/{namespace}/export/yaml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Namespace As Downloadable Yaml Zip
+         * @description Export a namespace as a downloadable ZIP file containing YAML files.
+         *
+         *     The ZIP structure matches the expected layout for `dj push`:
+         *     - dj.yaml (project manifest)
+         *     - <namespace>/<node>.yaml (one file per node)
+         *
+         *     This makes it easy to start managing nodes via Git/CI-CD.
+         */
+        get: operations["Export_namespace_as_downloadable_YAML_ZIP_namespaces__namespace__export_yaml_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/namespaces/{namespace}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deployment Sources For A Namespace
+         * @description Get all deployment sources that have deployed to this namespace.
+         *
+         *     This helps teams understand:
+         *     - Whether a namespace is managed by CI/CD
+         *     - Which repositories have deployed to this namespace
+         *     - If there are multiple sources (potential conflict indicator)
+         */
+        get: operations["Get_deployment_sources_for_a_namespace_namespaces__namespace__sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/namespaces/sources/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Deployment Sources For Multiple Namespaces
+         * @description Get deployment sources for multiple namespaces in a single request.
+         *
+         *     This is useful for displaying CI/CD badges in the UI for all visible namespaces.
+         *     Returns a map of namespace name -> source info for each requested namespace.
+         */
+        post: operations["Get_deployment_sources_for_multiple_namespaces_namespaces_sources_bulk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/materialization/info": {
         parameters: {
             query?: never;
@@ -997,6 +1317,9 @@ export interface paths {
          * List Materializations For A Node
          * @description Show all materializations configured for the node, with any associated metadata
          *     like urls from the materialization service, if available.
+         *
+         *     show_inactive: bool - Show materializations that have a deactivated_at timestamp set
+         *     include_all_revisions: bool - Show  materializations for all revisions of the node
          */
         get: operations["List_Materializations_for_a_Node_nodes__node_name__materializations_get"];
         put?: never;
@@ -1005,6 +1328,9 @@ export interface paths {
          * Deactivate A Materialization For A Node
          * @description Deactivate the node materialization with the provided name.
          *     Also calls the query service to deactivate the associated scheduled jobs.
+         *
+         *     If node_version not provided, it will deactivate the materialization
+         *     for the current version of the node.
          */
         delete: operations["Deactivate_a_Materialization_for_a_Node_nodes__node_name__materializations_delete"];
         options?: never;
@@ -1026,6 +1352,26 @@ export interface paths {
          * @description Start a backfill for a configured materialization.
          */
         post: operations["Kick_off_a_backfill_run_for_a_configured_materialization_nodes__node_name__materializations__materialization_name__backfill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{node_name}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Availability States For A Node
+         * @description Retrieve all availability states for a given node across all revisions.
+         */
+        get: operations["List_All_Availability_States_for_a_Node_nodes__node_name__availability_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1080,6 +1426,30 @@ export interface paths {
         patch: operations["Edit_a_Measure_measures__measure_name__patch"];
         trace?: never;
     };
+    "/frozen-measures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Frozen Measures
+         * @description List all frozen measures, with optional filters:
+         *     - prefix: only measures whose names start with this prefix
+         *     - aggregation: filter by aggregation type (e.g., SUM, COUNT)
+         *     - upstream_name: filter by the upstream node revision's name
+         *     - upstream_version: filter by the upstream node revision's version
+         */
+        get: operations["list_frozen_measures_frozen_measures_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data/{node_name}/availability": {
         parameters: {
             query?: never;
@@ -1094,7 +1464,11 @@ export interface paths {
          * @description Add an availability state to a node.
          */
         post: operations["Add_Availability_State_to_Node_data__node_name__availability_post"];
-        delete?: never;
+        /**
+         * Remove Availability State From Node
+         * @description Remove an availability state from a node.
+         */
+        delete: operations["Remove_Availability_State_from_Node_data__node_name__availability_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1112,6 +1486,26 @@ export interface paths {
          * @description Gets data for a node
          */
         get: operations["Get_Data_for_a_Node_data__node_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stream/{node_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Data Stream For Node
+         * @description Return data for a node using server side events
+         */
+        get: operations["get_data_stream_for_node_stream__node_name__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1169,7 +1563,7 @@ export interface paths {
         };
         /**
          * Get Data Stream For Metrics
-         * @description Return data for a set of metrics with dimensions and filters using server side events
+         * @description Return data for a set of metrics with dimensions and filters using server sent events
          */
         get: operations["get_data_stream_for_metrics_stream_get"];
         put?: never;
@@ -1240,6 +1634,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cubes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get All Cubes
+         * @description Get information on all cubes
+         */
+        get: operations["Get_all_Cubes_cubes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cubes/{name}": {
         parameters: {
             query?: never;
@@ -1252,6 +1666,67 @@ export interface paths {
          * @description Get information on a cube
          */
         get: operations["Get_a_Cube_cubes__name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cubes/{name}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get A Cube Revision
+         * @description Get information on a specific cube revision
+         */
+        get: operations["Get_a_Cube_Revision_cubes__name__versions__version__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cubes/{name}/materialization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cube Materialization Config
+         * @description The standard cube materialization config. DJ makes sensible materialization choices
+         *     where possible.
+         *
+         *     Requirements:
+         *     - The cube must have a temporal partition column specified.
+         *     - The job strategy will always be "incremental time".
+         *
+         *     Outputs:
+         *     "measures_materializations":
+         *         We group the metrics by parent node. Then we try to pre-aggregate each parent node as
+         *         much as possible to prepare for metric queries on the cube's dimensions.
+         *     "combiners":
+         *         We combine each set of measures materializations on their shared grain. Note that we don't
+         *         support materializing cubes with measures materializations that don't share the same grain.
+         *         However, we keep `combiners` as a list in the eventual future where we support that.
+         *     "metrics":
+         *         We include a list of metrics, their required measures, and the derived expression (e.g., the
+         *         expression used by the metric that makes use of the pre-aggregated measures)
+         *
+         *     Once we create a scheduled materialization workflow, we freeze the metadata for that particular
+         *     materialized dataset. This allows us to reconstruct metrics SQL from the dataset when needed.
+         *     To request metrics from the materialized cube, use the metrics' measures metadata.
+         */
+        get: operations["Cube_Materialization_Config_cubes__name__materialization_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1294,6 +1769,83 @@ export interface paths {
         get: operations["Dimensions_Values_for_Cube_cubes__name__dimensions_data_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cubes/{name}/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Materialize Cube To Druid
+         * @description Create a Druid cube materialization workflow.
+         *
+         *     This endpoint generates all the information needed for a Druid cube workflow:
+         *
+         *     1. **Pre-agg table dependencies**: The Druid workflow should wait (via VTTS)
+         *        for these tables to be available before starting ingestion.
+         *
+         *     2. **Combined SQL**: SQL that reads from the pre-agg tables with re-aggregation,
+         *        combining multiple grain groups via FULL OUTER JOIN.
+         *
+         *     3. **Druid spec**: Ingestion specification for Druid.
+         *
+         *     The typical flow is:
+         *     - Pre-agg workflows write to: `{preagg_catalog}.{preagg_schema}.{node}_preagg_{hash}`
+         *     - Druid workflow waits on those tables' VTTS
+         *     - Once available, Druid workflow runs the combined SQL and ingests to Druid
+         *
+         *     Args:
+         *         name: Cube name
+         *         data: Materialization configuration (schedule, strategy, etc.)
+         *
+         *     Returns:
+         *         CubeMaterializeResponse with pre-agg dependencies, combined SQL, and Druid spec.
+         */
+        post: operations["Materialize_Cube_to_Druid_cubes__name__materialize_post"];
+        /**
+         * Deactivate Cube Materialization
+         * @description Deactivate (remove) the Druid cube materialization for this cube.
+         *
+         *     This will:
+         *     1. Remove the materialization record from the cube
+         *     2. Optionally deactivate the workflow in the query service (if supported)
+         */
+        delete: operations["Deactivate_Cube_Materialization_cubes__name__materialize_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cubes/{name}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Cube Backfill
+         * @description Run a backfill for the cube over the specified date range.
+         *
+         *     This triggers the cube's backfill workflow with the given start_date
+         *     and end_date. The workflow iterates through each date partition
+         *     and re-runs the cube materialization for that date.
+         *
+         *     Prerequisites:
+         *     - Cube materialization must be scheduled (via POST /cubes/{name}/materialize)
+         */
+        post: operations["Run_Cube_Backfill_cubes__name__backfill_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1392,7 +1944,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/sql/measures": {
+    "/sql/measures/v2": {
         parameters: {
             query?: never;
             header?: never;
@@ -1401,11 +1953,17 @@ export interface paths {
         };
         /**
          * Get Measures Sql
-         * @description Return the measures SQL for a set of metrics with dimensions and filters.
-         *     This SQL can be used to produce an intermediate table with all the measures
-         *     and dimensions needed for an analytics database (e.g., Druid).
+         * @description Return measures SQL for a set of metrics with dimensions and filters.
+         *
+         *     The measures query can be used to produce intermediate table(s) with all the measures
+         *     and dimensions needed prior to applying specific metric aggregations.
+         *
+         *     This endpoint returns one SQL query per upstream node of the requested metrics.
+         *     For example, if some of your metrics are aggregations on measures in parent node A
+         *     and others are aggregations on measures in parent node B, this endpoint will generate
+         *     two measures queries, one for A and one for B.
          */
-        get: operations["Get_Measures_SQL_sql_measures_get"];
+        get: operations["Get_Measures_SQL_sql_measures_v2_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1426,6 +1984,145 @@ export interface paths {
          * @description Return SQL for a node.
          */
         get: operations["Get_SQL_For_A_Node_sql__node_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sql/measures/v3": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Measures Sql V3
+         * @description Generate pre-aggregated measures SQL for the requested metrics.
+         *
+         *     Measures SQL represents the first stage of metric computation - it decomposes
+         *     each metric into its atomic aggregation components (e.g., SUM(amount), COUNT(*))
+         *     and produces SQL that computes these components at the requested dimensional grain.
+         *
+         *     Metrics are separated into grain groups, which represent sets of metrics that can be
+         *     computed together at a common grain. Each grain group produces its own SQL query, which
+         *     can be materialized independently to produce intermediate tables that are then queried
+         *     to compute final metric values.
+         *
+         *     Returns:
+         *         One or more `GrainGroupSQL` objects, each containing:
+         *         - SQL query computing metric components at the specified grain
+         *         - Column metadata with semantic types
+         *         - Component details for downstream re-aggregation
+         *
+         *     Args:
+         *         use_materialized: If True (default), use materialized tables when available.
+         *             Set to False when generating SQL for materialization refresh to avoid
+         *             circular references.
+         *
+         *     See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
+         */
+        get: operations["Get_Measures_SQL_V3_sql_measures_v3_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sql/measures/v3/combined": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Combined Measures Sql V3
+         * @description Generate combined pre-aggregated measures SQL for the requested metrics.
+         *
+         *     This endpoint combines multiple grain groups into a single SQL query using
+         *     FULL OUTER JOIN on shared dimensions. Dimension columns are wrapped with
+         *     COALESCE to handle NULLs from non-matching rows.
+         *
+         *     This is useful for:
+         *     - Druid cube materialization where a single combined table is needed
+         *     - Simplifying downstream queries that need data from multiple fact tables
+         *     - Pre-computing joined aggregations for dashboards
+         *
+         *     The combined SQL contains:
+         *     - CTEs for each grain group's pre-aggregated data
+         *     - FULL OUTER JOIN between grain groups on shared dimensions
+         *     - COALESCE on dimension columns to handle NULL values
+         *     - All measure columns from all grain groups
+         *
+         *     Args:
+         *         metrics: List of metric names to include
+         *         dimensions: List of dimensions to group by (the grain)
+         *         filters: Optional filters to apply
+         *         use_preagg_tables: If False (default), compute from scratch using source tables.
+         *             If True, read from pre-aggregation tables.
+         *
+         *     Returns:
+         *         Combined SQL query with column metadata and grain information.
+         *
+         *     See also:
+         *         - `/sql/measures/v3/` for individual grain group queries
+         *         - `/sql/metrics/v3/` for final metric computations with combiner expressions
+         */
+        get: operations["Get_Combined_Measures_SQL_V3_sql_measures_v3_combined_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sql/metrics/v3": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Metrics Sql V3
+         * @description Generate final metrics SQL with fully computed metric expressions for the
+         *     requested metrics, dimensions, and filters using the specified dialect.
+         *
+         *     Metrics SQL is the second (and final) stage of metric computation - it takes
+         *     the pre-aggregated components from Measures SQL and applies combiner expressions
+         *     to produce the actual metric values requested.
+         *
+         *     - Metric components are re-aggregated as needed to match the requested
+         *     dimensional grain.
+         *
+         *     - Derived metrics (defined as expressions over other metrics)
+         *     (e.g., `conversion_rate = order_count / visitor_count`) are computed by
+         *     substituting component references with their re-aggregated expressions.
+         *
+         *     - When metrics come from different fact tables, their
+         *     grain groups are FULL OUTER JOINed on the common dimensions, with COALESCE
+         *     for dimension columns to handle NULLs from non-matching rows.
+         *
+         *     - Dimension references in metric expressions are resolved to their
+         *     final column aliases.
+         *
+         *     Args:
+         *         metrics: List of metric names to include
+         *         dimensions: List of dimensions to group by (the grain)
+         *         filters: Optional filters to apply
+         *         dialect: SQL dialect for the generated query
+         *         use_materialized: If True (default), use materialized tables when available.
+         *             Set to False when generating SQL for materialization refresh to avoid
+         *             circular references.
+         */
+        get: operations["Get_Metrics_SQL_V3_sql_metrics_v3_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1474,6 +2171,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datajunction-clients/python/dimension_links/{node_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Client Code For Dimension Links On Node
+         * @description Generate the Python client code used for creating this node
+         */
+        get: operations["client_code_for_dimension_links_on_node_datajunction_clients_python_dimension_links__node_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datajunction-clients/python/add_materialization/{node_name}/{materialization_name}": {
         parameters: {
             query?: never;
@@ -1494,7 +2211,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/datajunction-clients/python/link_dimension/{node_name}/{column}/{dimension}": {
+    "/datajunction-clients/python/notebook": {
         parameters: {
             query?: never;
             header?: never;
@@ -1502,10 +2219,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Client Code For Linking Dimension To Node
-         * @description Generate the Python client code used for linking this node's column to a dimension
+         * Notebook For Exporting Nodes
+         * @description Generate the Python client code used for exporting multiple nodes. There are two options:
+         *     * namespace: If `namespace` is specified, the generated notebook will contain Python client
+         *     code to export all nodes in the namespace.
+         *     * cube: If `cube` is specified, the generated notebook will contain Python client code
+         *     used for exporting a cube, including all metrics and dimensions referenced in the cube.
          */
-        get: operations["client_code_for_linking_dimension_to_node_datajunction_clients_python_link_dimension__node_name___column___dimension__get"];
+        get: operations["notebook_for_exporting_nodes_datajunction_clients_python_notebook_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1574,6 +2295,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hierarchies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Hierarchies
+         * @description List all available hierarchies.
+         */
+        get: operations["list_all_hierarchies_hierarchies_get"];
+        put?: never;
+        /**
+         * Create Hierarchy
+         * @description Create a new hierarchy definition.
+         */
+        post: operations["create_hierarchy_hierarchies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{dimension}/hierarchies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dimension Hierarchies
+         * @description Get all hierarchies that use a specific dimension node and show navigation options.
+         *
+         *     This endpoint helps users discover:
+         *     - What hierarchies include this dimension
+         *     - What position the dimension occupies in each hierarchy
+         *     - What other dimensions they can drill up or down to
+         */
+        get: operations["get_dimension_hierarchies_nodes__dimension__hierarchies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hierarchies/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hierarchy
+         * @description Get a specific hierarchy by name.
+         */
+        get: operations["get_hierarchy_hierarchies__name__get"];
+        /**
+         * Update Hierarchy
+         * @description Update a hierarchy.
+         */
+        put: operations["update_hierarchy_hierarchies__name__put"];
+        post?: never;
+        /**
+         * Delete Hierarchy
+         * @description Delete a hierarchy.
+         */
+        delete: operations["delete_hierarchy_hierarchies__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/graphql": {
         parameters: {
             query?: never;
@@ -1600,10 +2398,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get User
+         * Whoami
          * @description Returns the current authenticated user
          */
-        get: operations["get_user_whoami_get"];
+        get: operations["whoami_whoami_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1627,6 +2425,328 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Nodes By Username
+         * @description List all nodes with the specified activity type(s) by the user
+         */
+        get: operations["list_nodes_by_username_users__username__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Users With Activity
+         * @description Lists all users. The endpoint will include user activity counts if the
+         *     `with_activity` flag is set to true.
+         */
+        get: operations["list_users_with_activity_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Groups
+         * @description List all registered groups.
+         */
+        get: operations["list_groups_groups_get"];
+        put?: never;
+        /**
+         * Register Group
+         * @description Register a group in DJ.
+         *
+         *     This makes the group available for assignment as a node owner.
+         *     Group membership can be managed via the membership endpoints (Postgres provider)
+         *     or resolved externally (LDAP, etc.).
+         *
+         *     Args:
+         *         username: Unique identifier for the group (e.g., 'eng-team')
+         *         email: Optional email for the group
+         *         name: Display name (defaults to username)
+         */
+        post: operations["register_group_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/{group_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Group
+         * @description Get a group by name.
+         */
+        get: operations["get_group_groups__group_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/{group_name}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Group Members
+         * @description List members of a group.
+         *
+         *     For Postgres provider: queries group_members table.
+         *     For external providers: returns empty (membership resolved externally).
+         */
+        get: operations["list_group_members_groups__group_name__members_get"];
+        put?: never;
+        /**
+         * Add Group Member
+         * @description Add a member to a group (Postgres provider only).
+         *
+         *     For external providers, membership is managed externally and this endpoint is disabled.
+         */
+        post: operations["add_group_member_groups__group_name__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/{group_name}/members/{member_username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Group Member
+         * @description Remove a member from a group (Postgres provider only).
+         */
+        delete: operations["remove_group_member_groups__group_name__members__member_username__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Roles
+         * @description List all roles with their scopes.
+         *
+         *     By default, excludes soft-deleted roles. Set include_deleted=true to see all.
+         */
+        get: operations["list_roles_roles_get"];
+        put?: never;
+        /**
+         * Create Role
+         * @description Create a new role with optional scopes.
+         *
+         *     Roles are named collections of permissions that can be assigned to principals.
+         */
+        post: operations["create_role_roles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Role
+         * @description Get a specific role with its scopes.
+         *
+         *     By default, returns 404 for deleted roles. Set include_deleted=true to see deleted roles.
+         */
+        get: operations["get_role_roles__role_name__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Role
+         * @description Soft delete a role.
+         *
+         *     Roles that have ever been assigned cannot be deleted (for SOX compliance).
+         *     This ensures a complete audit trail. Instead, roles are marked as deleted
+         *     and hidden from normal queries.
+         */
+        delete: operations["delete_role_roles__role_name__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Role
+         * @description Update a role's name or description.
+         *
+         *     Note: Use /roles/{role_name}/scopes/ endpoints to manage scopes.
+         */
+        patch: operations["update_role_roles__role_name__patch"];
+        trace?: never;
+    };
+    "/roles/{role_name}/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Role Scopes
+         * @description List all scopes for a role.
+         */
+        get: operations["list_role_scopes_roles__role_name__scopes_get"];
+        put?: never;
+        /**
+         * Add Scope To Role
+         * @description Add a scope (permission) to a role.
+         */
+        post: operations["add_scope_to_role_roles__role_name__scopes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_name}/scopes/{action}/{scope_type}/{scope_value}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Scope From Role
+         * @description Remove a scope from a role using its composite key.
+         *
+         *     Example: DELETE /roles/finance-editor/scopes/read/namespace/finance.*
+         */
+        delete: operations["delete_scope_from_role_roles__role_name__scopes__action___scope_type___scope_value__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_name}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign Role To Principal
+         * @description Assign a role to a principal (user, service account, or group).
+         *
+         *     Example: POST /roles/finance-editor/assign
+         *              Body: {"principal_username": "alice"}
+         */
+        post: operations["assign_role_to_principal_roles__role_name__assign_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_name}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Role Assignments
+         * @description List all principals who have this role.
+         *
+         *     Example: GET /roles/finance-editor/assignments
+         */
+        get: operations["list_role_assignments_roles__role_name__assignments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_name}/assignments/{principal_username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Role From Principal
+         * @description Revoke a role from a principal.
+         *
+         *     Example: DELETE /roles/finance-editor/assignments/alice
+         *
+         *     This removes the role from the principal but preserves the audit trail in History.
+         */
+        delete: operations["revoke_role_from_principal_roles__role_name__assignments__principal_username__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1692,6 +2812,488 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notifications/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subscribe
+         * @description Subscribes to notifications by upserting a notification preference.
+         *     If one exists, update it. Otherwise, create a new one.
+         */
+        post: operations["subscribe_notifications_subscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unsubscribe
+         * @description Unsubscribes from notifications by deleting a notification preference
+         */
+        delete: operations["unsubscribe_notifications_unsubscribe_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preferences
+         * @description Gets notification preferences for the current user
+         */
+        get: operations["get_preferences_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Users For Notification
+         * @description Get users for the given notification preference
+         */
+        get: operations["get_users_for_notification_notifications_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/mark-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Notifications Read
+         * @description Mark all notifications as read by updating the user's
+         *     last_viewed_notifications_at timestamp to now.
+         */
+        post: operations["mark_notifications_read_notifications_mark_read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pre-Aggregations
+         * @description List pre-aggregations with optional filters.
+         *
+         *     Filter options:
+         *     - node_name: Filter by the source node name
+         *     - node_version: Filter by node version (if omitted, uses latest version)
+         *     - grain: Comma-separated grain columns to match
+         *     - grain_mode: 'exact' (default) requires exact match, 'superset' finds pre-aggs
+         *       that contain all requested columns (and possibly more - finer grain)
+         *     - grain_group_hash: Direct lookup by grain group hash
+         *     - measures: Comma-separated measures - pre-agg must contain ALL specified
+         *     - status: Filter by 'pending' (no availability) or 'active' (has availability)
+         */
+        get: operations["List_Pre_aggregations_preaggs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Pre-Aggregation By Id
+         * @description Get a single pre-aggregation by its ID.
+         *
+         *     The response includes the SQL needed for materialization.
+         */
+        get: operations["Get_Pre_aggregation_by_ID_preaggs__preagg_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Pre-Aggregations
+         * @description Create pre-aggregations from metrics + dimensions.
+         *
+         *     This is the primary way to create pre-aggregations. DJ:
+         *     1. Computes grain groups from the metrics/dimensions (same as /sql/measures/v3)
+         *     2. Generates SQL for each grain group
+         *     3. Creates PreAggregation records (or returns existing ones if they match)
+         *     4. Returns the pre-aggs with their IDs and SQL
+         *
+         *     After calling this endpoint:
+         *     - Flow A: Call POST /preaggs/{id}/materialize to have DJ materialize
+         *     - Flow B: Use the returned SQL to materialize yourself, then call
+         *               POST /preaggs/{id}/availability/ to report completion
+         */
+        post: operations["Plan_Pre_aggregations_preaggs_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Materialize Pre-Aggregation
+         * @description Create/update a scheduled workflow for this pre-aggregation.
+         *
+         *     This creates a recurring workflow that materializes the pre-agg on schedule.
+         *     Call this endpoint to:
+         *     - Initially set up materialization for a pre-agg
+         *     - Refresh/recreate the workflow after config changes
+         *
+         *     The workflow runs on the configured schedule (default: daily at midnight).
+         *     The query service will callback to POST /preaggs/{id}/availability/ when
+         *     each run completes.
+         *
+         *     For user-managed materialization, use the SQL from GET /preaggs/{id}
+         *     and call POST /preaggs/{id}/availability/ when done.
+         */
+        post: operations["Materialize_Pre_aggregation_preaggs__preagg_id__materialize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Pre-Aggregation Config
+         * @description Update the materialization configuration of a single pre-aggregation.
+         *
+         *     Use this endpoint to configure individual pre-aggs with different
+         *     strategies, schedules, or lookback windows.
+         */
+        patch: operations["Update_Pre_aggregation_Config_preaggs__preagg_id__config_patch"];
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}/workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Deactivate Scheduled Workflow
+         * @description Deactivate (pause) the scheduled workflow for this pre-aggregation.
+         *
+         *     The workflow definition is kept but will not run on schedule.
+         *     Call POST /preaggs/{id}/materialize to re-activate.
+         */
+        delete: operations["Deactivate_Scheduled_Workflow_preaggs__preagg_id__workflow_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Bulk Deactivate Workflows
+         * @description Bulk deactivate workflows for pre-aggregations of a node.
+         *
+         *     This is useful for cleaning up stale pre-aggregations after a node
+         *     has been updated. When stale_only=true, only deactivates workflows
+         *     for pre-aggs that were built for older node versions.
+         *
+         *     Staleness is determined by comparing the pre-agg's node_revision_id
+         *     to the node's current revision.
+         */
+        delete: operations["Bulk_Deactivate_Workflows_preaggs_workflows_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Backfill
+         * @description Run a backfill for the specified date range.
+         *
+         *     This triggers a one-time job to process historical data from start_date
+         *     to end_date. The workflow must already exist (created via POST /workflow).
+         *
+         *     Use this to:
+         *     - Initially populate a new pre-aggregation
+         *     - Re-process data after a bug fix
+         *     - Catch up on missed partitions
+         */
+        post: operations["Run_Backfill_preaggs__preagg_id__backfill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preaggs/{preagg_id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Pre-Aggregation Availability
+         * @description Update the availability state of a pre-aggregation (Flow B).
+         *
+         *     Call this endpoint after your query service has materialized the data.
+         *     The availability state includes:
+         *     - catalog/schema/table: Where the materialized data lives
+         *     - valid_through_ts: Timestamp through which data is valid
+         *     - min/max_temporal_partition: Temporal partition range (high-water mark)
+         *     - partitions: Detailed partition-level availability
+         *
+         *     This is the callback endpoint for external query services to report
+         *     materialization status back to DJ.
+         */
+        post: operations["Update_Pre_aggregation_Availability_preaggs__preagg_id__availability_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Service Accounts
+         * @description List service accounts for the current user
+         */
+        get: operations["list_service_accounts_service_accounts_get"];
+        put?: never;
+        /**
+         * Create Service Account
+         * @description Create a new service account
+         */
+        post: operations["create_service_account_service_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Service Account
+         * @description Delete a service account
+         */
+        delete: operations["delete_service_account_service_accounts__client_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Service Account Token
+         * @description Get an authentication token for a service account
+         */
+        post: operations["service_account_token_service_accounts_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List System Metrics
+         * @description Returns a list of DJ system metrics (available as metric nodes in DJ).
+         */
+        get: operations["list_system_metrics_system_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system/data/{metric_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Data For System Metric
+         * @description This is not a generic data for metrics endpoint, but rather a specific endpoint for
+         *     system overview metrics that are automatically defined by DJ, such as the number of nodes.
+         *     This endpoint will return data for any system metric, cut by their available dimensions
+         *     and filters.
+         *
+         *     This setup circumvents going to the query service to get metric data, since all system
+         *     metrics can be computed directly from the database.
+         *
+         *     For a list of available system metrics, see the `/system/metrics` endpoint. All dimensions
+         *     for the metric can be discovered through the usual endpoints.
+         */
+        get: operations["get_data_for_system_metric_system_data__metric_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system/dimensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dimensions Stats
+         * @description List dimensions statistics, including the indegree of the dimension in the DAG
+         *     and the number of cubes that use the dimension.
+         */
+        get: operations["get_dimensions_stats_system_dimensions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1703,11 +3305,23 @@ export interface components {
          */
         ActivityType: "create" | "delete" | "restore" | "update" | "refresh" | "tag" | "set_attribute" | "status_change";
         /**
+         * Aggregability
+         * @description Type of allowed aggregation for a given metric component.
+         * @enum {string}
+         */
+        Aggregability: "full" | "limited" | "none";
+        /**
          * AggregationRule
          * @description Type of allowed aggregation for a given measure.
          * @enum {string}
          */
         AggregationRule: "additive" | "non-additive" | "semi-additive";
+        /**
+         * AggregationRule
+         * @description Type of allowed aggregation for a given measure.
+         * @enum {string}
+         */
+        "AggregationRule-Input": "additive" | "non-additive" | "semi-additive";
         /**
          * AttributeOutput
          * @description Column attribute output.
@@ -1729,8 +3343,10 @@ export interface components {
             name: string;
             /** Description */
             description: string;
+            /** Allowed Node Types */
             allowed_node_types: components["schemas"]["NodeType"][];
-            uniqueness_scope?: components["schemas"]["UniquenessScope"][];
+            /** Uniqueness Scope */
+            uniqueness_scope?: components["schemas"]["UniquenessScope"][] | null;
             /** Id */
             id: number;
         };
@@ -1762,50 +3378,120 @@ export interface components {
          * @description An availability state base
          */
         AvailabilityStateBase: {
-            /**
-             * Min Temporal Partition
-             * @default []
-             */
-            min_temporal_partition: string[];
-            /**
-             * Max Temporal Partition
-             * @default []
-             */
-            max_temporal_partition: string[];
+            /** Min Temporal Partition */
+            min_temporal_partition?: (string | number)[] | null;
+            /** Max Temporal Partition */
+            max_temporal_partition?: (string | number)[] | null;
             /** Catalog */
             catalog: string;
             /** Schema */
-            schema_?: string;
+            schema_?: string | null;
             /** Table */
             table: string;
             /** Valid Through Ts */
             valid_through_ts: number;
             /** Url */
-            url?: string;
-            /**
-             * Categorical Partitions
-             * @default []
-             */
-            categorical_partitions: string[];
-            /**
-             * Temporal Partitions
-             * @default []
-             */
-            temporal_partitions: string[];
-            /**
-             * Partitions
-             * @default []
-             */
-            partitions: components["schemas"]["PartitionAvailability"][];
+            url?: string | null;
+            /** Links */
+            links?: Record<string, never> | null;
+            /** Categorical Partitions */
+            categorical_partitions?: string[] | null;
+            /** Temporal Partitions */
+            temporal_partitions?: string[] | null;
+            /** Partitions */
+            partitions?: components["schemas"]["PartitionAvailability"][] | null;
+        };
+        /**
+         * AvailabilityStateInfo
+         * @description Availability state information for a node
+         */
+        AvailabilityStateInfo: {
+            /** Min Temporal Partition */
+            min_temporal_partition?: (string | number)[] | null;
+            /** Max Temporal Partition */
+            max_temporal_partition?: (string | number)[] | null;
+            /** Catalog */
+            catalog: string;
+            /** Schema */
+            schema_?: string | null;
+            /** Table */
+            table: string;
+            /** Valid Through Ts */
+            valid_through_ts: number;
+            /** Url */
+            url?: string | null;
+            /** Links */
+            links?: Record<string, never> | null;
+            /** Categorical Partitions */
+            categorical_partitions?: string[] | null;
+            /** Temporal Partitions */
+            temporal_partitions?: string[] | null;
+            /** Partitions */
+            partitions?: components["schemas"]["PartitionAvailability"][] | null;
+            /** Id */
+            id: number;
+            /** Updated At */
+            updated_at: string;
+            /** Node Revision Id */
+            node_revision_id: number;
+            /** Node Version */
+            node_version: string;
         };
         /**
          * BackfillOutput
          * @description Output model for backfills
          */
         BackfillOutput: {
-            spec?: components["schemas"]["PartitionBackfill"];
+            /** Spec */
+            spec?: components["schemas"]["PartitionBackfill"][] | null;
             /** Urls */
-            urls?: string[];
+            urls?: string[] | null;
+        };
+        /**
+         * BackfillRequest
+         * @description Request model for running a backfill.
+         */
+        BackfillRequest: {
+            /**
+             * Start Date
+             * Format: date
+             * @description Start date for backfill (inclusive)
+             */
+            start_date: string;
+            /**
+             * End Date
+             * @description End date for backfill (inclusive). Defaults to today.
+             */
+            end_date?: string | null;
+        };
+        /**
+         * BackfillResponse
+         * @description Response model for backfill operation.
+         */
+        BackfillResponse: {
+            /**
+             * Job Url
+             * @description URL to the backfill job
+             */
+            job_url: string;
+            /**
+             * Start Date
+             * Format: date
+             * @description Start date of the backfill
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             * @description End date of the backfill
+             */
+            end_date: string;
+            /**
+             * Status
+             * @description Job status
+             * @default running
+             */
+            status: string;
         };
         /** Body_create_a_user_basic_user__post */
         Body_create_a_user_basic_user__post: {
@@ -1819,10 +3505,13 @@ export interface components {
         /** Body_login_basic_login__post */
         Body_login_basic_login__post: {
             /** Grant Type */
-            grant_type?: string;
+            grant_type?: string | null;
             /** Username */
             username: string;
-            /** Password */
+            /**
+             * Password
+             * Format: password
+             */
             password: string;
             /**
              * Scope
@@ -1830,23 +3519,144 @@ export interface components {
              */
             scope: string;
             /** Client Id */
-            client_id?: string;
+            client_id?: string | null;
+            /**
+             * Client Secret
+             * Format: password
+             */
+            client_secret?: string | null;
+        };
+        /** Body_service_account_token_service_accounts_token_post */
+        Body_service_account_token_service_accounts_token_post: {
+            /** Client Id */
+            client_id: string;
             /** Client Secret */
-            client_secret?: string;
+            client_secret: string;
+        };
+        /** Body_subscribe_notifications_subscribe_post */
+        Body_subscribe_notifications_subscribe_post: {
+            entity_type: components["schemas"]["EntityType"];
+            /** Entity Name */
+            entity_name: string;
+            /** Activity Types */
+            activity_types: components["schemas"]["ActivityType"][];
+            /** Alert Types */
+            alert_types: string[];
+        };
+        /**
+         * BulkDeactivateWorkflowsResponse
+         * @description Response model for bulk workflow deactivation.
+         */
+        BulkDeactivateWorkflowsResponse: {
+            /**
+             * Deactivated Count
+             * @description Number of workflows successfully deactivated
+             */
+            deactivated_count: number;
+            /**
+             * Deactivated
+             * @description Details of each deactivated workflow
+             */
+            deactivated?: components["schemas"]["DeactivatedWorkflowInfo"][];
+            /**
+             * Skipped Count
+             * @description Number of pre-aggs skipped (no active workflow)
+             * @default 0
+             */
+            skipped_count: number;
+            /**
+             * Message
+             * @description Additional information about the operation
+             */
+            message?: string | null;
+        };
+        /**
+         * BulkNamespaceSourcesRequest
+         * @description Request body for fetching sources for multiple namespaces at once.
+         */
+        BulkNamespaceSourcesRequest: {
+            /**
+             * Namespaces
+             * @description List of namespace names to fetch sources for
+             */
+            namespaces: string[];
+        };
+        /**
+         * BulkNamespaceSourcesResponse
+         * @description Response for bulk fetching namespace sources.
+         *     Maps namespace names to their deployment source info.
+         */
+        BulkNamespaceSourcesResponse: {
+            /** Sources */
+            sources?: {
+                [key: string]: components["schemas"]["NamespaceSourcesResponse"];
+            };
         };
         /**
          * CatalogInfo
          * @description Class for catalog creation
          */
-        CatalogInfo: {
+        "CatalogInfo-Input": {
             /** Name */
             name: string;
-            /**
-             * Engines
-             * @default []
-             */
-            engines: components["schemas"]["EngineInfo"][];
+            /** Engines */
+            engines?: components["schemas"]["EngineInfo"][] | null;
         };
+        /**
+         * CatalogInfo
+         * @description Class for catalog creation
+         */
+        "CatalogInfo-Output": {
+            /** Name */
+            name: string;
+            /** Engines */
+            engines?: components["schemas"]["EngineInfo"][] | null;
+        };
+        /**
+         * CollectionDetails
+         * @description Collection information with details
+         */
+        CollectionDetails: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Nodes */
+            nodes: components["schemas"]["NodeNameOutput"][];
+        };
+        /**
+         * CollectionInfo
+         * @description Class for a collection information
+         */
+        CollectionInfo: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+        };
+        /**
+         * ColumnChange
+         * @description Represents a change to a column
+         */
+        ColumnChange: {
+            /** Column */
+            column: string;
+            change_type: components["schemas"]["ColumnChangeType"];
+            /** Old Type */
+            old_type?: string | null;
+            /** New Type */
+            new_type?: string | null;
+        };
+        /**
+         * ColumnChangeType
+         * @description Types of column changes
+         * @enum {string}
+         */
+        ColumnChangeType: "added" | "removed" | "type_changed";
         /**
          * ColumnMetadata
          * @description A simple model for column metadata.
@@ -1857,41 +3667,203 @@ export interface components {
             /** Type */
             type: string;
             /** Column */
-            column?: string;
+            column?: string | null;
             /** Node */
-            node?: string;
+            node?: string | null;
             /** Semantic Entity */
-            semantic_entity?: string;
+            semantic_entity?: string | null;
             /** Semantic Type */
-            semantic_type?: string;
+            semantic_type?: string | null;
+        };
+        /**
+         * ColumnOutput
+         * @description A simplified column schema, without ID or dimensions.
+         */
+        ColumnOutput: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Type */
+            type: string;
+            /** Description */
+            description?: string | null;
+            /** Dimension Column */
+            dimension_column?: string | null;
+            /** Attributes */
+            attributes?: components["schemas"]["AttributeOutput"][] | null;
+            dimension?: components["schemas"]["NodeNameOutput"] | null;
+            partition?: components["schemas"]["PartitionOutput"] | null;
+        };
+        /**
+         * ColumnSpec
+         * @description Represents a column.
+         *
+         *     The `type` field is optional - if not provided, DJ will infer the column
+         *     type from the query or source definition. This is useful when you only
+         *     want to specify metadata (display_name, attributes, description) without
+         *     hardcoding the type.
+         */
+        "ColumnSpec-Input": {
+            /** Name */
+            name: string;
+            /** Type */
+            type?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Attributes */
+            attributes?: string[];
+            partition?: components["schemas"]["PartitionSpec"] | null;
+        };
+        /**
+         * ColumnSpec
+         * @description Represents a column.
+         *
+         *     The `type` field is optional - if not provided, DJ will infer the column
+         *     type from the query or source definition. This is useful when you only
+         *     want to specify metadata (display_name, attributes, description) without
+         *     hardcoding the type.
+         */
+        "ColumnSpec-Output": {
+            /** Name */
+            name: string;
+            /** Type */
+            type?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Attributes */
+            attributes?: string[];
+            partition?: components["schemas"]["PartitionSpec"] | null;
         };
         /**
          * ColumnType
          * @description Base type for all Column Types
          */
-        ColumnType: Record<string, never>;
+        ColumnType: {
+            [key: string]: unknown;
+        };
+        /**
+         * CombineMaterialization
+         * @description Stage for combining measures datasets at their shared grain and ingesting to Druid.
+         *     Note that if there is only one upstream measures dataset, the Spark combining stage will
+         *     be skipped and we ingest the aggregated measures directly to Druid.
+         */
+        CombineMaterialization: {
+            node: components["schemas"]["NodeNameVersion"];
+            /** Query */
+            query?: string | null;
+            /** Columns */
+            columns: components["schemas"]["ColumnMetadata"][];
+            /**
+             * Grain
+             * @description The grain at which the node is being materialized.
+             */
+            grain: string[];
+            /**
+             * Dimensions
+             * @description List of dimensions included in this materialization.
+             */
+            dimensions: string[];
+            /**
+             * Measures
+             * @description List of measures included in this materialization.
+             */
+            measures: components["schemas"]["MetricComponent"][];
+            /**
+             * Timestamp Column
+             * @description Timestamp column name
+             */
+            timestamp_column?: string | null;
+            /**
+             * Timestamp Format
+             * @description Timestamp format. Example: `yyyyMMdd`
+             */
+            timestamp_format?: string | null;
+            /** @description The time granularity for each materialization run. Examples: DAY, HOUR */
+            granularity?: components["schemas"]["Granularity"] | null;
+            /** Upstream Tables */
+            upstream_tables?: string[];
+            /**
+             * Output Table Name
+             * @description Builds an output table name based on the node and a hash of its unique key.
+             */
+            readonly output_table_name: string;
+            /**
+             * Druid Spec
+             * @description Builds the Druid ingestion spec based on the materialization config.
+             */
+            readonly druid_spec: string;
+        };
+        /**
+         * CombinedMeasuresSQLResponse
+         * @description Response model for combined measures SQL.
+         *
+         *     This endpoint combines multiple grain groups into a single SQL query
+         *     using FULL OUTER JOIN on shared dimensions with COALESCE for dimension columns.
+         */
+        CombinedMeasuresSQLResponse: {
+            /** Sql */
+            sql: string;
+            /** Columns */
+            columns: components["schemas"]["V3ColumnMetadata"][];
+            /** Grain */
+            grain: string[];
+            /** Grain Groups Combined */
+            grain_groups_combined: number;
+            /** Dialect */
+            dialect?: string | null;
+            /** Use Preagg Tables */
+            use_preagg_tables: boolean;
+            /** Source Tables */
+            source_tables: string[];
+        };
+        /**
+         * ComponentResponse
+         * @description Response model for a metric component in measures SQL.
+         */
+        ComponentResponse: {
+            /** Name */
+            name: string;
+            /** Expression */
+            expression: string;
+            /** Aggregation */
+            aggregation?: string | null;
+            /** Merge */
+            merge?: string | null;
+            /** Aggregability */
+            aggregability: string;
+        };
         /**
          * CreateCubeNode
          * @description A create object for cube nodes
          */
         CreateCubeNode: {
             /** Metrics */
-            metrics: string[];
+            metrics?: string[] | null;
             /** Dimensions */
-            dimensions: string[];
+            dimensions?: string[] | null;
             /** Filters */
-            filters?: string[];
+            filters?: string[] | null;
             /** Orderby */
-            orderby?: string[];
+            orderby?: string[] | null;
             /** Limit */
-            limit?: number;
+            limit?: number | null;
             /** Description */
-            description: string;
+            description?: string | null;
+            /** @default published */
             mode: components["schemas"]["NodeMode"];
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Primary Key */
-            primary_key?: string[];
+            primary_key?: string[] | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Owners */
+            owners?: string[] | null;
             /** Name */
             name: string;
             /**
@@ -1908,13 +3880,13 @@ export interface components {
             /** Name */
             name: string;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Columns */
-            columns: components["schemas"]["NodeColumn"][];
+            columns?: components["schemas"]["NodeColumn"][];
             /** @default non-additive */
-            additive: components["schemas"]["AggregationRule"];
+            additive: components["schemas"]["AggregationRule-Input"];
         };
         /**
          * CreateNode
@@ -1922,17 +3894,22 @@ export interface components {
          */
         CreateNode: {
             /** Required Dimensions */
-            required_dimensions?: string[];
-            metric_metadata?: components["schemas"]["MetricMetadataInput"];
+            required_dimensions?: string[] | null;
+            metric_metadata?: components["schemas"]["MetricMetadataInput"] | null;
             /** Query */
             query: string;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Description */
-            description: string;
+            description?: string | null;
+            /** @default published */
             mode: components["schemas"]["NodeMode"];
             /** Primary Key */
-            primary_key?: string[];
+            primary_key?: string[] | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Owners */
+            owners?: string[] | null;
             /** Name */
             name: string;
             /**
@@ -1960,12 +3937,17 @@ export interface components {
              */
             missing_table: boolean;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Description */
-            description: string;
+            description?: string | null;
+            /** @default published */
             mode: components["schemas"]["NodeMode"];
             /** Primary Key */
-            primary_key?: string[];
+            primary_key?: string[] | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Owners */
+            owners?: string[] | null;
             /** Name */
             name: string;
             /**
@@ -1973,6 +3955,8 @@ export interface components {
              * @default default
              */
             namespace: string;
+            /** Query */
+            query?: string | null;
         };
         /**
          * CreateTag
@@ -1980,14 +3964,11 @@ export interface components {
          */
         CreateTag: {
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Display Name */
-            display_name?: string;
-            /**
-             * Tag Metadata
-             * @default {}
-             */
-            tag_metadata: Record<string, never>;
+            display_name?: string | null;
+            /** Tag Metadata */
+            tag_metadata?: Record<string, never> | null;
             /** Name */
             name: string;
             /** Tag Type */
@@ -2006,7 +3987,111 @@ export interface components {
             node_name: string;
             /** Type */
             type: string;
-            partition?: components["schemas"]["PartitionOutput"];
+            partition?: components["schemas"]["PartitionOutput"] | null;
+        };
+        /**
+         * CubeMaterializeRequest
+         * @description Request for creating a cube materialization workflow.
+         *
+         *     This creates a Druid workflow that:
+         *     1. Waits for pre-agg tables to be available (VTTS)
+         *     2. Runs combined SQL that reads from pre-agg tables
+         *     3. Ingests the combined data into Druid
+         */
+        CubeMaterializeRequest: {
+            /**
+             * Schedule
+             * @description Cron schedule for the materialization (e.g., '0 0 * * *' for daily)
+             */
+            schedule: string;
+            /**
+             * @description Materialization strategy (FULL or INCREMENTAL_TIME)
+             * @default incremental_time
+             */
+            strategy: components["schemas"]["MaterializationStrategy"];
+            /**
+             * Lookback Window
+             * @description Lookback window for incremental materialization
+             * @default 1 DAY
+             */
+            lookback_window: string;
+            /**
+             * Druid Datasource
+             * @description Custom Druid datasource name. Defaults to 'dj__{cube_name}'
+             */
+            druid_datasource?: string | null;
+            /**
+             * Run Backfill
+             * @description Whether to run an initial backfill
+             * @default true
+             */
+            run_backfill: boolean;
+        };
+        /**
+         * CubeMaterializeResponse
+         * @description Response from cube materialization endpoint.
+         *
+         *     Contains all information needed to create and execute the Druid cube workflow:
+         *     - Pre-agg table dependencies for VTTS waits
+         *     - Combined SQL for Druid ingestion
+         *     - Druid spec for ingestion configuration
+         */
+        CubeMaterializeResponse: {
+            cube: components["schemas"]["NodeNameVersion"];
+            /** Druid Datasource */
+            druid_datasource: string;
+            /** Preagg Tables */
+            preagg_tables: components["schemas"]["PreAggTableInfo"][];
+            /** Combined Sql */
+            combined_sql: string;
+            /** Combined Columns */
+            combined_columns: components["schemas"]["ColumnMetadata"][];
+            /** Combined Grain */
+            combined_grain: string[];
+            /** Druid Spec */
+            druid_spec: Record<string, never>;
+            strategy: components["schemas"]["MaterializationStrategy"];
+            /** Schedule */
+            schedule: string;
+            /** Lookback Window */
+            lookback_window: string;
+            /**
+             * Metric Combiners
+             * @description Mapping of metric names to their combiner SQL expressions
+             */
+            metric_combiners?: {
+                [key: string]: string;
+            };
+            /**
+             * Workflow Urls
+             * @description URLs to the created workflows (if any)
+             */
+            workflow_urls?: string[];
+            /** Message */
+            message: string;
+        };
+        /**
+         * CubeMetric
+         * @description Represents a metric belonging to a cube.
+         */
+        CubeMetric: {
+            /** @description The name and version of the metric. */
+            metric: components["schemas"]["NodeNameVersion"];
+            /**
+             * Required Measures
+             * @description List of measures required by this metric.
+             */
+            required_measures: components["schemas"]["MeasureKey"][];
+            /**
+             * Derived Expression
+             * @description The query for rewriting the original metric query using the materialized measures.
+             */
+            derived_expression: string;
+            /**
+             * Metric Expression
+             * @description SQL expression for rewriting the original metric query using the materialized measures.
+             */
+            metric_expression: string;
         };
         /**
          * CubeRevisionMetadata
@@ -2031,7 +4116,7 @@ export interface components {
              * @default
              */
             description: string;
-            availability?: components["schemas"]["AvailabilityStateBase"];
+            availability?: components["schemas"]["AvailabilityStateBase"] | null;
             /** Cube Elements */
             cube_elements: components["schemas"]["CubeElementMetadata"][];
             /** Cube Node Metrics */
@@ -2039,9 +4124,11 @@ export interface components {
             /** Cube Node Dimensions */
             cube_node_dimensions: string[];
             /** Query */
-            query?: string;
+            query?: string | null;
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+            columns: components["schemas"]["ColumnOutput"][];
+            /** Sql Columns */
+            sql_columns?: components["schemas"]["ColumnOutput"][] | null;
             /**
              * Updated At
              * Format: date-time
@@ -2050,7 +4137,77 @@ export interface components {
             /** Materializations */
             materializations: components["schemas"]["MaterializationConfigOutput"][];
             /** Tags */
-            tags?: components["schemas"]["TagOutput"][];
+            tags?: components["schemas"]["TagOutput"][] | null;
+            /** Measures */
+            measures?: components["schemas"]["MetricMeasures-Output"][] | null;
+        };
+        /**
+         * CubeSpec
+         * @description Specification for a cube node
+         */
+        "CubeSpec-Input": {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "cube";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Metrics */
+            metrics: string[];
+            /** Dimensions */
+            dimensions?: string[];
+            /** Filters */
+            filters?: string[] | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Input"][] | null;
+        };
+        /**
+         * CubeSpec
+         * @description Specification for a cube node
+         */
+        "CubeSpec-Output": {
+            /** Name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "cube";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Metrics */
+            metrics: string[];
+            /** Dimensions */
+            dimensions?: string[];
+            /** Filters */
+            filters?: string[] | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Output"][] | null;
         };
         /**
          * DAGNodeOutput
@@ -2072,18 +4229,18 @@ export interface components {
             version: string;
             status: components["schemas"]["NodeStatus"];
             mode: components["schemas"]["NodeMode"];
-            catalog?: components["schemas"]["CatalogInfo"];
+            catalog?: components["schemas"]["CatalogInfo-Output"] | null;
             /** Schema */
-            schema_?: string;
+            schema_?: string | null;
             /** Table */
-            table?: string;
+            table?: string | null;
             /**
              * Description
              * @default
              */
             description: string;
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+            columns: components["schemas"]["ColumnOutput"][];
             /**
              * Updated At
              * Format: date-time
@@ -2115,7 +4272,7 @@ export interface components {
             /** Message */
             message: string;
             /** Debug */
-            debug?: Record<string, never>;
+            debug?: Record<string, never> | null;
             /**
              * Context
              * @default
@@ -2123,11 +4280,167 @@ export interface components {
             context: string;
         };
         /**
+         * DJQueryBuildError
+         * @description Query build error
+         */
+        DJQueryBuildError: {
+            code: components["schemas"]["ErrorCode"];
+            /** Message */
+            message: string;
+            /** Debug */
+            debug?: Record<string, never> | null;
+            /**
+             * Context
+             * @default
+             */
+            context: string;
+        };
+        /**
+         * DeactivatedWorkflowInfo
+         * @description Info about a single deactivated workflow.
+         */
+        DeactivatedWorkflowInfo: {
+            /**
+             * Id
+             * @description Pre-aggregation ID
+             */
+            id: number;
+            /**
+             * Workflow Name
+             * @description Name of the deactivated workflow
+             */
+            workflow_name?: string | null;
+        };
+        /**
+         * DeploymentImpactResponse
+         * @description Full response for deployment impact analysis
+         */
+        DeploymentImpactResponse: {
+            /** Namespace */
+            namespace: string;
+            /** Changes */
+            changes?: components["schemas"]["NodeChange"][];
+            /**
+             * Create Count
+             * @default 0
+             */
+            create_count: number;
+            /**
+             * Update Count
+             * @default 0
+             */
+            update_count: number;
+            /**
+             * Delete Count
+             * @default 0
+             */
+            delete_count: number;
+            /**
+             * Skip Count
+             * @default 0
+             */
+            skip_count: number;
+            /** Downstream Impacts */
+            downstream_impacts?: components["schemas"]["DownstreamImpact"][];
+            /**
+             * Will Invalidate Count
+             * @default 0
+             */
+            will_invalidate_count: number;
+            /**
+             * May Affect Count
+             * @default 0
+             */
+            may_affect_count: number;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * DeploymentInfo
+         * @description Information about a deployment
+         */
+        DeploymentInfo: {
+            /** Uuid */
+            uuid: string;
+            /** Namespace */
+            namespace: string;
+            status: components["schemas"]["DeploymentStatus"];
+            /** Results */
+            results?: components["schemas"]["DeploymentResult"][];
+            /** Created At */
+            created_at?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** Source */
+            source?: components["schemas"]["GitDeploymentSource"] | components["schemas"]["LocalDeploymentSource"] | null;
+        };
+        /**
+         * DeploymentResult
+         * @description Result of deploying a single node, link, or tag
+         */
+        DeploymentResult: {
+            /** Name */
+            name: string;
+            deploy_type: components["schemas"]["Type"];
+            status: components["schemas"]["Status"];
+            operation: components["schemas"]["Operation"];
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+        };
+        /**
+         * DeploymentSpec
+         * @description Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
+         *     Typically hydrated from a project manifest (YAML/JSON/etc).
+         */
+        "DeploymentSpec-Input": {
+            /** Namespace */
+            namespace: string;
+            /** Nodes */
+            nodes?: (components["schemas"]["SourceSpec-Input"] | components["schemas"]["TransformSpec-Input"] | components["schemas"]["DimensionSpec-Input"] | components["schemas"]["MetricSpec-Input"] | components["schemas"]["CubeSpec-Input"])[];
+            /** Tags */
+            tags?: components["schemas"]["TagSpec"][];
+            /** Source */
+            source?: (components["schemas"]["GitDeploymentSource"] | components["schemas"]["LocalDeploymentSource"]) | null;
+        };
+        /**
+         * DeploymentSpec
+         * @description Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
+         *     Typically hydrated from a project manifest (YAML/JSON/etc).
+         */
+        "DeploymentSpec-Output": {
+            /** Namespace */
+            namespace: string;
+            /** Nodes */
+            nodes?: (components["schemas"]["SourceSpec-Output"] | components["schemas"]["TransformSpec-Output"] | components["schemas"]["DimensionSpec-Output"] | components["schemas"]["MetricSpec-Output"] | components["schemas"]["CubeSpec-Output"])[];
+            /** Tags */
+            tags?: components["schemas"]["TagSpec"][];
+            /** Source */
+            source?: (components["schemas"]["GitDeploymentSource"] | components["schemas"]["LocalDeploymentSource"]) | null;
+        };
+        /**
+         * DeploymentStatus
+         * @enum {string}
+         */
+        DeploymentStatus: "pending" | "running" | "failed" | "success";
+        /**
          * Dialect
          * @description SQL dialect
          * @enum {string}
          */
-        Dialect: "spark" | "trino" | "druid";
+        Dialect: "spark" | "trino" | "druid" | "postgres" | "clickhouse" | "duckdb" | "redshift" | "snowflake" | "sqlite";
+        /**
+         * DialectInfo
+         * @description Information about a SQL dialect and its associated plugin class.
+         */
+        DialectInfo: {
+            /** Name */
+            name: string;
+            /** Plugin Class */
+            plugin_class: string;
+        };
         /**
          * DimensionAttributeOutput
          * @description Dimension attribute output should include the name and type
@@ -2136,15 +4449,229 @@ export interface components {
             /** Name */
             name: string;
             /** Node Name */
-            node_name?: string;
+            node_name: string | null;
             /** Node Display Name */
-            node_display_name?: string;
-            /** Is Primary Key */
-            is_primary_key: boolean;
+            node_display_name: string | null;
+            /** Properties */
+            properties: string[] | null;
             /** Type */
-            type: string;
+            type: string | null;
             /** Path */
             path: string[];
+            /**
+             * Filter Only
+             * @default false
+             */
+            filter_only: boolean;
+        };
+        /**
+         * DimensionHierarchiesResponse
+         * @description Response showing all hierarchies that use a dimension and navigation options.
+         */
+        DimensionHierarchiesResponse: {
+            /** Dimension Node */
+            dimension_node: string;
+            /** Hierarchies */
+            hierarchies: components["schemas"]["DimensionHierarchyNavigation"][];
+        };
+        /**
+         * DimensionHierarchyNavigation
+         * @description Navigation information for a dimension within a specific hierarchy.
+         */
+        DimensionHierarchyNavigation: {
+            /** Hierarchy Name */
+            hierarchy_name: string;
+            /** Hierarchy Display Name */
+            hierarchy_display_name?: string | null;
+            /** Current Level */
+            current_level: string;
+            /** Current Level Order */
+            current_level_order: number;
+            /**
+             * Drill Up
+             * @default []
+             */
+            drill_up: components["schemas"]["NavigationTarget"][];
+            /**
+             * Drill Down
+             * @default []
+             */
+            drill_down: components["schemas"]["NavigationTarget"][];
+        };
+        /**
+         * DimensionJoinLinkSpec
+         * @description Specification for a dimension join link
+         *
+         *     If a custom `join_on` clause is not specified, DJ will automatically set
+         *     this clause to be on the selected column and the dimension node's primary key
+         */
+        "DimensionJoinLinkSpec-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "join";
+            /** Role */
+            role?: string | null;
+            /** Namespace */
+            namespace?: string | null;
+            /** Dimension Node */
+            dimension_node: string;
+            /** Node Column */
+            node_column?: string | null;
+            /** @default left */
+            join_type: components["schemas"]["JoinType"];
+            /** Join On */
+            join_on?: string | null;
+        };
+        /**
+         * DimensionJoinLinkSpec
+         * @description Specification for a dimension join link
+         *
+         *     If a custom `join_on` clause is not specified, DJ will automatically set
+         *     this clause to be on the selected column and the dimension node's primary key
+         */
+        "DimensionJoinLinkSpec-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "join";
+            /** Role */
+            role?: string | null;
+            /** Dimension Node */
+            dimension_node: string;
+            /** Node Column */
+            node_column?: string | null;
+            /** @default left */
+            join_type: components["schemas"]["JoinType"];
+            /** Join On */
+            join_on?: string | null;
+        };
+        /**
+         * DimensionReferenceLinkSpec
+         * @description Specification for a dimension reference link
+         *
+         *     The `dimension` input should be a fully qualified dimension attribute name,
+         *     e.g., "<dimension_node>.<column>"
+         */
+        "DimensionReferenceLinkSpec-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "reference";
+            /** Role */
+            role?: string | null;
+            /** Namespace */
+            namespace?: string | null;
+            /** Node Column */
+            node_column: string;
+            /** Dimension */
+            dimension: string;
+        };
+        /**
+         * DimensionReferenceLinkSpec
+         * @description Specification for a dimension reference link
+         *
+         *     The `dimension` input should be a fully qualified dimension attribute name,
+         *     e.g., "<dimension_node>.<column>"
+         */
+        "DimensionReferenceLinkSpec-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "reference";
+            /** Role */
+            role?: string | null;
+            /** Node Column */
+            node_column: string;
+            /** Dimension */
+            dimension: string;
+        };
+        /**
+         * DimensionSpec
+         * @description Specification for a dimension node
+         */
+        "DimensionSpec-Input": {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "dimension";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Input"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Input"] | components["schemas"]["DimensionReferenceLinkSpec-Input"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Query */
+            query: string;
+        };
+        /**
+         * DimensionSpec
+         * @description Specification for a dimension node
+         */
+        "DimensionSpec-Output": {
+            /** Name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "dimension";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Output"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Output"] | components["schemas"]["DimensionReferenceLinkSpec-Output"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Query */
+            query: string;
+        };
+        /**
+         * DimensionStats
+         * @description Output model for dimension statistics.
+         */
+        DimensionStats: {
+            /** Name */
+            name: string;
+            /**
+             * Indegree
+             * @default 0
+             */
+            indegree: number;
+            /** Cube Count */
+            cube_count: number;
         };
         /**
          * DimensionValue
@@ -2154,7 +4681,7 @@ export interface components {
             /** Value */
             value: string[];
             /** Count */
-            count?: number;
+            count: number | null;
         };
         /**
          * DimensionValues
@@ -2169,48 +4696,98 @@ export interface components {
             cardinality: number;
         };
         /**
+         * DownstreamImpact
+         * @description Predicted impact on a downstream node
+         */
+        DownstreamImpact: {
+            /** Name */
+            name: string;
+            node_type: components["schemas"]["NodeType"];
+            current_status: components["schemas"]["NodeStatus"];
+            predicted_status: components["schemas"]["NodeStatus"];
+            impact_type: components["schemas"]["ImpactType"];
+            /** Impact Reason */
+            impact_reason: string;
+            /** Depth */
+            depth: number;
+            /** Caused By */
+            caused_by?: string[];
+            /**
+             * Is External
+             * @default false
+             */
+            is_external: boolean;
+        };
+        /**
          * DruidConf
          * @description Druid configuration
          */
         DruidConf: {
             /** Granularity */
-            granularity?: string;
+            granularity?: string | null;
             /** Intervals */
-            intervals?: string[];
+            intervals?: string[] | null;
             /** Timestamp Column */
-            timestamp_column?: string;
+            timestamp_column?: string | null;
             /** Timestamp Format */
-            timestamp_format?: string;
+            timestamp_format?: string | null;
             /** Parse Spec Format */
-            parse_spec_format?: string;
+            parse_spec_format?: string | null;
         };
         /**
          * DruidCubeConfigInput
          * @description Specific Druid cube materialization fields that require user input
          */
         DruidCubeConfigInput: {
-            spark?: components["schemas"]["SparkConf"];
+            spark?: components["schemas"]["SparkConf"] | null;
             /** Lookback Window */
-            lookback_window?: string;
+            lookback_window?: string | null;
             /** Dimensions */
-            dimensions?: string[];
+            dimensions?: string[] | null;
             /** Measures */
             measures?: {
-                [key: string]: components["schemas"]["MetricMeasures"];
-            };
+                [key: string]: components["schemas"]["MetricMeasures-Input"];
+            } | null;
             /** Metrics */
-            metrics?: components["schemas"]["ColumnMetadata"][];
+            metrics?: components["schemas"]["ColumnMetadata"][] | null;
             /**
              * Prefix
              * @default
              */
-            prefix: string;
+            prefix: string | null;
             /**
              * Suffix
              * @default
              */
-            suffix: string;
-            druid?: components["schemas"]["DruidConf"];
+            suffix: string | null;
+            druid?: components["schemas"]["DruidConf"] | null;
+        };
+        /**
+         * DruidCubeMaterializationInput
+         * @description Materialization info as passed to the query service.
+         */
+        DruidCubeMaterializationInput: {
+            /** Name */
+            name: string;
+            cube: components["schemas"]["NodeNameVersion"];
+            /** Dimensions */
+            dimensions: string[];
+            /** Metrics */
+            metrics: components["schemas"]["CubeMetric"][];
+            strategy: components["schemas"]["MaterializationStrategy"];
+            /** Schedule */
+            schedule: string;
+            /** Job */
+            job: string;
+            /**
+             * Lookback Window
+             * @default 1 DAY
+             */
+            lookback_window: string | null;
+            /** Measures Materializations */
+            measures_materializations: components["schemas"]["MeasuresMaterialization"][];
+            /** Combiners */
+            combiners: components["schemas"]["CombineMaterialization"][];
         };
         /**
          * EditMeasure
@@ -2218,12 +4795,12 @@ export interface components {
          */
         EditMeasure: {
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Columns */
-            columns?: components["schemas"]["NodeColumn"][];
-            additive?: components["schemas"]["AggregationRule"];
+            columns?: components["schemas"]["NodeColumn"][] | null;
+            additive?: components["schemas"]["AggregationRule-Input"] | null;
         };
         /**
          * EngineInfo
@@ -2235,53 +4812,179 @@ export interface components {
             /** Version */
             version: string;
             /** Uri */
-            uri?: string;
-            dialect?: components["schemas"]["Dialect"];
+            uri?: string | null;
+            dialect?: components["schemas"]["Dialect"] | null;
         };
         /**
          * EntityType
          * @description An entity type for which activity can occur
          * @enum {string}
          */
-        EntityType: "attribute" | "availability" | "backfill" | "catalog" | "column_attribute" | "dependency" | "engine" | "link" | "materialization" | "namespace" | "node" | "partition" | "query" | "tag";
+        EntityType: "attribute" | "availability" | "backfill" | "catalog" | "column_attribute" | "dependency" | "engine" | "hierarchy" | "link" | "materialization" | "namespace" | "node" | "partition" | "query" | "role" | "role_assignment" | "role_scope" | "tag";
         /**
          * ErrorCode
          * @description Error codes.
          * @enum {integer}
          */
-        ErrorCode: 0 | 1 | 2 | 100 | 101 | 102 | 200 | 201 | 202 | 203 | 204 | 205 | 206 | 300 | 301 | 302 | 400 | 401 | 402 | 403 | 500 | 501;
+        ErrorCode: 0 | 1 | 2 | 100 | 101 | 102 | 200 | 201 | 202 | 203 | 204 | 205 | 206 | 207 | 208 | 300 | 301 | 302 | 303 | 400 | 401 | 402 | 403 | 500 | 501 | 600 | 601 | 602 | 603 | 604 | 700 | 701 | 702;
+        /**
+         * FrozenMeasureKey
+         * @description Base frozen measure fields.
+         */
+        FrozenMeasureKey: {
+            /** Name */
+            name: string;
+            /** Expression */
+            expression: string;
+            /** Aggregation */
+            aggregation: string;
+            rule: components["schemas"]["datajunction_server__models__decompose__AggregationRule"];
+            upstream_revision: components["schemas"]["NodeRevisionNameVersion"];
+        };
+        /**
+         * FrozenMeasureOutput
+         * @description The output fields when listing frozen measure metadata
+         */
+        FrozenMeasureOutput: {
+            /** Name */
+            name: string;
+            /** Expression */
+            expression: string;
+            /** Aggregation */
+            aggregation: string;
+            rule: components["schemas"]["datajunction_server__models__decompose__AggregationRule"];
+            upstream_revision: components["schemas"]["NodeRevisionNameVersion"];
+            /** Used By Node Revisions */
+            used_by_node_revisions: components["schemas"]["NodeRevisionNameVersion"][];
+        };
+        /**
+         * GeneratedSQL
+         * @description Generated SQL for a given node, the output of a QueryBuilder(...).build() call.
+         */
+        GeneratedSQL: {
+            /** Sql */
+            sql: string;
+            dialect?: components["schemas"]["Dialect"] | null;
+            node: components["schemas"]["NodeNameVersion"];
+            /** Columns */
+            columns?: components["schemas"]["ColumnMetadata"][] | null;
+            /** Grain */
+            grain?: string[] | null;
+            /** Upstream Tables */
+            upstream_tables?: string[] | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: [
+                    components["schemas"]["MetricComponent"][],
+                    string
+                ];
+            } | null;
+            /** Spark Conf */
+            spark_conf?: {
+                [key: string]: string;
+            } | null;
+            /** Errors */
+            errors?: components["schemas"]["DJQueryBuildError"][] | null;
+        };
         /**
          * GenericCubeConfigInput
          * @description Generic cube materialization config fields that require user input
          */
         GenericCubeConfigInput: {
-            spark?: components["schemas"]["SparkConf"];
+            spark?: components["schemas"]["SparkConf"] | null;
             /** Lookback Window */
-            lookback_window?: string;
+            lookback_window?: string | null;
             /** Dimensions */
-            dimensions?: string[];
+            dimensions?: string[] | null;
             /** Measures */
             measures?: {
-                [key: string]: components["schemas"]["MetricMeasures"];
-            };
+                [key: string]: components["schemas"]["MetricMeasures-Input"];
+            } | null;
             /** Metrics */
-            metrics?: components["schemas"]["ColumnMetadata"][];
+            metrics?: components["schemas"]["ColumnMetadata"][] | null;
         };
         /**
          * GenericMaterializationConfigInput
          * @description User-input portions of the materialization config
          */
         GenericMaterializationConfigInput: {
-            spark?: components["schemas"]["SparkConf"];
+            spark?: components["schemas"]["SparkConf"] | null;
             /** Lookback Window */
-            lookback_window?: string;
+            lookback_window?: string | null;
         };
+        /**
+         * GitDeploymentSource
+         * @description Deployment from a tracked git repository.
+         *     Indicates the source of truth is in version control with CI/CD automation.
+         */
+        GitDeploymentSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "git";
+            /** Repository */
+            repository: string;
+            /** Branch */
+            branch?: string | null;
+            /** Commit Sha */
+            commit_sha?: string | null;
+            /** Ci System */
+            ci_system?: string | null;
+            /** Ci Run Url */
+            ci_run_url?: string | null;
+        };
+        /**
+         * GrainGroupResponse
+         * @description Response model for a single grain group in measures SQL.
+         */
+        GrainGroupResponse: {
+            /** Sql */
+            sql: string;
+            /** Columns */
+            columns: components["schemas"]["V3ColumnMetadata"][];
+            /** Grain */
+            grain: string[];
+            /** Aggregability */
+            aggregability: string;
+            /** Metrics */
+            metrics: string[];
+            /** Components */
+            components: components["schemas"]["ComponentResponse"][];
+            /** Parent Name */
+            parent_name: string;
+        };
+        /**
+         * GrainMode
+         * @description Grain matching mode for pre-aggregation lookup.
+         *
+         *     - EXACT: Pre-agg grain must match requested grain exactly
+         *     - SUPERSET: Pre-agg grain must contain all requested columns (and possibly more)
+         * @enum {string}
+         */
+        GrainMode: "exact" | "superset";
         /**
          * Granularity
          * @description Time dimension granularity.
          * @enum {string}
          */
         Granularity: "second" | "minute" | "hour" | "day" | "week" | "month" | "quarter" | "year";
+        /**
+         * GroupOutput
+         * @description Group information to be included in responses
+         */
+        GroupOutput: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Email */
+            email?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Created At */
+            created_at?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2303,20 +5006,111 @@ export interface components {
          */
         HealthcheckStatus: "ok" | "failed";
         /**
+         * HierarchyCreateRequest
+         * @description Request model for creating a hierarchy.
+         */
+        HierarchyCreateRequest: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Levels */
+            levels: components["schemas"]["HierarchyLevelInput"][];
+        };
+        /**
+         * HierarchyInfo
+         * @description Simplified hierarchy info for listings.
+         */
+        HierarchyInfo: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            created_by: components["schemas"]["UserNameOnly"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Level Count */
+            level_count: number;
+        };
+        /**
+         * HierarchyLevelInput
+         * @description Input model for creating a hierarchy level.
+         */
+        HierarchyLevelInput: {
+            /** Name */
+            name: string;
+            /** Dimension Node */
+            dimension_node: string;
+            /** Grain Columns */
+            grain_columns?: string[] | null;
+        };
+        /**
+         * HierarchyLevelOutput
+         * @description Output model for hierarchy levels.
+         */
+        HierarchyLevelOutput: {
+            /** Name */
+            name: string;
+            dimension_node: components["schemas"]["NodeNameOutput"];
+            /** Level Order */
+            level_order: number;
+            /** Grain Columns */
+            grain_columns?: string[] | null;
+        };
+        /**
+         * HierarchyOutput
+         * @description Output model for hierarchies.
+         */
+        HierarchyOutput: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            created_by: components["schemas"]["UserNameOnly"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Levels */
+            levels: components["schemas"]["HierarchyLevelOutput"][];
+        };
+        /**
+         * HierarchyUpdateRequest
+         * @description Request model for updating a hierarchy.
+         */
+        HierarchyUpdateRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Levels */
+            levels?: components["schemas"]["HierarchyLevelInput"][] | null;
+        };
+        /**
          * HistoryOutput
          * @description Output history event
          */
         HistoryOutput: {
             /** Id */
             id: number;
-            entity_type?: components["schemas"]["EntityType"];
+            entity_type: components["schemas"]["EntityType"] | null;
             /** Entity Name */
-            entity_name?: string;
+            entity_name: string | null;
             /** Node */
-            node?: string;
-            activity_type?: components["schemas"]["ActivityType"];
+            node: string | null;
+            activity_type: components["schemas"]["ActivityType"] | null;
             /** User */
-            user?: string;
+            user: string | null;
             /** Pre */
             pre: Record<string, never>;
             /** Post */
@@ -2330,11 +5124,33 @@ export interface components {
             created_at: string;
         };
         /**
+         * ImpactType
+         * @description Type of impact on a downstream node
+         * @enum {string}
+         */
+        ImpactType: "will_invalidate" | "may_affect" | "unchanged";
+        /**
          * JoinCardinality
          * @description The version upgrade type
          * @enum {string}
          */
         JoinCardinality: "one_to_one" | "one_to_many" | "many_to_one" | "many_to_many";
+        /**
+         * JoinLinkInput
+         * @description Input for creating a join link between a dimension node and node
+         */
+        JoinLinkInput: {
+            /** Dimension Node */
+            dimension_node: string;
+            /** @default left */
+            join_type: components["schemas"]["JoinType"] | null;
+            /** Join On */
+            join_on?: string | null;
+            /** @default many_to_one */
+            join_cardinality: components["schemas"]["JoinCardinality"] | null;
+            /** Role */
+            role?: string | null;
+        };
         /**
          * JoinType
          * @description Join type
@@ -2349,13 +5165,13 @@ export interface components {
             /** Column Name */
             column_name: string;
             /** Node Name */
-            node_name?: string;
+            node_name?: string | null;
             /** Node Type */
-            node_type?: string;
+            node_type?: string | null;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Lineage */
-            lineage?: components["schemas"]["LineageColumn"][];
+            lineage?: components["schemas"]["LineageColumn"][] | null;
         };
         /**
          * LinkDimensionIdentifier
@@ -2365,23 +5181,7 @@ export interface components {
             /** Dimension Node */
             dimension_node: string;
             /** Role */
-            role?: string;
-        };
-        /**
-         * LinkDimensionInput
-         * @description Input for linking a dimension to a node
-         */
-        LinkDimensionInput: {
-            /** Dimension Node */
-            dimension_node: string;
-            /** @default left */
-            join_type: components["schemas"]["JoinType"];
-            /** Join On */
-            join_on: string;
-            /** @default many_to_one */
-            join_cardinality: components["schemas"]["JoinCardinality"];
-            /** Role */
-            role?: string;
+            role?: string | null;
         };
         /**
          * LinkDimensionOutput
@@ -2392,31 +5192,51 @@ export interface components {
             join_type: components["schemas"]["JoinType"];
             /** Join Sql */
             join_sql: string;
-            join_cardinality?: components["schemas"]["JoinCardinality"];
+            join_cardinality?: components["schemas"]["JoinCardinality"] | null;
             /** Role */
-            role?: string;
+            role?: string | null;
             /** Foreign Keys */
             foreign_keys: {
-                [key: string]: string;
+                [key: string]: string | null;
             };
+        };
+        /**
+         * LocalDeploymentSource
+         * @description Adhoc deployment without a git repository context.
+         *     Could be from CLI, direct API calls, scripts, or development/testing.
+         */
+        LocalDeploymentSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "local";
+            /** Hostname */
+            hostname?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * MaterializationConfigInfoUnified
          * @description Materialization config + info
          */
         MaterializationConfigInfoUnified: {
+            /** Node Revision Id */
+            node_revision_id: number;
             /** Name */
-            name?: string;
+            name: string | null;
             /** Config */
             config: Record<string, never>;
             /** Schedule */
             schedule: string;
             /** Job */
-            job?: string;
+            job: string | null;
             /** Backfills */
             backfills: components["schemas"]["BackfillOutput"][];
             /** Strategy */
-            strategy?: string;
+            strategy: string | null;
+            /** Deactivated At */
+            deactivated_at: string | null;
             /** Output Tables */
             output_tables: string[];
             /** Urls */
@@ -2427,18 +5247,22 @@ export interface components {
          * @description Output for materialization config.
          */
         MaterializationConfigOutput: {
+            /** Node Revision Id */
+            node_revision_id: number;
             /** Name */
-            name?: string;
+            name: string | null;
             /** Config */
             config: Record<string, never>;
             /** Schedule */
             schedule: string;
             /** Job */
-            job?: string;
+            job: string | null;
             /** Backfills */
             backfills: components["schemas"]["BackfillOutput"][];
             /** Strategy */
-            strategy?: string;
+            strategy: string | null;
+            /** Deactivated At */
+            deactivated_at: string | null;
         };
         /**
          * MaterializationInfo
@@ -2450,38 +5274,6 @@ export interface components {
             output_tables: string[];
             /** Urls */
             urls: string[];
-        };
-        /**
-         * MaterializationJobTypeEnum
-         * @description Available materialization job types
-         * @enum {unknown}
-         */
-        MaterializationJobTypeEnum: {
-            name: "spark_sql";
-            label: "Spark SQL";
-            description: "Spark SQL materialization job";
-            allowed_node_types: [
-                "transform",
-                "dimension",
-                "cube"
-            ];
-            job_class: "SparkSqlMaterializationJob";
-        } | {
-            name: "druid_measures_cube";
-            label: "Druid Measures Cube (Pre-Agg Cube)";
-            description: "Used to materialize a cube's measures to Druid for low-latency access to a set of metrics and dimensions. While the logical cube definition is at the level of metrics and dimensions, this materialized Druid cube will contain measures and dimensions, with rollup configured on the measures where appropriate.";
-            allowed_node_types: [
-                "cube"
-            ];
-            job_class: "DruidMeasuresCubeMaterializationJob";
-        } | {
-            name: "druid_metrics_cube";
-            label: "Druid Metrics Cube (Post-Agg Cube)";
-            description: "Used to materialize a cube of metrics and dimensions to Druid for low-latency access. The materialized cube is at the metric level, meaning that all metrics will be aggregated to the level of the cube's dimensions.";
-            allowed_node_types: [
-                "cube"
-            ];
-            job_class: "DruidMetricsCubeMaterializationJob";
         };
         /**
          * MaterializationStrategy
@@ -2504,6 +5296,15 @@ export interface components {
             type: string;
         };
         /**
+         * MeasureKey
+         * @description Lookup key for a measure
+         */
+        MeasureKey: {
+            node: components["schemas"]["NodeNameVersion"];
+            /** Measure Name */
+            measure_name: string;
+        };
+        /**
          * MeasureOutput
          * @description Output model for measures
          */
@@ -2511,12 +5312,85 @@ export interface components {
             /** Name */
             name: string;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__measure__ColumnOutput"][];
+            columns?: components["schemas"]["datajunction_server__models__measure__ColumnOutput"][];
             additive: components["schemas"]["AggregationRule"];
+        };
+        /**
+         * MeasuresMaterialization
+         * @description Represents a single pre-aggregation transform query for materializing a partition.
+         */
+        MeasuresMaterialization: {
+            /** @description The node being materialized */
+            node: components["schemas"]["NodeNameVersion"];
+            /**
+             * Grain
+             * @description The grain at which the node is being materialized.
+             */
+            grain: string[];
+            /**
+             * Dimensions
+             * @description List of dimensions included in this materialization.
+             */
+            dimensions: string[];
+            /**
+             * Measures
+             * @description List of measures included in this materialization.
+             */
+            measures: components["schemas"]["MetricComponent"][];
+            /**
+             * Query
+             * @description The query used for each materialization run.
+             */
+            query: string;
+            /** Columns */
+            columns: components["schemas"]["ColumnMetadata"][];
+            /**
+             * Timestamp Column
+             * @description Timestamp column name
+             */
+            timestamp_column: string | null;
+            /**
+             * Timestamp Format
+             * @description Timestamp format. Example: `yyyyMMdd`
+             */
+            timestamp_format: string | null;
+            /** @description The time granularity for each materialization run. Examples: DAY, HOUR */
+            granularity: components["schemas"]["Granularity"] | null;
+            /**
+             * Spark Conf
+             * @description Spark config for this materialization.
+             */
+            spark_conf: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Upstream Tables
+             * @description List of upstream tables used in this materialization.
+             */
+            upstream_tables: string[];
+            /**
+             * Output Table Name
+             * @description Generate a unique output table name based on the parameters.
+             */
+            readonly output_table_name: string;
+        };
+        /**
+         * MeasuresSQLResponse
+         * @description Response model for V3 measures SQL with multiple grain groups.
+         */
+        MeasuresSQLResponse: {
+            /** Grain Groups */
+            grain_groups: components["schemas"]["GrainGroupResponse"][];
+            /** Metric Formulas */
+            metric_formulas: components["schemas"]["MetricFormulaResponse"][];
+            /** Dialect */
+            dialect?: string | null;
+            /** Requested Dimensions */
+            requested_dimensions: string[];
         };
         /**
          * Metric
@@ -2554,9 +5428,59 @@ export interface components {
             expression: string;
             /** Dimensions */
             dimensions: components["schemas"]["DimensionAttributeOutput"][];
-            metric_metadata?: components["schemas"]["MetricMetadataOutput"];
+            metric_metadata?: components["schemas"]["MetricMetadataOutput"] | null;
             /** Required Dimensions */
             required_dimensions: string[];
+            /** Incompatible Druid Functions */
+            incompatible_druid_functions: string[];
+            /** Measures */
+            measures: components["schemas"]["MetricComponent"][];
+            /** Derived Query */
+            derived_query: string;
+            /** Derived Expression */
+            derived_expression: string;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+        };
+        /**
+         * MetricComponent
+         * @description A reusable, named building block of a metric definition.
+         *
+         *     A MetricComponent represents a SQL expression that can serve as an input
+         *     to building a metric. It supports a two-phase aggregation model:
+         *
+         *     - Phase 1 (Accumulate): Build from raw data using `aggregation`
+         *       Can be a function name ("SUM") or a template ("SUM(POWER({}, 2))")
+         *
+         *     - Phase 2 (Merge): Combine pre-aggregated values using `merge` function
+         *       Examples: SUM, SUM (for COUNT), hll_union_agg
+         *
+         *     For most aggregations, accumulate and merge use the same function (SUM → SUM).
+         *     For COUNT, merge is SUM (sum up the counts).
+         *     For HLL sketches, they differ: hll_sketch_estimate vs hll_union_agg.
+         *
+         *     The final expression combining merged components is specified in
+         *     DecomposedMetric.combiner.
+         *
+         *     Attributes:
+         *         name: A unique name for the component, derived from its expression.
+         *         expression: The raw SQL expression (column/value) being aggregated.
+         *         aggregation: Function name or template for Phase 1. Simple cases use
+         *                      just the name ("SUM"), complex cases use templates with
+         *                      {} placeholder ("SUM(POWER({}, 2))").
+         *         merge: The function name for combining pre-aggregated values (Phase 2).
+         *         rule: Aggregation rules defining how/when the component can be aggregated.
+         */
+        MetricComponent: {
+            /** Name */
+            name: string;
+            /** Expression */
+            expression: string;
+            /** Aggregation */
+            aggregation: string | null;
+            /** Merge */
+            merge?: string | null;
+            rule: components["schemas"]["datajunction_server__models__decompose__AggregationRule"];
         };
         /**
          * MetricDirection
@@ -2565,11 +5489,31 @@ export interface components {
          */
         MetricDirection: "higher_is_better" | "lower_is_better" | "neutral";
         /**
+         * MetricFormulaResponse
+         * @description Response model for a metric's combiner formula.
+         */
+        MetricFormulaResponse: {
+            /** Name */
+            name: string;
+            /** Short Name */
+            short_name: string;
+            /** Query */
+            query: string;
+            /** Combiner */
+            combiner: string;
+            /** Components */
+            components: string[];
+            /** Is Derived */
+            is_derived: boolean;
+            /** Parent Name */
+            parent_name?: string | null;
+        };
+        /**
          * MetricMeasures
          * @description Represent a metric as a set of measures, along with the expression for
          *     combining the measures to make the metric.
          */
-        MetricMeasures: {
+        "MetricMeasures-Input": {
             /** Metric */
             metric: string;
             /** Measures */
@@ -2577,20 +5521,33 @@ export interface components {
             /** Combiner */
             combiner: string;
         };
+        /** MetricMeasures */
+        "MetricMeasures-Output": {
+            metric: components["schemas"]["NodeRevisionNameVersion"];
+            /** Frozen Measures */
+            frozen_measures: components["schemas"]["FrozenMeasureKey"][];
+        };
         /**
          * MetricMetadataInput
          * @description Metric metadata output
          */
         MetricMetadataInput: {
-            direction?: components["schemas"]["MetricDirection"];
+            direction?: components["schemas"]["MetricDirection"] | null;
             /** Unit */
-            unit?: string;
+            unit?: string | null;
+            /** Significant Digits */
+            significant_digits?: number | null;
+            /** Min Decimal Exponent */
+            min_decimal_exponent?: number | null;
+            /** Max Decimal Exponent */
+            max_decimal_exponent?: number | null;
         };
         /**
          * MetricMetadataOptions
          * @description Metric metadata options list
          */
         MetricMetadataOptions: {
+            /** Directions */
             directions: components["schemas"]["MetricDirection"][];
             /** Units */
             units: components["schemas"]["Unit"][];
@@ -2600,8 +5557,168 @@ export interface components {
          * @description Metric metadata output
          */
         MetricMetadataOutput: {
-            direction?: components["schemas"]["MetricDirection"];
-            unit?: components["schemas"]["Unit"];
+            direction?: components["schemas"]["MetricDirection"] | null;
+            unit?: components["schemas"]["Unit"] | null;
+            /** Significant Digits */
+            significant_digits?: number | null;
+            /** Min Decimal Exponent */
+            min_decimal_exponent?: number | null;
+            /** Max Decimal Exponent */
+            max_decimal_exponent?: number | null;
+        };
+        /**
+         * MetricRef
+         * @description Reference to a metric with name and display name.
+         */
+        MetricRef: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /**
+         * MetricSpec
+         * @description Specification for a metric node
+         */
+        "MetricSpec-Input": {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "metric";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Query */
+            query: string;
+            /** Required Dimensions */
+            required_dimensions?: string[] | null;
+            direction?: components["schemas"]["MetricDirection"] | null;
+            unit_enum?: components["schemas"]["MetricUnit"] | null;
+            /** Significant Digits */
+            significant_digits?: number | null;
+            /** Min Decimal Exponent */
+            min_decimal_exponent?: number | null;
+            /** Max Decimal Exponent */
+            max_decimal_exponent?: number | null;
+        };
+        /**
+         * MetricSpec
+         * @description Specification for a metric node
+         */
+        "MetricSpec-Output": {
+            /** Name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "metric";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Query */
+            query: string;
+            /** Required Dimensions */
+            required_dimensions?: string[] | null;
+            direction?: components["schemas"]["MetricDirection"] | null;
+            /** Significant Digits */
+            significant_digits?: number | null;
+            /** Min Decimal Exponent */
+            min_decimal_exponent?: number | null;
+            /** Max Decimal Exponent */
+            max_decimal_exponent?: number | null;
+        };
+        /**
+         * MetricUnit
+         * @description Available units of measure for metrics
+         *     TODO: Eventually this can be recorded in a database,
+         *     since measurement units can be customized depending on the metric
+         *     (i.e., clicks/hour). For the time being, this enum provides some basic units.
+         * @enum {unknown}
+         */
+        MetricUnit: {
+            category: "";
+            label: "Unknown";
+            name: "unknown";
+        } | {
+            category: "";
+            label: "Unitless";
+            name: "unitless";
+        } | {
+            abbreviation: "%";
+            category: "";
+            description: "A ratio expressed as a number out of 100. Values range from 0 to 100.";
+            label: "Percentage";
+            name: "percentage";
+        } | {
+            abbreviation: "";
+            category: "";
+            description: "A ratio that compares a part to a whole. Values range from 0 to 1.";
+            label: "Proportion";
+            name: "proportion";
+        } | {
+            abbreviation: "$";
+            category: "currency";
+            label: "Dollar";
+            name: "dollar";
+        } | {
+            abbreviation: "s";
+            category: "time";
+            label: "Second";
+            name: "second";
+        } | {
+            abbreviation: "m";
+            category: "time";
+            label: "Minute";
+            name: "minute";
+        } | {
+            abbreviation: "h";
+            category: "time";
+            label: "Hour";
+            name: "hour";
+        } | {
+            abbreviation: "d";
+            category: "time";
+            label: "Day";
+            name: "day";
+        } | {
+            abbreviation: "w";
+            category: "time";
+            label: "Week";
+            name: "week";
+        } | {
+            abbreviation: "mo";
+            category: "time";
+            label: "Month";
+            name: "month";
+        } | {
+            abbreviation: "y";
+            category: "time";
+            label: "Year";
+            name: "year";
         };
         /**
          * MutableAttributeTypeFields
@@ -2617,8 +5734,10 @@ export interface components {
             name: string;
             /** Description */
             description: string;
+            /** Allowed Node Types */
             allowed_node_types: components["schemas"]["NodeType"][];
-            uniqueness_scope?: components["schemas"]["UniquenessScope"][];
+            /** Uniqueness Scope */
+            uniqueness_scope?: components["schemas"]["UniquenessScope"][] | null;
         };
         /**
          * NamespaceOutput
@@ -2631,6 +5750,61 @@ export interface components {
             num_nodes: number;
         };
         /**
+         * NamespaceSourcesResponse
+         * @description Response for the /namespaces/{namespace}/sources endpoint.
+         *     Shows the primary deployment source for a namespace.
+         */
+        NamespaceSourcesResponse: {
+            /** Namespace */
+            namespace: string;
+            /** Primary Source */
+            primary_source?: components["schemas"]["GitDeploymentSource"] | components["schemas"]["LocalDeploymentSource"] | null;
+            /**
+             * Total Deployments
+             * @default 0
+             */
+            total_deployments: number;
+        };
+        /**
+         * NavigationTarget
+         * @description A level that can be navigated to in a hierarchy.
+         */
+        NavigationTarget: {
+            /** Level Name */
+            level_name: string;
+            /** Dimension Node */
+            dimension_node: string;
+            /** Level Order */
+            level_order: number;
+            /** Steps */
+            steps: number;
+        };
+        /**
+         * NodeChange
+         * @description Represents a direct change to a node in the deployment
+         */
+        NodeChange: {
+            /** Name */
+            name: string;
+            operation: components["schemas"]["NodeChangeOperation"];
+            node_type: components["schemas"]["NodeType"];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            current_status?: components["schemas"]["NodeStatus"] | null;
+            /** Changed Fields */
+            changed_fields?: string[];
+            /** Column Changes */
+            column_changes?: components["schemas"]["ColumnChange"][];
+        };
+        /**
+         * NodeChangeOperation
+         * @description Operation being performed on a node
+         * @enum {string}
+         */
+        NodeChangeOperation: "create" | "update" | "delete" | "noop";
+        /**
          * NodeColumn
          * @description Defines a column on a node
          */
@@ -2639,6 +5813,16 @@ export interface components {
             node: string;
             /** Column */
             column: string;
+        };
+        /**
+         * NodeIndegreeOutput
+         * @description Node indegree output
+         */
+        NodeIndegreeOutput: {
+            /** Name */
+            name: string;
+            /** Indegree */
+            indegree: number;
         };
         /**
          * NodeIndexItem
@@ -2674,6 +5858,10 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Tags */
+            tags?: components["schemas"]["TagMinimum"][];
+            /** Edited By */
+            edited_by?: string[] | null;
         };
         /**
          * NodeMode
@@ -2695,6 +5883,18 @@ export interface components {
             name: string;
         };
         /**
+         * NodeNameVersion
+         * @description Node name and version
+         */
+        NodeNameVersion: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /**
          * NodeOutput
          * @description Output for a node that shows the current revision.
          */
@@ -2714,21 +5914,21 @@ export interface components {
             version: string;
             status: components["schemas"]["NodeStatus"];
             mode: components["schemas"]["NodeMode"];
-            catalog?: components["schemas"]["CatalogInfo"];
+            catalog?: components["schemas"]["CatalogInfo-Output"] | null;
             /** Schema */
-            schema_?: string;
+            schema_?: string | null;
             /** Table */
-            table?: string;
+            table?: string | null;
             /**
              * Description
              * @default
              */
             description: string;
             /** Query */
-            query?: string;
-            availability?: components["schemas"]["AvailabilityStateBase"];
+            query?: string | null;
+            availability?: components["schemas"]["AvailabilityStateBase"] | null;
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+            columns: components["schemas"]["ColumnOutput"][];
             /**
              * Updated At
              * Format: date-time
@@ -2738,7 +5938,7 @@ export interface components {
             materializations: components["schemas"]["MaterializationConfigOutput"][];
             /** Parents */
             parents: components["schemas"]["NodeNameOutput"][];
-            metric_metadata?: components["schemas"]["MetricMetadataOutput"];
+            metric_metadata?: components["schemas"]["MetricMetadataOutput"] | null;
             /** Dimension Links */
             dimension_links?: components["schemas"]["LinkDimensionOutput"][];
             /**
@@ -2746,18 +5946,20 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /**
-             * Tags
-             * @default []
-             */
-            tags: components["schemas"]["TagOutput"][];
+            created_by: components["schemas"]["UserNameOnly"];
+            /** Tags */
+            tags?: components["schemas"]["TagOutput"][];
             /** Current Version */
             current_version: string;
             /**
              * Missing Table
              * @default false
              */
-            missing_table: boolean;
+            missing_table: boolean | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Owners */
+            owners?: components["schemas"]["UserNameOnly"][];
         };
         /**
          * NodeRevisionBase
@@ -2767,17 +5969,24 @@ export interface components {
             /** Name */
             name: string;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             type: components["schemas"]["NodeType"];
-            /**
-             * Description
-             * @default
-             */
-            description: string;
+            /** Description */
+            description?: string | null;
             /** Query */
-            query?: string;
+            query?: string | null;
             /** @default published */
             mode: components["schemas"]["NodeMode"];
+        };
+        /**
+         * NodeRevisionNameVersion
+         * @description Node name and version
+         */
+        NodeRevisionNameVersion: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
         };
         /**
          * NodeRevisionOutput
@@ -2797,21 +6006,21 @@ export interface components {
             version: string;
             status: components["schemas"]["NodeStatus"];
             mode: components["schemas"]["NodeMode"];
-            catalog?: components["schemas"]["CatalogInfo"];
+            catalog?: components["schemas"]["CatalogInfo-Output"] | null;
             /** Schema */
-            schema_?: string;
+            schema_?: string | null;
             /** Table */
-            table?: string;
+            table?: string | null;
             /**
              * Description
              * @default
              */
             description: string;
             /** Query */
-            query?: string;
-            availability?: components["schemas"]["AvailabilityStateBase"];
+            query?: string | null;
+            availability?: components["schemas"]["AvailabilityStateBase"] | null;
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+            columns: components["schemas"]["ColumnOutput"][];
             /**
              * Updated At
              * Format: date-time
@@ -2821,9 +6030,11 @@ export interface components {
             materializations: components["schemas"]["MaterializationConfigOutput"][];
             /** Parents */
             parents: components["schemas"]["NodeNameOutput"][];
-            metric_metadata?: components["schemas"]["MetricMetadataOutput"];
+            metric_metadata?: components["schemas"]["MetricMetadataOutput"] | null;
             /** Dimension Links */
-            dimension_links?: components["schemas"]["LinkDimensionOutput"][];
+            dimension_links?: components["schemas"]["LinkDimensionOutput"][] | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
         };
         /**
          * NodeStatus
@@ -2836,6 +6047,15 @@ export interface components {
          * @enum {string}
          */
         NodeStatus: "valid" | "invalid";
+        /**
+         * NodeStatusDetails
+         * @description Node status details. Contains a list of node errors or an empty list of the node status is valid
+         */
+        NodeStatusDetails: {
+            status: components["schemas"]["NodeStatus"];
+            /** Errors */
+            errors: components["schemas"]["NodeValidationError"][];
+        };
         /**
          * NodeType
          * @description Node type.
@@ -2861,11 +6081,35 @@ export interface components {
             /** Dependencies */
             dependencies: components["schemas"]["NodeRevisionOutput"][];
             /** Columns */
-            columns: components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+            columns: components["schemas"]["ColumnOutput"][];
             /** Errors */
             errors: components["schemas"]["DJError"][];
             /** Missing Parents */
             missing_parents: string[];
+        };
+        /**
+         * NodeValidationError
+         * @description Validation error
+         */
+        NodeValidationError: {
+            /** Type */
+            type: string;
+            /** Message */
+            message: string;
+        };
+        /** NotificationPreferenceModel */
+        NotificationPreferenceModel: {
+            entity_type: components["schemas"]["EntityType"];
+            /** Entity Name */
+            entity_name: string | null;
+            /** Activity Types */
+            activity_types: components["schemas"]["ActivityType"][];
+            /** User Id */
+            user_id: number;
+            /** Username */
+            username: string;
+            /** Alert Types */
+            alert_types: string[];
         };
         /**
          * OAuthProvider
@@ -2874,18 +6118,23 @@ export interface components {
          */
         OAuthProvider: "basic" | "github" | "google";
         /**
+         * Operation
+         * @enum {string}
+         */
+        Operation: "create" | "update" | "delete" | "noop" | "unknown";
+        /**
          * PartitionAvailability
          * @description Partition-level availability
          */
         PartitionAvailability: {
             /** Min Temporal Partition */
-            min_temporal_partition?: string[];
+            min_temporal_partition?: (string | number)[] | null;
             /** Max Temporal Partition */
-            max_temporal_partition?: string[];
+            max_temporal_partition?: (string | number)[] | null;
             /** Value */
-            value: string[];
+            value: (string | null)[];
             /** Valid Through Ts */
-            valid_through_ts?: number;
+            valid_through_ts?: number | null;
         };
         /**
          * PartitionBackfill
@@ -2895,9 +6144,9 @@ export interface components {
             /** Column Name */
             column_name: string;
             /** Values */
-            values?: unknown[];
+            values?: unknown[] | null;
             /** Range */
-            range?: unknown[];
+            range?: unknown[] | null;
         };
         /**
          * PartitionInput
@@ -2905,9 +6154,9 @@ export interface components {
          */
         PartitionInput: {
             type_: components["schemas"]["PartitionType"];
-            granularity?: components["schemas"]["Granularity"];
+            granularity?: components["schemas"]["Granularity"] | null;
             /** Format */
-            format?: string;
+            format?: string | null;
         };
         /**
          * PartitionOutput
@@ -2916,11 +6165,21 @@ export interface components {
         PartitionOutput: {
             type_: components["schemas"]["PartitionType"];
             /** Format */
-            format?: string;
+            format?: string | null;
             /** Granularity */
-            granularity?: string;
+            granularity?: string | null;
             /** Expression */
-            expression?: string;
+            expression?: string | null;
+        };
+        /**
+         * PartitionSpec
+         * @description Represents a partition
+         */
+        PartitionSpec: {
+            type: components["schemas"]["PartitionType"];
+            granularity?: components["schemas"]["Granularity"] | null;
+            /** Format */
+            format?: string | null;
         };
         /**
          * PartitionType
@@ -2930,6 +6189,169 @@ export interface components {
          * @enum {string}
          */
         PartitionType: "temporal" | "categorical";
+        /**
+         * PlanPreAggregationsRequest
+         * @description Request model for planning pre-aggregations from metrics + dimensions.
+         *
+         *     This is the primary way to create pre-aggregations. DJ computes grain groups
+         *     from the metrics/dimensions and creates PreAggregation records with generated SQL.
+         */
+        PlanPreAggregationsRequest: {
+            /**
+             * Metrics
+             * @description List of metric node names (e.g., ['default.revenue', 'default.orders'])
+             */
+            metrics: string[];
+            /**
+             * Dimensions
+             * @description List of dimension references (e.g., ['default.date_dim.date_id'])
+             */
+            dimensions: string[];
+            /**
+             * Filters
+             * @description Optional SQL filters to apply
+             */
+            filters?: string[] | null;
+            /** @description Materialization strategy (FULL or INCREMENTAL_TIME) */
+            strategy?: components["schemas"]["MaterializationStrategy"] | null;
+            /**
+             * Schedule
+             * @description Cron expression for scheduled materialization
+             */
+            schedule?: string | null;
+            /**
+             * Lookback Window
+             * @description Lookback window for incremental materialization (e.g., '3 days')
+             */
+            lookback_window?: string | null;
+        };
+        /**
+         * PlanPreAggregationsResponse
+         * @description Response model for /preaggs/plan endpoint.
+         */
+        PlanPreAggregationsResponse: {
+            /** Preaggs */
+            preaggs: components["schemas"]["PreAggregationInfo"][];
+        };
+        /**
+         * PreAggMeasure
+         * @description A metric component stored in a pre-aggregation.
+         *
+         *     Extends MetricComponent with an expression hash for identity matching.
+         *     This allows finding pre-aggs that contain the same measure even if
+         *     the component name differs.
+         */
+        PreAggMeasure: {
+            /** Name */
+            name: string;
+            /** Expression */
+            expression: string;
+            /** Aggregation */
+            aggregation: string | null;
+            /** Merge */
+            merge?: string | null;
+            rule: components["schemas"]["datajunction_server__models__decompose__AggregationRule"];
+            /** Expr Hash */
+            expr_hash?: string | null;
+            /** Used By Metrics */
+            used_by_metrics?: components["schemas"]["MetricRef"][] | null;
+        };
+        /**
+         * PreAggTableInfo
+         * @description Information about a pre-agg table used by the cube.
+         */
+        PreAggTableInfo: {
+            /**
+             * Table Ref
+             * @description Full table reference (catalog.schema.table)
+             */
+            table_ref: string;
+            /**
+             * Parent Node
+             * @description Parent node name this pre-agg is derived from
+             */
+            parent_node: string;
+            /**
+             * Grain
+             * @description Grain columns for this pre-agg
+             */
+            grain: string[];
+        };
+        /**
+         * PreAggregationInfo
+         * @description Response model for a pre-aggregation.
+         */
+        PreAggregationInfo: {
+            /** Id */
+            id: number;
+            /** Node Revision Id */
+            node_revision_id: number;
+            /** Node Name */
+            node_name: string;
+            /** Node Version */
+            node_version: string;
+            /** Grain Columns */
+            grain_columns: string[];
+            /** Measures */
+            measures: components["schemas"]["PreAggMeasure"][];
+            /** Columns */
+            columns?: components["schemas"]["V3ColumnMetadata"][] | null;
+            /** Sql */
+            sql: string;
+            /** Grain Group Hash */
+            grain_group_hash: string;
+            strategy?: components["schemas"]["MaterializationStrategy"] | null;
+            /** Schedule */
+            schedule?: string | null;
+            /** Lookback Window */
+            lookback_window?: string | null;
+            /** Workflow Urls */
+            workflow_urls?: components["schemas"]["WorkflowUrl"][] | null;
+            /** Workflow Status */
+            workflow_status?: string | null;
+            /**
+             * Status
+             * @default pending
+             */
+            status: string;
+            /** Materialized Table Ref */
+            materialized_table_ref?: string | null;
+            /** Max Partition */
+            max_partition?: string[] | null;
+            /** Related Metrics */
+            related_metrics?: string[] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /**
+         * PreAggregationListResponse
+         * @description Paginated list of pre-aggregations.
+         */
+        PreAggregationListResponse: {
+            /** Items */
+            items: components["schemas"]["PreAggregationInfo"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * PrincipalOutput
+         * @description Output for a principal (user, service account, or group).
+         */
+        PrincipalOutput: {
+            /** Username */
+            username: string;
+            /** Email */
+            email?: string | null;
+        };
         /**
          * QueryResults
          * @description Results for a given query.
@@ -2949,28 +6371,19 @@ export interface components {
             /** Id */
             id: string;
             /** Engine Name */
-            engine_name?: string;
+            engine_name?: string | null;
             /** Engine Version */
-            engine_version?: string;
+            engine_version?: string | null;
             /** Submitted Query */
             submitted_query: string;
             /** Executed Query */
-            executed_query?: string;
-            /**
-             * Scheduled
-             * Format: date-time
-             */
-            scheduled?: string;
-            /**
-             * Started
-             * Format: date-time
-             */
-            started?: string;
-            /**
-             * Finished
-             * Format: date-time
-             */
-            finished?: string;
+            executed_query?: string | null;
+            /** Scheduled */
+            scheduled?: string | null;
+            /** Started */
+            started?: string | null;
+            /** Finished */
+            finished?: string | null;
             /** @default UNKNOWN */
             state: components["schemas"]["QueryState"];
             /**
@@ -2978,22 +6391,170 @@ export interface components {
              * @default 0
              */
             progress: number;
-            output_table?: components["schemas"]["TableRef"];
+            output_table?: components["schemas"]["TableRef"] | null;
             results: components["schemas"]["QueryResults"];
+            /** Next */
+            next?: string | null;
+            /** Previous */
+            previous?: string | null;
             /**
-             * Next
-             * Format: uri
+             * Errors
+             * @default []
              */
-            next?: string;
-            /**
-             * Previous
-             * Format: uri
-             */
-            previous?: string;
-            /** Errors */
             errors: string[];
             /** Links */
-            links?: string[];
+            links?: string[] | null;
+        };
+        /**
+         * ResourceAction
+         * @description Actions that can be performed on resources
+         * @enum {string}
+         */
+        ResourceAction: "read" | "write" | "execute" | "delete" | "manage";
+        /**
+         * ResourceType
+         * @description Types of resources
+         * @enum {string}
+         */
+        ResourceType: "node" | "namespace";
+        /**
+         * RoleAssignmentCreate
+         * @description Input for assigning a role to a principal.
+         */
+        RoleAssignmentCreate: {
+            /** Principal Username */
+            principal_username: string;
+            /** Expires At */
+            expires_at?: string | null;
+        };
+        /**
+         * RoleAssignmentOutput
+         * @description Output for role assignment.
+         */
+        RoleAssignmentOutput: {
+            principal: components["schemas"]["PrincipalOutput"];
+            role: components["schemas"]["RoleOutput"];
+            granted_by: components["schemas"]["PrincipalOutput"];
+            /**
+             * Granted At
+             * Format: date-time
+             */
+            granted_at: string;
+            /** Expires At */
+            expires_at: string | null;
+        };
+        /**
+         * RoleCreate
+         * @description Input for creating a role.
+         */
+        RoleCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Scopes */
+            scopes?: components["schemas"]["RoleScopeInput"][];
+        };
+        /**
+         * RoleOutput
+         * @description Output for role.
+         */
+        RoleOutput: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            created_by: components["schemas"]["PrincipalOutput"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+            /** Scopes */
+            scopes?: components["schemas"]["RoleScopeOutput"][];
+        };
+        /**
+         * RoleScopeInput
+         * @description Input for creating a role scope.
+         */
+        RoleScopeInput: {
+            action: components["schemas"]["ResourceAction"];
+            scope_type: components["schemas"]["ResourceType"];
+            /** Scope Value */
+            scope_value: string;
+        };
+        /**
+         * RoleScopeOutput
+         * @description Output for role scope.
+         */
+        RoleScopeOutput: {
+            action: components["schemas"]["ResourceAction"];
+            scope_type: components["schemas"]["ResourceType"];
+            /** Scope Value */
+            scope_value: string;
+        };
+        /**
+         * RoleUpdate
+         * @description Input for updating a role.
+         */
+        RoleUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+        };
+        /**
+         * RowOutput
+         * @description Output model for node counts.
+         */
+        RowOutput: {
+            /** Value */
+            value: unknown;
+            /** Col */
+            col: string;
+        };
+        /**
+         * ServiceAccountCreate
+         * @description Payload to create a service account
+         */
+        ServiceAccountCreate: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * ServiceAccountCreateResponse
+         * @description Response payload for creating a service account
+         */
+        ServiceAccountCreateResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Client Id */
+            client_id: string;
+            /** Client Secret */
+            client_secret: string;
+        };
+        /**
+         * ServiceAccountOutput
+         * @description Response payload for creating a service account
+         */
+        ServiceAccountOutput: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Client Id */
+            client_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * SourceColumnOutput
@@ -3004,9 +6565,85 @@ export interface components {
             name: string;
             type: components["schemas"]["ColumnType"];
             /** Attributes */
-            attributes?: components["schemas"]["AttributeOutput"][];
+            attributes?: components["schemas"]["AttributeOutput"][] | null;
             /** Dimension */
-            dimension?: string;
+            dimension?: string | null;
+        };
+        /**
+         * SourceSpec
+         * @description Specification for a source node
+         */
+        "SourceSpec-Input": {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "source";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Input"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Input"] | components["schemas"]["DimensionReferenceLinkSpec-Input"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Catalog */
+            catalog: string;
+            /** Schema */
+            schema: string | null;
+            /** Table */
+            table: string;
+        };
+        /**
+         * SourceSpec
+         * @description Specification for a source node
+         */
+        "SourceSpec-Output": {
+            /** Name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "source";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Output"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Output"] | components["schemas"]["DimensionReferenceLinkSpec-Output"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Catalog */
+            catalog: string;
+            /** Schema */
+            schema: string | null;
+            /** Table */
+            table: string;
         };
         /**
          * SparkConf
@@ -3036,6 +6673,11 @@ export interface components {
             row_count: number;
         };
         /**
+         * Status
+         * @enum {string}
+         */
+        Status: "success" | "failed" | "skipped";
+        /**
          * TableRef
          * @description Table reference
          */
@@ -3048,23 +6690,130 @@ export interface components {
             table: string;
         };
         /**
+         * TagMinimum
+         * @description Output tag model.
+         */
+        TagMinimum: {
+            /** Name */
+            name: string;
+        };
+        /**
          * TagOutput
          * @description Output tag model.
          */
         TagOutput: {
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Display Name */
-            display_name?: string;
-            /**
-             * Tag Metadata
-             * @default {}
-             */
-            tag_metadata: Record<string, never>;
+            display_name?: string | null;
+            /** Tag Metadata */
+            tag_metadata?: Record<string, never> | null;
             /** Name */
             name: string;
             /** Tag Type */
             tag_type: string;
+        };
+        /**
+         * TagSpec
+         * @description Specification for a tag
+         */
+        TagSpec: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Tag Type
+             * @default
+             */
+            tag_type: string;
+            /** Tag Metadata */
+            tag_metadata?: Record<string, never> | null;
+        };
+        /**
+         * TokenResponse
+         * @description Response payload for service account login
+         */
+        TokenResponse: {
+            /** Token */
+            token: string;
+            /** Token Type */
+            token_type: string;
+            /** Expires In */
+            expires_in: number;
+        };
+        /**
+         * TransformSpec
+         * @description Specification for a transform node
+         */
+        "TransformSpec-Input": {
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "transform";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Input"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Input"] | components["schemas"]["DimensionReferenceLinkSpec-Input"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Query */
+            query: string;
+        };
+        /**
+         * TransformSpec
+         * @description Specification for a transform node
+         */
+        "TransformSpec-Output": {
+            /** Name */
+            name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            node_type: "transform";
+            /** Owners */
+            owners?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: string[];
+            /** @default published */
+            mode: components["schemas"]["NodeMode"];
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Columns */
+            columns?: components["schemas"]["ColumnSpec-Output"][] | null;
+            /** Dimension Links */
+            dimension_links?: (components["schemas"]["DimensionJoinLinkSpec-Output"] | components["schemas"]["DimensionReferenceLinkSpec-Output"])[];
+            /** Primary Key */
+            primary_key?: string[];
+            /** Query */
+            query: string;
         };
         /**
          * TranslatedSQL
@@ -3073,12 +6822,17 @@ export interface components {
         TranslatedSQL: {
             /** Sql */
             sql: string;
+            dialect?: components["schemas"]["Dialect"] | null;
             /** Columns */
-            columns?: components["schemas"]["ColumnMetadata"][];
-            dialect?: components["schemas"]["Dialect"];
+            columns?: components["schemas"]["ColumnMetadata"][] | null;
             /** Upstream Tables */
-            upstream_tables?: string[];
+            upstream_tables?: string[] | null;
         };
+        /**
+         * Type
+         * @enum {string}
+         */
+        Type: "node" | "link" | "tag" | "general";
         /**
          * UniquenessScope
          * @description The scope at which this attribute needs to be unique.
@@ -3093,51 +6847,134 @@ export interface components {
             /** Name */
             name: string;
             /** Label */
-            label?: string;
+            label?: string | null;
             /** Category */
-            category?: string;
+            category?: string | null;
             /** Abbreviation */
-            abbreviation?: string;
+            abbreviation?: string | null;
             /** Description */
-            description?: string;
+            description?: string | null;
         };
         /**
          * UpdateNode
          * @description Update node object where all fields are optional
          */
         UpdateNode: {
-            /** Metrics */
-            metrics?: string[];
-            /** Dimensions */
-            dimensions?: string[];
-            /** Filters */
-            filters?: string[];
-            /** Orderby */
-            orderby?: string[];
-            /** Limit */
-            limit?: number;
-            /** Description */
-            description?: string;
-            mode?: components["schemas"]["NodeMode"];
-            /** Required Dimensions */
-            required_dimensions?: string[];
-            metric_metadata?: components["schemas"]["MetricMetadataInput"];
-            /** Query */
-            query?: string;
-            /** Catalog */
-            catalog?: string;
-            /** Schema */
-            schema_?: string;
-            /** Table */
-            table?: string;
-            /** Columns */
-            columns?: components["schemas"]["SourceColumnOutput"][];
-            /** Missing Table */
-            missing_table?: boolean;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
+            /** Description */
+            description?: string | null;
+            mode?: components["schemas"]["NodeMode"] | null;
             /** Primary Key */
-            primary_key?: string[];
+            primary_key?: string[] | null;
+            /** Custom Metadata */
+            custom_metadata?: Record<string, never> | null;
+            /** Owners */
+            owners?: string[] | null;
+            /** Catalog */
+            catalog?: string | null;
+            /** Schema */
+            schema_?: string | null;
+            /** Table */
+            table?: string | null;
+            /** Columns */
+            columns?: components["schemas"]["SourceColumnOutput"][] | null;
+            /** Missing Table */
+            missing_table?: boolean | null;
+            /** Query */
+            query?: string | null;
+            /** Required Dimensions */
+            required_dimensions?: string[] | null;
+            metric_metadata?: components["schemas"]["MetricMetadataInput"] | null;
+            /** Metrics */
+            metrics?: string[] | null;
+            /** Dimensions */
+            dimensions?: string[] | null;
+            /** Filters */
+            filters?: string[] | null;
+            /** Orderby */
+            orderby?: string[] | null;
+            /** Limit */
+            limit?: number | null;
+        };
+        /**
+         * UpdatePreAggregationAvailabilityRequest
+         * @description Request model for updating pre-aggregation availability.
+         */
+        UpdatePreAggregationAvailabilityRequest: {
+            /**
+             * Catalog
+             * @description Catalog where materialized table exists
+             */
+            catalog: string;
+            /**
+             * Schema
+             * @description Schema where materialized table exists
+             */
+            schema?: string | null;
+            /**
+             * Table
+             * @description Table name of materialized data
+             */
+            table: string;
+            /**
+             * Valid Through Ts
+             * @description Timestamp (epoch) through which data is valid
+             */
+            valid_through_ts: number;
+            /**
+             * Url
+             * @description URL to materialization job or dashboard
+             */
+            url?: string | null;
+            /**
+             * Links
+             * @description Additional links related to the materialization
+             */
+            links?: Record<string, never> | null;
+            /**
+             * Categorical Partitions
+             * @description Ordered list of categorical partition columns
+             */
+            categorical_partitions?: string[] | null;
+            /**
+             * Temporal Partitions
+             * @description Ordered list of temporal partition columns
+             */
+            temporal_partitions?: string[] | null;
+            /**
+             * Min Temporal Partition
+             * @description Minimum temporal partition value
+             */
+            min_temporal_partition?: string[] | null;
+            /**
+             * Max Temporal Partition
+             * @description Maximum temporal partition value (high-water mark)
+             */
+            max_temporal_partition?: string[] | null;
+            /**
+             * Partitions
+             * @description Detailed partition-level availability
+             */
+            partitions?: components["schemas"]["PartitionAvailability"][] | null;
+        };
+        /**
+         * UpdatePreAggregationConfigRequest
+         * @description Request model for updating a pre-aggregation's materialization config.
+         */
+        UpdatePreAggregationConfigRequest: {
+            /** @description Materialization strategy (FULL or INCREMENTAL_TIME) */
+            strategy?: components["schemas"]["MaterializationStrategy"] | null;
+            /**
+             * Schedule
+             * @description Cron expression for scheduled materialization
+             */
+            schedule?: string | null;
+            /**
+             * Lookback Window
+             * @description Lookback window for incremental materialization (e.g., '3 days')
+             */
+            lookback_window?: string | null;
         };
         /**
          * UpdateTag
@@ -3145,11 +6982,33 @@ export interface components {
          */
         UpdateTag: {
             /** Description */
-            description?: string;
+            description?: string | null;
             /** Display Name */
-            display_name?: string;
+            display_name?: string | null;
             /** Tag Metadata */
-            tag_metadata?: Record<string, never>;
+            tag_metadata?: Record<string, never> | null;
+        };
+        /**
+         * UpsertCubeMaterialization
+         * @description An upsert object for cube materializations
+         */
+        UpsertCubeMaterialization: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            job: "druid_cube";
+            /** @default incremental_time */
+            strategy: components["schemas"]["MaterializationStrategy"];
+            /** Schedule */
+            schedule: string;
+            /** Config */
+            config?: Record<string, never> | null;
+            /**
+             * Lookback Window
+             * @default 1 DAY
+             */
+            lookback_window: string | null;
         };
         /**
          * UpsertMaterialization
@@ -3157,13 +7016,35 @@ export interface components {
          */
         UpsertMaterialization: {
             /** Name */
-            name?: string;
-            job: components["schemas"]["MaterializationJobTypeEnum"];
+            name?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            job: "spark_sql" | "druid_measures_cube" | "druid_metrics_cube";
             /** Config */
-            config: components["schemas"]["DruidCubeConfigInput"] | components["schemas"]["GenericCubeConfigInput"] | components["schemas"]["GenericMaterializationConfigInput"];
+            config?: components["schemas"]["DruidCubeConfigInput"] | components["schemas"]["GenericCubeConfigInput"] | components["schemas"]["GenericMaterializationConfigInput"] | null;
             /** Schedule */
             schedule: string;
             strategy: components["schemas"]["MaterializationStrategy"];
+        };
+        /**
+         * UserActivity
+         * @description User activity info
+         */
+        UserActivity: {
+            /** Username */
+            username: string;
+            /** Count */
+            count: number;
+        };
+        /**
+         * UserNameOnly
+         * @description Username only
+         */
+        UserNameOnly: {
+            /** Username */
+            username: string;
         };
         /**
          * UserOutput
@@ -3175,15 +7056,49 @@ export interface components {
             /** Username */
             username: string;
             /** Email */
-            email?: string;
+            email?: string | null;
             /** Name */
-            name?: string;
+            name?: string | null;
             oauth_provider: components["schemas"]["OAuthProvider"];
             /**
              * Is Admin
              * @default false
              */
             is_admin: boolean;
+            /** Last Viewed Notifications At */
+            last_viewed_notifications_at?: string | null;
+        };
+        /**
+         * V3ColumnMetadata
+         * @description Simplified column metadata for V3 SQL endpoints.
+         *
+         *     This is a cleaner version without legacy fields (column, node) that
+         *     V3 doesn't use. Provides clear semantic identification of output columns.
+         */
+        V3ColumnMetadata: {
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Semantic Entity */
+            semantic_entity: string;
+            /** Semantic Type */
+            semantic_type: string;
+        };
+        /**
+         * V3TranslatedSQL
+         * @description SQL response model for V3 SQL generation endpoints.
+         *
+         *     This is a cleaner response model specifically for V3 that:
+         *     - Uses V3ColumnMetadata (no legacy column/node fields)
+         *     - Has required fields (not optional like legacy TranslatedSQL)
+         */
+        V3TranslatedSQL: {
+            /** Sql */
+            sql: string;
+            /** Columns */
+            columns: components["schemas"]["V3ColumnMetadata"][];
+            dialect: components["schemas"]["Dialect"];
         };
         /** ValidationError */
         ValidationError: {
@@ -3193,6 +7108,69 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WorkflowResponse
+         * @description Response model for workflow operations.
+         */
+        WorkflowResponse: {
+            /**
+             * Workflow Url
+             * @description URL to the scheduled workflow definition
+             */
+            workflow_url?: string | null;
+            /**
+             * Status
+             * @description Workflow status: 'active', 'paused', or 'none'
+             */
+            status: string;
+            /**
+             * Message
+             * @description Additional information about the operation
+             */
+            message?: string | null;
+        };
+        /**
+         * WorkflowUrl
+         * @description A labeled workflow URL for scheduler-agnostic display.
+         */
+        WorkflowUrl: {
+            /**
+             * Label
+             * @description Label for the workflow (e.g., 'scheduled', 'backfill')
+             */
+            label: string;
+            /**
+             * Url
+             * @description URL to the workflow
+             */
+            url: string;
+        };
+        /**
+         * AggregationRule
+         * @description The aggregation rule for the metric component.
+         *
+         *     If the Aggregability type is LIMITED, the `level` should be specified to
+         *     highlight the level at which the metric component needs to be aggregated
+         *     in order to support the specified aggregation function.
+         *
+         *     Example for COUNT(DISTINCT user_id):
+         *         It can be decomposed into a single metric component with LIMITED
+         *         aggregability, i.e., it is only aggregatable if the component is
+         *         calculated at the `user_id` level:
+         *
+         *         MetricComponent(
+         *             name="num_users",
+         *             expression="DISTINCT user_id",
+         *             aggregation="COUNT",
+         *             rule=AggregationRule(type=LIMITED, level=["user_id"])
+         *         )
+         */
+        datajunction_server__models__decompose__AggregationRule: {
+            /** @default none */
+            type: components["schemas"]["Aggregability"];
+            /** Level */
+            level?: string[] | null;
         };
         /**
          * ColumnOutput
@@ -3205,22 +7183,6 @@ export interface components {
             type: string;
             /** Node */
             node: string;
-        };
-        /**
-         * ColumnOutput
-         * @description A simplified column schema, without ID or dimensions.
-         */
-        datajunction_server__models__node__ColumnOutput: {
-            /** Name */
-            name: string;
-            /** Display Name */
-            display_name?: string;
-            /** Type */
-            type: string;
-            /** Attributes */
-            attributes?: components["schemas"]["AttributeOutput"][];
-            dimension?: components["schemas"]["NodeNameOutput"];
-            partition?: components["schemas"]["PartitionOutput"];
         };
     };
     responses: never;
@@ -3246,7 +7208,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogInfo"][];
+                    "application/json": components["schemas"]["CatalogInfo-Output"][];
                 };
             };
         };
@@ -3260,7 +7222,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CatalogInfo"];
+                "application/json": components["schemas"]["CatalogInfo-Input"];
             };
         };
         responses: {
@@ -3270,7 +7232,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogInfo"];
+                    "application/json": components["schemas"]["CatalogInfo-Output"];
                 };
             };
             /** @description Validation Error */
@@ -3301,7 +7263,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogInfo"];
+                    "application/json": components["schemas"]["CatalogInfo-Output"];
                 };
             };
             /** @description Validation Error */
@@ -3336,7 +7298,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogInfo"];
+                    "application/json": components["schemas"]["CatalogInfo-Output"];
                 };
             };
             /** @description Validation Error */
@@ -3346,6 +7308,334 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collections_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionInfo"][];
+                };
+            };
+        };
+    };
+    create_a_collection_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionInfo"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_collection_collections__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionDetails"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_a_collection_collections__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Add_Nodes_to_a_Collection_collections__name__nodes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Delete_Nodes_from_a_Collection_collections__name__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deployments_deployments_get: {
+        parameters: {
+            query?: {
+                namespace?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentInfo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Creates_a_bulk_deployment_deployments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeploymentSpec-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deployment_status_deployments__deployment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Preview_deployment_impact_deployments_impact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeploymentSpec-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentImpactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dialects_dialects_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DialectInfo"][];
                 };
             };
         };
@@ -3438,7 +7728,7 @@ export interface operations {
     list_metrics_metrics_get: {
         parameters: {
             query?: {
-                prefix?: string;
+                prefix?: string | null;
             };
             header?: never;
             path?: never;
@@ -3553,8 +7843,8 @@ export interface operations {
             query: {
                 query: string;
                 async_?: boolean;
-                engine_name?: string;
-                engine_version?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
             };
             header?: never;
             path?: never;
@@ -3586,8 +7876,8 @@ export interface operations {
         parameters: {
             query: {
                 query: string;
-                engine_name?: string;
-                engine_version?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
             };
             header?: never;
             path?: never;
@@ -3665,7 +7955,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeValidation"];
+                    "application/json": components["schemas"]["NodeStatusDetails"];
                 };
             };
             /** @description Validation Error */
@@ -3701,7 +7991,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["datajunction_server__models__node__ColumnOutput"][];
+                    "application/json": components["schemas"]["ColumnOutput"][];
                 };
             };
             /** @description Validation Error */
@@ -3718,8 +8008,8 @@ export interface operations {
     list_nodes_nodes_get: {
         parameters: {
             query?: {
-                node_type?: components["schemas"]["NodeType"];
-                prefix?: string;
+                node_type?: components["schemas"]["NodeType"] | null;
+                prefix?: string | null;
             };
             header?: never;
             path?: never;
@@ -3750,7 +8040,7 @@ export interface operations {
     list_all_nodes_with_details_nodes_details_get: {
         parameters: {
             query?: {
-                node_type?: components["schemas"]["NodeType"];
+                node_type?: components["schemas"]["NodeType"] | null;
             };
             header?: never;
             path?: never;
@@ -3842,7 +8132,9 @@ export interface operations {
     };
     update_node_nodes__name__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                refresh_materialization?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
@@ -4135,7 +8427,9 @@ export interface operations {
     };
     register_table_register_table__catalog___schema____table__post: {
         parameters: {
-            query?: never;
+            query?: {
+                source_node_namespace?: string | null;
+            };
             header?: never;
             path: {
                 catalog: string;
@@ -4166,11 +8460,47 @@ export interface operations {
             };
         };
     };
+    register_view_register_view__catalog___schema____view__post: {
+        parameters: {
+            query: {
+                query: string;
+                replace?: boolean;
+            };
+            header?: never;
+            path: {
+                catalog: string;
+                schema_: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     link_dimension_nodes__name__columns__column__post: {
         parameters: {
             query: {
                 dimension: string;
-                dimension_column?: string;
+                dimension_column?: string | null;
             };
             header?: never;
             path: {
@@ -4205,12 +8535,80 @@ export interface operations {
         parameters: {
             query: {
                 dimension: string;
-                dimension_column?: string;
+                dimension_column?: string | null;
             };
             header?: never;
             path: {
                 name: string;
                 column: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_reference_dimension_link_nodes__node_name__columns__node_column__link_post: {
+        parameters: {
+            query: {
+                dimension_node: string;
+                dimension_column: string;
+                role?: string | null;
+            };
+            header?: never;
+            path: {
+                node_name: string;
+                node_column: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_reference_dimension_link_nodes__node_name__columns__node_column__link_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_name: string;
+                node_column: string;
             };
             cookie?: never;
         };
@@ -4247,7 +8645,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LinkDimensionInput"];
+                "application/json": components["schemas"]["JoinLinkInput"];
             };
         };
         responses: {
@@ -4306,41 +8704,10 @@ export interface operations {
             };
         };
     };
-    migrate_dimension_link_nodes__name__migrate_dim_link_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     Update_Tags_on_Node_nodes__name__tags_post: {
         parameters: {
             query?: {
-                tag_names?: string[];
+                tag_names?: string[] | null;
             };
             header?: never;
             path: {
@@ -4437,6 +8804,7 @@ export interface operations {
         parameters: {
             query?: {
                 node_type?: components["schemas"]["NodeType"];
+                depth?: number;
             };
             header?: never;
             path: {
@@ -4532,7 +8900,9 @@ export interface operations {
     };
     List_All_Dimension_Attributes_nodes__name__dimensions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                depth?: number;
+            };
             header?: never;
             path: {
                 name: string;
@@ -4612,7 +8982,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["datajunction_server__models__node__ColumnOutput"];
+                    "application/json": components["schemas"]["ColumnOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_column_description_nodes__node_name__columns__column_name__description_patch: {
+        parameters: {
+            query: {
+                description: string;
+            };
+            header?: never;
+            path: {
+                node_name: string;
+                column_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColumnOutput"];
                 };
             };
             /** @description Validation Error */
@@ -4648,7 +9052,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["datajunction_server__models__node__ColumnOutput"];
+                    "application/json": components["schemas"]["ColumnOutput"];
                 };
             };
             /** @description Validation Error */
@@ -4699,7 +9103,9 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Filter the list of nodes to this type */
-                type_?: components["schemas"]["NodeType"];
+                type_?: components["schemas"]["NodeType"] | null;
+                /** @description Whether to include a list of users who edited each node */
+                with_edited_by?: boolean;
             };
             header?: never;
             path: {
@@ -4732,7 +9138,7 @@ export interface operations {
     create_node_namespace_namespaces__namespace__post: {
         parameters: {
             query?: {
-                include_parents?: boolean;
+                include_parents?: boolean | null;
             };
             header?: never;
             path: {
@@ -4914,6 +9320,130 @@ export interface operations {
             };
         };
     };
+    Export_namespace_as_a_deployment_specification_namespaces__namespace__export_spec_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSpec-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Export_namespace_as_downloadable_YAML_ZIP_namespaces__namespace__export_yaml_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_deployment_sources_for_a_namespace_namespaces__namespace__sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NamespaceSourcesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_deployment_sources_for_multiple_namespaces_namespaces_sources_bulk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkNamespaceSourcesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkNamespaceSourcesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     Materialization_Jobs_Info_materialization_info_get: {
         parameters: {
             query?: never;
@@ -4945,7 +9475,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpsertMaterialization"];
+                "application/json": components["schemas"]["UpsertCubeMaterialization"] | components["schemas"]["UpsertMaterialization"];
             };
         };
         responses: {
@@ -4972,7 +9502,8 @@ export interface operations {
     List_Materializations_for_a_Node_nodes__node_name__materializations_get: {
         parameters: {
             query?: {
-                show_deleted?: boolean;
+                show_inactive?: boolean;
+                include_all_revisions?: boolean;
             };
             header?: never;
             path: {
@@ -5006,6 +9537,7 @@ export interface operations {
         parameters: {
             query: {
                 materialization_name: string;
+                node_version?: string | null;
             };
             header?: never;
             path: {
@@ -5021,7 +9553,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MaterializationConfigInfoUnified"][];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -5047,7 +9579,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PartitionBackfill"];
+                "application/json": components["schemas"]["PartitionBackfill"][];
             };
         };
         responses: {
@@ -5071,10 +9603,41 @@ export interface operations {
             };
         };
     };
+    List_All_Availability_States_for_a_Node_nodes__node_name__availability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilityStateInfo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_measures_measures_get: {
         parameters: {
             query?: {
-                prefix?: string;
+                prefix?: string | null;
             };
             header?: never;
             path?: never;
@@ -5201,6 +9764,40 @@ export interface operations {
             };
         };
     };
+    list_frozen_measures_frozen_measures_get: {
+        parameters: {
+            query?: {
+                prefix?: string | null;
+                aggregation?: string | null;
+                upstream_name?: string | null;
+                upstream_version?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrozenMeasureOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     Add_Availability_State_to_Node_data__node_name__availability_post: {
         parameters: {
             query?: never;
@@ -5236,6 +9833,37 @@ export interface operations {
             };
         };
     };
+    Remove_Availability_State_from_Node_data__node_name__availability_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     Get_Data_for_a_Node_data__node_name__get: {
         parameters: {
             query?: {
@@ -5246,11 +9874,61 @@ export interface operations {
                 /** @description Expression to order by */
                 orderby?: string[];
                 /** @description Number of rows to limit the data retrieved to */
-                limit?: number;
+                limit?: number | null;
                 /** @description Whether to run the query async or wait for results from the query engine */
                 async_?: boolean;
-                engine_name?: string;
-                engine_version?: string;
+                /** @description Whether to use materialized nodes when available */
+                use_materialized?: boolean;
+                /** @description Whether to ignore errors when building the query */
+                ignore_errors?: boolean;
+                /** @description Query parameters */
+                query_params?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
+            };
+            header?: never;
+            path: {
+                node_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryWithResults"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_data_stream_for_node_stream__node_name__get: {
+        parameters: {
+            query?: {
+                /** @description Dimensional attributes to group by */
+                dimensions?: string[];
+                /** @description Filters on dimensional attributes */
+                filters?: string[];
+                /** @description Expression to order by */
+                orderby?: string[];
+                /** @description Number of rows to limit the data retrieved to */
+                limit?: number | null;
+                /** @description Query parameters */
+                query_params?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
             };
             header?: never;
             path: {
@@ -5318,10 +9996,12 @@ export interface operations {
                 dimensions?: string[];
                 filters?: string[];
                 orderby?: string[];
-                limit?: number;
+                limit?: number | null;
+                /** @description Query parameters */
+                query_params?: string;
                 async_?: boolean;
-                engine_name?: string;
-                engine_version?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
             };
             header?: never;
             path?: never;
@@ -5356,9 +10036,9 @@ export interface operations {
                 dimensions?: string[];
                 filters?: string[];
                 orderby?: string[];
-                limit?: number;
-                engine_name?: string;
-                engine_version?: string;
+                limit?: number | null;
+                engine_name?: string | null;
+                engine_version?: string | null;
             };
             header?: never;
             path?: never;
@@ -5443,8 +10123,9 @@ export interface operations {
     };
     list_history_by_node_context_history_get: {
         parameters: {
-            query: {
-                node: string;
+            query?: {
+                node?: string | null;
+                only_subscribed?: boolean;
                 offset?: number;
                 limit?: number;
             };
@@ -5461,6 +10142,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_all_Cubes_cubes_get: {
+        parameters: {
+            query?: {
+                /** @description Filter to include only cubes available in a specific catalog */
+                catalog?: string | null;
+                /** @description Page number (starting from 1) */
+                page?: number;
+                /** @description Number of items per page (max 1000) */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CubeRevisionMetadata"][];
                 };
             };
             /** @description Validation Error */
@@ -5505,15 +10222,78 @@ export interface operations {
             };
         };
     };
+    Get_a_Cube_Revision_cubes__name__versions__version__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CubeRevisionMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Cube_Materialization_Config_cubes__name__materialization_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DruidCubeMaterializationInput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     Dimensions_SQL_for_Cube_cubes__name__dimensions_sql_get: {
         parameters: {
             query?: {
                 /** @description Dimensions to get values for */
                 dimensions?: string[];
                 /** @description Filters on dimensional attributes */
-                filters?: string;
+                filters?: string | null;
                 /** @description Number of rows to limit the data retrieved to */
-                limit?: number;
+                limit?: number | null;
                 include_counts?: boolean;
             };
             header?: never;
@@ -5550,9 +10330,9 @@ export interface operations {
                 /** @description Dimensions to get values for */
                 dimensions?: string[];
                 /** @description Filters on dimensional attributes */
-                filters?: string;
+                filters?: string | null;
                 /** @description Number of rows to limit the data retrieved to */
-                limit?: number;
+                limit?: number | null;
                 include_counts?: boolean;
                 async_?: boolean;
             };
@@ -5584,10 +10364,111 @@ export interface operations {
             };
         };
     };
+    Materialize_Cube_to_Druid_cubes__name__materialize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CubeMaterializeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CubeMaterializeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Deactivate_Cube_Materialization_cubes__name__materialize_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Run_Cube_Backfill_cubes__name__backfill_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tags_tags_get: {
         parameters: {
             query?: {
-                tag_type?: string;
+                tag_type?: string | null;
             };
             header?: never;
             path?: never;
@@ -5717,7 +10598,7 @@ export interface operations {
     list_nodes_for_a_tag_tags__name__nodes_get: {
         parameters: {
             query?: {
-                node_type?: components["schemas"]["NodeType"];
+                node_type?: components["schemas"]["NodeType"] | null;
             };
             header?: never;
             path: {
@@ -5800,14 +10681,22 @@ export interface operations {
             };
         };
     };
-    Get_Measures_SQL_sql_measures_get: {
+    Get_Measures_SQL_sql_measures_v2_get: {
         parameters: {
             query?: {
                 metrics?: string[];
                 dimensions?: string[];
                 filters?: string[];
-                engine_name?: string;
-                engine_version?: string;
+                orderby?: string[];
+                /** @description Whether to pre-aggregate to the requested dimensions so that subsequent queries are more efficient. */
+                preaggregate?: boolean;
+                /** @description Query parameters */
+                query_params?: string;
+                /** @description Whether to include all columns or only those necessary for the metrics and dimensions in the cube */
+                include_all_columns?: boolean;
+                engine_name?: string | null;
+                engine_version?: string | null;
+                use_materialized?: boolean;
             };
             header?: never;
             path?: never;
@@ -5821,7 +10710,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TranslatedSQL"];
+                    "application/json": components["schemas"]["GeneratedSQL"][];
                 };
             };
             /** @description Validation Error */
@@ -5841,9 +10730,13 @@ export interface operations {
                 dimensions?: string[];
                 filters?: string[];
                 orderby?: string[];
-                limit?: number;
-                engine_name?: string;
-                engine_version?: string;
+                limit?: number | null;
+                /** @description Query parameters */
+                query_params?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
+                ignore_errors?: boolean | null;
+                use_materialized?: boolean | null;
             };
             header?: never;
             path: {
@@ -5873,6 +10766,115 @@ export interface operations {
             };
         };
     };
+    Get_Measures_SQL_V3_sql_measures_v3_get: {
+        parameters: {
+            query?: {
+                metrics?: string[];
+                dimensions?: string[];
+                filters?: string[];
+                use_materialized?: boolean;
+                /** @description SQL dialect for the generated query. */
+                dialect?: components["schemas"]["Dialect"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasuresSQLResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_Combined_Measures_SQL_V3_sql_measures_v3_combined_get: {
+        parameters: {
+            query?: {
+                metrics?: string[];
+                dimensions?: string[];
+                filters?: string[];
+                /** @description If False (default), compute from scratch using source tables. If True, compute from pre-aggregation tables */
+                use_preagg_tables?: boolean;
+                /** @description SQL dialect for the generated query. */
+                dialect?: components["schemas"]["Dialect"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CombinedMeasuresSQLResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_Metrics_SQL_V3_sql_metrics_v3_get: {
+        parameters: {
+            query?: {
+                metrics?: string[];
+                dimensions?: string[];
+                filters?: string[];
+                use_materialized?: boolean;
+                /** @description SQL dialect for the generated query. */
+                dialect?: components["schemas"]["Dialect"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["V3TranslatedSQL"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     Get_SQL_For_Metrics_sql_get: {
         parameters: {
             query?: {
@@ -5880,9 +10882,13 @@ export interface operations {
                 dimensions?: string[];
                 filters?: string[];
                 orderby?: string[];
-                limit?: number;
-                engine_name?: string;
-                engine_version?: string;
+                limit?: number | null;
+                /** @description Query parameters */
+                query_params?: string;
+                engine_name?: string | null;
+                engine_version?: string | null;
+                ignore_errors?: boolean | null;
+                use_materialized?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -5912,7 +10918,44 @@ export interface operations {
     };
     client_code_for_creating_node_datajunction_clients_python_new_node__node_name__get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_client_setup?: boolean;
+                replace_namespace?: string | null;
+            };
+            header?: never;
+            path: {
+                node_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    client_code_for_dimension_links_on_node_datajunction_clients_python_dimension_links__node_name__get: {
+        parameters: {
+            query?: {
+                include_client_setup?: boolean;
+                replace_namespace?: string | null;
+            };
             header?: never;
             path: {
                 node_name: string;
@@ -5973,15 +11016,16 @@ export interface operations {
             };
         };
     };
-    client_code_for_linking_dimension_to_node_datajunction_clients_python_link_dimension__node_name___column___dimension__get: {
+    notebook_for_exporting_nodes_datajunction_clients_python_notebook_get: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                node_name: string;
-                column: string;
-                dimension: string;
+            query?: {
+                namespace?: string | null;
+                cube?: string | null;
+                include_dimensions?: boolean;
+                include_sources?: boolean;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -5992,7 +11036,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string;
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -6009,7 +11053,7 @@ export interface operations {
     list_dimensions_dimensions_get: {
         parameters: {
             query?: {
-                prefix?: string;
+                prefix?: string | null;
             };
             header?: never;
             path?: never;
@@ -6023,7 +11067,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string[];
+                    "application/json": components["schemas"]["NodeIndegreeOutput"][];
                 };
             };
             /** @description Validation Error */
@@ -6056,7 +11100,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeRevisionOutput"][];
+                    "application/json": components["schemas"]["NodeNameOutput"][];
                 };
             };
             /** @description Validation Error */
@@ -6088,8 +11132,201 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeRevisionOutput"][];
+                    "application/json": components["schemas"]["NodeNameOutput"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_hierarchies_hierarchies_get: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of hierarchies to return */
+                limit?: number;
+                /** @description Number of hierarchies to skip */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyInfo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_hierarchy_hierarchies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HierarchyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dimension_hierarchies_nodes__dimension__hierarchies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dimension: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DimensionHierarchiesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_hierarchy_hierarchies__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_hierarchy_hierarchies__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HierarchyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HierarchyOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_hierarchy_hierarchies__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -6149,7 +11386,7 @@ export interface operations {
             };
         };
     };
-    get_user_whoami_get: {
+    whoami_whoami_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6164,7 +11401,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOutput"];
+                    "application/json": unknown;
                 };
             };
         };
@@ -6185,6 +11422,609 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_nodes_by_username_users__username__get: {
+        parameters: {
+            query?: {
+                activity_types?: string[];
+            };
+            header?: never;
+            path: {
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeMinimumDetail"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_with_activity_users_get: {
+        parameters: {
+            query?: {
+                with_activity?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": (string | components["schemas"]["UserActivity"])[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_groups_groups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupOutput"][];
+                };
+            };
+        };
+    };
+    register_group_groups_post: {
+        parameters: {
+            query: {
+                username: string;
+                email?: string | null;
+                name?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_group_groups__group_name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_group_members_groups__group_name__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_group_member_groups__group_name__members_post: {
+        parameters: {
+            query: {
+                member_username: string;
+            };
+            header?: never;
+            path: {
+                group_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_group_member_groups__group_name__members__member_username__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_name: string;
+                member_username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_roles_roles_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                include_deleted?: boolean;
+                created_by_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_role_roles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_role_roles__role_name__get: {
+        parameters: {
+            query?: {
+                include_deleted?: boolean;
+            };
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_role_roles__role_name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_role_roles__role_name__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_role_scopes_roles__role_name__scopes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleScopeOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_scope_to_role_roles__role_name__scopes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleScopeInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleScopeOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_scope_from_role_roles__role_name__scopes__action___scope_type___scope_value__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+                action: components["schemas"]["ResourceAction"];
+                scope_type: components["schemas"]["ResourceType"];
+                scope_value: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_role_to_principal_roles__role_name__assign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleAssignmentOutput"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_role_assignments_roles__role_name__assignments_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                role_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleAssignmentOutput"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_role_from_principal_roles__role_name__assignments__principal_username__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_name: string;
+                principal_username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -6271,6 +12111,661 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    subscribe_notifications_subscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Body_subscribe_notifications_subscribe_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unsubscribe_notifications_unsubscribe_delete: {
+        parameters: {
+            query: {
+                entity_type: components["schemas"]["EntityType"];
+                entity_name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preferences_notifications_get: {
+        parameters: {
+            query?: {
+                entity_name?: string | null;
+                entity_type?: components["schemas"]["EntityType"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreferenceModel"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_users_for_notification_notifications_users_get: {
+        parameters: {
+            query: {
+                entity_name: string;
+                entity_type: components["schemas"]["EntityType"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_notifications_read_notifications_mark_read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    List_Pre_aggregations_preaggs_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by node name */
+                node_name?: string | null;
+                /** @description Filter by node version (requires node_name) */
+                node_version?: string | null;
+                /** @description Comma-separated grain columns to match */
+                grain?: string | null;
+                /** @description Grain matching mode: 'exact' (default) or 'superset' (pre-agg contains all requested + maybe more) */
+                grain_mode?: components["schemas"]["GrainMode"];
+                /** @description Filter by grain group hash */
+                grain_group_hash?: string | null;
+                /** @description Comma-separated measures (pre-agg must contain ALL) */
+                measures?: string | null;
+                /** @description Filter by status: 'pending' or 'active' */
+                status?: string | null;
+                /** @description Include pre-aggs from older node versions (stale) */
+                include_stale?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreAggregationListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Get_Pre_aggregation_by_ID_preaggs__preagg_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreAggregationInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Plan_Pre_aggregations_preaggs_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanPreAggregationsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanPreAggregationsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Materialize_Pre_aggregation_preaggs__preagg_id__materialize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreAggregationInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Update_Pre_aggregation_Config_preaggs__preagg_id__config_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreAggregationConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreAggregationInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Deactivate_Scheduled_Workflow_preaggs__preagg_id__workflow_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Bulk_Deactivate_Workflows_preaggs_workflows_delete: {
+        parameters: {
+            query: {
+                /** @description Node name to deactivate workflows for (required) */
+                node_name: string;
+                /** @description If true, only deactivate workflows for stale pre-aggs (pre-aggs built for non-current node versions) */
+                stale_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeactivateWorkflowsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Run_Backfill_preaggs__preagg_id__backfill_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    Update_Pre_aggregation_Availability_preaggs__preagg_id__availability_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preagg_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreAggregationAvailabilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreAggregationInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_service_accounts_service_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccountOutput"][];
+                };
+            };
+        };
+    };
+    create_service_account_service_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccountCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_service_account_service_accounts__client_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    service_account_token_service_accounts_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_service_account_token_service_accounts_token_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_system_metrics_system_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_data_for_system_metric_system_data__metric_name__get: {
+        parameters: {
+            query?: {
+                dimensions?: string[];
+                filters?: string[];
+                orderby?: string[];
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                metric_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RowOutput"][][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dimensions_stats_system_dimensions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DimensionStats"][];
                 };
             };
         };
