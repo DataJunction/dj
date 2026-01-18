@@ -30,6 +30,7 @@ from datajunction_server.database.preaggregation import (
 )
 
 from datajunction_server.construction.build_v3.types import GrainGroupSQL
+from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
@@ -208,7 +209,7 @@ def _combine_multiple_grain_groups(
     )
 
     # Build FROM clause with FULL OUTER JOINs (referencing CTEs by name)
-    from_clause = _build_join_from_clause(
+    from_clause = build_join_from_clause(
         output_table_names,
         table_refs,
         shared_grain,
@@ -365,77 +366,6 @@ def _build_measure_projections(
                 projections.append(measure_col)
 
     return projections, all_measures
-
-
-def _build_join_from_clause(
-    cte_names: list[str],
-    table_refs: dict[str, ast.Table],
-    shared_grain: list[str],
-) -> ast.From:
-    """
-    Build FROM clause with FULL OUTER JOINs on CTEs.
-
-    Example output (CTEs are defined in the WITH clause):
-        FROM gg1
-        FULL OUTER JOIN gg2 ON gg1.dim1 = gg2.dim1 AND gg1.dim2 = gg2.dim2
-        FULL OUTER JOIN gg3 ON gg1.dim1 = gg3.dim1 AND gg1.dim2 = gg3.dim2
-    """
-    first_name = cte_names[0]
-
-    # Build JOIN extensions for remaining CTEs
-    join_extensions = []
-    for name in cte_names[1:]:
-        # Build JOIN criteria on shared grain columns
-        join_criteria = _build_join_criteria(
-            table_refs[first_name],
-            table_refs[name],
-            shared_grain,
-        )
-
-        join_extension = ast.Join(
-            join_type="FULL OUTER",
-            right=ast.Table(name=ast.Name(name)),
-            criteria=ast.JoinCriteria(on=join_criteria),
-        )
-
-        join_extensions.append(join_extension)
-
-    # Build the FROM clause - primary is first CTE, extensions are JOINs
-    from_relation = ast.Relation(
-        primary=ast.Table(name=ast.Name(first_name)),
-        extensions=join_extensions,
-    )
-
-    return ast.From(relations=[from_relation])
-
-
-def _build_join_criteria(
-    left_table: ast.Table,
-    right_table: ast.Table,
-    grain_columns: list[str],
-) -> ast.Expression:
-    """
-    Build JOIN ON condition for grain columns.
-
-    Example output:
-        left.dim1 = right.dim1 AND left.dim2 = right.dim2
-    """
-    if not grain_columns:
-        # No grain columns - use TRUE (cartesian join)
-        return ast.Boolean(True)  # type: ignore
-
-    conditions = [
-        ast.BinaryOp.Eq(
-            ast.Column(name=ast.Name(col), _table=left_table),
-            ast.Column(name=ast.Name(col), _table=right_table),
-        )
-        for col in grain_columns
-    ]
-
-    if len(conditions) == 1:
-        return conditions[0]
-
-    return ast.BinaryOp.And(*conditions)
 
 
 def _build_output_columns(

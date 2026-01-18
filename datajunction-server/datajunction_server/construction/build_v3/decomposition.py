@@ -1,5 +1,10 @@
 """
 Handles metric decomposition and grain analysis
+
+TODO: Add validation to reject derived metrics that aggregate other metrics
+(e.g., AVG(other_metric) without OVER clause). Derived metrics should only do
+arithmetic or window functions on base metrics, not introduce new aggregation
+layers. This check should happen during metric creation/update validation.
 """
 
 from __future__ import annotations

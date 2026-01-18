@@ -532,6 +532,9 @@ class TestMetricsSQLDerived:
 
         v3.mom_revenue_change uses LAG() window function to compare
         current month revenue with previous month.
+
+        Window function metrics use a base_metrics CTE to pre-compute
+        base metrics before applying the window function.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -549,26 +552,33 @@ class TestMetricsSQLDerived:
             """
             WITH
             v3_date AS (
-            SELECT  date_id,
-                month
-            FROM default.v3.dates
+                SELECT date_id, month
+                FROM default.v3.dates
             ),
             v3_order_details AS (
-            SELECT  o.order_date,
-                oi.quantity * oi.unit_price AS line_total
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-            SELECT  t2.month month_order,
-                SUM(t1.line_total) line_total_sum_e1f61696
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
-            GROUP BY  t2.month
+                SELECT t2.month month_order, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                GROUP BY t2.month
+            ),
+            base_metrics AS (
+                SELECT
+                    COALESCE(order_details_0.month_order) AS month_order,
+                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+                FROM order_details_0
+                GROUP BY order_details_0.month_order
             )
-
-            SELECT  COALESCE(order_details_0.month_order) AS month_order,
-                (SUM(order_details_0.line_total_sum_e1f61696) - LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( ORDER BY month_order) ) / NULLIF(LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( ORDER BY month_order) , 0) * 100 AS mom_revenue_change
-            FROM order_details_0
-            GROUP BY order_details_0.month_order
+            SELECT
+                base_metrics.month_order AS month_order,
+                (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month_order))
+                    / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month_order), 0) * 100
+                    AS mom_revenue_change
+            FROM base_metrics
             """,
         )
 
@@ -587,6 +597,7 @@ class TestMetricsSQLDerived:
             },
         ]
 
+    @pytest.mark.asyncio
     async def test_filter_in_metrics_sql(self, client_with_build_v3):
         """Test that filters are applied in the metrics SQL endpoint."""
         response = await client_with_build_v3.get(
@@ -599,13 +610,312 @@ class TestMetricsSQLDerived:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["sql"]
+        result = response.json()
 
-        # Should have WHERE clause in the final SQL
-        assert "WHERE" in sql
-        assert "category" in sql
-        assert "'Electronics'" in sql
+        # Verify exact SQL structure with WHERE clause in grain group CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                GROUP BY t2.category
+            )
+            SELECT COALESCE(order_details_0.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.category = 'Electronics'
+            GROUP BY order_details_0.category
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_cross_fact_metrics(self, client_with_build_v3):
+        """Test that filters are applied to cross-fact metrics SQL."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.page_view_count"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify WHERE clause is applied to both grain group CTEs and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views_enriched AS (
+                SELECT view_id, product_id
+                FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                GROUP BY t2.category
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                GROUP BY t2.category
+            )
+            SELECT COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                   SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM order_details_0
+            FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
+            WHERE order_details_0.category = 'Electronics'
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_on_different_dimension(self, client_with_build_v3):
+        """Test filter on a dimension different from the GROUP BY dimension."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status = 'completed'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify WHERE clause on status dimension in both CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status = 'completed'
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status = 'completed'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_with_in_operator(self, client_with_build_v3):
+        """Test filter with IN operator."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status IN ('active', 'completed')"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify WHERE clause with IN operator in both CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status IN ('active', 'completed')
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status IN ('active', 'completed')
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_with_not_equals(self, client_with_build_v3):
+        """Test filter with != operator."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status != 'cancelled'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify WHERE clause with != operator in both CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status != 'cancelled'
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status != 'cancelled'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_with_like_operator(self, client_with_build_v3):
+        """Test filter with LIKE operator."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status LIKE 'act%'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify WHERE clause with LIKE operator in both CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status LIKE 'act%'
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status LIKE 'act%'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_with_multiple_conditions(self, client_with_build_v3):
+        """Test filter with multiple AND conditions."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status", "v3.product.category"],
+                "filters": [
+                    "v3.order_details.status = 'active'",
+                    "v3.product.category = 'Electronics'",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Verify multiple filter conditions are combined with AND in both CTE and final SELECT
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t1.status = 'active' AND t2.category = 'Electronics'
+                GROUP BY t1.status, t2.category
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   COALESCE(order_details_0.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status = 'active' AND order_details_0.category = 'Electronics'
+            GROUP BY order_details_0.status, order_details_0.category
+            """,
+        )
 
 
 class TestMetricsSQLCrossFact:
@@ -807,7 +1117,10 @@ class TestMetricsSQLCrossFact:
     @pytest.mark.asyncio
     async def test_period_over_period_metrics(self, client_with_build_v3):
         """
-        Test all additional metrics through the metrics SQL endpoint.
+        Test period-over-period metrics (WoW, MoM) through metrics SQL.
+
+        These use LAG() window functions and require a base_metrics CTE
+        to pre-compute the base metrics before applying window functions.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -818,7 +1131,6 @@ class TestMetricsSQLCrossFact:
                     "v3.mom_revenue_change",
                 ],
                 "dimensions": [
-                    # "v3.date.week[order]",
                     "v3.product.category",
                 ],
             },
@@ -828,52 +1140,64 @@ class TestMetricsSQLCrossFact:
             result["sql"],
             """
             WITH v3_date AS (
-            SELECT  date_id,
+              SELECT
+                date_id,
                 week,
                 month
-            FROM v3.src_dates
+              FROM default.v3.dates
             ),
             v3_order_details AS (
-            SELECT  o.order_id,
+              SELECT
+                o.order_id,
                 o.order_date,
                 oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_product AS (
-            SELECT  product_id,
+              SELECT
+                product_id,
                 category
-            FROM default.v3.products
+              FROM default.v3.products
             ),
             order_details_0 AS (
-            SELECT  t2.category,
+              SELECT
+                t2.category,
                 t3.month,
                 t3.week,
                 t1.order_id,
                 SUM(t1.line_total) line_total_sum_e1f61696
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t2.category, t3.month, t3.week, t1.order_id
-            )
-
-            SELECT  COALESCE(order_details_0.category) AS category,
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+              GROUP BY t2.category, t3.month, t3.week, t1.order_id
+            ),
+            base_metrics AS (
+              SELECT
+                COALESCE(order_details_0.category) AS category,
                 COALESCE(order_details_0.month) AS month,
                 COALESCE(order_details_0.week) AS week,
-
-                (SUM(order_details_0.line_total_sum_e1f61696) - LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, month
- ORDER BY week) ) / NULLIF(LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, month
- ORDER BY week) , 0) * 100 AS wow_revenue_change,
-
-                (CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) - LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category, month
- ORDER BY week) ) / NULLIF(LAG(CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE), 1) OVER ( PARTITION BY category, month
- ORDER BY week) , 0) * 100 AS wow_order_growth,
-
-                (SUM(order_details_0.line_total_sum_e1f61696) - LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, week
- ORDER BY month) ) / NULLIF(LAG(SUM(order_details_0.line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, week
- ORDER BY month) , 0) * 100 AS mom_revenue_change
-            FROM order_details_0
-            GROUP BY  order_details_0.category, order_details_0.month, order_details_0.week
-        """,
+                COUNT( DISTINCT order_details_0.order_id) AS order_count,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.category, order_details_0.month, order_details_0.week
+            )
+            SELECT
+              base_metrics.category AS category,
+              base_metrics.month AS month,
+              base_metrics.week AS week,
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week), 0) * 100
+                AS wow_revenue_change,
+              (CAST(base_metrics.order_count AS DOUBLE) - LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week))
+                / NULLIF(LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week), 0) * 100
+                AS wow_order_growth,
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, week ORDER BY base_metrics.month))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, week ORDER BY base_metrics.month), 0) * 100
+                AS mom_revenue_change
+            FROM base_metrics
+            """,
         )
         assert result["columns"] == [
             {
@@ -1015,7 +1339,8 @@ class TestNonDecomposableMetrics:
         - Last 7 days (ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
         - Previous 7 days (ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING)
 
-        Output is one row per day, not per week.
+        Window function metrics use a base_metrics CTE to pre-compute
+        base metrics before applying the window function.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1027,26 +1352,67 @@ class TestNonDecomposableMetrics:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Check that the SQL contains the expected frame clauses
-        sql = result["sql"]
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category
+              FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.category,
+                t1.order_date date_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY  t2.category, t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                COALESCE(order_details_0.category) AS category,
+                COALESCE(order_details_0.date_id) AS date_id,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY  order_details_0.category, order_details_0.date_id
+            )
+            SELECT
+              base_metrics.category AS category,
+              base_metrics.date_id AS date_id,
+              (SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
+            FROM base_metrics
+            """,
+        )
 
-        # Should have ROWS BETWEEN for "this week" (last 7 days)
-        assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
-
-        # Should have ROWS BETWEEN for "last week" (previous 7 days)
-        assert "ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING" in sql
-
-        # Should have category dimension in query
-        assert "category" in sql
-
-        # Should have ORDER BY date_id for the window functions
-        assert "ORDER BY" in sql
-
-        # Verify output columns
-        column_names = [col["name"] for col in result["columns"]]
-        assert "category" in column_names
-        assert "date_id" in column_names  # Required dimension auto-added
-        assert "trailing_wow_revenue_change" in column_names
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+                "type": "string",
+            },
+            {
+                "name": "date_id",
+                "semantic_entity": "v3.date.date_id",
+                "semantic_type": "dimension",
+                "type": "int",
+            },
+            {
+                "name": "trailing_wow_revenue_change",
+                "semantic_entity": "v3.trailing_wow_revenue_change",
+                "semantic_type": "metric",
+                "type": "double",
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_trailing_7d_revenue(self, client_with_build_v3):
@@ -1054,6 +1420,8 @@ class TestNonDecomposableMetrics:
         Test trailing 7-day rolling sum metric.
 
         This metric computes a rolling 7-day sum using a frame clause.
+        Window function metrics use a base_metrics CTE to pre-compute
+        base metrics before applying the window function.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1065,12 +1433,63 @@ class TestNonDecomposableMetrics:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # Check that the SQL contains the expected frame clause
-        sql = result["sql"]
-        assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category
+              FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.category,
+                t1.order_date date_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY  t2.category, t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                COALESCE(order_details_0.category) AS category,
+                COALESCE(order_details_0.date_id) AS date_id,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY  order_details_0.category, order_details_0.date_id
+            )
+            SELECT
+              base_metrics.category AS category,
+              base_metrics.date_id AS date_id,
+              SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+            FROM base_metrics
+            """,
+        )
 
-        # Verify output columns
-        column_names = [col["name"] for col in result["columns"]]
-        assert "category" in column_names
-        assert "date_id" in column_names  # Required dimension auto-added
-        assert "trailing_7d_revenue" in column_names
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+                "type": "string",
+            },
+            {
+                "name": "date_id",
+                "semantic_entity": "v3.date.date_id",
+                "semantic_type": "dimension",
+                "type": "int",
+            },
+            {
+                "name": "trailing_7d_revenue",
+                "semantic_entity": "v3.trailing_7d_revenue",
+                "semantic_type": "metric",
+                "type": "double",
+            },
+        ]
