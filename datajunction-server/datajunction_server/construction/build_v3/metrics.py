@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from functools import reduce
 from typing import Any, Optional
 
 from datajunction_server.construction.build_v3.cte import (
@@ -23,6 +22,7 @@ from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
 )
 from datajunction_server.construction.build_v3.utils import (
+    build_join_from_clause,
     get_short_name,
     make_column_ref,
 )
@@ -496,33 +496,9 @@ def build_base_metrics_cte(
         base_metrics_projection.append(aliased_expr)
 
     # Build FROM clause with FULL OUTER JOINs
-    join_extensions: list[ast.Join] = []
-    for i in range(1, len(cte_aliases)):
-        conditions: list[ast.Expression] = []
-        for _, dim_col in dim_info:
-            left_col = make_column_ref(dim_col, cte_aliases[0])
-            right_col = make_column_ref(dim_col, cte_aliases[i])
-            conditions.append(ast.BinaryOp.Eq(left_col, right_col))
-        if len(conditions) == 1:
-            on_clause = conditions[0]
-        else:
-            on_clause = reduce(lambda a, b: ast.BinaryOp.And(a, b), conditions)
-        join_extensions.append(
-            ast.Join(
-                right=ast.Table(ast.Name(cte_aliases[i])),
-                criteria=ast.JoinCriteria(on=on_clause),
-                join_type="FULL OUTER",
-            ),
-        )
-
-    base_metrics_from = ast.From(
-        relations=[
-            ast.Relation(
-                primary=ast.Table(ast.Name(cte_aliases[0])),
-                extensions=join_extensions,
-            ),
-        ],
-    )
+    dim_cols = [dim_col for _, dim_col in dim_info]
+    table_refs = {name: ast.Table(ast.Name(name)) for name in cte_aliases}
+    base_metrics_from = build_join_from_clause(cte_aliases, table_refs, dim_cols)
 
     # Build GROUP BY on dimensions
     group_by: list[ast.Expression] = []
@@ -627,40 +603,9 @@ def build_from_clause(
         # No GROUP BY for window function queries - they need all rows
         return from_clause, []
 
-    # Build JOIN extensions for the Relation (standard approach)
-    join_extensions: list[ast.Join] = []
-    for i in range(1, len(cte_aliases)):
-        # Build join condition: gg0.dim1 = ggN.dim1 AND gg0.dim2 = ggN.dim2 ...
-        conditions: list[ast.Expression] = []
-        for dim_col in dim_col_aliases:
-            left_col = make_column_ref(dim_col, cte_aliases[0])
-            right_col = make_column_ref(dim_col, cte_aliases[i])
-            conditions.append(ast.BinaryOp.Eq(left_col, right_col))
-
-        # Combine conditions with AND
-        if len(conditions) == 1:
-            on_clause = conditions[0]
-        else:
-            on_clause = reduce(lambda a, b: ast.BinaryOp.And(a, b), conditions)
-
-        # Build the JOIN with criteria
-        join_extensions.append(
-            ast.Join(
-                right=ast.Table(ast.Name(cte_aliases[i])),
-                criteria=ast.JoinCriteria(on=on_clause),
-                join_type="FULL OUTER",
-            ),
-        )
-
-    # Build the FROM clause as a Relation with primary table and join extensions
-    from_clause = ast.From(
-        relations=[
-            ast.Relation(
-                primary=ast.Table(ast.Name(cte_aliases[0])),
-                extensions=join_extensions,
-            ),
-        ],
-    )
+    # Build FROM clause with FULL OUTER JOINs between grain group CTEs
+    table_refs = {name: ast.Table(ast.Name(name)) for name in cte_aliases}
+    from_clause = build_join_from_clause(cte_aliases, table_refs, dim_col_aliases)
 
     # Add GROUP BY on requested dimensions
     # Metrics SQL re-aggregates components to produce final metric values:
