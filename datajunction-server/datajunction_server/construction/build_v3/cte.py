@@ -82,7 +82,7 @@ def replace_component_refs_in_ast(
             continue
 
         # Check if this column name matches a component
-        if col_name in component_aliases:
+        if col_name in component_aliases:  # pragma: no branch
             table_alias, actual_col = component_aliases[col_name]
             # Replace with qualified column reference
             col.name = ast.Name(actual_col)

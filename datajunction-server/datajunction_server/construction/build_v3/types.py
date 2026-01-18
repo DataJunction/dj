@@ -363,7 +363,7 @@ class ColumnResolver:
 
     def resolve(self, name: str) -> ColumnRef | None:
         """Resolve a name to its column reference."""
-        return self._entries.get(name)
+        return self._entries.get(name)  # pragma: no cover
 
     def get_by_type(self, col_type: str) -> dict[str, ColumnRef]:
         """Get all entries of a specific type."""

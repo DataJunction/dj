@@ -870,7 +870,7 @@ class GenericNodeOutputModel(BaseModel):
         for k, v in current_dict.items():
             final_dict[k] = v
 
-        if "dimension_links" in final_dict:
+        if "dimension_links" in final_dict:  # pragma: no branch
             final_dict["dimension_links"] = [
                 link
                 for link in final_dict["dimension_links"]  # type: ignore

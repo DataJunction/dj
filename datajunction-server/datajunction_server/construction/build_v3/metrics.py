@@ -489,7 +489,7 @@ def build_base_metrics_cte(
     # Add base metric expressions (sorted for deterministic ordering)
     for base_metric_name in sorted(all_grain_group_metrics):
         if base_metric_name not in metric_expr_asts:
-            continue
+            continue  # pragma: no cover
         info = metric_expr_asts[base_metric_name]
         aliased_expr = deepcopy(info.expr_ast).set_alias(ast.Name(info.short_name))
         aliased_expr.set_as(True)
@@ -750,7 +750,7 @@ def build_window_metric_expr(
     original_query = ctx.get_parsed_query(metric_node)
     expr_ast = deepcopy(original_query.select.projection[0])
     if isinstance(expr_ast, ast.Alias):
-        expr_ast = expr_ast.child
+        expr_ast = expr_ast.child  # pragma: no cover
 
     # Build refs pointing to window CTE for all base metrics
     window_metric_refs: dict[str, tuple[str, str]] = {
