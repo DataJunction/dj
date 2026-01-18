@@ -1,0 +1,19 @@
+overwrite: true
+schema: http://localhost:8000/graphql
+generates:
+  src/types/graphql.ts:
+    plugins:
+      - typescript
+    config:
+      # Use interface instead of type for better extensibility
+      declarationKind: interface
+      # Make optional fields nullable
+      maybeValue: T | null
+      # Skip __typename by default
+      skipTypename: true
+      # Use enums as TypeScript enums
+      enumsAsTypes: false
+      # Add readonly to input types
+      immutableTypes: false
+      # Avoid 'Maybe' wrapper, use 'T | null' directly
+      inputMaybeValue: T | null
