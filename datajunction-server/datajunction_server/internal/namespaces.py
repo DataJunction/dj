@@ -1161,7 +1161,12 @@ async def compare_namespaces(
             changed_fields = (
                 base_spec.diff(compare_spec) if hasattr(base_spec, "diff") else []
             )
-            column_changes = _detect_column_changes_for_diff(base_node, compare_node)
+            column_changes = _detect_column_changes_for_diff(
+                base_node,
+                compare_node,
+                base_namespace,
+                compare_namespace,
+            )
 
             direct_changes.append(
                 NamespaceDiffNodeChange(
@@ -1343,9 +1348,15 @@ def _compare_specs_for_diff(
         if base_spec.direction != compare_spec.direction:
             print(f"[DIFF]   DIFF: direction mismatch: {base_spec.direction} vs {compare_spec.direction}")
             return False
-        if base_spec.unit_enum != compare_spec.unit_enum:
-            print(f"[DIFF]   DIFF: unit_enum mismatch: {base_spec.unit_enum} vs {compare_spec.unit_enum}")
-            return False
+        # Compare unit_enum - handle None vs falsy cases
+        base_unit = base_spec.unit_enum
+        compare_unit = compare_spec.unit_enum
+        print(f"[DIFF]   Metric unit_enum: base={base_unit!r} (type={type(base_unit).__name__}), compare={compare_unit!r} (type={type(compare_unit).__name__})")
+        if base_unit != compare_unit:
+            # Both None is equal, handle value comparison
+            if not (base_unit is None and compare_unit is None):
+                print(f"[DIFF]   DIFF: unit_enum mismatch: {base_unit} vs {compare_unit}")
+                return False
 
     elif base_spec.node_type == NodeType.CUBE:
         # Compare metrics and dimensions lists (normalize namespace)
@@ -1631,9 +1642,14 @@ def _compare_dimension_links_for_diff(
 def _detect_column_changes_for_diff(
     base_node: Node | None,
     compare_node: Node | None,
+    base_namespace: str,
+    compare_namespace: str,
 ) -> list[ColumnChange]:
     """
     Detect column changes between two nodes.
+
+    Column names are normalized by stripping namespace prefixes to ensure
+    columns like "ns1.metric_name" and "ns2.metric_name" are compared as equal.
     """
     changes: list[ColumnChange] = []
 
@@ -1645,8 +1661,15 @@ def _detect_column_changes_for_diff(
     ):
         return changes
 
-    base_columns = {col.name: col for col in base_node.current.columns}
-    compare_columns = {col.name: col for col in compare_node.current.columns}
+    # Normalize column names by stripping namespace prefix
+    base_columns = {
+        _strip_namespace_from_ref(col.name, base_namespace): col
+        for col in base_node.current.columns
+    }
+    compare_columns = {
+        _strip_namespace_from_ref(col.name, compare_namespace): col
+        for col in compare_node.current.columns
+    }
 
     # Removed columns
     for col_name in base_columns.keys() - compare_columns.keys():
