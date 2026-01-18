@@ -1,0 +1,22 @@
+query GetMetric($name: String!) {
+  findNodes(names: [$name]) {
+    name
+    current {
+      parents {
+        name
+      }
+      metricMetadata {
+        direction
+        unit {
+          name
+        }
+        expression
+        significantDigits
+        incompatibleDruidFunctions
+      }
+      requiredDimensions {
+        name
+      }
+    }
+  }
+}

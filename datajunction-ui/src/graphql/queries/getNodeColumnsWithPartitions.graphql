@@ -1,0 +1,16 @@
+query GetNodeColumnsWithPartitions($name: String!) {
+  findNodes(names: [$name]) {
+    name
+    current {
+      columns {
+        name
+        type
+        partition {
+          type_
+          format
+          granularity
+        }
+      }
+    }
+  }
+}

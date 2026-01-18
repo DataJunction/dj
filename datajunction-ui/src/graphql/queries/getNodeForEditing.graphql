@@ -1,0 +1,37 @@
+query GetNodeForEditing($name: String!) {
+  findNodes(names: [$name]) {
+    name
+    type
+    current {
+      displayName
+      description
+      primaryKey
+      query
+      parents {
+        name
+        type
+      }
+      metricMetadata {
+        direction
+        unit {
+          name
+        }
+        expression
+        significantDigits
+        incompatibleDruidFunctions
+      }
+      requiredDimensions {
+        name
+      }
+      mode
+      customMetadata
+    }
+    tags {
+      name
+      displayName
+    }
+    owners {
+      username
+    }
+  }
+}

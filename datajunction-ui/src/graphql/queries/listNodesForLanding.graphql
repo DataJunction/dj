@@ -1,0 +1,63 @@
+query ListNodesForLanding(
+  $namespace: String
+  $nodeTypes: [NodeType!]
+  $tags: [String!]
+  $editedBy: String
+  $mode: NodeMode
+  $before: String
+  $after: String
+  $limit: Int
+  $orderBy: NodeSortField! = NAME
+  $ascending: Boolean! = true
+  $ownedBy: String
+  $statuses: [NodeStatus!]
+  $missingDescription: Boolean! = false
+  $hasMaterialization: Boolean! = false
+  $orphanedDimension: Boolean! = false
+) {
+  findNodesPaginated(
+    namespace: $namespace
+    nodeTypes: $nodeTypes
+    tags: $tags
+    editedBy: $editedBy
+    mode: $mode
+    limit: $limit
+    before: $before
+    after: $after
+    orderBy: $orderBy
+    ascending: $ascending
+    ownedBy: $ownedBy
+    statuses: $statuses
+    missingDescription: $missingDescription
+    hasMaterialization: $hasMaterialization
+    orphanedDimension: $orphanedDimension
+  ) {
+    pageInfo {
+      hasNextPage
+      endCursor
+      hasPrevPage
+      startCursor
+    }
+    edges {
+      node {
+        name
+        type
+        currentVersion
+        tags {
+          name
+          tagType
+        }
+        editedBy
+        current {
+          displayName
+          status
+          mode
+          updatedAt
+        }
+        createdBy {
+          username
+        }
+      }
+    }
+  }
+}

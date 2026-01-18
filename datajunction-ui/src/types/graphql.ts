@@ -554,3 +554,85 @@ export interface VersionedRef {
   name: Scalars['String']['output'];
   version: Scalars['String']['output'];
 }
+
+export type GetCubeForPlannerQueryVariables = Exact<{
+  name: Scalars['String']['input'];
+}>;
+
+
+export type GetCubeForPlannerQuery = { findNodes: Array<{ name: string, current: { displayName?: string | null, cubeMetrics: Array<{ name: string }>, cubeDimensions: Array<{ name: string }>, materializations?: Array<{ name?: string | null, config: any, schedule: string, strategy?: string | null }> | null } }> };
+
+export type GetDownstreamNodesQueryVariables = Exact<{
+  nodeNames: Array<Scalars['String']['input']> | Scalars['String']['input'];
+}>;
+
+
+export type GetDownstreamNodesQuery = { downstreamNodes: Array<{ name: string, type: NodeType }> };
+
+export type GetCubeForEditingQueryVariables = Exact<{
+  name: Scalars['String']['input'];
+}>;
+
+
+export type GetCubeForEditingQuery = { findNodes: Array<{ name: string, type: NodeType, owners: Array<{ username: string }>, current: { displayName?: string | null, description: string, mode?: NodeMode | null, cubeMetrics: Array<{ name: string }>, cubeDimensions: Array<{ name: string, attribute?: string | null, properties: Array<string> }> }, tags: Array<{ name: string, displayName?: string | null }> }> };
+
+export type GetMetricQueryVariables = Exact<{
+  name: Scalars['String']['input'];
+}>;
+
+
+export type GetMetricQuery = { findNodes: Array<{ name: string, current: { parents: Array<{ name: string }>, metricMetadata?: { direction?: MetricDirection | null, expression: string, significantDigits?: number | null, incompatibleDruidFunctions: Array<string>, unit?: { name: string } | null } | null, requiredDimensions?: Array<{ name: string }> | null } }> };
+
+export type GetNodeColumnsWithPartitionsQueryVariables = Exact<{
+  name: Scalars['String']['input'];
+}>;
+
+
+export type GetNodeColumnsWithPartitionsQuery = { findNodes: Array<{ name: string, current: { columns: Array<{ name: string, type: string, partition?: { type_: PartitionType, format?: string | null, granularity?: string | null } | null }> } }> };
+
+export type GetNodeForEditingQueryVariables = Exact<{
+  name: Scalars['String']['input'];
+}>;
+
+
+export type GetNodeForEditingQuery = { findNodes: Array<{ name: string, type: NodeType, current: { displayName?: string | null, description: string, primaryKey: Array<string>, query?: string | null, mode?: NodeMode | null, customMetadata?: any | null, parents: Array<{ name: string, type: string }>, metricMetadata?: { direction?: MetricDirection | null, expression: string, significantDigits?: number | null, incompatibleDruidFunctions: Array<string>, unit?: { name: string } | null } | null, requiredDimensions?: Array<{ name: string }> | null }, tags: Array<{ name: string, displayName?: string | null }>, owners: Array<{ username: string }> }> };
+
+export type GetNodesByNamesQueryVariables = Exact<{
+  names?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+}>;
+
+
+export type GetNodesByNamesQuery = { findNodes: Array<{ name: string, type: NodeType, current: { displayName?: string | null, status: NodeStatus, mode?: NodeMode | null } }> };
+
+export type ListCubesForPresetQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ListCubesForPresetQuery = { findNodes: Array<{ name: string, current: { displayName?: string | null } }> };
+
+export type ListNodesForLandingQueryVariables = Exact<{
+  namespace?: InputMaybe<Scalars['String']['input']>;
+  nodeTypes?: InputMaybe<Array<NodeType> | NodeType>;
+  tags?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  editedBy?: InputMaybe<Scalars['String']['input']>;
+  mode?: InputMaybe<NodeMode>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  after?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  orderBy?: NodeSortField;
+  ascending?: Scalars['Boolean']['input'];
+  ownedBy?: InputMaybe<Scalars['String']['input']>;
+  statuses?: InputMaybe<Array<NodeStatus> | NodeStatus>;
+  missingDescription?: Scalars['Boolean']['input'];
+  hasMaterialization?: Scalars['Boolean']['input'];
+  orphanedDimension?: Scalars['Boolean']['input'];
+}>;
+
+
+export type ListNodesForLandingQuery = { findNodesPaginated: { pageInfo: { hasNextPage: boolean, endCursor?: string | null, hasPrevPage: boolean, startCursor?: string | null }, edges: Array<{ node: { name: string, type: NodeType, currentVersion: string, editedBy: Array<string>, tags: Array<{ name: string, tagType: string }>, current: { displayName?: string | null, status: NodeStatus, mode?: NodeMode | null, updatedAt: any }, createdBy: { username: string } } }> } };
+
+export type GetUpstreamNodesQueryVariables = Exact<{
+  nodeNames: Array<Scalars['String']['input']> | Scalars['String']['input'];
+}>;
+
+
+export type GetUpstreamNodesQuery = { upstreamNodes: Array<{ name: string, type: NodeType }> };

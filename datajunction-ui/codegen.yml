@@ -1,9 +1,11 @@
 overwrite: true
 schema: http://localhost:8000/graphql
+documents: src/graphql/**/*.graphql
 generates:
   src/types/graphql.ts:
     plugins:
       - typescript
+      - typescript-operations
     config:
       # Use interface instead of type for better extensibility
       declarationKind: interface
@@ -13,7 +15,9 @@ generates:
       skipTypename: true
       # Use enums as TypeScript enums
       enumsAsTypes: false
-      # Add readonly to input types
-      immutableTypes: false
       # Avoid 'Maybe' wrapper, use 'T | null' directly
       inputMaybeValue: T | null
+      # Flatten pick helpers for cleaner types
+      flattenGeneratedTypes: true
+      # Export fragment types
+      exportFragmentSpreadSubTypes: true

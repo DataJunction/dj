@@ -1,0 +1,11 @@
+query GetNodesByNames($names: [String!]) {
+  findNodes(names: $names) {
+    name
+    type
+    current {
+      displayName
+      status
+      mode
+    }
+  }
+}
