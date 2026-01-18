@@ -1,0 +1,8 @@
+name: ${prefix}store_revenue_yoy
+node_type: metric
+display_name: Store Revenue YoY
+description: Year-over-year store revenue using LAG window function
+query: |
+  SELECT LAG(${prefix}store_revenue, 1) OVER (ORDER BY ${prefix}date.year)
+direction: higher_is_better
+unit: dollar

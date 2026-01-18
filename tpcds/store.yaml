@@ -1,0 +1,66 @@
+name: ${prefix}store
+node_type: source
+display_name: store
+description: Store location master data with geographic and organizational attributes
+catalog: default
+schema: tpcds
+table: store
+columns:
+  - name: s_store_sk
+    type: bigint
+  - name: s_store_id
+    type: string
+  - name: s_rec_start_date
+    type: date
+  - name: s_rec_end_date
+    type: date
+  - name: s_closed_date_sk
+    type: bigint
+  - name: s_store_name
+    type: string
+  - name: s_number_employees
+    type: int
+  - name: s_floor_space
+    type: int
+  - name: s_hours
+    type: string
+  - name: s_manager
+    type: string
+  - name: s_market_id
+    type: int
+  - name: s_geography_class
+    type: string
+  - name: s_market_desc
+    type: string
+  - name: s_market_manager
+    type: string
+  - name: s_division_id
+    type: int
+  - name: s_division_name
+    type: string
+  - name: s_company_id
+    type: int
+  - name: s_company_name
+    type: string
+  - name: s_street_number
+    type: string
+  - name: s_street_name
+    type: string
+  - name: s_street_type
+    type: string
+  - name: s_suite_number
+    type: string
+  - name: s_city
+    type: string
+  - name: s_county
+    type: string
+  - name: s_state
+    type: string
+  - name: s_zip
+    type: string
+  - name: s_country
+    type: string
+  - name: s_gmt_offset
+    type: float
+  - name: s_tax_percentage
+    type: float

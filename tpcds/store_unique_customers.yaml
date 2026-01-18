@@ -1,0 +1,6 @@
+name: ${prefix}store_unique_customers
+node_type: metric
+display_name: Store Unique Customers
+description: Count of unique customers who made store purchases
+query: SELECT COUNT(DISTINCT customer_key) FROM ${prefix}store_sales_clean
+direction: higher_is_better

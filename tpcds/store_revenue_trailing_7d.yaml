@@ -1,0 +1,8 @@
+name: ${prefix}store_revenue_trailing_7d
+node_type: metric
+display_name: Store Revenue Trailing 7d
+description: Trailing 7-day rolling sum of store revenue
+query: |
+  SELECT SUM(${prefix}store_revenue) OVER (ORDER BY ${prefix}date.date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+direction: higher_is_better
+unit: dollar

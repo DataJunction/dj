@@ -1,0 +1,6 @@
+name: ${prefix}store_quantity
+node_type: metric
+display_name: Store Quantity Sold
+description: Total quantity sold through store channel
+query: SELECT SUM(quantity) FROM ${prefix}store_sales_clean
+direction: higher_is_better

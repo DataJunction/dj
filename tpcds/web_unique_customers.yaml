@@ -1,0 +1,6 @@
+name: ${prefix}web_unique_customers
+node_type: metric
+display_name: Web Unique Customers
+description: Count of unique customers who made web purchases
+query: SELECT COUNT(DISTINCT customer_key) FROM ${prefix}web_sales_clean
+direction: higher_is_better

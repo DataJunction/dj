@@ -1,0 +1,7 @@
+name: ${prefix}store_revenue_share
+node_type: metric
+display_name: Store Revenue Share
+description: Store channel share of total revenue across all channels (percentage)
+query: |
+  SELECT ${prefix}store_revenue / (${prefix}store_revenue + ${prefix}web_revenue + ${prefix}catalog_revenue) * 100
+unit: percentage

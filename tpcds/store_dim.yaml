@@ -1,0 +1,29 @@
+name: ${prefix}store_dim
+node_type: dimension
+display_name: Store
+description: Store dimension with location and organizational hierarchy
+primary_key:
+  - store_key
+query: |
+  SELECT
+    s_store_sk AS store_key,
+    s_store_id AS store_id,
+    s_store_name AS store_name,
+    s_number_employees AS number_employees,
+    s_floor_space AS floor_space,
+    s_manager AS manager,
+    s_division_id AS division_id,
+    s_division_name AS division_name,
+    s_company_id AS company_id,
+    s_company_name AS company_name,
+    s_city AS city,
+    s_county AS county,
+    s_state AS state,
+    s_zip AS zip_code,
+    s_country AS country
+  FROM ${prefix}store
+  WHERE s_rec_end_date IS NULL
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}geography
+    join_on: ${prefix}store_dim.state = ${prefix}geography.state AND ${prefix}store_dim.country = ${prefix}geography.country

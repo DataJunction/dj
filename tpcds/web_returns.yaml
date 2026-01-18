@@ -1,0 +1,56 @@
+name: ${prefix}web_returns
+node_type: source
+display_name: web_returns
+description: Web channel returns - each row represents a single returned line item
+catalog: default
+schema: tpcds
+table: web_returns
+columns:
+  - name: wr_returned_date_sk
+    type: bigint
+  - name: wr_returned_time_sk
+    type: bigint
+  - name: wr_item_sk
+    type: bigint
+  - name: wr_refunded_customer_sk
+    type: bigint
+  - name: wr_refunded_cdemo_sk
+    type: bigint
+  - name: wr_refunded_hdemo_sk
+    type: bigint
+  - name: wr_refunded_addr_sk
+    type: bigint
+  - name: wr_returning_customer_sk
+    type: bigint
+  - name: wr_returning_cdemo_sk
+    type: bigint
+  - name: wr_returning_hdemo_sk
+    type: bigint
+  - name: wr_returning_addr_sk
+    type: bigint
+  - name: wr_web_page_sk
+    type: bigint
+  - name: wr_reason_sk
+    type: bigint
+  - name: wr_order_number
+    type: bigint
+  - name: wr_return_quantity
+    type: int
+  - name: wr_return_amt
+    type: float
+  - name: wr_return_tax
+    type: float
+  - name: wr_return_amt_inc_tax
+    type: float
+  - name: wr_fee
+    type: float
+  - name: wr_return_ship_cost
+    type: float
+  - name: wr_refunded_cash
+    type: float
+  - name: wr_reversed_charge
+    type: float
+  - name: wr_account_credit
+    type: float
+  - name: wr_net_loss
+    type: float

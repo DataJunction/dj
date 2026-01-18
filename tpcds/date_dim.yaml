@@ -1,0 +1,64 @@
+name: ${prefix}date_dim
+node_type: source
+display_name: date_dim
+description: Date dimension with calendar attributes for time-based analysis
+catalog: default
+schema: tpcds
+table: date_dim
+columns:
+  - name: d_date_sk
+    type: bigint
+  - name: d_date_id
+    type: string
+  - name: d_date
+    type: date
+  - name: d_month_seq
+    type: int
+  - name: d_week_seq
+    type: int
+  - name: d_quarter_seq
+    type: int
+  - name: d_year
+    type: int
+  - name: d_dow
+    type: int
+  - name: d_moy
+    type: int
+  - name: d_dom
+    type: int
+  - name: d_qoy
+    type: int
+  - name: d_fy_year
+    type: int
+  - name: d_fy_quarter_seq
+    type: int
+  - name: d_fy_week_seq
+    type: int
+  - name: d_day_name
+    type: string
+  - name: d_quarter_name
+    type: string
+  - name: d_holiday
+    type: string
+  - name: d_weekend
+    type: string
+  - name: d_following_holiday
+    type: string
+  - name: d_first_dom
+    type: int
+  - name: d_last_dom
+    type: int
+  - name: d_same_day_ly
+    type: int
+  - name: d_same_day_lq
+    type: int
+  - name: d_current_day
+    type: string
+  - name: d_current_week
+    type: string
+  - name: d_current_month
+    type: string
+  - name: d_current_quarter
+    type: string
+  - name: d_current_year
+    type: string

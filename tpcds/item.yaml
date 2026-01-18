@@ -1,0 +1,52 @@
+name: ${prefix}item
+node_type: source
+display_name: item
+description: Product/item master data with category hierarchy and attributes
+catalog: default
+schema: tpcds
+table: item
+columns:
+  - name: i_item_sk
+    type: bigint
+  - name: i_item_id
+    type: string
+  - name: i_rec_start_date
+    type: date
+  - name: i_rec_end_date
+    type: date
+  - name: i_item_desc
+    type: string
+  - name: i_current_price
+    type: float
+  - name: i_wholesale_cost
+    type: float
+  - name: i_brand_id
+    type: int
+  - name: i_brand
+    type: string
+  - name: i_class_id
+    type: int
+  - name: i_class
+    type: string
+  - name: i_category_id
+    type: int
+  - name: i_category
+    type: string
+  - name: i_manufact_id
+    type: int
+  - name: i_manufact
+    type: string
+  - name: i_size
+    type: string
+  - name: i_formulation
+    type: string
+  - name: i_color
+    type: string
+  - name: i_units
+    type: string
+  - name: i_container
+    type: string
+  - name: i_manager_id
+    type: int
+  - name: i_product_name
+    type: string

@@ -1,0 +1,31 @@
+name: ${prefix}catalog_returns_clean
+node_type: transform
+display_name: Catalog Returns Clean
+description: Cleaned catalog returns with business-friendly column names
+query: |
+  SELECT
+    cr_returned_date_sk AS returned_date_key,
+    cr_item_sk AS item_key,
+    cr_refunded_customer_sk AS customer_key,
+    cr_warehouse_sk AS warehouse_key,
+    cr_reason_sk AS reason_key,
+    cr_order_number AS order_number,
+    cr_return_quantity AS return_quantity,
+    cr_return_amount AS return_amount,
+    cr_return_tax AS return_tax,
+    cr_fee AS fee,
+    cr_refunded_cash AS refunded_cash,
+    cr_reversed_charge AS reversed_charge,
+    cr_store_credit AS store_credit,
+    cr_net_loss AS net_loss
+  FROM ${prefix}catalog_returns
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}date
+    join_on: ${prefix}catalog_returns_clean.returned_date_key = ${prefix}date.date_key
+  - type: join
+    dimension_node: ${prefix}product
+    join_on: ${prefix}catalog_returns_clean.item_key = ${prefix}product.item_key
+  - type: join
+    dimension_node: ${prefix}customer_dim
+    join_on: ${prefix}catalog_returns_clean.customer_key = ${prefix}customer_dim.customer_key

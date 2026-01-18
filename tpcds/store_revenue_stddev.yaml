@@ -1,0 +1,6 @@
+name: ${prefix}store_revenue_stddev
+node_type: metric
+display_name: Store Revenue Std Dev
+description: Standard deviation of transaction values in store channel
+query: SELECT STDDEV(net_paid) FROM ${prefix}store_sales_clean
+unit: dollar
