@@ -125,8 +125,11 @@
     "prettify": "prettier --write",
     "extract-messages": "i18next-scanner --config=internals/extractMessages/i18next-scanner.config.js",
     "prepublishOnly": "webpack --mode=production",
-    "codegen": "graphql-codegen --config codegen.yml",
-    "codegen:watch": "graphql-codegen --config codegen.yml --watch"
+    "codegen": "yarn codegen:graphql && yarn codegen:openapi",
+    "codegen:graphql": "graphql-codegen --config codegen.yml",
+    "codegen:graphql:watch": "graphql-codegen --config codegen.yml --watch",
+    "codegen:openapi": "openapi-typescript ../openapi.json -o src/types/openapi.ts",
+    "codegen:check": "yarn codegen && git diff --exit-code src/types/graphql.ts src/types/openapi.ts"
   },
   "eslintConfig": {
     "extends": "react-app"
@@ -209,6 +212,7 @@
     "jest-fetch-mock": "3.0.3",
     "jest-watch-typeahead": "2.2.2",
     "mini-css-extract-plugin": "2.7.6",
+    "openapi-typescript": "7.10.1",
     "resize-observer-polyfill": "1.5.1"
   }
 }

@@ -31,9 +31,20 @@ spellcheck:
 
 check:
 	pdm run pre-commit run --all-files
+	$(MAKE) check-schemas
 
 lint:
 	make check
+
+generate-schemas:
+	pdm run python scripts/generate-openapi.py -o ../openapi.json
+	pdm run python scripts/generate-graphql.py -o datajunction_server/api/graphql/
+
+check-schemas:
+	$(MAKE) generate-schemas
+	@echo "Checking for uncommitted schema changes..."
+	git diff --exit-code ../openapi.json datajunction_server/api/graphql/schema.graphql || \
+		(echo "ERROR: Schema files are out of date. Run 'make generate-schemas' and commit the changes." && exit 1)
 
 dev-release:
 	hatch version dev
