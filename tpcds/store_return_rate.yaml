@@ -1,0 +1,8 @@
+name: ${prefix}store_return_rate
+node_type: metric
+display_name: Store Return Rate
+description: Store return rate as percentage of revenue returned (derived from base metrics)
+query: |
+  SELECT ${prefix}store_return_amount / NULLIF(${prefix}store_revenue, 0) * 100
+direction: lower_is_better
+unit: percentage

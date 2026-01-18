@@ -1,0 +1,5 @@
+name: ${prefix}store_revenue_variance
+node_type: metric
+display_name: Store Revenue Variance
+description: Variance of transaction values in store channel - measures spread of order sizes
+query: SELECT VARIANCE(net_paid) FROM ${prefix}store_sales_clean

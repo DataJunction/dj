@@ -1,0 +1,7 @@
+name: ${prefix}catalog_revenue
+node_type: metric
+display_name: Catalog Revenue
+description: Total revenue from catalog channel sales
+query: SELECT SUM(net_paid) FROM ${prefix}catalog_sales_clean
+direction: higher_is_better
+unit: dollar

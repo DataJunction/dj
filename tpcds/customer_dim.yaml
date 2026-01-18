@@ -1,0 +1,30 @@
+name: ${prefix}customer_dim
+node_type: dimension
+display_name: Customer
+description: Customer dimension with demographics and address - conformed across all sales channels
+primary_key:
+  - customer_key
+query: |
+  SELECT
+    c.c_customer_sk AS customer_key,
+    c.c_customer_id AS customer_id,
+    c.c_first_name AS first_name,
+    c.c_last_name AS last_name,
+    c.c_salutation AS salutation,
+    c.c_preferred_cust_flag AS preferred_customer_flag,
+    c.c_birth_year AS birth_year,
+    c.c_birth_month AS birth_month,
+    c.c_birth_country AS birth_country,
+    c.c_email_address AS email_address,
+    ca.ca_city AS city,
+    ca.ca_county AS county,
+    ca.ca_state AS state,
+    ca.ca_zip AS zip_code,
+    ca.ca_country AS country
+  FROM ${prefix}customer c
+  LEFT JOIN ${prefix}customer_address ca
+    ON c.c_current_addr_sk = ca.ca_address_sk
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}geography
+    join_on: ${prefix}customer_dim.state = ${prefix}geography.state AND ${prefix}customer_dim.country = ${prefix}geography.country

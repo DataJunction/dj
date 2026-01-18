@@ -1,0 +1,13 @@
+name: ${prefix}web_sales_cube
+node_type: cube
+description: Web sales analysis cube with key metrics and dimensions
+metrics:
+  - ${prefix}web_revenue
+  - ${prefix}web_order_count
+  - ${prefix}web_unique_customers
+dimensions:
+  - ${prefix}product.category
+  - ${prefix}product.brand
+  - ${prefix}customer_dim.state
+  - ${prefix}date.year
+  - ${prefix}date.month_of_year

@@ -1,0 +1,6 @@
+name: ${prefix}store_transaction_count
+node_type: metric
+display_name: Store Transaction Count
+description: Number of store transactions (unique ticket numbers)
+query: SELECT COUNT(DISTINCT ticket_number) FROM ${prefix}store_sales_clean
+direction: higher_is_better

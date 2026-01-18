@@ -1,0 +1,31 @@
+name: ${prefix}promo
+node_type: dimension
+display_name: Promotion
+description: Promotion dimension with channel information
+primary_key:
+  - promo_key
+query: |
+  SELECT
+    p_promo_sk AS promo_key,
+    p_promo_id AS promo_id,
+    p_promo_name AS promo_name,
+    p_start_date_sk AS start_date_key,
+    p_end_date_sk AS end_date_key,
+    p_cost AS cost,
+    p_purpose AS purpose,
+    p_channel_dmail AS channel_direct_mail,
+    p_channel_email AS channel_email,
+    p_channel_catalog AS channel_catalog,
+    p_channel_tv AS channel_tv,
+    p_channel_radio AS channel_radio,
+    p_discount_active AS discount_active
+  FROM ${prefix}promotion
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}date
+    role: start_date
+    join_on: ${prefix}promo.start_date_key = ${prefix}date.date_key
+  - type: join
+    dimension_node: ${prefix}date
+    role: end_date
+    join_on: ${prefix}promo.end_date_key = ${prefix}date.date_key

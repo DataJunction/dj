@@ -1,0 +1,6 @@
+name: ${prefix}store_max_transaction_value
+node_type: metric
+display_name: Store Max Transaction Value
+description: Maximum single transaction value for store channel
+query: SELECT MAX(net_paid) FROM ${prefix}store_sales_clean
+unit: dollar

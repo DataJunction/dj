@@ -1,0 +1,6 @@
+name: ${prefix}web_order_count
+node_type: metric
+display_name: Web Order Count
+description: Number of web orders
+query: SELECT COUNT(DISTINCT order_number) FROM ${prefix}web_sales_clean
+direction: higher_is_better

@@ -1,0 +1,8 @@
+name: ${prefix}store_revenue_trailing_7d_avg
+node_type: metric
+display_name: Store Revenue Trailing 7d Avg
+description: Trailing 7-day rolling average of daily store revenue
+query: |
+  SELECT AVG(${prefix}store_revenue) OVER (ORDER BY ${prefix}date.date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
+direction: higher_is_better
+unit: dollar

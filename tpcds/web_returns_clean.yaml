@@ -1,0 +1,30 @@
+name: ${prefix}web_returns_clean
+node_type: transform
+display_name: Web Returns Clean
+description: Cleaned web returns with business-friendly column names
+query: |
+  SELECT
+    wr_returned_date_sk AS returned_date_key,
+    wr_item_sk AS item_key,
+    wr_refunded_customer_sk AS customer_key,
+    wr_reason_sk AS reason_key,
+    wr_order_number AS order_number,
+    wr_return_quantity AS return_quantity,
+    wr_return_amt AS return_amount,
+    wr_return_tax AS return_tax,
+    wr_fee AS fee,
+    wr_refunded_cash AS refunded_cash,
+    wr_reversed_charge AS reversed_charge,
+    wr_account_credit AS account_credit,
+    wr_net_loss AS net_loss
+  FROM ${prefix}web_returns
+dimension_links:
+  - type: join
+    dimension_node: ${prefix}date
+    join_on: ${prefix}web_returns_clean.returned_date_key = ${prefix}date.date_key
+  - type: join
+    dimension_node: ${prefix}product
+    join_on: ${prefix}web_returns_clean.item_key = ${prefix}product.item_key
+  - type: join
+    dimension_node: ${prefix}customer_dim
+    join_on: ${prefix}web_returns_clean.customer_key = ${prefix}customer_dim.customer_key

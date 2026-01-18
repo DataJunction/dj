@@ -1,0 +1,7 @@
+name: ${prefix}store_avg_transaction_value
+node_type: metric
+display_name: Store Avg Transaction Value
+description: Average transaction value for store channel
+query: SELECT AVG(net_paid) FROM ${prefix}store_sales_clean
+direction: higher_is_better
+unit: dollar
