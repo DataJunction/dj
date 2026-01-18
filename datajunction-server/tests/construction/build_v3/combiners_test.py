@@ -13,13 +13,15 @@ from . import assert_sql_equal
 
 from datajunction_server.construction.build_v3.combiners import (
     _build_grain_group_from_preagg_table,
-    _build_join_criteria,
     _compute_preagg_table_name,
     _reorder_partition_column_last,
     build_combiner_sql,
     build_combiner_sql_from_preaggs,
     validate_grain_groups_compatible,
     CombinedGrainGroupResult,
+)
+from datajunction_server.construction.build_v3.utils import (
+    _build_join_criteria,
 )
 from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
