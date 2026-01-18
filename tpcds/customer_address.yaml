@@ -1,0 +1,34 @@
+name: ${prefix}customer_address
+node_type: source
+display_name: customer_address
+description: Customer address data with geographic attributes
+catalog: default
+schema: tpcds
+table: customer_address
+columns:
+  - name: ca_address_sk
+    type: bigint
+  - name: ca_address_id
+    type: string
+  - name: ca_street_number
+    type: string
+  - name: ca_street_name
+    type: string
+  - name: ca_street_type
+    type: string
+  - name: ca_suite_number
+    type: string
+  - name: ca_city
+    type: string
+  - name: ca_county
+    type: string
+  - name: ca_state
+    type: string
+  - name: ca_zip
+    type: string
+  - name: ca_country
+    type: string
+  - name: ca_gmt_offset
+    type: float
+  - name: ca_location_type
+    type: string

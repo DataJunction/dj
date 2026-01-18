@@ -1,0 +1,17 @@
+name: ${prefix}store_sales_cube
+node_type: cube
+description: Store sales analysis cube with key metrics and dimensions
+metrics:
+  - ${prefix}store_revenue
+  - ${prefix}store_quantity
+  - ${prefix}store_transaction_count
+  - ${prefix}store_avg_transaction_value
+  - ${prefix}store_unique_customers
+  - ${prefix}store_profit
+dimensions:
+  - ${prefix}product.category
+  - ${prefix}product.brand
+  - ${prefix}customer_dim.state
+  - ${prefix}date.year
+  - ${prefix}date.month_of_year
+  - ${prefix}store_dim.store_name

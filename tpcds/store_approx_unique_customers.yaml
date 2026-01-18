@@ -1,0 +1,6 @@
+name: ${prefix}store_approx_unique_customers
+node_type: metric
+display_name: Store Approx Unique Customers
+description: Approximate count of unique customers using HyperLogLog - more efficient at scale
+query: SELECT APPROX_COUNT_DISTINCT(customer_key) FROM ${prefix}store_sales_clean
+direction: higher_is_better

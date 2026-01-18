@@ -1,0 +1,46 @@
+name: ${prefix}promotion
+node_type: source
+display_name: promotion
+description: Promotion master data with channel and timing information
+catalog: default
+schema: tpcds
+table: promotion
+columns:
+  - name: p_promo_sk
+    type: bigint
+  - name: p_promo_id
+    type: string
+  - name: p_start_date_sk
+    type: bigint
+  - name: p_end_date_sk
+    type: bigint
+  - name: p_item_sk
+    type: bigint
+  - name: p_cost
+    type: float
+  - name: p_response_target
+    type: int
+  - name: p_promo_name
+    type: string
+  - name: p_channel_dmail
+    type: string
+  - name: p_channel_email
+    type: string
+  - name: p_channel_catalog
+    type: string
+  - name: p_channel_tv
+    type: string
+  - name: p_channel_radio
+    type: string
+  - name: p_channel_press
+    type: string
+  - name: p_channel_event
+    type: string
+  - name: p_channel_demo
+    type: string
+  - name: p_channel_details
+    type: string
+  - name: p_purpose
+    type: string
+  - name: p_discount_active
+    type: string

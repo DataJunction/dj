@@ -1,0 +1,7 @@
+name: ${prefix}store_profit
+node_type: metric
+display_name: Store Profit
+description: Total profit from store channel sales
+query: SELECT SUM(net_profit) FROM ${prefix}store_sales_clean
+direction: higher_is_better
+unit: dollar

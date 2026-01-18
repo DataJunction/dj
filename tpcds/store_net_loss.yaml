@@ -1,0 +1,7 @@
+name: ${prefix}store_net_loss
+node_type: metric
+display_name: Store Net Loss
+description: Total net loss from store returns
+query: SELECT SUM(net_loss) FROM ${prefix}store_returns_clean
+direction: lower_is_better
+unit: dollar

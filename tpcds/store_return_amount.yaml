@@ -1,0 +1,7 @@
+name: ${prefix}store_return_amount
+node_type: metric
+display_name: Store Return Amount
+description: Total return amount from store channel
+query: SELECT SUM(return_amount) FROM ${prefix}store_returns_clean
+direction: lower_is_better
+unit: dollar

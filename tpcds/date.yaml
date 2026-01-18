@@ -1,0 +1,23 @@
+name: ${prefix}date
+node_type: dimension
+display_name: Date
+description: Date dimension with calendar attributes - conformed across all sales channels
+primary_key:
+  - date_key
+query: |
+  SELECT
+    d_date_sk AS date_key,
+    d_date_id AS date_id,
+    d_date AS date,
+    d_year AS year,
+    d_quarter_name AS quarter_name,
+    d_qoy AS quarter_of_year,
+    d_moy AS month_of_year,
+    d_month_seq AS month_seq,
+    d_week_seq AS week_seq,
+    d_dom AS day_of_month,
+    d_dow AS day_of_week,
+    d_day_name AS day_name,
+    d_holiday AS is_holiday,
+    d_weekend AS is_weekend
+  FROM ${prefix}date_dim
