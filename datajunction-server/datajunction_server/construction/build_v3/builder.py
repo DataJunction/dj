@@ -23,7 +23,6 @@ from datajunction_server.construction.build_v3.measures import (
     process_metric_group,
 )
 from datajunction_server.construction.build_v3.metrics import (
-    compute_metric_layers,
     generate_metrics_sql,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -97,6 +96,11 @@ async def setup_build_context(
 
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+
+    # Load any missing dimension nodes (and their upstreams, including sources)
+    # This is needed for dimensions discovered from metric expressions
+    # load_nodes adds to ctx.nodes rather than replacing, so this is safe to call again
+    await load_nodes(ctx)
 
     return ctx
 
@@ -263,12 +267,8 @@ async def build_metrics_sql(
     if not measures_result.grain_groups:  # pragma: no cover
         raise DJInvalidInputException("No grain groups produced from measures SQL")
 
-    # Finalize: compute layers and generate metrics SQL
-    metric_layers = compute_metric_layers(ctx, ctx.decomposed_metrics)
-
     return generate_metrics_sql(
         ctx,
         measures_result,
         ctx.decomposed_metrics,
-        metric_layers,
     )
