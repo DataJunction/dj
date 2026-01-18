@@ -19,7 +19,6 @@ from datajunction_server.construction.build_v3.decomposition import is_derived_m
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.metrics import (
-    compute_metric_layers,
     generate_metrics_sql,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -185,15 +184,10 @@ def build_sql_from_cube_impl(
         decomposed_metrics=decomposed_metrics,
     )
 
-    # Compute metric layers (handles derived metrics)
-    metric_layers = compute_metric_layers(ctx, decomposed_metrics)
-
-    # Generate final metrics SQL
     return generate_metrics_sql(
         ctx,
         measures_result,
         decomposed_metrics,
-        metric_layers,
     )
 
 

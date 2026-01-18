@@ -283,6 +283,146 @@ class DimensionRef:
     role: Optional[str] = None
 
 
+class ColumnType:
+    """Types of columns that can be resolved."""
+
+    METRIC = "metric"
+    COMPONENT = "component"
+    DIMENSION = "dimension"
+
+
+@dataclass
+class ColumnRef:
+    """Reference to a column in a CTE."""
+
+    cte_alias: str
+    column_name: str
+    column_type: str = ColumnType.COMPONENT  # Default for backward compatibility
+
+
+@dataclass
+class ColumnResolver:
+    """
+    Resolves semantic references (metric names, component names, dimension refs)
+    to their CTE column locations.
+
+    Provides a unified interface for looking up where any reference should
+    resolve to in the generated SQL.
+    """
+
+    _entries: dict[str, ColumnRef] = field(default_factory=dict)
+
+    @classmethod
+    def from_base_metrics(
+        cls,
+        base_metrics_result: "BaseMetricsResult",
+        dimension_aliases: dict[str, str],
+        dim_cte_alias: str,
+    ) -> "ColumnResolver":
+        """
+        Create a ColumnResolver from base metrics processing results.
+
+        Args:
+            base_metrics_result: Result from process_base_metrics
+            dimension_aliases: Mapping from dimension refs to column aliases
+            dim_cte_alias: CTE alias for dimension columns
+
+        Returns:
+            Populated ColumnResolver
+        """
+        resolver = cls()
+
+        # Register metrics
+        for name, info in base_metrics_result.metric_exprs.items():
+            resolver.register(name, info.cte_alias, info.short_name, ColumnType.METRIC)
+
+        # Register components
+        for name, ref in base_metrics_result.component_refs.items():
+            resolver.register(
+                name,
+                ref.cte_alias,
+                ref.column_name,
+                ColumnType.COMPONENT,
+            )
+
+        # Register dimensions
+        for dim_ref, col_alias in dimension_aliases.items():
+            resolver.register(dim_ref, dim_cte_alias, col_alias, ColumnType.DIMENSION)
+
+        return resolver
+
+    def register(
+        self,
+        name: str,
+        cte_alias: str,
+        column_name: str,
+        column_type: str,
+    ) -> None:
+        """Register a name -> column mapping."""
+        self._entries[name] = ColumnRef(cte_alias, column_name, column_type)
+
+    def resolve(self, name: str) -> ColumnRef | None:
+        """Resolve a name to its column reference."""
+        return self._entries.get(name)
+
+    def get_by_type(self, col_type: str) -> dict[str, ColumnRef]:
+        """Get all entries of a specific type."""
+        return {k: v for k, v in self._entries.items() if v.column_type == col_type}
+
+    # Compatibility methods for existing replace_*_refs_in_ast functions
+    def metric_refs(self) -> dict[str, tuple[str, str]]:
+        """Get metric refs as tuples for replace_metric_refs_in_ast."""
+        return {
+            name: (ref.cte_alias, ref.column_name)
+            for name, ref in self._entries.items()
+            if ref.column_type == ColumnType.METRIC
+        }
+
+    def component_refs(self) -> dict[str, tuple[str, str]]:
+        """Get component refs as tuples for replace_component_refs_in_ast."""
+        return {
+            name: (ref.cte_alias, ref.column_name)
+            for name, ref in self._entries.items()
+            if ref.column_type == ColumnType.COMPONENT
+        }
+
+    def dimension_refs(self) -> dict[str, tuple[str, str]]:
+        """Get dimension refs as tuples for replace_dimension_refs_in_ast."""
+        return {
+            name: (ref.cte_alias, ref.column_name)
+            for name, ref in self._entries.items()
+            if ref.column_type == ColumnType.DIMENSION
+        }
+
+
+@dataclass
+class MetricExprInfo:
+    """
+    Information about a metric expression for the final SELECT.
+
+    Contains the AST expression, short name for aliasing, and which CTE
+    the metric comes from.
+    """
+
+    expr_ast: "ast.Expression"
+    short_name: str
+    cte_alias: str
+
+
+@dataclass
+class BaseMetricsResult:
+    """
+    Result of processing base metrics from grain groups.
+
+    Contains all the mappings needed for derived metric resolution
+    and final query building.
+    """
+
+    all_metrics: set[str]  # All metric names in grain groups
+    metric_exprs: dict[str, MetricExprInfo]  # metric_name -> expression info
+    component_refs: dict[str, ColumnRef]  # component_name -> column reference
+
+
 @dataclass
 class DecomposedMetricInfo:
     """

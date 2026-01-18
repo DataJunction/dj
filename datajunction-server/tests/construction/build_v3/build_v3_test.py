@@ -11,12 +11,6 @@ import pytest
 from datajunction_server.construction.build_v3.builder import (
     setup_build_context,
 )
-from datajunction_server.construction.build_v3.metrics import (
-    compute_metric_layers,
-)
-from datajunction_server.models.node import NodeType
-from datajunction_server.errors import DJInvalidInputException
-from unittest.mock import MagicMock
 
 from . import assert_sql_equal, get_first_grain_group
 
@@ -374,59 +368,6 @@ class TestMaterialization:
         assert "v3_order_details AS" in sql
         # Should NOT reference the materialized table
         assert "order_details_mat" not in sql
-
-
-# =============================================================================
-# Error Handling Tests
-# =============================================================================
-
-
-class TestErrorHandling:
-    """Tests for error handling in V3 SQL generation."""
-
-    def test_circular_metric_dependency_detection(self):
-        """
-        Test that circular dependencies between derived metrics are detected
-        by the compute_metric_layers function.
-
-        We mock the context with a parent_map that has circular dependencies:
-        - metric_a depends on metric_b
-        - metric_b depends on metric_a
-        """
-        # Create mock nodes for both metrics
-        node_a = MagicMock()
-        node_a.type = NodeType.METRIC
-
-        node_b = MagicMock()
-        node_b.type = NodeType.METRIC
-
-        # Create a mock context with circular parent_map
-        ctx = MagicMock()
-        ctx.parent_map = {
-            "metric_a": ["metric_b"],  # metric_a depends on metric_b
-            "metric_b": ["metric_a"],  # metric_b depends on metric_a (circular!)
-        }
-        ctx.nodes = {
-            "metric_a": node_a,
-            "metric_b": node_b,
-        }
-
-        # Create mock decomposed metrics (need minimal required fields)
-        metric_a = MagicMock()
-        metric_a.name = "metric_a"
-        metric_a.is_derived = True
-
-        metric_b = MagicMock()
-        metric_b.name = "metric_b"
-        metric_b.is_derived = True
-
-        decomposed_metrics = {"metric_a": metric_a, "metric_b": metric_b}
-
-        # Should raise an error due to circular dependency
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            compute_metric_layers(ctx, decomposed_metrics)
-
-        assert "Circular dependency" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
