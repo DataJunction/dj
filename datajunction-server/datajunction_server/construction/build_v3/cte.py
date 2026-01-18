@@ -120,21 +120,22 @@ def replace_metric_refs_in_ast(
 
 def replace_dimension_refs_in_ast(
     expr_ast: ast.Node,
-    dimension_aliases: dict[str, str],
+    dimension_refs: dict[str, tuple[str, str]],
 ) -> None:
     """
-    Replace dimension references in an AST with their resolved column aliases.
+    Replace dimension references in an AST with CTE-qualified column references.
 
     Modifies the AST in place. Handles two patterns:
 
-    1. Simple column references: v3.date.month -> month_order
-    2. Subscript (role) references: v3.date.month[order] -> month_order
+    1. Simple column references: v3.date.month -> cte.month_order
+    2. Subscript (role) references: v3.date.month[order] -> cte.month_order
        (SQL parser interprets [role] as array subscript)
 
     Args:
         expr_ast: The AST expression to modify (mutated in place)
-        dimension_aliases: Mapping from dimension refs to column aliases
-            e.g., {"v3.date.month": "month_order", "v3.date.month[order]": "month_order"}
+        dimension_refs: Mapping from dimension refs to (cte_alias, column_name)
+            e.g., {"v3.date.month": ("base_metrics", "month"),
+                   "v3.date.month[order]": ("base_metrics", "month_order")}
     """
     # First pass: handle Subscript nodes (role syntax like v3.date.week[order])
     # SQL parser interprets [order] as array subscript, not DJ role syntax
@@ -163,17 +164,21 @@ def replace_dimension_refs_in_ast(
         # Build the full dimension ref with role: "v3.date.week[order]"
         dim_ref_with_role = f"{base_col_name}[{role}]"
 
-        # Look up in dimension_aliases
-        alias = None
-        if dim_ref_with_role in dimension_aliases:
-            alias = dimension_aliases[dim_ref_with_role]  # pragma: no cover
-        elif base_col_name in dimension_aliases:  # pragma: no branch
+        # Look up in dimension_refs
+        ref_tuple = None
+        if dim_ref_with_role in dimension_refs:
+            ref_tuple = dimension_refs[dim_ref_with_role]  # pragma: no cover
+        elif base_col_name in dimension_refs:  # pragma: no branch
             # Also try just the base name (if user requested v3.date.week without role)
-            alias = dimension_aliases[base_col_name]
+            ref_tuple = dimension_refs[base_col_name]
 
-        if alias:  # pragma: no branch
-            # Replace the Subscript with a simple Column using swap
-            replacement = ast.Column(name=ast.Name(alias))
+        if ref_tuple:  # pragma: no branch
+            cte_alias, col_name = ref_tuple
+            # Replace the Subscript with a CTE-qualified Column using swap
+            replacement = ast.Column(
+                name=ast.Name(col_name),
+                _table=ast.Table(ast.Name(cte_alias)),
+            )
             subscript.swap(replacement)
 
     # Second pass: handle regular Column references (no subscript)
@@ -183,23 +188,43 @@ def replace_dimension_refs_in_ast(
             continue
 
         # Check for exact match first (handles roles like "v3.date.month[order]")
-        if full_name in dimension_aliases:
-            alias = dimension_aliases[full_name]
-            # Replace with simple column reference
-            col.name = ast.Name(alias)
-            col._table = None
+        if full_name in dimension_refs:
+            cte_alias, col_name = dimension_refs[full_name]
+            # Replace with CTE-qualified column reference
+            col.name = ast.Name(col_name)
+            col._table = ast.Table(ast.Name(cte_alias))
             continue
 
         # Check without role suffix (for base dimension refs)
         # The column AST might be just "v3.date.month" but we have "v3.date.month[order]"
-        for dim_ref, alias in dimension_aliases.items():
+        for dim_ref, ref_tuple in dimension_refs.items():
             # Match if the dim_ref starts with our full_name and has a role suffix
             if dim_ref.startswith(full_name) and (
                 dim_ref == full_name or dim_ref[len(full_name)] == "["
             ):  # pragma: no cover
-                col.name = ast.Name(alias)
-                col._table = None
+                cte_alias, col_name = ref_tuple
+                col.name = ast.Name(col_name)
+                col._table = ast.Table(ast.Name(cte_alias))
                 break
+
+
+def has_window_function(expr_ast: ast.Node) -> bool:
+    """
+    Check if an AST contains any window function (function with OVER clause).
+
+    Window functions (both aggregate like AVG OVER and navigation like LAG)
+    require base metrics to be pre-computed before the window function is applied.
+
+    Args:
+        expr_ast: The AST expression to check
+
+    Returns:
+        True if the expression contains any window function
+    """
+    for func in expr_ast.find_all(ast.Function):
+        if func.over:  # Has OVER clause = window function
+            return True
+    return False
 
 
 # Window functions that need PARTITION BY injection for period-over-period calculations
