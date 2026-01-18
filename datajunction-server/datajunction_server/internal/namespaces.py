@@ -1213,10 +1213,22 @@ async def compare_namespaces(
 
 
 def _strip_namespace_from_ref(ref: str, namespace: str) -> str:
-    """Strip namespace prefix from a reference (node name, column ref, etc.)."""
+    """
+    Strip namespace prefix from a reference (node name, column ref, etc.).
+
+    Handles both regular format (namespace.node) and amenable name format
+    (namespace_DOT_node) where dots are replaced with _DOT_.
+    """
+    # Try regular format first: "namespace.node"
     prefix = namespace + SEPARATOR
     if ref.startswith(prefix):
-        return ref[len(prefix) :]
+        return ref[len(prefix):]
+
+    # Try amenable name format: "namespace_DOT_node"
+    amenable_prefix = namespace.replace(".", "_DOT_") + "_DOT_"
+    if ref.startswith(amenable_prefix):
+        return ref[len(amenable_prefix):]
+
     return ref
 
 
