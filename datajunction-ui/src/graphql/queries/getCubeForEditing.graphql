@@ -1,0 +1,26 @@
+query GetCubeForEditing($name: String!) {
+  findNodes(names: [$name]) {
+    name
+    type
+    owners {
+      username
+    }
+    current {
+      displayName
+      description
+      mode
+      cubeMetrics {
+        name
+      }
+      cubeDimensions {
+        name
+        attribute
+        properties
+      }
+    }
+    tags {
+      name
+      displayName
+    }
+  }
+}

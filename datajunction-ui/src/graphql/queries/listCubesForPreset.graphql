@@ -1,0 +1,8 @@
+query ListCubesForPreset {
+  findNodes(nodeTypes: [CUBE]) {
+    name
+    current {
+      displayName
+    }
+  }
+}

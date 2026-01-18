@@ -1,0 +1,20 @@
+query GetCubeForPlanner($name: String!) {
+  findNodes(names: [$name]) {
+    name
+    current {
+      displayName
+      cubeMetrics {
+        name
+      }
+      cubeDimensions {
+        name
+      }
+      materializations {
+        name
+        config
+        schedule
+        strategy
+      }
+    }
+  }
+}
