@@ -31,7 +31,7 @@ spellcheck:
 
 check:
 	pdm run pre-commit run --all-files
-	$(MAKE) check-schemas
+	$(MAKE) generate-schemas
 
 lint:
 	make check
