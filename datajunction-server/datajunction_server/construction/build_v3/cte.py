@@ -202,6 +202,25 @@ def replace_dimension_refs_in_ast(
                 break
 
 
+def has_window_function(expr_ast: ast.Node) -> bool:
+    """
+    Check if an AST contains any window function (function with OVER clause).
+
+    Window functions (both aggregate like AVG OVER and navigation like LAG)
+    require base metrics to be pre-computed before the window function is applied.
+
+    Args:
+        expr_ast: The AST expression to check
+
+    Returns:
+        True if the expression contains any window function
+    """
+    for func in expr_ast.find_all(ast.Function):
+        if func.over:  # Has OVER clause = window function
+            return True
+    return False
+
+
 # Window functions that need PARTITION BY injection for period-over-period calculations
 # These are navigation/ranking functions where comparing across partitions is meaningful
 # Aggregate functions (SUM, AVG, etc.) with OVER () are intentionally left alone

@@ -1049,13 +1049,6 @@ async def compare_namespaces(
     removed_relative = base_relative_names - compare_relative_names
     common_relative = base_relative_names & compare_relative_names
 
-    print(f"[DIFF] Namespace diff: base={base_namespace} ({len(base_relative_names)} nodes), compare={compare_namespace} ({len(compare_relative_names)} nodes)")
-    print(f"[DIFF]   Added: {len(added_relative)}, Removed: {len(removed_relative)}, Common: {len(common_relative)}")
-    if added_relative:
-        print(f"[DIFF]   Added nodes: {sorted(added_relative)[:10]}")
-    if removed_relative:
-        print(f"[DIFF]   Removed nodes: {sorted(removed_relative)[:10]}")
-
     # Build response
     added: list[NamespaceDiffAddedNode] = []
     removed: list[NamespaceDiffRemovedNode] = []
@@ -1222,12 +1215,12 @@ def _strip_namespace_from_ref(ref: str, namespace: str) -> str:
     # Try regular format first: "namespace.node"
     prefix = namespace + SEPARATOR
     if ref.startswith(prefix):
-        return ref[len(prefix):]
+        return ref[len(prefix) :]
 
     # Try amenable name format: "namespace_DOT_node"
     amenable_prefix = namespace.replace(".", "_DOT_") + "_DOT_"
     if ref.startswith(amenable_prefix):
-        return ref[len(amenable_prefix):]
+        return ref[len(amenable_prefix) :]
 
     return ref
 
@@ -1250,12 +1243,8 @@ def _compare_specs_for_diff(
     We need to normalize the specs to compare them fairly since they have
     different namespace prefixes.
     """
-    base_name = _strip_namespace_from_ref(base_spec.name, base_namespace)
-    print(f"[DIFF] Comparing specs: base={base_spec.name} ({base_spec.node_type}), compare={compare_spec.name} ({compare_spec.node_type})")
-
     # Node types must match
     if base_spec.node_type != compare_spec.node_type:
-        print(f"[DIFF]   DIFF: node_type mismatch: {base_spec.node_type} vs {compare_spec.node_type}")
         return False
 
     # Compare user-provided metadata fields
@@ -1265,7 +1254,6 @@ def _compare_specs_for_diff(
             base_spec.display_name in (None, "")
             and compare_spec.display_name in (None, "")
         ):
-            print(f"[DIFF]   DIFF: display_name mismatch: {base_spec.display_name!r} vs {compare_spec.display_name!r}")
             return False
 
     if base_spec.description != compare_spec.description:
@@ -1273,23 +1261,18 @@ def _compare_specs_for_diff(
             base_spec.description in (None, "")
             and compare_spec.description in (None, "")
         ):
-            print(f"[DIFF]   DIFF: description mismatch: {base_spec.description!r} vs {compare_spec.description!r}")
             return False
 
     if set(base_spec.owners or []) != set(compare_spec.owners or []):
-        print(f"[DIFF]   DIFF: owners mismatch: {base_spec.owners} vs {compare_spec.owners}")
         return False
 
     if set(base_spec.tags or []) != set(compare_spec.tags or []):
-        print(f"[DIFF]   DIFF: tags mismatch: {base_spec.tags} vs {compare_spec.tags}")
         return False
 
     if base_spec.mode != compare_spec.mode:
-        print(f"[DIFF]   DIFF: mode mismatch: {base_spec.mode} vs {compare_spec.mode}")
         return False
 
     if (base_spec.custom_metadata or {}) != (compare_spec.custom_metadata or {}):
-        print(f"[DIFF]   DIFF: custom_metadata mismatch: {base_spec.custom_metadata} vs {compare_spec.custom_metadata}")
         return False
 
     # Type-specific comparisons
@@ -1300,7 +1283,6 @@ def _compare_specs_for_diff(
             or base_spec.schema_ != compare_spec.schema_
             or base_spec.table != compare_spec.table
         ):
-            print(f"[DIFF]   DIFF: source location mismatch: {base_spec.catalog}.{base_spec.schema_}.{base_spec.table} vs {compare_spec.catalog}.{compare_spec.schema_}.{compare_spec.table}")
             return False
         # Compare columns for sources (user-provided)
         if not _compare_columns_for_diff(
@@ -1310,7 +1292,6 @@ def _compare_specs_for_diff(
             compare_namespace,
             compare_types=True,
         ):
-            print(f"[DIFF]   DIFF: source columns mismatch")
             return False
 
     elif base_spec.node_type in (NodeType.TRANSFORM, NodeType.DIMENSION):
@@ -1321,7 +1302,6 @@ def _compare_specs_for_diff(
             base_namespace,
             compare_namespace,
         ):
-            print(f"[DIFF]   DIFF: query mismatch for {base_name}")
             return False
         # Compare columns (only user-provided metadata like display_name, attributes)
         if not _compare_columns_for_diff(
@@ -1331,7 +1311,6 @@ def _compare_specs_for_diff(
             compare_namespace,
             compare_types=False,
         ):
-            print(f"[DIFF]   DIFF: columns mismatch for {base_name}")
             return False
 
     elif base_spec.node_type == NodeType.METRIC:
@@ -1342,7 +1321,6 @@ def _compare_specs_for_diff(
             base_namespace,
             compare_namespace,
         ):
-            print(f"[DIFF]   DIFF: metric query mismatch for {base_name}")
             return False
         # Compare required_dimensions (normalize namespace)
         base_req_dims = _normalize_refs_in_set(
@@ -1354,20 +1332,16 @@ def _compare_specs_for_diff(
             compare_namespace,
         )
         if base_req_dims != compare_req_dims:
-            print(f"[DIFF]   DIFF: required_dimensions mismatch: {base_req_dims} vs {compare_req_dims}")
             return False
         # Compare metric metadata
         if base_spec.direction != compare_spec.direction:
-            print(f"[DIFF]   DIFF: direction mismatch: {base_spec.direction} vs {compare_spec.direction}")
             return False
         # Compare unit_enum - handle None vs falsy cases
         base_unit = base_spec.unit_enum
         compare_unit = compare_spec.unit_enum
-        print(f"[DIFF]   Metric unit_enum: base={base_unit!r} (type={type(base_unit).__name__}), compare={compare_unit!r} (type={type(compare_unit).__name__})")
         if base_unit != compare_unit:
             # Both None is equal, handle value comparison
             if not (base_unit is None and compare_unit is None):
-                print(f"[DIFF]   DIFF: unit_enum mismatch: {base_unit} vs {compare_unit}")
                 return False
 
     elif base_spec.node_type == NodeType.CUBE:
@@ -1380,9 +1354,7 @@ def _compare_specs_for_diff(
             set(compare_spec.metrics or []),
             compare_namespace,
         )
-        print(f"[DIFF]   Cube metrics: base={base_metrics}, compare={compare_metrics}")
         if base_metrics != compare_metrics:
-            print(f"[DIFF]   DIFF: cube metrics mismatch")
             return False
 
         base_dims = _normalize_refs_in_set(
@@ -1393,9 +1365,7 @@ def _compare_specs_for_diff(
             set(compare_spec.dimensions or []),
             compare_namespace,
         )
-        print(f"[DIFF]   Cube dimensions: base={base_dims}, compare={compare_dims}")
         if base_dims != compare_dims:
-            print(f"[DIFF]   DIFF: cube dimensions mismatch")
             return False
 
         # Compare cube columns (normalize namespace in column names)
@@ -1405,7 +1375,6 @@ def _compare_specs_for_diff(
             base_namespace,
             compare_namespace,
         ):
-            print(f"[DIFF]   DIFF: cube columns mismatch")
             return False
 
     # Compare dimension links for linkable nodes
@@ -1416,10 +1385,8 @@ def _compare_specs_for_diff(
             base_namespace,
             compare_namespace,
         ):
-            print(f"[DIFF]   DIFF: dimension_links mismatch for {base_name}")
             return False
 
-    print(f"[DIFF]   EQUAL: {base_name}")
     return True
 
 
@@ -1524,11 +1491,9 @@ def _compare_cube_columns_for_diff(
     if not base_columns and not compare_columns:
         return True
     if not base_columns or not compare_columns:
-        print(f"[DIFF]     Cube columns: one is empty, other is not")
         return False
 
     if len(base_columns) != len(compare_columns):
-        print(f"[DIFF]     Cube columns: length mismatch {len(base_columns)} vs {len(compare_columns)}")
         return False
 
     # Normalize column names by stripping namespace prefix
@@ -1539,13 +1504,7 @@ def _compare_cube_columns_for_diff(
         _strip_namespace_from_ref(c.name, compare_namespace): c for c in compare_columns
     }
 
-    print(f"[DIFF]     Cube columns base keys: {sorted(base_by_name.keys())}")
-    print(f"[DIFF]     Cube columns compare keys: {sorted(compare_by_name.keys())}")
-
     if set(base_by_name.keys()) != set(compare_by_name.keys()):
-        missing_in_compare = set(base_by_name.keys()) - set(compare_by_name.keys())
-        missing_in_base = set(compare_by_name.keys()) - set(base_by_name.keys())
-        print(f"[DIFF]     Cube columns: key mismatch. Missing in compare: {missing_in_compare}, missing in base: {missing_in_base}")
         return False
 
     # For cube columns, we mainly care about the names matching
@@ -1559,19 +1518,16 @@ def _compare_cube_columns_for_diff(
             base_display = base_col.display_name or ""
             compare_display = compare_col.display_name or ""
             if base_display and compare_display and base_display != compare_display:
-                print(f"[DIFF]     Cube column {name}: display_name mismatch {base_display!r} vs {compare_display!r}")
                 return False
 
         if base_col.description != compare_col.description:
             if base_col.description and compare_col.description:
-                print(f"[DIFF]     Cube column {name}: description mismatch")
                 return False
 
         # Compare partition config if present
         base_partition = getattr(base_col, "partition", None)
         compare_partition = getattr(compare_col, "partition", None)
         if base_partition != compare_partition:
-            print(f"[DIFF]     Cube column {name}: partition mismatch")
             return False
 
     return True
@@ -1599,8 +1555,11 @@ def _compare_dimension_links_for_diff(
         dim = _strip_namespace_from_ref(link.dimension or "", namespace)
         return (link.type, dim, link.role or "")
 
-    base_sorted = sorted(base_links, key=lambda l: link_key(l, base_namespace))
-    compare_sorted = sorted(compare_links, key=lambda l: link_key(l, compare_namespace))
+    base_sorted = sorted(base_links, key=lambda link: link_key(link, base_namespace))
+    compare_sorted = sorted(
+        compare_links,
+        key=lambda link: link_key(link, compare_namespace),
+    )
 
     for base_link, compare_link in zip(base_sorted, compare_sorted):
         if base_link.type != compare_link.type:

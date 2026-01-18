@@ -13,6 +13,7 @@ from functools import reduce
 from typing import Any, Optional
 
 from datajunction_server.construction.build_v3.cte import (
+    has_window_function,
     inject_partition_by_into_windows,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
@@ -400,6 +401,115 @@ def generate_metrics_sql(
     # Use unique values to avoid duplicates when multiple refs map to same alias
     all_dim_aliases = list(dict.fromkeys(dimension_aliases.values()))
 
+    # First pass: identify derived metrics with window functions
+    # These need special handling - base metrics must be pre-computed in a CTE
+    window_metrics: set[str] = set()
+    for metric_name in ctx.metrics:
+        if metric_name in all_grain_group_metrics:
+            continue
+        decomposed = decomposed_metrics.get(metric_name)
+        if decomposed and has_window_function(decomposed.combiner_ast):
+            window_metrics.add(metric_name)
+
+    # If there are window function metrics, create an intermediate CTE
+    # that pre-computes all base metrics as actual columns
+    window_metrics_cte_alias: str | None = None
+    if window_metrics:
+        window_metrics_cte_alias = "base_metrics"
+
+        # Build the intermediate CTE that computes base metrics
+        # SELECT dim1, dim2, ..., metric1 AS metric1, metric2 AS metric2, ...
+        # FROM gg0 FULL OUTER JOIN gg1 ON ... GROUP BY dim1, dim2, ...
+        base_metrics_projection: list[Any] = []
+
+        # Add dimension columns (COALESCE across grain groups)
+        for _, dim_col in dim_info:
+            coalesce_args: list[ast.Expression] = [
+                make_column_ref(dim_col, alias) for alias in cte_aliases
+            ]
+            coalesce_func = ast.Function(ast.Name("COALESCE"), args=coalesce_args)
+            aliased = coalesce_func.set_alias(ast.Name(dim_col))
+            aliased.set_as(True)
+            base_metrics_projection.append(aliased)
+
+        # Add base metric expressions
+        for base_metric_name in all_grain_group_metrics:
+            if base_metric_name not in metric_expr_asts:
+                continue
+            expr_ast, short_name = metric_expr_asts[base_metric_name]
+            aliased_expr = deepcopy(expr_ast).set_alias(ast.Name(short_name))
+            aliased_expr.set_as(True)
+            base_metrics_projection.append(aliased_expr)
+
+        # Build FROM and GROUP BY (same as final query)
+        base_metrics_join_extensions: list[ast.Join] = []
+        for i in range(1, len(cte_aliases)):
+            conditions: list[ast.Expression] = []
+            for _, dim_col in dim_info:
+                left_col = make_column_ref(dim_col, cte_aliases[0])
+                right_col = make_column_ref(dim_col, cte_aliases[i])
+                conditions.append(ast.BinaryOp.Eq(left_col, right_col))
+            if len(conditions) == 1:
+                on_clause = conditions[0]
+            else:
+                on_clause = reduce(lambda a, b: ast.BinaryOp.And(a, b), conditions)
+            base_metrics_join_extensions.append(
+                ast.Join(
+                    right=ast.Table(ast.Name(cte_aliases[i])),
+                    criteria=ast.JoinCriteria(on=on_clause),
+                    join_type="FULL OUTER",
+                ),
+            )
+
+        base_metrics_from = ast.From(
+            relations=[
+                ast.Relation(
+                    primary=ast.Table(ast.Name(cte_aliases[0])),
+                    extensions=base_metrics_join_extensions,
+                ),
+            ],
+        )
+
+        base_metrics_group_by: list[ast.Expression] = []
+        for _, dim_col in dim_info:
+            base_metrics_group_by.append(make_column_ref(dim_col, cte_aliases[0]))
+
+        base_metrics_select = ast.Select(
+            projection=base_metrics_projection,
+            from_=base_metrics_from,
+            group_by=base_metrics_group_by if base_metrics_group_by else [],
+        )
+
+        base_metrics_query = ast.Query(select=base_metrics_select)
+        base_metrics_query.to_cte(ast.Name(window_metrics_cte_alias), None)
+        all_cte_asts.append(base_metrics_query)
+
+        # Rebuild dimension projection to reference base_metrics CTE directly
+        # (instead of COALESCE across grain group CTEs)
+        projection = []
+        for original_dim_ref, dim_col in dim_info:
+            col_ref = make_column_ref(dim_col, window_metrics_cte_alias)
+            aliased = col_ref.set_alias(ast.Name(dim_col))
+            aliased.set_as(True)
+            projection.append(aliased)
+
+            col_type = dim_types.get(original_dim_ref, "string")
+            # Note: columns_metadata was already built, but we need to rebuild it
+            # We'll clear and rebuild after this block
+
+        # Rebuild columns_metadata for dimensions
+        columns_metadata = []
+        for original_dim_ref, dim_col in dim_info:
+            col_type = dim_types.get(original_dim_ref, "string")
+            columns_metadata.append(
+                ColumnMetadata(
+                    name=dim_col,
+                    semantic_name=original_dim_ref,
+                    type=col_type,
+                    semantic_type="dimension",
+                ),
+            )
+
     for metric_name in ctx.metrics:
         if metric_name in all_grain_group_metrics:
             continue
@@ -410,15 +520,35 @@ def generate_metrics_sql(
 
         short_name = metric_name.split(SEPARATOR)[-1]
         expr_ast = deepcopy(decomposed.combiner_ast)
-        # Replace metric name references (e.g., v3.total_revenue -> cte.total_revenue)
-        replace_metric_refs_in_ast(expr_ast, metric_column_refs)
-        # Also try component refs (for backward compatibility)
-        replace_component_refs_in_ast(expr_ast, component_columns)
-        # Replace dimension refs (all should be in dimension_aliases now, thanks to pre-scan)
-        replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
-        # Inject PARTITION BY for window functions (e.g., LAG in WoW metrics)
-        # This ensures window calculations are partitioned by all non-ORDER-BY dimensions
-        inject_partition_by_into_windows(expr_ast, all_dim_aliases)
+
+        # Handle aggregate window function metrics specially
+        if metric_name in window_metrics and window_metrics_cte_alias:
+            # For window functions, replace metric refs with column refs to the
+            # intermediate CTE (which has pre-computed base metrics as columns)
+            # The column refs are simple: (cte_alias, short_name)
+            window_metric_refs: dict[str, tuple[str, str]] = {}
+            for base_metric_name in all_grain_group_metrics:
+                base_short = get_short_name(base_metric_name)
+                window_metric_refs[base_metric_name] = (
+                    window_metrics_cte_alias,
+                    base_short,
+                )
+            replace_metric_refs_in_ast(expr_ast, window_metric_refs)
+            # Replace dimension refs (for ORDER BY in window functions)
+            replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
+            # Inject PARTITION BY for window functions
+            inject_partition_by_into_windows(expr_ast, all_dim_aliases)
+        else:
+            # Non-window derived metrics: use original approach
+            # Replace metric name references (e.g., v3.total_revenue -> cte.total_revenue)
+            replace_metric_refs_in_ast(expr_ast, metric_column_refs)
+            # Also try component refs (for backward compatibility)
+            replace_component_refs_in_ast(expr_ast, component_columns)
+            # Replace dimension refs
+            replace_dimension_refs_in_ast(expr_ast, dimension_aliases)
+            # Inject PARTITION BY for window functions (e.g., LAG in WoW metrics)
+            inject_partition_by_into_windows(expr_ast, all_dim_aliases)
+
         metric_expr_asts[metric_name] = (expr_ast, short_name)
 
     # Build projection in requested order
@@ -456,60 +586,75 @@ def generate_metrics_sql(
             f"require at least one shared dimension to join on. ",
         )
 
-    # Build JOIN extensions for the Relation
-    join_extensions: list[ast.Join] = []
-    for i in range(1, len(cte_aliases)):
-        # Build join condition: gg0.dim1 = ggN.dim1 AND gg0.dim2 = ggN.dim2 ...
-        conditions: list[ast.Expression] = []
-        for dim_col in dim_col_aliases:
-            left_col = make_column_ref(dim_col, cte_aliases[0])
-            right_col = make_column_ref(dim_col, cte_aliases[i])
-            conditions.append(ast.BinaryOp.Eq(left_col, right_col))
+    # For window function metrics, the final SELECT references the base_metrics CTE
+    # (which has pre-computed base metrics) without GROUP BY
+    if window_metrics_cte_alias:
+        from_clause = ast.From(
+            relations=[
+                ast.Relation(
+                    primary=ast.Table(ast.Name(window_metrics_cte_alias)),
+                ),
+            ],
+        )
+        # No GROUP BY for window function queries - they need all rows
+        group_by: list[ast.Expression] = []
+    else:
+        # Build JOIN extensions for the Relation (original approach)
+        join_extensions: list[ast.Join] = []
+        for i in range(1, len(cte_aliases)):
+            # Build join condition: gg0.dim1 = ggN.dim1 AND gg0.dim2 = ggN.dim2 ...
+            conditions: list[ast.Expression] = []
+            for dim_col in dim_col_aliases:
+                left_col = make_column_ref(dim_col, cte_aliases[0])
+                right_col = make_column_ref(dim_col, cte_aliases[i])
+                conditions.append(ast.BinaryOp.Eq(left_col, right_col))
 
-        # Combine conditions with AND
-        if len(conditions) == 1:
-            on_clause = conditions[0]
-        else:
-            on_clause = reduce(lambda a, b: ast.BinaryOp.And(a, b), conditions)
+            # Combine conditions with AND
+            if len(conditions) == 1:
+                on_clause = conditions[0]
+            else:
+                on_clause = reduce(lambda a, b: ast.BinaryOp.And(a, b), conditions)
 
-        # Build the JOIN with criteria
-        join_extensions.append(
-            ast.Join(
-                right=ast.Table(ast.Name(cte_aliases[i])),
-                criteria=ast.JoinCriteria(on=on_clause),
-                join_type="FULL OUTER",
-            ),
+            # Build the JOIN with criteria
+            join_extensions.append(
+                ast.Join(
+                    right=ast.Table(ast.Name(cte_aliases[i])),
+                    criteria=ast.JoinCriteria(on=on_clause),
+                    join_type="FULL OUTER",
+                ),
+            )
+
+        # Build the FROM clause as a Relation with primary table and join extensions
+        from_clause = ast.From(
+            relations=[
+                ast.Relation(
+                    primary=ast.Table(ast.Name(cte_aliases[0])),
+                    extensions=join_extensions,
+                ),
+            ],
         )
 
-    # Build the FROM clause as a Relation with primary table and join extensions
-    from_clause = ast.From(
-        relations=[
-            ast.Relation(
-                primary=ast.Table(ast.Name(cte_aliases[0])),
-                extensions=join_extensions,
-            ),
-        ],
-    )
-
-    # Always add GROUP BY on requested dimensions
-    # Metrics SQL always re-aggregates components to produce final metric values:
-    # - If CTE is at requested grain: re-aggregation is a no-op (SUM of one = that one)
-    # - If CTE is at finer grain: re-aggregation does actual work
-    group_by: list[ast.Expression] = []
-    if dim_col_aliases:  # pragma: no branch
-        group_by.extend(
-            [make_column_ref(dim_col, cte_aliases[0]) for dim_col in dim_col_aliases],
-        )
+        # Add GROUP BY on requested dimensions
+        # Metrics SQL re-aggregates components to produce final metric values:
+        # - If CTE is at requested grain: re-aggregation is a no-op (SUM of one = that one)
+        # - If CTE is at finer grain: re-aggregation does actual work
+        group_by = []
+        if dim_col_aliases:  # pragma: no branch
+            group_by.extend(
+                [make_column_ref(dim_col, cte_aliases[0]) for dim_col in dim_col_aliases],
+            )
 
     # Build WHERE clause from filters
     # For metrics SQL, filters reference dimension columns which are now in the CTEs
     where_clause: Optional[ast.Expression] = None
     if ctx.filters:
         # Resolve filters using dimension aliases
+        # Use base_metrics CTE for window function queries, otherwise first grain group CTE
+        filter_cte = window_metrics_cte_alias if window_metrics_cte_alias else cte_aliases[0]
         where_clause = parse_and_resolve_filters(
             ctx.filters,
             dimension_aliases,
-            cte_alias=cte_aliases[0],  # Reference the first CTE for dimensions
+            cte_alias=filter_cte,
         )
 
     # Build the final SELECT
