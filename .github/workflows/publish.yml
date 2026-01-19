@@ -16,6 +16,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper release notes generation
+          fetch-tags: true  # Ensure all tags are fetched
 
       - name: Get version from branch name
         id: version
@@ -112,12 +115,42 @@ jobs:
       #
       # Create GitHub Release
       #
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          CURRENT_TAG="v${{ steps.version.outputs.VERSION }}"
+          echo "Current tag: $CURRENT_TAG"
+
+          # Find the previous version tag (latest existing tag)
+          PREV_TAG=$(git tag -l 'v*' | sort -V | tail -1)
+          echo "Previous tag: $PREV_TAG"
+
+          # Generate changelog
+          if [ -n "$PREV_TAG" ]; then
+            echo "## What's Changed" > release_notes.md
+            echo "" >> release_notes.md
+
+            # Get commits between previous tag and HEAD
+            git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges >> release_notes.md
+
+            echo "" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURRENT_TAG}" >> release_notes.md
+          else
+            echo "## Initial Release" > release_notes.md
+            echo "" >> release_notes.md
+            echo "First release of DataJunction!" >> release_notes.md
+          fi
+
+          echo "Release notes:"
+          cat release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: v${{ steps.version.outputs.VERSION }}
-          generate_release_notes: true
+          body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
