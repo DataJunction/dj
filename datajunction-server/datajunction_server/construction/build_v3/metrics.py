@@ -1162,6 +1162,7 @@ def build_grain_level_window_cte(
     decomposed_metrics: dict[str, DecomposedMetricInfo],
     all_grain_group_metrics: set[str],
     alias_to_dimension_node: dict[str, str],
+    dim_info: list[tuple[str, str]],
 ) -> ast.Query:
     """
     Build a CTE that applies window functions at a specific grain level.
@@ -1173,6 +1174,7 @@ def build_grain_level_window_cte(
         decomposed_metrics: Decomposed metric info
         all_grain_group_metrics: Base metric names
         alias_to_dimension_node: Mapping for PARTITION BY logic
+        dim_info: List of (original_dim_ref, col_alias) tuples for dimension lookup
 
     Returns:
         AST Query that selects from grain-level CTE and applies window functions
@@ -1221,7 +1223,7 @@ def build_grain_level_window_cte(
         for col in expr_ast.find_all(ast.Column):
             col_full_name = col.identifier() if hasattr(col, 'identifier') else ""
             # Check if this is a dimension reference
-            for dim_ref, dim_alias in [(dr, da) for dr, da in ctx.alias_registry._registry.items()]:
+            for dim_ref, dim_alias in dim_info:
                 if col_full_name == dim_ref or col_full_name.endswith("." + dim_alias):
                     col.name = ast.Name(dim_alias)
                     col._table = ast.Table(ast.Name(agg_cte_alias))
@@ -1495,6 +1497,7 @@ def generate_metrics_sql(
                 decomposed_metrics,
                 all_grain_group_metrics,
                 alias_to_dimension_node,
+                dim_info,
             )
             window_cte.to_cte(ast.Name(grain_info.cte_alias), None)
             all_cte_asts.append(window_cte)
