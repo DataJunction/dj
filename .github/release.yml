@@ -1,20 +1,36 @@
 # .github/release.yml
+# Configuration for auto-generated release notes
 
 changelog:
   exclude:
     labels:
       - ignore-for-release
-    authors:
-      - octocat
+      - skip-changelog
+      - duplicate
   categories:
-    - title: Breaking Changes 🛠
+    - title: "⚠️ Breaking Changes"
       labels:
         - Semver-Major
         - breaking-change
-    - title: Exciting New Features 🎉
+    - title: "🚀 Features"
       labels:
         - Semver-Minor
         - enhancement
-    - title: Other Changes
+        - feature
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - bugfix
+        - fix
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+        - docs
+    - title: "🧹 Maintenance"
+      labels:
+        - chore
+        - maintenance
+        - dependencies
+    - title: "Other Changes"
       labels:
         - "*"
