@@ -1334,9 +1334,9 @@ def build_from_clause_with_grain_joins(
 
             # Add the JOIN
             join = ast.Join(
-                join_type=ast.JoinType.LeftOuter,
+                join_type="LEFT OUTER",
                 right=window_cte_table,
-                on=join_condition,
+                criteria=ast.JoinCriteria(on=join_condition),
             )
             relations[0].extensions.append(join)
 
