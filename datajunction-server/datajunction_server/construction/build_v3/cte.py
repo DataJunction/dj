@@ -508,6 +508,7 @@ def inject_partition_by_into_windows(
     expr_ast: ast.Node,
     all_dimension_aliases: list[str],
     alias_to_dimension_node: dict[str, str] | None = None,
+    partition_cte_alias: str | None = None,
 ) -> None:
     """
     Inject PARTITION BY clauses into navigation/ranking window functions.
@@ -550,6 +551,9 @@ def inject_partition_by_into_windows(
         alias_to_dimension_node: Optional mapping from alias to dimension node name.
             If provided, all aliases from the same dimension node as ORDER BY columns
             will be excluded from PARTITION BY.
+        partition_cte_alias: Optional CTE alias to qualify PARTITION BY columns.
+            If provided, columns will be qualified as cte_alias.column.
+            Important for JOINs where column names may be ambiguous.
     """
     # Build reverse mapping: dimension_node -> set of aliases
     node_to_aliases: dict[str, set[str]] = {}
@@ -604,9 +608,18 @@ def inject_partition_by_into_windows(
         if not func.over.partition_by:
             for dim_alias in all_dimension_aliases:
                 if dim_alias not in excluded_aliases:
-                    func.over.partition_by.append(
-                        ast.Column(name=ast.Name(dim_alias)),
-                    )
+                    # Optionally qualify with CTE alias to avoid ambiguity in JOINs
+                    if partition_cte_alias:
+                        func.over.partition_by.append(
+                            ast.Column(
+                                name=ast.Name(dim_alias),
+                                _table=ast.Table(ast.Name(partition_cte_alias)),
+                            ),
+                        )
+                    else:
+                        func.over.partition_by.append(
+                            ast.Column(name=ast.Name(dim_alias)),
+                        )
 
 
 def topological_sort_nodes(ctx: BuildContext, node_names: set[str]) -> list[Node]:

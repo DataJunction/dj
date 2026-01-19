@@ -636,9 +636,17 @@ def build_base_metrics_cte(
     base_metrics_from = build_join_from_clause(cte_aliases, table_refs, dim_cols)
 
     # Build GROUP BY on dimensions
+    # Use positional references (1, 2, 3, ...) when there are multiple CTEs joined
+    # This is necessary for FULL OUTER JOIN where one-sided refs may be NULL
     group_by: list[ast.Expression] = []
-    for _, dim_col in dim_info:
-        group_by.append(make_column_ref(dim_col, cte_aliases[0]))
+    if len(cte_aliases) > 1:
+        # Use positional references for cross-fact JOINs
+        for pos in range(1, len(dim_info) + 1):
+            group_by.append(ast.Number(pos))
+    else:
+        # Single CTE - can use qualified column refs
+        for _, dim_col in dim_info:
+            group_by.append(make_column_ref(dim_col, cte_aliases[0]))
 
     return ast.Query(
         select=ast.Select(
@@ -854,10 +862,12 @@ def build_window_metric_expr(
     replace_dimension_refs_in_ast(expr_ast, window_dim_refs)
 
     # Inject PARTITION BY for window functions
+    # Qualify with CTE alias to avoid ambiguity when there are JOINs
     inject_partition_by_into_windows(
         expr_ast,
         partition_columns,
         alias_to_dimension_node,
+        partition_cte_alias=window_cte_alias,
     )
 
     return expr_ast  # type: ignore
@@ -1340,10 +1350,12 @@ def build_grain_level_window_cte(
                         sort_item.expr = sort_item.expr.expr
 
         # Inject PARTITION BY (already handles dimension node exclusion)
+        # Qualify with CTE alias to avoid ambiguity
         inject_partition_by_into_windows(
             expr_ast,
             partition_cols,
             alias_to_dimension_node,
+            partition_cte_alias=agg_cte_alias,
         )
 
         short_name = get_short_name(metric_name)
@@ -1552,10 +1564,12 @@ def build_window_cte_from_grain_group(
                         sort_item.expr = sort_item.expr.expr
 
         # Inject PARTITION BY
+        # Qualify with source CTE alias to avoid ambiguity
         inject_partition_by_into_windows(
             expr_ast,
             partition_cols,
             alias_to_dimension_node,
+            partition_cte_alias=source_cte_alias,
         )
 
         short_name = get_short_name(window_metric_name)
@@ -1654,19 +1668,25 @@ def build_reaggregation_agg_cte(
     primary_cte = cte_aliases[0] if cte_aliases[0] in needed_ctes else next(iter(needed_ctes))
 
     # Add dimension columns with COALESCE (for cross-fact JOINs)
+    # Track dimension count for positional GROUP BY
+    dim_count = 0
     for _, dim_col in dim_info:
         dim_col_aliases.append(dim_col)
+        dim_count += 1
         if len(needed_ctes) > 1:
             # COALESCE across all needed CTEs
             coalesce_args = [make_column_ref(dim_col, cte) for cte in cte_aliases if cte in needed_ctes]
             coalesce_func = ast.Function(ast.Name("COALESCE"), args=coalesce_args)
             aliased = coalesce_func.set_alias(ast.Name(dim_col))
+            # Use positional reference for GROUP BY when cross-fact JOINing
+            group_by.append(ast.Number(dim_count))
         else:
             col_ref = make_column_ref(dim_col, primary_cte)
             aliased = col_ref.set_alias(ast.Name(dim_col))
+            # Single CTE - can use qualified column refs
+            group_by.append(make_column_ref(dim_col, primary_cte))
         aliased.set_as(True)
         projection.append(aliased)
-        group_by.append(make_column_ref(dim_col, primary_cte))
 
     # Build aggregation expressions for each base metric
     for base_metric_name in sorted(base_metrics_needed):
@@ -1802,10 +1822,12 @@ def build_reaggregation_window_cte(
         replace_dimension_refs_in_ast(expr_ast, dim_refs)
 
         # Inject PARTITION BY into window functions
+        # Qualify with source CTE alias to avoid ambiguity
         inject_partition_by_into_windows(
             expr_ast,
             partition_cols,
             alias_to_dimension_node,
+            partition_cte_alias=source_cte_alias,
         )
 
         short_name = get_short_name(window_metric_name)

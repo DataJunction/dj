@@ -746,8 +746,8 @@ class TestMetricsSQLDerived:
               SELECT
                 order_details_week_agg.week AS week,
                 order_details_week_agg.category AS category,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_revenue_change_no_role
               FROM order_details_week_agg
             ),
@@ -763,8 +763,8 @@ class TestMetricsSQLDerived:
               SELECT
                 order_details_month_agg.month AS month,
                 order_details_month_agg.category AS category,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month), 0) * 100
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
@@ -1414,11 +1414,11 @@ class TestMetricsSQLCrossFact:
               SELECT
                 order_details_week_agg.week AS week,
                 order_details_week_agg.category AS category,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_revenue_change,
-                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_order_growth
               FROM order_details_week_agg
             ),
@@ -1434,8 +1434,8 @@ class TestMetricsSQLCrossFact:
               SELECT
                 order_details_month_agg.month AS month,
                 order_details_month_agg.category AS category,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month), 0) * 100
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
@@ -1640,7 +1640,7 @@ class TestNonDecomposableMetrics:
             SELECT
               base_metrics.category AS category,
               base_metrics.date_id AS date_id,
-              (SUM(base_metrics.total_revenue) OVER (PARTITION BY category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(base_metrics.total_revenue) OVER (PARTITION BY category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER (PARTITION BY category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
+              (SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
             FROM base_metrics
             """,
         )
@@ -1720,7 +1720,7 @@ class TestNonDecomposableMetrics:
             SELECT
               base_metrics.category AS category,
               base_metrics.date_id AS date_id,
-              SUM(base_metrics.total_revenue) OVER (PARTITION BY category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+              SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
             FROM base_metrics
             """,
         )
@@ -1875,8 +1875,8 @@ class TestMetricsSQLNestedDerived:
             SELECT
                 base_metrics.category AS category,
                 base_metrics.week AS week,
-                (base_metrics.avg_order_value - LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY category ORDER BY base_metrics.week))
-                    / NULLIF(LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY category ORDER BY base_metrics.week), 0) * 100
+                (base_metrics.avg_order_value - LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week))
+                    / NULLIF(LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week), 0) * 100
                     AS wow_aov_change
             FROM base_metrics
             """,
@@ -2039,8 +2039,8 @@ class TestMetricsSQLNestedDerived:
             SELECT
               base_metrics.category AS category,
               base_metrics.date_id AS date_id,
-              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.date_id))
-                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.date_id), 0) * 100
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id), 0) * 100
                 AS dod_revenue_change
             FROM base_metrics
             """,
@@ -2127,8 +2127,8 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_week_agg.week AS week,
                 order_details_week_agg.category AS category,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             )
@@ -2221,8 +2221,8 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_week_agg.week AS week,
                 order_details_week_agg.category AS category,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             ),
@@ -2238,8 +2238,8 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_month_agg.month AS month,
                 order_details_month_agg.category AS category,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_month_agg.month), 0) * 100
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
@@ -2344,11 +2344,11 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_week_agg.week AS week,
                 order_details_week_agg.category AS category,
-                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_order_growth,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             )
