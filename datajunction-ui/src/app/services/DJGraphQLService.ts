@@ -69,7 +69,7 @@ export interface CubeForPlannerResult {
 // Generic GraphQL fetch helper
 async function gqlFetch<T>(
   query: string,
-  variables?: Record<string, unknown>
+  variables?: Record<string, unknown>,
 ): Promise<GraphQLResponse<T>> {
   const response = await fetch(DJ_GQL, {
     method: 'POST',
@@ -343,7 +343,7 @@ export const DJGraphQLService = {
     limit: number | null,
     sortConfig: SortConfig,
     mode: NodeMode | null,
-    filters: ListNodesFilters = {}
+    filters: ListNodesFilters = {},
   ): Promise<GraphQLResponse<ListNodesForLandingQuery>> => {
     const {
       ownedBy = null,
@@ -375,9 +375,13 @@ export const DJGraphQLService = {
   /**
    * List cubes for preset dropdown (lightweight)
    */
-  listCubesForPreset: async (): Promise<Array<{ name: string; display_name: string | null }>> => {
+  listCubesForPreset: async (): Promise<
+    Array<{ name: string; display_name: string | null }>
+  > => {
     try {
-      const result = await gqlFetch<ListCubesForPresetQuery>(LIST_CUBES_FOR_PRESET);
+      const result = await gqlFetch<ListCubesForPresetQuery>(
+        LIST_CUBES_FOR_PRESET,
+      );
       const nodes = result.data?.findNodes || [];
       return nodes.map(node => ({
         name: node.name,
@@ -392,9 +396,14 @@ export const DJGraphQLService = {
   /**
    * Get cube details for query planner (optimized query)
    */
-  cubeForPlanner: async (name: string): Promise<CubeForPlannerResult | null> => {
+  cubeForPlanner: async (
+    name: string,
+  ): Promise<CubeForPlannerResult | null> => {
     try {
-      const result = await gqlFetch<GetCubeForPlannerQuery>(GET_CUBE_FOR_PLANNER, { name });
+      const result = await gqlFetch<GetCubeForPlannerQuery>(
+        GET_CUBE_FOR_PLANNER,
+        { name },
+      );
       const node = result.data?.findNodes?.[0];
       if (!node) {
         return null;
@@ -406,7 +415,7 @@ export const DJGraphQLService = {
 
       // Extract druid_cube materialization if present
       const druidMat = (current?.materializations || []).find(
-        m => m.name === 'druid_cube' || m.name === 'druid_cube_v3'
+        m => m.name === 'druid_cube' || m.name === 'druid_cube_v3',
       );
 
       const cubeMaterialization = druidMat
@@ -439,9 +448,12 @@ export const DJGraphQLService = {
    * Get node details for editing
    */
   getNodeForEditing: async (
-    name: string
+    name: string,
   ): Promise<GetNodeForEditingQuery['findNodes'][0] | null> => {
-    const result = await gqlFetch<GetNodeForEditingQuery>(GET_NODE_FOR_EDITING, { name });
+    const result = await gqlFetch<GetNodeForEditingQuery>(
+      GET_NODE_FOR_EDITING,
+      { name },
+    );
     if (!result.data?.findNodes?.length) {
       return null;
     }
@@ -452,12 +464,14 @@ export const DJGraphQLService = {
    * Get multiple nodes by names (batch fetch)
    */
   getNodesByNames: async (
-    names: string[]
+    names: string[],
   ): Promise<GetNodesByNamesQuery['findNodes']> => {
     if (!names || names.length === 0) {
       return [];
     }
-    const result = await gqlFetch<GetNodesByNamesQuery>(GET_NODES_BY_NAMES, { names });
+    const result = await gqlFetch<GetNodesByNamesQuery>(GET_NODES_BY_NAMES, {
+      names,
+    });
     return result.data?.findNodes || [];
   },
 
@@ -465,7 +479,7 @@ export const DJGraphQLService = {
    * Get metric details
    */
   getMetric: async (
-    name: string
+    name: string,
   ): Promise<GetMetricQuery['findNodes'][0] | null> => {
     const result = await gqlFetch<GetMetricQuery>(GET_METRIC, { name });
     return result.data?.findNodes?.[0] || null;
@@ -475,9 +489,12 @@ export const DJGraphQLService = {
    * Get cube details for editing
    */
   getCubeForEditing: async (
-    name: string
+    name: string,
   ): Promise<GetCubeForEditingQuery['findNodes'][0] | null> => {
-    const result = await gqlFetch<GetCubeForEditingQuery>(GET_CUBE_FOR_EDITING, { name });
+    const result = await gqlFetch<GetCubeForEditingQuery>(
+      GET_CUBE_FOR_EDITING,
+      { name },
+    );
     if (!result.data?.findNodes?.length) {
       return null;
     }
@@ -488,10 +505,12 @@ export const DJGraphQLService = {
    * Get upstream nodes
    */
   upstreamNodes: async (
-    nodeNames: string | string[]
+    nodeNames: string | string[],
   ): Promise<GetUpstreamNodesQuery['upstreamNodes']> => {
     const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
-    const result = await gqlFetch<GetUpstreamNodesQuery>(GET_UPSTREAM_NODES, { nodeNames: names });
+    const result = await gqlFetch<GetUpstreamNodesQuery>(GET_UPSTREAM_NODES, {
+      nodeNames: names,
+    });
     return result.data?.upstreamNodes || [];
   },
 
@@ -499,10 +518,13 @@ export const DJGraphQLService = {
    * Get downstream nodes
    */
   downstreamNodes: async (
-    nodeNames: string | string[]
+    nodeNames: string | string[],
   ): Promise<GetDownstreamNodesQuery['downstreamNodes']> => {
     const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
-    const result = await gqlFetch<GetDownstreamNodesQuery>(GET_DOWNSTREAM_NODES, { nodeNames: names });
+    const result = await gqlFetch<GetDownstreamNodesQuery>(
+      GET_DOWNSTREAM_NODES,
+      { nodeNames: names },
+    );
     return result.data?.downstreamNodes || [];
   },
 
@@ -510,7 +532,7 @@ export const DJGraphQLService = {
    * Get node columns with partition info
    */
   getNodeColumnsWithPartitions: async (
-    nodeName: string
+    nodeName: string,
   ): Promise<{
     columns: GetNodeColumnsWithPartitionsQuery['findNodes'][0]['current']['columns'];
     temporalPartitions: GetNodeColumnsWithPartitionsQuery['findNodes'][0]['current']['columns'];
@@ -518,7 +540,7 @@ export const DJGraphQLService = {
     try {
       const result = await gqlFetch<GetNodeColumnsWithPartitionsQuery>(
         GET_NODE_COLUMNS_WITH_PARTITIONS,
-        { name: nodeName }
+        { name: nodeName },
       );
 
       const node = result.data?.findNodes?.[0];
@@ -528,7 +550,7 @@ export const DJGraphQLService = {
 
       const columns = node.current?.columns || [];
       const temporalPartitions = columns.filter(
-        col => col.partition?.type_ === 'TEMPORAL'
+        col => col.partition?.type_ === 'TEMPORAL',
       );
 
       return { columns, temporalPartitions };

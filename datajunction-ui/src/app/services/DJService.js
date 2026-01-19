@@ -1,9 +1,9 @@
 // Note: MarkerType.Arrow is just the string "arrow" - we use the literal
 // to avoid importing reactflow in this service (which would bloat the main bundle)
-const MARKER_TYPE_ARROW = 'arrow';
-
 // Import the typed GraphQL service - all GraphQL methods delegate to this
 import { DJGraphQLService } from './DJGraphQLService';
+
+const MARKER_TYPE_ARROW = 'arrow';
 
 const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
