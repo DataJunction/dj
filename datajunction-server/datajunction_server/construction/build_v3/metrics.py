@@ -1111,11 +1111,16 @@ def group_window_metrics_by_grain(
                 if order_by_alias not in group_by_dims:
                     group_by_dims.append(order_by_alias)
 
-                # Skip creating grain-level CTE if the grain matches requested dimensions
-                # (no aggregation needed - window function can operate on base_metrics)
+                # Skip creating grain-level CTE if base_metrics already has the right grain
+                # This happens when all dimensions are either:
+                # 1. In PARTITION BY (group_by_dims minus ORDER BY), or
+                # 2. From the same dimension node as ORDER BY (excluded_aliases)
+                # In this case, base_metrics grain = PARTITION BY dims + ORDER BY node dims
                 all_dim_aliases = {alias for _, alias in dim_info}
-                if set(group_by_dims) == all_dim_aliases:
-                    # No grain difference, window metric will be computed inline
+                dims_covered = set(group_by_dims) | excluded_aliases
+                if dims_covered >= all_dim_aliases:
+                    # All dimensions are covered - no aggregation needed
+                    # Window function can operate directly on base_metrics
                     continue
 
                 # Join dimensions are the GROUP BY dimensions
