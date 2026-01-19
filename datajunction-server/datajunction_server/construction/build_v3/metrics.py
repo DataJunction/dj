@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -448,11 +449,108 @@ def find_window_metrics(
     return window_metrics
 
 
+def find_intermediate_derived_metrics(
+    ctx: BuildContext,
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
+    window_metrics: set[str],
+    all_grain_group_metrics: set[str],
+) -> set[str]:
+    """
+    Find intermediate derived metrics referenced by window function metrics.
+
+    For nested derived metrics like:
+        thumbs_up_rate_wow_change = thumbs_up_rate - LAG(thumbs_up_rate) OVER (...)
+    where thumbs_up_rate is itself a derived metric.
+
+    We need to identify these intermediate metrics so they can be pre-computed
+    in the base_metrics CTE before the window function is applied.
+
+    Args:
+        ctx: Build context with nodes and parent_map
+        decomposed_metrics: Decomposed metric info
+        window_metrics: Set of window function metric names
+        all_grain_group_metrics: Set of base metrics in grain groups
+
+    Returns:
+        Set of intermediate derived metric names that need pre-computation
+    """
+    intermediate_metrics: set[str] = set()
+
+    for metric_name in window_metrics:
+        # Get the parent metrics (metrics this window metric references)
+        parent_names = ctx.parent_map.get(metric_name, [])
+        for parent_name in parent_names:
+            parent_node = ctx.nodes.get(parent_name)
+            if parent_node and parent_node.type == NodeType.METRIC:
+                # This is a metric parent - check if it's a derived metric (not in grain groups)
+                if parent_name not in all_grain_group_metrics:
+                    intermediate_metrics.add(parent_name)
+
+    return intermediate_metrics
+
+
+def build_intermediate_metric_expr(
+    metric_name: str,
+    decomposed: DecomposedMetricInfo,
+    base_metric_exprs: dict[str, MetricExprInfo],
+    dimension_aliases: dict[str, str],
+    default_cte_alias: str,
+) -> ast.Expression:
+    """
+    Build expression for an intermediate derived metric.
+
+    Intermediate derived metrics (like thumbs_up_rate) reference base metrics
+    (like total_thumb_ups, total_thumbs) and need to be computed from their
+    component expressions.
+
+    Args:
+        metric_name: Name of the intermediate derived metric
+        decomposed: Decomposed metric info
+        base_metric_exprs: Expressions for base metrics (from grain groups)
+        dimension_aliases: Dimension ref -> column alias mapping
+        default_cte_alias: CTE alias for column references
+
+    Returns:
+        Expression AST for the intermediate metric
+    """
+    # Start with the combiner AST from decomposition
+    expr_ast = deepcopy(decomposed.combiner_ast)
+
+    # Build refs for base metrics that this derived metric references
+    base_refs: dict[str, tuple[str, str]] = {
+        name: (info.cte_alias, info.short_name)
+        for name, info in base_metric_exprs.items()
+    }
+    replace_metric_refs_in_ast(expr_ast, base_refs)
+
+    # Also replace component refs
+    comp_refs: dict[str, tuple[str, str]] = {}
+    for comp in decomposed.components:
+        # Look up where this component lives
+        for info in base_metric_exprs.values():
+            # Components are in the same CTE as their base metric
+            comp_refs[comp.name] = (info.cte_alias, comp.name)
+            break
+
+    replace_component_refs_in_ast(expr_ast, comp_refs)
+
+    # Replace dimension refs
+    dim_refs = {
+        dim_ref: (default_cte_alias, col_alias)
+        for dim_ref, col_alias in dimension_aliases.items()
+    }
+    replace_dimension_refs_in_ast(expr_ast, dim_refs)
+
+    return expr_ast
+
+
 def build_base_metrics_cte(
     dim_info: list[tuple[str, str]],
     cte_aliases: list[str],
     all_grain_group_metrics: set[str],
     metric_expr_asts: dict[str, MetricExprInfo],
+    intermediate_metrics: set[str] | None = None,
+    intermediate_exprs: dict[str, ast.Expression] | None = None,
 ) -> ast.Query:
     """
     Build an intermediate CTE that pre-computes all base metrics.
@@ -470,6 +568,8 @@ def build_base_metrics_cte(
         cte_aliases: CTE aliases for grain groups
         all_grain_group_metrics: Set of base metric names
         metric_expr_asts: Metric expressions from process_base_metrics
+        intermediate_metrics: Optional set of intermediate derived metric names
+        intermediate_exprs: Optional dict of intermediate metric expressions
 
     Returns:
         AST Query for the base_metrics CTE
@@ -494,6 +594,17 @@ def build_base_metrics_cte(
         aliased_expr = deepcopy(info.expr_ast).set_alias(ast.Name(info.short_name))
         aliased_expr.set_as(True)
         base_metrics_projection.append(aliased_expr)
+
+    # Add intermediate derived metrics (for nested derived metrics)
+    if intermediate_metrics and intermediate_exprs:
+        for metric_name in sorted(intermediate_metrics):
+            if metric_name not in intermediate_exprs:
+                continue  # pragma: no cover
+            expr_ast = intermediate_exprs[metric_name]
+            short_name = get_short_name(metric_name)
+            aliased_expr = deepcopy(expr_ast).set_alias(ast.Name(short_name))
+            aliased_expr.set_as(True)
+            base_metrics_projection.append(aliased_expr)
 
     # Build FROM clause with FULL OUTER JOINs
     dim_cols = [dim_col for _, dim_col in dim_info]
@@ -668,6 +779,7 @@ def build_window_metric_expr(
     resolver: ColumnResolver,
     partition_columns: list[str],
     window_cte_alias: str,
+    intermediate_metric_names: set[str] | None = None,
 ) -> ast.Expression:
     """
     Build expression AST for a window function metric.
@@ -684,6 +796,7 @@ def build_window_metric_expr(
         resolver: ColumnResolver (for dimension refs)
         partition_columns: Column names for PARTITION BY injection
         window_cte_alias: Alias of base_metrics CTE
+        intermediate_metric_names: Optional set of intermediate derived metric names
 
     Returns:
         Expression AST with refs resolved and PARTITION BY injected
@@ -701,6 +814,11 @@ def build_window_metric_expr(
     window_metric_refs: dict[str, tuple[str, str]] = {
         name: (window_cte_alias, get_short_name(name)) for name in base_metric_names
     }
+
+    # Also include intermediate derived metrics (for nested derived metrics)
+    if intermediate_metric_names:
+        for name in intermediate_metric_names:
+            window_metric_refs[name] = (window_cte_alias, get_short_name(name))
     replace_metric_refs_in_ast(expr_ast, window_metric_refs)
 
     # Dimension refs also point to window CTE
@@ -755,6 +873,7 @@ def process_derived_metrics(
     resolver: ColumnResolver,
     partition_columns: list[str],
     window_cte_alias: str | None,
+    intermediate_metric_names: set[str] | None = None,
 ) -> dict[str, MetricExprInfo]:
     """
     Process derived metrics (metrics not in any grain group).
@@ -770,6 +889,7 @@ def process_derived_metrics(
         resolver: ColumnResolver with metric, component, and dimension refs
         partition_columns: Column names for PARTITION BY injection
         window_cte_alias: Alias of base_metrics CTE ("base_metrics" or None)
+        intermediate_metric_names: Optional set of intermediate derived metric names
 
     Returns:
         Dict of derived metric expressions
@@ -808,6 +928,7 @@ def process_derived_metrics(
                 resolver,
                 partition_columns,
                 window_cte_alias,
+                intermediate_metric_names,
             )
             derived_cte_alias = window_cte_alias
         else:
@@ -882,18 +1003,45 @@ def generate_metrics_sql(
         all_grain_group_metrics,
     )
 
+    # Find intermediate derived metrics (for nested derived metrics)
+    # These are derived metrics referenced by window function metrics
+    intermediate_derived_metrics = find_intermediate_derived_metrics(
+        ctx,
+        decomposed_metrics,
+        window_metrics,
+        all_grain_group_metrics,
+    )
+
+    # Build expressions for intermediate derived metrics
+    intermediate_exprs: dict[str, ast.Expression] = {}
+    if intermediate_derived_metrics:
+        # Use first CTE alias as default for dimension refs
+        default_cte = cte_aliases[0] if cte_aliases else ""
+        for metric_name in intermediate_derived_metrics:
+            decomposed = decomposed_metrics.get(metric_name)
+            if decomposed:
+                intermediate_exprs[metric_name] = build_intermediate_metric_expr(
+                    metric_name,
+                    decomposed,
+                    metric_expr_asts,
+                    dimension_aliases,
+                    default_cte,
+                )
+
     # If there are window function metrics, create an intermediate CTE
     # that pre-computes all base metrics as actual columns
     window_metrics_cte_alias: str | None = None
     if window_metrics:
         window_metrics_cte_alias = "base_metrics"
 
-        # Build and add the base_metrics CTE
+        # Build and add the base_metrics CTE (including intermediate derived metrics)
         base_metrics_query = build_base_metrics_cte(
             dim_info,
             cte_aliases,
             all_grain_group_metrics,
             metric_expr_asts,
+            intermediate_derived_metrics,
+            intermediate_exprs,
         )
         base_metrics_query.to_cte(ast.Name(window_metrics_cte_alias), None)
         all_cte_asts.append(base_metrics_query)
@@ -925,6 +1073,7 @@ def generate_metrics_sql(
         resolver,
         all_dim_aliases,
         window_metrics_cte_alias,
+        intermediate_derived_metrics,
     )
 
     # Merge derived metrics into the main metric_expr_asts dict

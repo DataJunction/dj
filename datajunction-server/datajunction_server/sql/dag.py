@@ -1329,9 +1329,15 @@ async def get_metric_parents_map(
 
             # Add fact/transform parents to results
             for parent_node in other_parents:
-                # Fact/transform parent - add to results for all original metrics
                 for derived_metric_name in original_metrics:
                     result[derived_metric_name].append(parent_node)
+
+            # Only add dimension parents if there are no other parents
+            # (i.e., the metric is defined directly on a dimension node)
+            if not metric_parents and not other_parents:
+                for parent_node in dimension_parents:
+                    for derived_metric_name in original_metrics:
+                        result[derived_metric_name].append(parent_node)
 
         metric_parents_to_resolve = next_metric_parents_to_resolve
 
