@@ -1493,3 +1493,240 @@ class TestNonDecomposableMetrics:
                 "type": "double",
             },
         ]
+
+
+class TestMetricsSQLNestedDerived:
+    """
+    Test nested derived metrics - metrics that reference other derived metrics.
+
+    These test the inline expansion of intermediate derived metrics during
+    SQL generation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_metric_simple(self, client_with_build_v3):
+        """
+        Test a simple nested derived metric.
+
+        v3.aov_growth_index = v3.avg_order_value / 50.0 * 100
+        where v3.avg_order_value = v3.total_revenue / v3.order_count
+
+        The intermediate derived metric (avg_order_value) should be expanded inline
+        to its component expressions.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.aov_growth_index"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # The nested derived metric should expand avg_order_value inline
+        # avg_order_value = total_revenue / order_count
+        # aov_growth_index = avg_order_value / 50.0 * 100
+        # = (total_revenue / order_count) / 50.0 * 100
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status, t1.order_id
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) / 50.0 * 100 AS aov_growth_index
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        # Verify output columns
+        assert len(result["columns"]) == 2
+        assert result["columns"][0]["semantic_entity"] == "v3.order_details.status"
+        assert result["columns"][1]["semantic_entity"] == "v3.aov_growth_index"
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_metric_with_window_function(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test a nested derived metric with window function.
+
+        v3.wow_aov_change uses LAG() on v3.avg_order_value, which is itself
+        a derived metric (v3.total_revenue / v3.order_count).
+
+        This requires:
+        1. Computing base metrics (total_revenue, order_count) in grain groups
+        2. Computing the intermediate derived metric (avg_order_value) in base_metrics CTE
+        3. Applying the window function to reference avg_order_value from base_metrics CTE
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_aov_change"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Window function metric requires base_metrics CTE with:
+        # - Base metrics (total_revenue, order_count)
+        # - Intermediate derived metric (avg_order_value) pre-computed
+        # Final SELECT applies LAG on base_metrics.avg_order_value
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, week
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category, t3.week, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+                GROUP BY t2.category, t3.week, t1.order_id
+            ),
+            base_metrics AS (
+                SELECT
+                    COALESCE(order_details_0.category) AS category,
+                    COALESCE(order_details_0.week) AS week,
+                    COUNT(DISTINCT order_details_0.order_id) AS order_count,
+                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
+                FROM order_details_0
+                GROUP BY order_details_0.category, order_details_0.week
+            )
+            SELECT
+                base_metrics.category AS category,
+                base_metrics.week AS week,
+                (base_metrics.avg_order_value - LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY category ORDER BY base_metrics.week))
+                    / NULLIF(LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY category ORDER BY base_metrics.week), 0) * 100
+                    AS wow_aov_change
+            FROM base_metrics
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "week",
+                "type": "int",
+                "semantic_entity": "v3.date.week",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "wow_aov_change",
+                "type": "double",
+                "semantic_entity": "v3.wow_aov_change",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_metric_cross_fact(self, client_with_build_v3):
+        """
+        Test a nested derived metric that references derived metrics from different facts.
+
+        v3.efficiency_ratio = v3.avg_order_value / v3.pages_per_session
+        where:
+        - v3.avg_order_value = v3.total_revenue / v3.order_count (from order_details)
+        - v3.pages_per_session = v3.page_view_count / v3.session_count (from page_views)
+
+        Both intermediate derived metrics should be expanded inline.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.efficiency_ratio"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Cross-fact nested derived metric:
+        # - Grain group from order_details for total_revenue/order_count components
+        # - Grain group from page_views for page_view_count/session_count components
+        # - Final SELECT computes both intermediate metrics and divides
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views_enriched AS (
+                SELECT view_id, session_id, product_id
+                FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+                SELECT t2.category, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.order_id
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, t1.session_id, COUNT(t1.view_id) view_id_count_f41e2db4
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.session_id
+            )
+            SELECT COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0)
+                   / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT(DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio
+            FROM order_details_0
+            FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
+            GROUP BY order_details_0.category
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "efficiency_ratio",
+                "type": "double",
+                "semantic_entity": "v3.efficiency_ratio",
+                "semantic_type": "metric",
+            },
+        ]

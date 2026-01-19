@@ -513,11 +513,10 @@ async def get_dimension_attributes(
         await refresh_if_needed(session, node.current, ["parents"])
 
         # Find metric parents (not dimension parents)
-        metric_parents = [
-            p for p in node.current.parents if p.type == NodeType.METRIC
-        ]
+        metric_parents = [p for p in node.current.parents if p.type == NodeType.METRIC]
         non_metric_parents = [
-            p for p in node.current.parents
+            p
+            for p in node.current.parents
             if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
         ]
 
@@ -1100,7 +1099,10 @@ async def get_shared_dimensions(
 
     # Get the per-metric parent mapping (batched for efficiency)
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
-    print("!!!metric_to_parents", {k: [v.name for v in vals] for k, vals in metric_to_parents.items()})
+    print(
+        "!!!metric_to_parents",
+        {k: [v.name for v in vals] for k, vals in metric_to_parents.items()},
+    )
 
     # Collect all unique parent nodes across all metrics
     unique_parents: Dict[int, Node] = {}
@@ -1226,8 +1228,7 @@ async def get_metric_parents_map(
         metric_parents = [p for p in parents if p.type == NodeType.METRIC]
         dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
         other_parents = [
-            p for p in parents
-            if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+            p for p in parents if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
         ]
 
         # Add metric parents to resolve list
@@ -1268,9 +1269,7 @@ async def get_metric_parents_map(
             .where(Node.name.in_(base_metric_names))
             .where(is_(Node.deactivated_at, None))
         )
-        base_metrics = list(
-            (await session.execute(base_metrics_stmt)).scalars().all()
-        )
+        base_metrics = list((await session.execute(base_metrics_stmt)).scalars().all())
 
         if not base_metrics:
             break
@@ -1315,7 +1314,8 @@ async def get_metric_parents_map(
             metric_parents = [p for p in parents if p.type == NodeType.METRIC]
             dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
             other_parents = [
-                p for p in parents
+                p
+                for p in parents
                 if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
             ]
 
@@ -1324,7 +1324,7 @@ async def get_metric_parents_map(
                 if parent_node.name not in next_metric_parents_to_resolve:
                     next_metric_parents_to_resolve[parent_node.name] = []
                 next_metric_parents_to_resolve[parent_node.name].extend(
-                    original_metrics
+                    original_metrics,
                 )
 
             # Add fact/transform parents to results

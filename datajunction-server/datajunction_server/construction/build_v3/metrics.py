@@ -477,71 +477,89 @@ def find_intermediate_derived_metrics(
     intermediate_metrics: set[str] = set()
 
     for metric_name in window_metrics:
-        # Get the parent metrics (metrics this window metric references)
-        parent_names = ctx.parent_map.get(metric_name, [])
-        for parent_name in parent_names:
-            parent_node = ctx.nodes.get(parent_name)
-            if parent_node and parent_node.type == NodeType.METRIC:
-                # This is a metric parent - check if it's a derived metric (not in grain groups)
-                if parent_name not in all_grain_group_metrics:
-                    intermediate_metrics.add(parent_name)
+        # Get the original query AST for this window metric
+        # We need to find metric references in the original query, not the decomposed one
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node:
+            continue
+
+        original_query = ctx.get_parsed_query(metric_node)
+        expr_ast = original_query.select.projection[0]
+
+        # Find all column references that might be metric references
+        for col in expr_ast.find_all(ast.Column):
+            col_name = col.identifier()
+            # Check if this is a metric reference (not in grain groups but is a known metric)
+            if col_name in ctx.nodes:
+                ref_node = ctx.nodes[col_name]
+                if ref_node.type == NodeType.METRIC:
+                    # This is a metric reference
+                    if col_name not in all_grain_group_metrics:
+                        # It's not a base metric in grain groups, so it's an intermediate
+                        intermediate_metrics.add(col_name)
 
     return intermediate_metrics
 
 
 def build_intermediate_metric_expr(
+    ctx: BuildContext,
     metric_name: str,
-    decomposed: DecomposedMetricInfo,
     base_metric_exprs: dict[str, MetricExprInfo],
-    dimension_aliases: dict[str, str],
-    default_cte_alias: str,
-) -> ast.Expression:
+) -> ast.Expression | None:
     """
     Build expression for an intermediate derived metric.
 
-    Intermediate derived metrics (like thumbs_up_rate) reference base metrics
-    (like total_thumb_ups, total_thumbs) and need to be computed from their
-    component expressions.
+    Intermediate derived metrics (like avg_order_value) reference base metrics
+    (like total_revenue, order_count). In the base_metrics CTE, we need to
+    compute these by inlining the actual expressions for each referenced metric.
+
+    For example, if avg_order_value = total_revenue / order_count:
+    - total_revenue expr: SUM(order_details_0.line_total_sum_e1f61696)
+    - order_count expr: COUNT(DISTINCT order_details_0.order_id)
+    - avg_order_value becomes: SUM(...) / NULLIF(COUNT(...), 0)
+
+    We can't just reference column aliases from the same SELECT statement,
+    so we must inline the full expressions.
 
     Args:
+        ctx: Build context with nodes and query cache
         metric_name: Name of the intermediate derived metric
-        decomposed: Decomposed metric info
-        base_metric_exprs: Expressions for base metrics (from grain groups)
-        dimension_aliases: Dimension ref -> column alias mapping
-        default_cte_alias: CTE alias for column references
+        base_metric_exprs: Expressions for base metrics (already computed in base_metrics CTE)
 
     Returns:
-        Expression AST for the intermediate metric
+        Expression AST for the intermediate metric, or None if cannot be built
     """
-    # Start with the combiner AST from decomposition
-    expr_ast = deepcopy(decomposed.combiner_ast)
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
 
-    # Build refs for base metrics that this derived metric references
-    base_refs: dict[str, tuple[str, str]] = {
-        name: (info.cte_alias, info.short_name)
-        for name, info in base_metric_exprs.items()
+    metric_node = ctx.nodes.get(metric_name)
+    if not metric_node:
+        return None
+
+    # Get the original query for the intermediate metric
+    original_query = ctx.get_parsed_query(metric_node)
+    expr_ast = deepcopy(original_query.select.projection[0])
+
+    # Unwrap if it's an alias
+    if isinstance(expr_ast, ast.Alias):
+        expr_ast = expr_ast.child
+
+    # Build a map of metric names to their expression ASTs
+    # We need to inline the actual expressions, not just column names
+    metric_exprs: dict[str, ast.Expression] = {
+        name: deepcopy(info.expr_ast) for name, info in base_metric_exprs.items()
     }
-    replace_metric_refs_in_ast(expr_ast, base_refs)
 
-    # Also replace component refs
-    comp_refs: dict[str, tuple[str, str]] = {}
-    for comp in decomposed.components:
-        # Look up where this component lives
-        for info in base_metric_exprs.values():
-            # Components are in the same CTE as their base metric
-            comp_refs[comp.name] = (info.cte_alias, comp.name)
-            break
+    # Replace metric references with their full expressions
+    # We must walk the AST and replace Column nodes with their expressions
+    for col in list(expr_ast.find_all(ast.Column)):
+        full_name = get_column_full_name(col)
+        if full_name in metric_exprs:
+            # Replace this column with the metric's expression
+            replacement_expr = deepcopy(metric_exprs[full_name])
+            if col.parent:
+                col.parent.replace(from_=col, to=replacement_expr)
 
-    replace_component_refs_in_ast(expr_ast, comp_refs)
-
-    # Replace dimension refs
-    dim_refs = {
-        dim_ref: (default_cte_alias, col_alias)
-        for dim_ref, col_alias in dimension_aliases.items()
-    }
-    replace_dimension_refs_in_ast(expr_ast, dim_refs)
-
-    return expr_ast
+    return expr_ast  # type: ignore
 
 
 def build_base_metrics_cte(
@@ -1015,18 +1033,14 @@ def generate_metrics_sql(
     # Build expressions for intermediate derived metrics
     intermediate_exprs: dict[str, ast.Expression] = {}
     if intermediate_derived_metrics:
-        # Use first CTE alias as default for dimension refs
-        default_cte = cte_aliases[0] if cte_aliases else ""
         for metric_name in intermediate_derived_metrics:
-            decomposed = decomposed_metrics.get(metric_name)
-            if decomposed:
-                intermediate_exprs[metric_name] = build_intermediate_metric_expr(
-                    metric_name,
-                    decomposed,
-                    metric_expr_asts,
-                    dimension_aliases,
-                    default_cte,
-                )
+            expr = build_intermediate_metric_expr(
+                ctx,
+                metric_name,
+                metric_expr_asts,
+            )
+            if expr:
+                intermediate_exprs[metric_name] = expr
 
     # If there are window function metrics, create an intermediate CTE
     # that pre-computes all base metrics as actual columns

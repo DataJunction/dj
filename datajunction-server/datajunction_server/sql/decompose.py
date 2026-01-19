@@ -751,7 +751,7 @@ class MetricComponentExtractor:
         if current_metric_name:
             if current_metric_name in _visited:
                 raise ValueError(
-                    f"Circular metric reference detected: {current_metric_name}"
+                    f"Circular metric reference detected: {current_metric_name}",
                 )
             _visited.add(current_metric_name)
 
@@ -767,8 +767,7 @@ class MetricComponentExtractor:
                 parent_metric_parents = [
                     name
                     for name in parent_map.get(base_metric.name, [])
-                    if name in nodes_cache
-                    and nodes_cache[name].type == NodeType.METRIC
+                    if name in nodes_cache and nodes_cache[name].type == NodeType.METRIC
                 ]
                 is_parent_derived = len(parent_metric_parents) > 0
 
