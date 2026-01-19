@@ -1063,7 +1063,12 @@ def group_window_metrics_by_grain(
             if not order_by_alias:
                 continue
 
-            if dim_node not in grain_levels:
+            # Key by order_by_alias (the grain), NOT dim_node
+            # Different grains (week_code, month_code) need separate CTEs
+            # even if they come from the same dimension node
+            grain_key = order_by_alias
+
+            if grain_key not in grain_levels:
                 # Determine which dimensions to GROUP BY at this grain level
                 # Exclude finer-grained dimensions from the same dimension node
                 excluded_aliases = node_to_aliases.get(dim_node, set())
@@ -1077,7 +1082,7 @@ def group_window_metrics_by_grain(
                 # Join dimensions are the GROUP BY dimensions
                 join_dims = group_by_dims.copy()
 
-                grain_levels[dim_node] = GrainLevelInfo(
+                grain_levels[grain_key] = GrainLevelInfo(
                     dimension_node=dim_node,
                     order_by_alias=order_by_alias,
                     cte_alias=f"{order_by_alias}_metrics",
@@ -1086,7 +1091,7 @@ def group_window_metrics_by_grain(
                     window_metrics=set(),
                 )
 
-            grain_levels[dim_node].window_metrics.add(metric_name)
+            grain_levels[grain_key].window_metrics.add(metric_name)
 
     return grain_levels
 
