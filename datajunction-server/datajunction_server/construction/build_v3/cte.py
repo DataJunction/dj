@@ -292,6 +292,31 @@ def has_window_function(expr_ast: ast.Node) -> bool:
     return False
 
 
+def get_window_order_by_columns(expr_ast: ast.Node) -> set[str]:
+    """
+    Extract the ORDER BY column names from window functions in an expression.
+
+    For period-over-period metrics, we need to know which dimension the window
+    function orders by (e.g., week_code for WoW, month_code for MoM).
+
+    Args:
+        expr_ast: The AST expression to analyze
+
+    Returns:
+        Set of column names used in ORDER BY clauses of window functions
+    """
+    order_by_columns: set[str] = set()
+    for func in expr_ast.find_all(ast.Function):
+        if func.over and func.over.order_by:
+            for sort_item in func.over.order_by:
+                if isinstance(sort_item.expr, ast.Column) and sort_item.expr.name:
+                    # Get the full column identifier (handles namespaced columns)
+                    col_name = get_column_full_name(sort_item.expr)
+                    if col_name:
+                        order_by_columns.add(col_name)
+    return order_by_columns
+
+
 # Window functions that need PARTITION BY injection for period-over-period calculations
 # These are navigation/ranking functions where comparing across partitions is meaningful
 # Aggregate functions (SUM, AVG, etc.) with OVER () are intentionally left alone

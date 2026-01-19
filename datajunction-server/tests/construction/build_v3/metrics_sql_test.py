@@ -1187,14 +1187,14 @@ class TestMetricsSQLCrossFact:
               base_metrics.category AS category,
               base_metrics.month AS month,
               base_metrics.week AS week,
-              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week))
-                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week), 0) * 100
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.week))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.week), 0) * 100
                 AS wow_revenue_change,
-              (CAST(base_metrics.order_count AS DOUBLE) - LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week))
-                / NULLIF(LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category, month ORDER BY base_metrics.week), 0) * 100
+              (CAST(base_metrics.order_count AS DOUBLE) - LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY base_metrics.week))
+                / NULLIF(LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER (PARTITION BY category ORDER BY base_metrics.week), 0) * 100
                 AS wow_order_growth,
-              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, week ORDER BY base_metrics.month))
-                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category, week ORDER BY base_metrics.month), 0) * 100
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.month))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY category ORDER BY base_metrics.month), 0) * 100
                 AS mom_revenue_change
             FROM base_metrics
             """,
