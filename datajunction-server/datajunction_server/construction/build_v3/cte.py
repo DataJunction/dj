@@ -397,10 +397,22 @@ def inject_partition_by_into_windows(
         if not func.over:
             continue
 
-        # Only inject PARTITION BY for navigation/ranking functions
-        # Aggregate functions (SUM, AVG, etc.) with OVER () should keep their grand total behavior
         func_name = func.name.name.upper() if func.name else ""
-        if func_name not in PARTITION_BY_INJECTION_FUNCTIONS:
+
+        # Determine if we should inject PARTITION BY:
+        # 1. Navigation/ranking functions (LAG, LEAD, etc.) - always inject
+        # 2. Aggregate functions with ORDER BY (trailing/rolling) - inject
+        # 3. Aggregate functions with empty OVER () (grand totals) - skip
+        should_inject = False
+        if func_name in PARTITION_BY_INJECTION_FUNCTIONS:
+            # Navigation/ranking functions always need partitioning
+            should_inject = True
+        elif func.over.order_by:
+            # Aggregate with ORDER BY = trailing/rolling metric, needs partitioning
+            should_inject = True
+        # else: OVER () with no ORDER BY = grand total, skip partitioning
+
+        if not should_inject:
             continue
 
         # Get dimensions used in ORDER BY (these should NOT be in PARTITION BY)

@@ -989,6 +989,7 @@ class GrainLevelInfo:
 
     dimension_node: str  # The dimension node (e.g., "common.dimensions.time.date")
     order_by_alias: str  # The ORDER BY column alias (e.g., "week_code")
+    order_by_ref: str  # Full dimension ref (e.g., "common.dimensions.time.date.week_code")
     cte_alias: str  # The CTE alias (e.g., "weekly_metrics")
     group_by_dims: list[str]  # Dimensions to GROUP BY at this grain
     join_dims: list[str]  # Dimensions to JOIN on back to base_metrics
@@ -1049,14 +1050,16 @@ def group_window_metrics_by_grain(
             if not dim_node:
                 continue
 
-            # Get the alias for this ORDER BY column
+            # Get the alias for this ORDER BY column and track the full ref
             order_by_alias = dim_ref_to_alias.get(order_by_col, "")
+            order_by_ref = order_by_col  # Full reference from the metric query
             if not order_by_alias:
                 # Try to find it by the column name part only
                 col_name = order_by_col.rsplit(".", 1)[-1]
                 for ref, alias in dim_ref_to_alias.items():
                     if ref.endswith("." + col_name):
                         order_by_alias = alias
+                        order_by_ref = ref  # Use the matching ref from dim_info
                         dim_node = ".".join(ref.rsplit(".", 1)[:-1])
                         break
 
@@ -1085,6 +1088,7 @@ def group_window_metrics_by_grain(
                 grain_levels[grain_key] = GrainLevelInfo(
                     dimension_node=dim_node,
                     order_by_alias=order_by_alias,
+                    order_by_ref=order_by_ref,
                     cte_alias=f"{order_by_alias}_metrics",
                     group_by_dims=group_by_dims,
                     join_dims=join_dims,
@@ -1096,12 +1100,53 @@ def group_window_metrics_by_grain(
     return grain_levels
 
 
+def find_metrics_referenced_by_window(
+    ctx: BuildContext,
+    window_metrics: set[str],
+) -> set[str]:
+    """
+    Find all metrics referenced by window function metrics.
+
+    Window functions like LAG(thumbs_up_rate, 1) reference other metrics.
+    Those metrics need to be computed in the grain-level aggregation CTE
+    so the window CTE can reference them.
+
+    Args:
+        ctx: Build context with nodes
+        window_metrics: Set of window metric names
+
+    Returns:
+        Set of metric names referenced by window functions
+    """
+    referenced_metrics: set[str] = set()
+
+    for metric_name in window_metrics:
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node:
+            continue
+
+        # Get the original metric query
+        original_query = ctx.get_parsed_query(metric_node)
+
+        # Find all column references that are metrics
+        for col in original_query.find_all(ast.Column):
+            col_full_name = col.identifier() if hasattr(col, 'identifier') else ""
+            if col_full_name in ctx.nodes:
+                node = ctx.nodes[col_full_name]
+                if node.type == NodeType.METRIC:
+                    referenced_metrics.add(col_full_name)
+
+    return referenced_metrics
+
+
 def build_grain_level_cte(
     grain_info: GrainLevelInfo,
     dim_info: list[tuple[str, str]],
     cte_aliases: list[str],
     all_grain_group_metrics: set[str],
     metric_expr_asts: dict[str, MetricExprInfo],
+    additional_metrics: set[str] | None = None,
+    additional_metric_exprs: dict[str, MetricExprInfo] | None = None,
 ) -> ast.Query:
     """
     Build a CTE that aggregates to a specific grain level for window functions.
@@ -1120,6 +1165,9 @@ def build_grain_level_cte(
         cte_aliases: Grain group CTE aliases
         all_grain_group_metrics: Set of base metric names
         metric_expr_asts: Metric expressions that aggregate from grain groups
+        additional_metrics: Optional set of additional metrics (e.g., derived metrics
+            referenced by window functions) to include in the aggregation
+        additional_metric_exprs: Optional expressions for additional metrics
 
     Returns:
         AST Query for the grain-level CTE
@@ -1131,13 +1179,28 @@ def build_grain_level_cte(
         if alias in grain_info.group_by_dims
     ]
 
+    # Ensure the ORDER BY dimension is included even if not in original dim_info
+    # This is necessary when user requests daily grain but window metric needs weekly
+    existing_aliases = {alias for _, alias in filtered_dim_info}
+    if grain_info.order_by_alias not in existing_aliases:
+        filtered_dim_info.append(
+            (grain_info.order_by_ref, grain_info.order_by_alias)
+        )
+
+    # Combine base metrics with additional metrics (e.g., derived metrics for window functions)
+    all_metrics_to_include = set(all_grain_group_metrics)
+    combined_metric_exprs = dict(metric_expr_asts)
+    if additional_metrics and additional_metric_exprs:
+        all_metrics_to_include.update(additional_metrics)
+        combined_metric_exprs.update(additional_metric_exprs)
+
     # Reuse build_base_metrics_cte with filtered dimensions
     # This properly aggregates components and applies combiner expressions
     return build_base_metrics_cte(
         filtered_dim_info,
         cte_aliases,
-        all_grain_group_metrics,
-        metric_expr_asts,
+        all_metrics_to_include,
+        combined_metric_exprs,
     )
 
 
@@ -1416,8 +1479,38 @@ def generate_metrics_sql(
     window_metrics_cte_alias: str | None = None
     grain_levels: dict[str, GrainLevelInfo] = {}
     grain_window_ctes: dict[str, str] = {}  # metric_name -> window CTE alias
+    # For window path, also track non-window derived metrics to pre-compute
+    all_derived_for_base_metrics: set[str] = set()
+    all_derived_exprs: dict[str, ast.Expression] = {}
+
     if window_metrics:
         window_metrics_cte_alias = "base_metrics"
+
+        # Find ALL non-window derived metrics (not just intermediate ones)
+        # These need to be pre-computed in base_metrics CTE so the final SELECT
+        # doesn't need to aggregate from grain group CTEs
+        all_derived_for_base_metrics = set()
+        for metric_name in ctx.metrics:
+            if metric_name in all_grain_group_metrics:
+                continue  # Base metric
+            if metric_name in window_metrics:
+                continue  # Window metric (handled separately)
+            # This is a non-window derived metric
+            all_derived_for_base_metrics.add(metric_name)
+
+        # Build expressions for all derived metrics (including intermediate)
+        all_derived_exprs = dict(intermediate_exprs)
+        for metric_name in all_derived_for_base_metrics - intermediate_derived_metrics:
+            expr = build_intermediate_metric_expr(
+                ctx,
+                metric_name,
+                metric_expr_asts,
+            )
+            if expr:
+                all_derived_exprs[metric_name] = expr
+
+        # Combine intermediate + non-window derived for base_metrics CTE
+        all_derived_for_base_metrics.update(intermediate_derived_metrics)
 
         # Save original metric expressions BEFORE rewriting
         # These aggregate from grain group CTEs and are needed for grain-level CTEs
@@ -1430,14 +1523,14 @@ def generate_metrics_sql(
             for name, info in metric_expr_asts.items()
         }
 
-        # Build and add the base_metrics CTE (including intermediate derived metrics)
+        # Build and add the base_metrics CTE (including ALL derived metrics)
         base_metrics_query = build_base_metrics_cte(
             dim_info,
             cte_aliases,
             all_grain_group_metrics,
             metric_expr_asts,
-            intermediate_derived_metrics,
-            intermediate_exprs,
+            all_derived_for_base_metrics,
+            all_derived_exprs,
         )
         base_metrics_query.to_cte(ast.Name(window_metrics_cte_alias), None)
         all_cte_asts.append(base_metrics_query)
@@ -1455,6 +1548,17 @@ def generate_metrics_sql(
                     short_name=info.short_name,
                     cte_alias=window_metrics_cte_alias,
                 )
+
+        # Also rewrite non-window derived metric expressions to simple column refs
+        # These are now pre-computed in base_metrics CTE
+        for metric_name in all_derived_for_base_metrics:
+            short_name = get_short_name(metric_name)
+            simple_ref = make_column_ref(short_name, window_metrics_cte_alias)
+            metric_expr_asts[metric_name] = MetricExprInfo(
+                expr_ast=simple_ref,
+                short_name=short_name,
+                cte_alias=window_metrics_cte_alias,
+            )
 
         # Rebuild projection and columns_metadata for window metrics path
         projection, columns_metadata = rebuild_projection_for_window_metrics(
@@ -1475,7 +1579,30 @@ def generate_metrics_sql(
         # Build CTEs for each grain level using ORIGINAL expressions
         # (which aggregate from grain group CTEs, not base_metrics)
         grain_window_ctes: dict[str, str] = {}  # metric_name -> window CTE alias
-        for dim_node, grain_info in grain_levels.items():
+        for grain_key, grain_info in grain_levels.items():
+            # Find metrics referenced by window functions at this grain level
+            grain_referenced_metrics = find_metrics_referenced_by_window(
+                ctx, grain_info.window_metrics
+            )
+
+            # Separate into base metrics vs derived metrics
+            grain_derived_metrics = grain_referenced_metrics - all_grain_group_metrics
+            grain_derived_exprs: dict[str, MetricExprInfo] = {}
+
+            # Build expressions for derived metrics
+            for derived_name in grain_derived_metrics:
+                expr = build_intermediate_metric_expr(
+                    ctx, derived_name, original_metric_expr_asts
+                )
+                if expr:
+                    short_name = get_short_name(derived_name)
+                    # Use first CTE alias since expression references grain group CTEs
+                    grain_derived_exprs[derived_name] = MetricExprInfo(
+                        expr_ast=expr,
+                        short_name=short_name,
+                        cte_alias=cte_aliases[0] if cte_aliases else "",
+                    )
+
             # Build aggregation CTE (aggregates from grain groups to this grain)
             agg_cte_alias = grain_info.cte_alias + "_agg"
             agg_cte = build_grain_level_cte(
@@ -1484,6 +1611,8 @@ def generate_metrics_sql(
                 cte_aliases,
                 all_grain_group_metrics,
                 original_metric_expr_asts,  # Use original expressions!
+                additional_metrics=grain_derived_metrics if grain_derived_metrics else None,
+                additional_metric_exprs=grain_derived_exprs if grain_derived_exprs else None,
             )
             agg_cte.to_cte(ast.Name(agg_cte_alias), None)
             all_cte_asts.append(agg_cte)
@@ -1517,11 +1646,13 @@ def generate_metrics_sql(
         dim_cte_alias,
     )
 
-    # Process derived metrics (not base metrics in any grain group)
+    # Process derived metrics (not base metrics or already-computed derived metrics)
+    # For window path, non-window derived metrics are pre-computed in base_metrics CTE
+    metrics_to_skip = all_grain_group_metrics | all_derived_for_base_metrics
     derived_exprs = process_derived_metrics(
         ctx,
         decomposed_metrics,
-        all_grain_group_metrics,
+        metrics_to_skip,
         resolver,
         all_dim_aliases,
         window_metrics_cte_alias,
