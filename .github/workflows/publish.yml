@@ -91,16 +91,16 @@ jobs:
       #
       # Publish JavaScript packages to npm
       #
-      - name: Publish DJ Javascript client to npm
+      - name: Publish DJ UI to npm
         continue-on-error: true
-        working-directory: ./datajunction-clients/javascript
+        working-directory: ./datajunction-ui
         run: |
           yarn install --frozen-lockfile
           npm publish --access public --provenance
 
-      - name: Publish DJ UI to npm
+      - name: Publish DJ Javascript client to npm
         continue-on-error: true
-        working-directory: ./datajunction-ui
+        working-directory: ./datajunction-clients/javascript
         run: |
           yarn install --frozen-lockfile
           npm publish --access public --provenance
