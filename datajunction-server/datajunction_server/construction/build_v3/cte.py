@@ -391,6 +391,118 @@ PARTITION_BY_INJECTION_FUNCTIONS = frozenset(
     },
 )
 
+# Navigation functions that require grain-level aggregation for period-over-period
+# LAG/LEAD compare values across rows at a specific grain, so we need to pre-aggregate
+# to that grain before applying the window function
+GRAIN_LEVEL_AGGREGATION_FUNCTIONS = frozenset(
+    {
+        "LAG",
+        "LEAD",
+    },
+)
+
+
+def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
+    """
+    Check if an expression uses LAG/LEAD window functions that need grain-level aggregation.
+
+    LAG/LEAD functions compare values across rows at a specific grain (e.g., week-over-week).
+    Unlike frame-based functions (SUM OVER ROWS BETWEEN), these need pre-aggregation to the
+    ORDER BY grain before the window function is applied.
+
+    Args:
+        expr_ast: The AST expression to check
+
+    Returns:
+        True if the expression contains LAG/LEAD window functions
+    """
+    for func in expr_ast.find_all(ast.Function):
+        if func.over and func.name:
+            func_name = str(func.name.name).upper() if hasattr(func.name, "name") else str(func.name).upper()
+            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
+                return True
+    return False
+
+
+def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]]:
+    """
+    Get information about LAG/LEAD window functions that need grain-level aggregation.
+
+    Returns a list of (function_name, order_by_columns) tuples for each LAG/LEAD
+    window function in the expression.
+
+    Args:
+        expr_ast: The AST expression to analyze
+
+    Returns:
+        List of (function_name, order_by_columns) tuples
+    """
+    results: list[tuple[str, set[str]]] = []
+    for func in expr_ast.find_all(ast.Function):
+        if func.over and func.name:
+            func_name = str(func.name.name).upper() if hasattr(func.name, "name") else str(func.name).upper()
+            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
+                order_by_cols: set[str] = set()
+                if func.over.order_by:
+                    for sort_item in func.over.order_by:
+                        col_expr = sort_item.expr
+                        # Handle Subscript expressions (role suffix like [order])
+                        if isinstance(col_expr, ast.Subscript):
+                            col_expr = col_expr.expr
+                        if isinstance(col_expr, ast.Column) and col_expr.name:
+                            col_name = get_column_full_name(col_expr)
+                            if col_name:
+                                order_by_cols.add(col_name)
+                results.append((func_name, order_by_cols))
+    return results
+
+
+def detect_window_metrics_requiring_grain_groups(
+    ctx: "BuildContext",
+    decomposed_metrics: dict,
+    base_grain_group_metrics: set[str],
+) -> dict[str, set[str]]:
+    """
+    Detect window metrics that require grain-level grain groups.
+
+    Analyzes all requested metrics and identifies those with LAG/LEAD window functions
+    that operate at a different grain than the user-requested grain. Returns a mapping
+    of metric names to their required ORDER BY columns (grains).
+
+    Args:
+        ctx: Build context with metrics and nodes
+        decomposed_metrics: Decomposed metric info (metric_name -> DecomposedMetricInfo)
+        base_grain_group_metrics: Set of base metrics already in grain groups
+
+    Returns:
+        Dict mapping metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
+    """
+    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
+
+    window_metric_grains: dict[str, set[str]] = {}
+
+    for metric_name in ctx.metrics:
+        # Skip base metrics - they're already in grain groups
+        if metric_name in base_grain_group_metrics:
+            continue
+
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed:
+            continue
+
+        # Check if this metric uses LAG/LEAD that needs grain-level aggregation
+        if isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast:
+            if needs_grain_level_aggregation(decomposed.combiner_ast):
+                # Get the ORDER BY columns for this metric
+                grain_info = get_grain_level_window_info(decomposed.combiner_ast)
+                order_by_cols: set[str] = set()
+                for _, cols in grain_info:
+                    order_by_cols.update(cols)
+                if order_by_cols:
+                    window_metric_grains[metric_name] = order_by_cols
+
+    return window_metric_grains
+
 
 def inject_partition_by_into_windows(
     expr_ast: ast.Node,
