@@ -1208,8 +1208,11 @@ async def get_metric_parents_map(
             if parent_node.name not in metric_parents_to_resolve:
                 metric_parents_to_resolve[parent_node.name] = []
             metric_parents_to_resolve[parent_node.name].append(metric_name)
+        elif parent_node.type == NodeType.DIMENSION:
+            # Skip dimension parents - we only want fact/transform parents
+            continue
         else:
-            # Non-metric parent - add directly
+            # Fact/transform parent - add directly
             result[metric_name].append(parent_node)
 
     # Recursively resolve metric parents until we reach non-metric nodes
@@ -1279,8 +1282,11 @@ async def get_metric_parents_map(
                 next_metric_parents_to_resolve[parent_node.name].extend(
                     original_metrics
                 )
+            elif parent_node.type == NodeType.DIMENSION:
+                # Skip dimension parents - we only want fact/transform parents
+                continue
             else:
-                # Non-metric parent - add to results for all original metrics
+                # Fact/transform parent - add to results for all original metrics
                 for derived_metric_name in original_metrics:
                     result[derived_metric_name].append(parent_node)
 
@@ -1304,6 +1310,7 @@ async def get_metric_parents(
     reference base metrics, but not other derived metrics.
     """
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
+    print("metric_to_parents", metric_to_parents)
     all_parents = []
     for parents in metric_to_parents.values():
         all_parents.extend(parents)
