@@ -1996,6 +1996,7 @@ def generate_metrics_sql(
     # - Window grain groups: created for non-subset cases
     # - Reaggregation metrics: can be computed by reaggregating from base grain group (subset case)
     # - Same-grain metrics: when dimensions exactly match, tracked in window_metric_grains
+    # - Aggregate window metrics: metrics with SUM/AVG/etc OVER (like trailing metrics)
     window_metrics: set[str] = set()
     for wgg in window_grain_groups:
         window_metrics.update(wgg.window_metrics_served)
@@ -2003,6 +2004,17 @@ def generate_metrics_sql(
     window_metrics.update(measures_result.reaggregation_window_metrics.keys())
     # Also include same-grain window metrics (exact match case)
     window_metrics.update(measures_result.window_metric_grains.keys())
+    # Also include aggregate window metrics (like trailing metrics with SUM OVER ORDER BY)
+    # These aren't LAG/LEAD so they weren't detected in measures phase, but they DO need
+    # the base_metrics CTE to resolve their metric references
+    for metric_name in ctx.metrics:
+        if metric_name in all_grain_group_metrics:
+            continue  # Base metric
+        if metric_name in window_metrics:
+            continue  # Already detected
+        decomposed = decomposed_metrics.get(metric_name)
+        if decomposed and has_window_function(decomposed.combiner_ast):
+            window_metrics.add(metric_name)
 
     # If there are ANY window metrics, build the base_metrics CTE
     # (either for joining with window grain groups, or for same-grain window functions)
