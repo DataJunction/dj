@@ -2039,6 +2039,7 @@ class TestMetricsSQLNestedDerived:
         # - week_metrics_agg: aggregates to weekly grain
         # - week_metrics: applies LAG at weekly grain
         # - Final SELECT joins base_metrics with week_metrics
+        # Note: date_id_order is used (not date_id) due to the [order] role suffix
         assert_sql_equal(
             result["sql"],
             """
@@ -2060,23 +2061,23 @@ class TestMetricsSQLNestedDerived:
             ),
             order_details_0 AS (
               SELECT
+                t1.order_date date_id_order,
                 t2.category,
-                t3.date_id,
                 t3.week,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-              GROUP BY t2.category, t3.date_id, t3.week
+              GROUP BY t1.order_date, t2.category, t3.week
             ),
             base_metrics AS (
               SELECT
+                COALESCE(order_details_0.date_id_order) AS date_id_order,
                 COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.date_id) AS date_id,
                 COALESCE(order_details_0.week) AS week,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.date_id, order_details_0.week
+              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week
             ),
             week_metrics_agg AS (
               SELECT
@@ -2096,8 +2097,8 @@ class TestMetricsSQLNestedDerived:
               FROM week_metrics_agg
             )
             SELECT
+              base_metrics.date_id_order AS date_id_order,
               base_metrics.category AS category,
-              base_metrics.date_id AS date_id,
               base_metrics.week AS week,
               week_metrics.wow_revenue_change AS wow_revenue_change
             FROM base_metrics
@@ -2130,6 +2131,7 @@ class TestMetricsSQLNestedDerived:
         result = response.json()
 
         # Multiple grain-level CTEs for different period comparisons
+        # Note: date_id_order is used (not date_id) due to the [order] role suffix
         assert_sql_equal(
             result["sql"],
             """
@@ -2151,25 +2153,25 @@ class TestMetricsSQLNestedDerived:
             ),
             order_details_0 AS (
               SELECT
+                t1.order_date date_id_order,
                 t2.category,
-                t3.date_id,
                 t3.month,
                 t3.week,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-              GROUP BY t2.category, t3.date_id, t3.month, t3.week
+              GROUP BY t1.order_date, t2.category, t3.month, t3.week
             ),
             base_metrics AS (
               SELECT
+                COALESCE(order_details_0.date_id_order) AS date_id_order,
                 COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.date_id) AS date_id,
                 COALESCE(order_details_0.month) AS month,
                 COALESCE(order_details_0.week) AS week,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.date_id, order_details_0.month, order_details_0.week
+              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.month, order_details_0.week
             ),
             week_metrics_agg AS (
               SELECT
@@ -2206,8 +2208,8 @@ class TestMetricsSQLNestedDerived:
               FROM month_metrics_agg
             )
             SELECT
+              base_metrics.date_id_order AS date_id_order,
               base_metrics.category AS category,
-              base_metrics.date_id AS date_id,
               base_metrics.month AS month,
               base_metrics.week AS week,
               week_metrics.wow_revenue_change AS wow_revenue_change,

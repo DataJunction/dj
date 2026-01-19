@@ -1107,11 +1107,13 @@ def group_window_metrics_by_grain(
 
             if grain_key not in grain_levels:
                 # Determine which dimensions to GROUP BY at this grain level
-                # Exclude finer-grained dimensions from the same dimension node
+                # Use only user-requested dimensions (not all grain group columns)
+                # This prevents columns like order_id (for COUNT DISTINCT) from
+                # being included in GROUP BY, which would make COUNT DISTINCT = 1
                 excluded_aliases = node_to_aliases.get(dim_node, set())
                 group_by_dims = [
                     alias
-                    for _, alias in all_dim_info
+                    for _, alias in user_requested_dim_info
                     if alias not in excluded_aliases
                 ]
                 # Add the ORDER BY dimension (it's the grain we're aggregating to)
