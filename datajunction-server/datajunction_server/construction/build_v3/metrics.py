@@ -1470,9 +1470,8 @@ def generate_metrics_sql(
     """
     Generate the final metrics SQL query.
 
-    This combines grain groups from measures SQL and applies
-    combiner expressions for each metric. Works for both single
-    and multiple grain groups (FULL OUTER JOINs them together).
+    The takes grain groups (pre-aggregated data at specific grains) and
+    combines them with metric combiner expressions to produce final SQL.
 
     Works entirely with AST objects - no string parsing needed.
     Returns a GeneratedSQL with the query as an AST.
