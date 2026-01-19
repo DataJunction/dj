@@ -45,6 +45,13 @@ PERIOD_OVER_PERIOD = [
     "v3.mom_revenue_change",
 ]
 
+# Nested derived metrics - metrics that reference other derived metrics
+NESTED_DERIVED_METRICS = [
+    "v3.wow_aov_change",  # window function on avg_order_value (derived)
+    "v3.aov_growth_index",  # simple derived from avg_order_value
+    "v3.efficiency_ratio",  # cross-fact derived from avg_order_value and pages_per_session
+]
+
 
 class TestMeasuresSQLEndpoint:
     """Tests for the /sql/measures/v3/ endpoint."""
@@ -2823,6 +2830,213 @@ class TestCombinedMeasuresSQLEndpoint:
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
             FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
             GROUP BY status
+            """,
+        )
+
+
+class TestMeasuresSQLNestedDerived:
+    """
+    Test measures SQL for nested derived metrics.
+
+    Nested derived metrics are metrics that reference other derived metrics.
+    For measures SQL, we need to decompose down to the base components.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_metric_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a nested derived metric decomposes to its base components.
+
+        v3.aov_growth_index references v3.avg_order_value which references
+        v3.total_revenue and v3.order_count.
+
+        The measures SQL should contain the base components (line_total_sum, order_id_count).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.aov_growth_index"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have grain groups with base components
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) >= 1
+
+        # Verify the SQL structure using assert_sql_equal
+        # Uses merged grain group approach: order_id as grain column for COUNT DISTINCT
+        gg = data["grain_groups"][0]
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+                t1.status,
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_window_metric_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a window function nested derived metric decomposes correctly.
+
+        v3.wow_aov_change uses LAG() on v3.avg_order_value, which itself
+        references v3.total_revenue and v3.order_count.
+
+        The measures SQL should contain the base components.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.wow_aov_change"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have grain groups with base components
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) >= 1
+
+        # Verify the SQL structure for the first grain group
+        # Uses merged grain group approach with week dimension for window function
+        gg = data["grain_groups"][0]
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, week
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT
+                t2.category,
+                t3.week,
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+            GROUP BY t2.category, t3.week, t1.order_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_cross_fact_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test cross-fact nested derived metric decomposition.
+
+        v3.efficiency_ratio = v3.avg_order_value / v3.pages_per_session
+
+        Both intermediate metrics come from different facts, so we should
+        get grain groups from both order_details and page_views.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.efficiency_ratio"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have two grain groups - one from each fact
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) == 2
+
+        # Find the grain groups by their parent
+        order_gg = None
+        page_gg = None
+        for gg in data["grain_groups"]:
+            if "order_details" in gg["sql"].lower():
+                order_gg = gg
+            if "page_views" in gg["sql"].lower():
+                page_gg = gg
+
+        assert order_gg is not None, "Should have grain group from order_details"
+        assert page_gg is not None, "Should have grain group from page_views"
+
+        # Verify order_details grain group has components for total_revenue/order_count
+        # Uses merged grain group approach with order_id as grain column
+        assert_sql_equal(
+            order_gg["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT
+                t2.category,
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category, t1.order_id
+            """,
+        )
+
+        # Verify page_views grain group has components for page_view_count/session_count
+        assert_sql_equal(
+            page_gg["sql"],
+            """
+            WITH
+            v3_page_views_enriched AS (
+            SELECT  view_id,
+                session_id,
+                product_id
+            FROM default.v3.page_views
+            ),
+            v3_product AS (
+            SELECT  product_id,
+                category
+            FROM default.v3.products
+            )
+            SELECT  t2.category,
+                t1.session_id,
+                COUNT(t1.view_id) view_id_count_f41e2db4
+            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY  t2.category, t1.session_id
             """,
         )
 

@@ -190,6 +190,22 @@ class GrainGroupSQL:
     # Dialect for rendering SQL (used for dialect-specific function names)
     dialect: Dialect = Dialect.SPARK
 
+    # Window grain group tracking: True if this grain group was created for window metrics
+    # at a coarser grain (e.g., weekly for WoW metrics when user requested daily)
+    is_window_grain_group: bool = False
+
+    # For window grain groups: the window metrics this grain group serves
+    # (e.g., ["v3.wow_revenue", "v3.wow_orders"])
+    window_metrics_served: list[str] = field(default_factory=list)
+
+    # For window grain groups: the ORDER BY dimension ref (e.g., "v3.date.week")
+    window_order_by_dim: Optional[str] = None
+
+    # For window grain groups: True if window metrics reference base metrics from
+    # multiple facts (cross-fact). This requires using base_metrics CTE as source
+    # instead of individual grain group CTEs.
+    is_cross_fact_window: bool = False
+
     @property
     def sql(self) -> str:
         """Render the query AST to SQL string for the target dialect."""
@@ -218,6 +234,11 @@ class GeneratedMeasuresSQL:
     # These are not serialized in API responses
     ctx: "BuildContext"
     decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
+
+    # Window metrics that require grain-level grain groups
+    # Maps metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
+    # These are LAG/LEAD window function metrics that need aggregation at a different grain
+    window_metric_grains: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass
