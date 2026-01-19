@@ -511,10 +511,17 @@ async def get_dimension_attributes(
         # For metrics, check if it's a base metric (parent is non-metric) or
         # derived metric (parent is another metric)
         await refresh_if_needed(session, node.current, ["parents"])
-        first_parent = node.current.parents[0]
-        await refresh_if_needed(session, first_parent, ["current"])
 
-        if first_parent.type == NodeType.METRIC:
+        # Find metric parents (not dimension parents)
+        metric_parents = [
+            p for p in node.current.parents if p.type == NodeType.METRIC
+        ]
+        non_metric_parents = [
+            p for p in node.current.parents
+            if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+        ]
+
+        if metric_parents:
             # Derived metric - use get_dimensions which handles intersection
             dimensions = cast(
                 list[DimensionAttributeOutput],
@@ -524,9 +531,13 @@ async def get_dimension_attributes(
             for dim in dimensions:
                 dim.path = [node_name] + dim.path
             return dimensions
+        elif non_metric_parents:
+            # Base metric - use the first non-metric parent (fact/transform)
+            await refresh_if_needed(session, non_metric_parents[0], ["current"])
+            node = non_metric_parents[0]
         else:
-            # Base metric - use the parent directly (original behavior)
-            node = first_parent
+            # No valid parents found
+            return []
 
     # Discover all dimension nodes in the given node's dimensions graph
     dimension_nodes_and_paths = await get_dimension_nodes(
@@ -1089,6 +1100,7 @@ async def get_shared_dimensions(
 
     # Get the per-metric parent mapping (batched for efficiency)
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
+    print("!!!metric_to_parents", {k: [v.name for v in vals] for k, vals in metric_to_parents.items()})
 
     # Collect all unique parent nodes across all metrics
     unique_parents: Dict[int, Node] = {}
@@ -1202,18 +1214,37 @@ async def get_metric_parents_map(
     # Maps: parent_metric_name -> [original_metric_names that need this parent resolved]
     metric_parents_to_resolve: Dict[str, List[str]] = {}
 
+    # Group parents by metric name first
+    parents_by_metric: Dict[str, List[Node]] = {}
     for metric_name, parent_node in rows:
-        if parent_node.type == NodeType.METRIC:
-            # This is a derived metric - need to get the base metric's parents
+        if metric_name not in parents_by_metric:
+            parents_by_metric[metric_name] = []
+        parents_by_metric[metric_name].append(parent_node)
+
+    # Process each metric's parents
+    for metric_name, parents in parents_by_metric.items():
+        metric_parents = [p for p in parents if p.type == NodeType.METRIC]
+        dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
+        other_parents = [
+            p for p in parents
+            if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+        ]
+
+        # Add metric parents to resolve list
+        for parent_node in metric_parents:
             if parent_node.name not in metric_parents_to_resolve:
                 metric_parents_to_resolve[parent_node.name] = []
             metric_parents_to_resolve[parent_node.name].append(metric_name)
-        elif parent_node.type == NodeType.DIMENSION:
-            # Skip dimension parents - we only want fact/transform parents
-            continue
-        else:
-            # Fact/transform parent - add directly
+
+        # Add fact/transform parents directly
+        for parent_node in other_parents:
             result[metric_name].append(parent_node)
+
+        # Only add dimension parents if there are no other parents
+        # (i.e., the metric is defined directly on a dimension node)
+        if not metric_parents and not other_parents:
+            for parent_node in dimension_parents:
+                result[metric_name].append(parent_node)
 
     # Recursively resolve metric parents until we reach non-metric nodes
     visited_metrics: set[str] = set()
@@ -1268,24 +1299,36 @@ async def get_metric_parents_map(
         )
         base_rows = (await session.execute(statement)).all()
 
+        # Group parents by base metric name first
+        base_parents_by_metric: Dict[str, List[Node]] = {}
+        for base_metric_name, parent_node in base_rows:
+            if base_metric_name not in base_parents_by_metric:
+                base_parents_by_metric[base_metric_name] = []
+            base_parents_by_metric[base_metric_name].append(parent_node)
+
         # Process results and track new metric parents for next iteration
         next_metric_parents_to_resolve: Dict[str, List[str]] = {}
 
-        for base_metric_name, parent_node in base_rows:
-            # Get the original metrics that need this base metric's parents
+        for base_metric_name, parents in base_parents_by_metric.items():
             original_metrics = metric_parents_to_resolve.get(base_metric_name, [])
 
-            if parent_node.type == NodeType.METRIC:
-                # This base metric is also derived - need to resolve further
+            metric_parents = [p for p in parents if p.type == NodeType.METRIC]
+            dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
+            other_parents = [
+                p for p in parents
+                if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+            ]
+
+            # Add metric parents to next resolve list
+            for parent_node in metric_parents:
                 if parent_node.name not in next_metric_parents_to_resolve:
                     next_metric_parents_to_resolve[parent_node.name] = []
                 next_metric_parents_to_resolve[parent_node.name].extend(
                     original_metrics
                 )
-            elif parent_node.type == NodeType.DIMENSION:
-                # Skip dimension parents - we only want fact/transform parents
-                continue
-            else:
+
+            # Add fact/transform parents to results
+            for parent_node in other_parents:
                 # Fact/transform parent - add to results for all original metrics
                 for derived_metric_name in original_metrics:
                     result[derived_metric_name].append(parent_node)
