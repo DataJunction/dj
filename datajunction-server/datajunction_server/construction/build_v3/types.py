@@ -219,6 +219,11 @@ class GeneratedMeasuresSQL:
     ctx: "BuildContext"
     decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
 
+    # Window metrics that require grain-level grain groups
+    # Maps metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
+    # These are LAG/LEAD window function metrics that need aggregation at a different grain
+    window_metric_grains: dict[str, set[str]] = field(default_factory=dict)
+
 
 @dataclass
 class GeneratedSQL:
