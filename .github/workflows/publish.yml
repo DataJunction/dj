@@ -1,0 +1,130 @@
+name: "Publish Release"
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  publish:
+    # Only run if PR was merged AND it's a release branch
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # Required for PyPI and npm OIDC trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from branch name
+        id: version
+        run: |
+          # Extract version from branch name (release/v1.2.3 -> 1.2.3)
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          VERSION="${BRANCH#release/v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      #
+      # Setup
+      #
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Hatch
+        run: pip install hatch
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      #
+      # Build Python packages
+      #
+      - name: Build DJ Server
+        working-directory: ./datajunction-server
+        run: hatch build
+
+      - name: Build DJ Query service
+        working-directory: ./datajunction-query
+        run: hatch build
+
+      - name: Build DJ Reflection service
+        working-directory: ./datajunction-reflection
+        run: hatch build
+
+      - name: Build DJ Python client
+        working-directory: ./datajunction-clients/python
+        run: hatch build
+
+      #
+      # Publish Python packages to PyPI (using OIDC trusted publishing)
+      #
+      - name: Publish DJ Server to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: datajunction-server/dist/
+
+      - name: Publish DJ Query service to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: datajunction-query/dist/
+
+      - name: Publish DJ Reflection service to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: datajunction-reflection/dist/
+
+      - name: Publish DJ Python client to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: datajunction-clients/python/dist/
+
+      #
+      # Publish JavaScript packages to npm
+      #
+      - name: Publish DJ Javascript client to npm
+        working-directory: ./datajunction-clients/javascript
+        run: |
+          yarn install --frozen-lockfile
+          npm publish --access public --provenance
+
+      - name: Publish DJ UI to npm
+        working-directory: ./datajunction-ui
+        run: |
+          yarn install --frozen-lockfile
+          npm publish --access public --provenance
+
+      #
+      # Create GitHub Release
+      #
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "## Published v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### PyPI" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction-server](https://pypi.org/project/datajunction-server/$VERSION/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction](https://pypi.org/project/datajunction/$VERSION/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction-query](https://pypi.org/project/datajunction-query/$VERSION/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction-reflection](https://pypi.org/project/datajunction-reflection/$VERSION/)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### npm" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction](https://www.npmjs.com/package/datajunction/v/$VERSION)" >> $GITHUB_STEP_SUMMARY
+          echo "- [datajunction-ui](https://www.npmjs.com/package/datajunction-ui/v/$VERSION)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Release" >> $GITHUB_STEP_SUMMARY
+          echo "- [v$VERSION](https://github.com/${{ github.repository }}/releases/tag/v$VERSION)" >> $GITHUB_STEP_SUMMARY
