@@ -59,6 +59,71 @@ def get_column_full_name(col: ast.Column) -> str:
     return SEPARATOR.join(parts) if parts else ""  # pragma: no cover
 
 
+def extract_dimension_node(dim_ref: str) -> str:
+    """
+    Extract the dimension node name from a full dimension reference.
+
+    For example:
+        "common.dimensions.time.date.dateint" -> "common.dimensions.time.date"
+        "common.dimensions.time.date.week_code" -> "common.dimensions.time.date"
+        "v3.product.hw_category" -> "v3.product"
+
+    Args:
+        dim_ref: Full dimension reference (node.column format)
+
+    Returns:
+        The dimension node name (everything before the last separator)
+    """
+    parts = dim_ref.rsplit(SEPARATOR, 1)
+    return parts[0] if len(parts) > 1 else dim_ref
+
+
+def build_alias_to_dimension_node(
+    dim_info: list[tuple[str, str]],
+) -> dict[str, str]:
+    """
+    Build a mapping from column alias to dimension node.
+
+    This is used to determine which aliases belong to the same dimension node,
+    so that when a window function orders by one attribute of a dimension (e.g., week_code),
+    we can exclude all attributes of that dimension (e.g., dateint) from PARTITION BY.
+
+    Args:
+        dim_info: List of (original_dim_ref, col_alias) tuples
+            e.g., [("common.dimensions.time.date.dateint", "dateint"),
+                   ("common.dimensions.time.date.week_code", "week_code")]
+
+    Returns:
+        Mapping from alias to dimension node
+            e.g., {"dateint": "common.dimensions.time.date",
+                   "week_code": "common.dimensions.time.date"}
+    """
+    return {
+        col_alias: extract_dimension_node(dim_ref) for dim_ref, col_alias in dim_info
+    }
+
+
+def build_dimension_node_to_aliases(
+    alias_to_node: dict[str, str],
+) -> dict[str, set[str]]:
+    """
+    Build a mapping from dimension node to all its aliases.
+
+    Args:
+        alias_to_node: Mapping from alias to dimension node
+
+    Returns:
+        Mapping from dimension node to set of aliases
+            e.g., {"common.dimensions.time.date": {"dateint", "week_code", "month_code"}}
+    """
+    node_to_aliases: dict[str, set[str]] = {}
+    for alias, node in alias_to_node.items():
+        if node not in node_to_aliases:
+            node_to_aliases[node] = set()
+        node_to_aliases[node].add(alias)
+    return node_to_aliases
+
+
 def replace_component_refs_in_ast(
     expr_ast: ast.Node,
     component_aliases: dict[str, tuple[str, str]],
@@ -253,12 +318,20 @@ PARTITION_BY_INJECTION_FUNCTIONS = frozenset(
 def inject_partition_by_into_windows(
     expr_ast: ast.Node,
     all_dimension_aliases: list[str],
+    alias_to_dimension_node: dict[str, str] | None = None,
 ) -> None:
     """
     Inject PARTITION BY clauses into navigation/ranking window functions.
 
     For period-over-period metrics with window functions like LAG/LEAD, the PARTITION BY
-    should include all requested dimensions EXCEPT those in the ORDER BY clause.
+    should include all requested dimensions EXCEPT:
+    1. Those in the ORDER BY clause
+    2. Other columns from the same dimension node as the ORDER BY column
+
+    The second rule is critical for period-over-period metrics. For example, if ordering
+    by week_code (from common.dimensions.time.date), we should NOT partition by dateint
+    (also from common.dimensions.time.date), because dateint is a finer grain that would
+    break the week-over-week comparison.
 
     This ensures that comparisons (e.g., week-over-week) are done within each partition
     (e.g., per country, per product) rather than across the entire result set.
@@ -269,10 +342,14 @@ def inject_partition_by_into_windows(
 
     For example, given:
         LAG(revenue, 1) OVER (ORDER BY week_code)
-    And requested dimensions: [category, country_iso_code, week_code]
+    And requested dimensions: [category, dateint, week_code, month_code]
+    Where dateint, week_code, month_code are all from "common.dimensions.time.date"
 
     This function transforms it to:
-        LAG(revenue, 1) OVER (PARTITION BY category, country_iso_code ORDER BY week_code)
+        LAG(revenue, 1) OVER (PARTITION BY category ORDER BY week_code)
+
+    Note: dateint and month_code are excluded because they're from the same dimension
+    node as week_code.
 
     But this is left unchanged:
         SUM(impressions) OVER ()  -- grand total, no partition injection
@@ -281,7 +358,15 @@ def inject_partition_by_into_windows(
         expr_ast: The AST expression to modify (mutated in place)
         all_dimension_aliases: List of all requested dimension column aliases
             (already resolved, e.g., ["category", "country_iso_code", "week_code"])
+        alias_to_dimension_node: Optional mapping from alias to dimension node name.
+            If provided, all aliases from the same dimension node as ORDER BY columns
+            will be excluded from PARTITION BY.
     """
+    # Build reverse mapping: dimension_node -> set of aliases
+    node_to_aliases: dict[str, set[str]] = {}
+    if alias_to_dimension_node:
+        node_to_aliases = build_dimension_node_to_aliases(alias_to_dimension_node)
+
     # Find all Function nodes with an OVER clause (window functions)
     for func in expr_ast.find_all(ast.Function):
         if not func.over:
@@ -302,11 +387,22 @@ def inject_partition_by_into_windows(
             ):  # pragma: no branch
                 order_by_dims.add(sort_item.expr.name.name)
 
+        # Build set of aliases to exclude from PARTITION BY
+        # Start with ORDER BY dimensions, then add all aliases from the same dimension nodes
+        excluded_aliases: set[str] = set(order_by_dims)
+        if alias_to_dimension_node:
+            for order_dim in order_by_dims:
+                # Find the dimension node for this ORDER BY column
+                dim_node = alias_to_dimension_node.get(order_dim)
+                if dim_node:
+                    # Exclude all aliases from the same dimension node
+                    excluded_aliases.update(node_to_aliases.get(dim_node, set()))
+
         # Add all other dimensions to PARTITION BY
         # Only add if PARTITION BY is currently empty (don't override explicit partitions)
         if not func.over.partition_by:
             for dim_alias in all_dimension_aliases:
-                if dim_alias not in order_by_dims:
+                if dim_alias not in excluded_aliases:
                     func.over.partition_by.append(
                         ast.Column(name=ast.Name(dim_alias)),
                     )

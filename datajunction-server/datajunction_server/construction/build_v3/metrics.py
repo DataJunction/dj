@@ -12,6 +12,7 @@ from copy import deepcopy
 from typing import Any, Optional
 
 from datajunction_server.construction.build_v3.cte import (
+    build_alias_to_dimension_node,
     has_window_function,
     inject_partition_by_into_windows,
     replace_component_refs_in_ast,
@@ -798,6 +799,7 @@ def build_window_metric_expr(
     partition_columns: list[str],
     window_cte_alias: str,
     intermediate_metric_names: set[str] | None = None,
+    alias_to_dimension_node: dict[str, str] | None = None,
 ) -> ast.Expression:
     """
     Build expression AST for a window function metric.
@@ -847,7 +849,11 @@ def build_window_metric_expr(
     replace_dimension_refs_in_ast(expr_ast, window_dim_refs)
 
     # Inject PARTITION BY for window functions
-    inject_partition_by_into_windows(expr_ast, partition_columns)
+    inject_partition_by_into_windows(
+        expr_ast,
+        partition_columns,
+        alias_to_dimension_node,
+    )
 
     return expr_ast  # type: ignore
 
@@ -856,6 +862,7 @@ def build_derived_metric_expr(
     decomposed: DecomposedMetricInfo,
     resolver: ColumnResolver,
     partition_columns: list[str],
+    alias_to_dimension_node: dict[str, str] | None = None,
 ) -> ast.Expression:
     """
     Build expression AST for a non-window derived metric.
@@ -879,7 +886,11 @@ def build_derived_metric_expr(
     replace_dimension_refs_in_ast(expr_ast, resolver.dimension_refs())
 
     # Inject PARTITION BY for any window functions in the expression
-    inject_partition_by_into_windows(expr_ast, partition_columns)
+    inject_partition_by_into_windows(
+        expr_ast,
+        partition_columns,
+        alias_to_dimension_node,
+    )
 
     return expr_ast
 
@@ -892,6 +903,7 @@ def process_derived_metrics(
     partition_columns: list[str],
     window_cte_alias: str | None,
     intermediate_metric_names: set[str] | None = None,
+    alias_to_dimension_node: dict[str, str] | None = None,
 ) -> dict[str, MetricExprInfo]:
     """
     Process derived metrics (metrics not in any grain group).
@@ -947,6 +959,7 @@ def process_derived_metrics(
                 partition_columns,
                 window_cte_alias,
                 intermediate_metric_names,
+                alias_to_dimension_node,
             )
             derived_cte_alias = window_cte_alias
         else:
@@ -954,6 +967,7 @@ def process_derived_metrics(
                 decomposed,
                 resolver,
                 partition_columns,
+                alias_to_dimension_node,
             )
             derived_cte_alias = default_cte_alias
 
@@ -991,6 +1005,9 @@ def generate_metrics_sql(
     dim_types = get_dimension_types(grain_groups)
     dim_info = parse_dimension_refs(ctx, dimensions)
     dimension_aliases = build_dimension_alias_map(dim_info)
+    # Build mapping from alias to dimension node for window function PARTITION BY logic
+    # This ensures we exclude all columns from the same dimension node as the ORDER BY
+    alias_to_dimension_node = build_alias_to_dimension_node(dim_info)
     projection, columns_metadata = build_dimension_projection(
         dim_info,
         cte_aliases,
@@ -1088,6 +1105,7 @@ def generate_metrics_sql(
         all_dim_aliases,
         window_metrics_cte_alias,
         intermediate_derived_metrics,
+        alias_to_dimension_node,
     )
 
     # Merge derived metrics into the main metric_expr_asts dict
