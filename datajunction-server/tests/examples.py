@@ -3516,6 +3516,20 @@ BUILD_V3 = (  # type: ignore
     (
         "/nodes/metric/",
         {
+            "name": "v3.dod_revenue_change",
+            "description": "Day-over-day revenue change (%) - requires date_id dimension",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.date_id[order]))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.date_id[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
             "name": "v3.wow_revenue_change",
             "description": "Week-over-week revenue change (%) - requires week dimension",
             "query": """
@@ -3553,6 +3567,21 @@ BUILD_V3 = (  # type: ignore
             """,
             "mode": "published",
             "required_dimensions": ["v3.date.month"],
+        },
+    ),
+    # WoW without [order] role - for testing no-role-suffix case
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_revenue_change_no_role",
+            "description": "Week-over-week revenue change (%) - without [order] role suffix",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week"],
         },
     ),
     # =========================================================================

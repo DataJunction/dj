@@ -11,7 +11,7 @@ from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
 )
-from datajunction_server.construction.build_v3.types import BuildContext
+from datajunction_server.construction.build_v3.types import BuildContext, GrainGroupSQL
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
@@ -111,10 +111,11 @@ def build_dimension_node_to_aliases(
 
     Args:
         alias_to_node: Mapping from alias to dimension node
+            e.g., {"week": "v3.date", "month": "v3.date", "category": "v3.product"}
 
     Returns:
         Mapping from dimension node to set of aliases
-            e.g., {"common.dimensions.time.date": {"dateint", "week_code", "month_code"}}
+            e.g., {"v3.date": {"week", "month"}, "v3.product": {"category"}}
     """
     node_to_aliases: dict[str, set[str]] = {}
     for alias, node in alias_to_node.items():
@@ -122,6 +123,50 @@ def build_dimension_node_to_aliases(
             node_to_aliases[node] = set()
         node_to_aliases[node].add(alias)
     return node_to_aliases
+
+
+def strip_role_suffix(ref: str) -> str:
+    """
+    Strip role suffix like [order], [filter] from a dimension reference.
+
+    For example:
+        "v3.date.week[order]" -> "v3.date.week"
+        "v3.date.month" -> "v3.date.month"
+    """
+    if "[" in ref:
+        return ref.split("[")[0]
+    return ref
+
+
+def extract_dim_info_from_grain_groups(
+    grain_groups: list[GrainGroupSQL],
+) -> list[tuple[str, str]]:
+    """
+    Extract dimension info (dim_ref, alias) tuples from all grain group columns.
+
+    This includes ALL dimensions in the grain groups, not just user-requested ones.
+    This is important for window function PARTITION BY logic, which needs to know
+    about all dimensions from the same dimension node (e.g., date_id, week, month
+    all come from v3.date).
+
+    Args:
+        grain_groups: List of grain group SQLs
+
+    Returns:
+        List of (dim_ref, alias) tuples for all dimension columns
+    """
+    dim_info: list[tuple[str, str]] = []
+    seen_aliases: set[str] = set()
+
+    for gg in grain_groups:
+        for col in gg.columns:
+            if col.semantic_type == "dimension" and col.name not in seen_aliases:
+                # Strip role suffix from semantic_name for consistent dimension node extraction
+                dim_ref = strip_role_suffix(col.semantic_name)
+                dim_info.append((dim_ref, col.name))
+                seen_aliases.add(col.name)
+
+    return dim_info
 
 
 def replace_component_refs_in_ast(
@@ -309,9 +354,16 @@ def get_window_order_by_columns(expr_ast: ast.Node) -> set[str]:
     for func in expr_ast.find_all(ast.Function):
         if func.over and func.over.order_by:
             for sort_item in func.over.order_by:
-                if isinstance(sort_item.expr, ast.Column) and sort_item.expr.name:
+                # Handle both Column and Subscript expressions
+                # Subscript is used when there's a role suffix like [order]
+                # e.g., ORDER BY v3.date.week[order] parses as Subscript(Column, index)
+                col_expr = sort_item.expr
+                if isinstance(col_expr, ast.Subscript):
+                    # Extract the base column from subscript
+                    col_expr = col_expr.expr
+                if isinstance(col_expr, ast.Column) and col_expr.name:
                     # Get the full column identifier (handles namespaced columns)
-                    col_name = get_column_full_name(sort_item.expr)
+                    col_name = get_column_full_name(col_expr)
                     if col_name:
                         order_by_columns.add(col_name)
     return order_by_columns
