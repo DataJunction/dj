@@ -51,12 +51,12 @@ class DJClient(_internal.DJClient):
         Returns:
             NamespaceDiff object with methods like to_markdown() for formatting
 
-        Example:
-            >>> client = DJClient("https://dj.example.com")
-            >>> diff = client.namespace_diff("dj.feature-123", base_namespace="dj.main")
-            >>> print(diff.summary())
-            +2 added, ~3 direct changes, ~5 propagated
-            >>> print(diff.to_markdown())  # For GitHub PR comments
+        Example::
+
+            client = DJClient("https://dj.example.com")
+            diff = client.namespace_diff("dj.feature-123", base_namespace="dj.main")
+            print(diff.summary())  # "+2 added, ~3 direct changes, ~5 propagated"
+            print(diff.to_markdown())  # For GitHub PR comments
         """
         response = self._session.get(
             f"/namespaces/{compare_namespace}/diff",
