@@ -29,7 +29,7 @@ interface NodeInfo {
   name: string;
   type: string;
   current?: {
-    displayName?: string;
+    displayName?: string | null;
   };
 }
 
