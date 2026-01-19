@@ -2870,10 +2870,25 @@ class TestMeasuresSQLNestedDerived:
         assert "grain_groups" in data
         assert len(data["grain_groups"]) >= 1
 
-        # The SQL should contain the base components for total_revenue and order_count
+        # Verify the SQL structure using assert_sql_equal
         gg = data["grain_groups"][0]
-        assert "line_total" in gg["sql"]
-        assert "order_id" in gg["sql"]
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, o.order_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+                t1.status,
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                COUNT(DISTINCT t1.order_id) order_id_count_4d6e2f0d
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_nested_derived_window_metric_decomposes_to_base_components(
@@ -2903,10 +2918,30 @@ class TestMeasuresSQLNestedDerived:
         assert "grain_groups" in data
         assert len(data["grain_groups"]) >= 1
 
-        # The SQL should contain the base components for total_revenue and order_count
+        # Verify the SQL structure for the first grain group
         gg = data["grain_groups"][0]
-        assert "line_total" in gg["sql"]
-        assert "order_id" in gg["sql"]
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_order_details AS (
+                SELECT oi.product_id, o.order_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+                v3_product.category,
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                COUNT(DISTINCT t1.order_id) order_id_count_4d6e2f0d
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product ON t1.product_id = v3_product.product_id
+            GROUP BY v3_product.category
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_nested_derived_cross_fact_decomposes_to_base_components(
@@ -2949,12 +2984,51 @@ class TestMeasuresSQLNestedDerived:
         assert page_gg is not None, "Should have grain group from page_views"
 
         # Verify order_details grain group has components for total_revenue/order_count
-        assert "line_total" in order_gg["sql"]
-        assert "order_id" in order_gg["sql"]
+        assert_sql_equal(
+            order_gg["sql"],
+            """
+            WITH
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_order_details AS (
+                SELECT oi.product_id, o.order_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+                v3_product.category,
+                SUM(t1.line_total) line_total_sum_e1f61696,
+                COUNT(DISTINCT t1.order_id) order_id_count_4d6e2f0d
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product ON t1.product_id = v3_product.product_id
+            GROUP BY v3_product.category
+            """,
+        )
 
         # Verify page_views grain group has components for page_view_count/session_count
-        assert "session_id" in page_gg["sql"]
-        assert "view_id" in page_gg["sql"]
+        assert_sql_equal(
+            page_gg["sql"],
+            """
+            WITH
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views AS (
+                SELECT product_id, session_id, view_id
+                FROM default.v3.page_views
+            )
+            SELECT
+                v3_product.category,
+                COUNT(v3_page_views.view_id) view_id_count_ed1b6ad9,
+                COUNT(DISTINCT v3_page_views.session_id) session_id_count_38e80f69
+            FROM v3_page_views
+            LEFT OUTER JOIN v3_product ON v3_page_views.product_id = v3_product.product_id
+            GROUP BY v3_product.category
+            """,
+        )
 
 
 class TestCubeMaterializeEndpoint:

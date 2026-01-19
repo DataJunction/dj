@@ -1099,10 +1099,6 @@ async def get_shared_dimensions(
 
     # Get the per-metric parent mapping (batched for efficiency)
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
-    print(
-        "!!!metric_to_parents",
-        {k: [v.name for v in vals] for k, vals in metric_to_parents.items()},
-    )
 
     # Collect all unique parent nodes across all metrics
     unique_parents: Dict[int, Node] = {}

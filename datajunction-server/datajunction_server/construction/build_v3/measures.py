@@ -1233,8 +1233,8 @@ def build_window_metric_grain_groups(
             # Find parent metrics from parent_map
             parent_names = ctx.parent_map.get(metric_name, [])
             for parent_name in parent_names:
-                parent_node = ctx.nodes.get(parent_name)
-                if parent_node and parent_node.type.value == "metric":
+                metric_parent = ctx.nodes.get(parent_name)
+                if metric_parent and metric_parent.type.value == "metric":
                     base_metrics_needed.add(parent_name)
 
         if not base_metrics_needed:

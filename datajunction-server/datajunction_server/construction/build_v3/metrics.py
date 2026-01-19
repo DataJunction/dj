@@ -1435,13 +1435,13 @@ def build_window_agg_cte_from_grain_group(
             combiner_ast = combiner_ast.child
 
         # Replace component references with CTE column references
-        for col in combiner_ast.find_all(ast.Column):
-            col_full_name = col.identifier() if hasattr(col, "identifier") else ""
+        for col_node in combiner_ast.find_all(ast.Column):
+            col_full_name = col_node.identifier() if hasattr(col_node, "identifier") else ""
             # Check if this matches a component alias
             for comp_name, comp_alias in window_grain_group.component_aliases.items():
                 if col_full_name == comp_name or col_full_name.endswith(comp_alias):
-                    col.name = ast.Name(comp_alias)
-                    col._table = ast.Table(ast.Name(source_cte_alias))
+                    col_node.name = ast.Name(comp_alias)
+                    col_node._table = ast.Table(ast.Name(source_cte_alias))
                     break
 
         short_name = get_short_name(base_metric_name)
@@ -1460,7 +1460,7 @@ def build_window_agg_cte_from_grain_group(
         select=ast.Select(
             projection=projection,
             from_=from_clause,
-            group_by=group_by if group_by else None,
+            group_by=group_by if group_by else [],
         ),
     )
 
@@ -1541,26 +1541,26 @@ def build_window_cte_from_grain_group(
             expr_ast = expr_ast.child
 
         # Replace metric references with column refs to the source CTE
-        for col in expr_ast.find_all(ast.Column):
-            col_full_name = col.identifier() if hasattr(col, "identifier") else ""
+        for col_node in expr_ast.find_all(ast.Column):
+            col_full_name = col_node.identifier() if hasattr(col_node, "identifier") else ""
             if (
                 col_full_name in ctx.nodes
                 and ctx.nodes[col_full_name].type == NodeType.METRIC
             ):
                 short_name = get_short_name(col_full_name)
-                col.name = ast.Name(short_name)
-                col._table = ast.Table(ast.Name(source_cte_alias))
+                col_node.name = ast.Name(short_name)
+                col_node._table = ast.Table(ast.Name(source_cte_alias))
 
         # Replace dimension references
-        for col in expr_ast.find_all(ast.Column):
-            col_full_name = col.identifier() if hasattr(col, "identifier") else ""
+        for col_node in expr_ast.find_all(ast.Column):
+            col_full_name = col_node.identifier() if hasattr(col_node, "identifier") else ""
             for gg_col in window_grain_group.columns:
                 if gg_col.semantic_type == "dimension":
                     if col_full_name == gg_col.semantic_name or col_full_name.endswith(
                         "." + gg_col.name,
                     ):
-                        col.name = ast.Name(gg_col.name)
-                        col._table = ast.Table(ast.Name(source_cte_alias))
+                        col_node.name = ast.Name(gg_col.name)
+                        col_node._table = ast.Table(ast.Name(source_cte_alias))
                         break
 
         # Unwrap Subscript expressions in ORDER BY clauses (role suffix handling)
@@ -1715,13 +1715,13 @@ def build_reaggregation_agg_cte(
             combiner_ast = combiner_ast.child
 
         # Replace component references with the correct CTE column references
-        for col in combiner_ast.find_all(ast.Column):
-            col_name = col.name.name if col.name else ""
+        for col_node in combiner_ast.find_all(ast.Column):
+            col_name = col_node.name.name if col_node.name else ""
             # Find this component in our mapping
             if col_name in component_to_cte:
                 cte_alias, comp_alias = component_to_cte[col_name]
-                col.name = ast.Name(comp_alias)
-                col._table = ast.Table(ast.Name(cte_alias))
+                col_node.name = ast.Name(comp_alias)
+                col_node._table = ast.Table(ast.Name(cte_alias))
 
         short_name = get_short_name(base_metric_name)
         aliased = combiner_ast.set_alias(ast.Name(short_name))  # type: ignore
@@ -1749,7 +1749,7 @@ def build_reaggregation_agg_cte(
         select=ast.Select(
             projection=projection,
             from_=from_clause,
-            group_by=group_by if group_by else None,
+            group_by=group_by if group_by else [],
         ),
     )
 
@@ -2241,7 +2241,7 @@ def generate_metrics_sql(
                 # Generate CTE names based on the actual source (primary_cte)
                 # e.g., "thumb_rating_month_code_agg" when selecting from thumb_rating_0
                 base_node_name = cte_to_parent_name.get(
-                    primary_cte, get_short_name(base_grain_groups[0].parent_name)
+                    primary_cte, get_short_name(base_grain_groups[0].parent_name),
                 )
                 order_by_alias = (
                     get_short_name(order_by_dim.split("[")[0])
