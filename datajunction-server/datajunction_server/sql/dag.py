@@ -1188,6 +1188,7 @@ async def get_metric_parents_map(
                 join(
                     NodeRevision,
                     NodeRelationship,
+                    NodeRevision.id == NodeRelationship.child_id,
                 ),
                 Node,
                 NodeRelationship.parent_id == Node.id,
@@ -1239,6 +1240,7 @@ async def get_metric_parents_map(
                         join(
                             NodeRevision,
                             NodeRelationship,
+                            NodeRevision.id == NodeRelationship.child_id,
                         ),
                         Node,
                         NodeRelationship.parent_id == Node.id,
