@@ -1319,6 +1319,12 @@ def build_window_metric_grain_groups(
         # This helps metrics SQL identify which grain group to use
         grain_group_sql.metrics = list(metric_names)
 
+        # Mark as a window grain group with metadata for metrics phase
+        grain_group_sql.is_window_grain_group = True
+        grain_group_sql.window_metrics_served = list(metric_names)
+        # Use the first grain column as the ORDER BY dimension
+        grain_group_sql.window_order_by_dim = next(iter(grain_cols)) if grain_cols else None
+
         additional_grain_groups.append(grain_group_sql)
 
     return additional_grain_groups
