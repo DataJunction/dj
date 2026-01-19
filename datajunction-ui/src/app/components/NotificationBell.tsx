@@ -54,7 +54,7 @@ const enrichWithNodeInfo = (
     return {
       ...entry,
       node_type: node?.type,
-      display_name: node?.current?.displayName,
+      display_name: node?.current?.displayName ?? undefined,
     };
   });
 };
