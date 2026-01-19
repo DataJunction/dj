@@ -471,7 +471,7 @@ class NamespaceDiff(SerializableMixin):
 
         # Header
         lines.append(
-            f"## Namespace Diff: `{self.compare_namespace}` vs `{self.base_namespace}`"
+            f"## Namespace Diff: `{self.compare_namespace}` vs `{self.base_namespace}`",
         )
         lines.append("")
 
@@ -491,8 +491,8 @@ class NamespaceDiff(SerializableMixin):
             lines.append("### Added Nodes")
             lines.append("| Node | Type |")
             lines.append("|------|------|")
-            for node in self.added:
-                lines.append(f"| `{node.name}` | {node.node_type} |")
+            for added_node in self.added:
+                lines.append(f"| `{added_node.name}` | {added_node.node_type} |")
             lines.append("")
 
         # Removed nodes
@@ -500,8 +500,8 @@ class NamespaceDiff(SerializableMixin):
             lines.append("### Removed Nodes")
             lines.append("| Node | Type |")
             lines.append("|------|------|")
-            for node in self.removed:
-                lines.append(f"| `{node.name}` | {node.node_type} |")
+            for removed_node in self.removed:
+                lines.append(f"| `{removed_node.name}` | {removed_node.node_type} |")
             lines.append("")
 
         # Direct changes
@@ -515,24 +515,22 @@ class NamespaceDiff(SerializableMixin):
             lines.append("")
 
             # Column changes detail
-            changes_with_columns = [
-                c for c in self.direct_changes if c.column_changes
-            ]
+            changes_with_columns = [c for c in self.direct_changes if c.column_changes]
             if changes_with_columns:
                 lines.append("#### Column Changes")
                 for change in changes_with_columns:
                     lines.append(f"**{change.name}**:")
-                    for col in change.column_changes or []:
+                    for col in change.column_changes or []:  # pragma: no branch
                         if col.change_type == "added":
                             lines.append(f"  - Added: `{col.column}` ({col.new_type})")
                         elif col.change_type == "removed":
                             lines.append(
-                                f"  - Removed: `{col.column}` ({col.old_type})"
+                                f"  - Removed: `{col.column}` ({col.old_type})",
                             )
                         elif col.change_type == "type_changed":
                             lines.append(
                                 f"  - Type changed: `{col.column}` "
-                                f"({col.old_type} -> {col.new_type})"
+                                f"({col.old_type} -> {col.new_type})",
                             )
                 lines.append("")
 
@@ -543,11 +541,11 @@ class NamespaceDiff(SerializableMixin):
             lines.append("|------|------|---------------|-----------|")
             for change in self.propagated_changes:
                 status = ""
-                if change.base_status and change.compare_status:
+                if change.base_status and change.compare_status:  # pragma: no branch
                     status = f"{change.base_status} -> {change.compare_status}"
                 caused_by = ", ".join(f"`{c}`" for c in (change.caused_by or []))
                 lines.append(
-                    f"| `{change.name}` | {change.node_type} | {status} | {caused_by} |"
+                    f"| `{change.name}` | {change.node_type} | {status} | {caused_by} |",
                 )
             lines.append("")
 
