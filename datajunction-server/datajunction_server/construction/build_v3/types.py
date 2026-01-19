@@ -235,6 +235,15 @@ class GeneratedMeasuresSQL:
     # These are LAG/LEAD window function metrics that need aggregation at a different grain
     window_metric_grains: dict[str, set[str]] = field(default_factory=dict)
 
+    # Window metrics that can be computed by reaggregating from base grain group
+    # Maps metric_name -> tuple of (target_dimensions, order_by_dim)
+    # target_dimensions: the dimensions to GROUP BY for this window metric
+    # order_by_dim: the dimension to ORDER BY in the window function
+    # These are window metrics where target dimensions are a subset of user-requested dimensions
+    reaggregation_window_metrics: dict[str, tuple[list[str], str]] = field(
+        default_factory=dict,
+    )
+
 
 @dataclass
 class GeneratedSQL:
