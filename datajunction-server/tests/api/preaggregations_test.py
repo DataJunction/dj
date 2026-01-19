@@ -597,8 +597,16 @@ class TestGetPreaggregationById:
                 },
                 "used_by_metrics": [
                     {
+                        "display_name": "Aov Growth Index",
+                        "name": "v3.aov_growth_index",
+                    },
+                    {
                         "display_name": "Avg Order Value",
                         "name": "v3.avg_order_value",
+                    },
+                    {
+                        "display_name": "Efficiency Ratio",
+                        "name": "v3.efficiency_ratio",
                     },
                     {
                         "display_name": "Mom Revenue Change",
@@ -627,6 +635,10 @@ class TestGetPreaggregationById:
                     {
                         "display_name": "Trailing Wow Revenue Change",
                         "name": "v3.trailing_wow_revenue_change",
+                    },
+                    {
+                        "display_name": "Wow Aov Change",
+                        "name": "v3.wow_aov_change",
                     },
                     {
                         "display_name": "Wow Revenue Change",
