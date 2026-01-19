@@ -1,29 +1,42 @@
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = T | null;
-export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
-export type MakeOptional<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]?: Maybe<T[SubKey]> };
-export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]: Maybe<T[SubKey]> };
-export type MakeEmpty<T extends { [key: string]: unknown }, K extends keyof T> = { [_ in K]?: never };
-export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
+export type Exact<T extends { [key: string]: unknown }> = {
+  [K in keyof T]: T[K];
+};
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & {
+  [SubKey in K]?: Maybe<T[SubKey]>;
+};
+export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & {
+  [SubKey in K]: Maybe<T[SubKey]>;
+};
+export type MakeEmpty<
+  T extends { [key: string]: unknown },
+  K extends keyof T,
+> = { [_ in K]?: never };
+export type Incremental<T> =
+  | T
+  | {
+      [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never;
+    };
 /** All built-in and custom scalars, mapped to their actual values */
 export interface Scalars {
-  ID: { input: string; output: string; }
-  String: { input: string; output: string; }
-  Boolean: { input: boolean; output: boolean; }
-  Int: { input: number; output: number; }
-  Float: { input: number; output: number; }
+  ID: { input: string; output: string };
+  String: { input: string; output: string };
+  Boolean: { input: boolean; output: boolean };
+  Int: { input: number; output: number };
+  Float: { input: number; output: number };
   /** Date with time (isoformat) */
-  DateTime: { input: any; output: any; }
+  DateTime: { input: any; output: any };
   /** The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf). */
-  JSON: { input: any; output: any; }
+  JSON: { input: any; output: any };
   /** BigInt field */
-  Union: { input: any; output: any; }
+  Union: { input: any; output: any };
 }
 
 export enum Aggregability {
   Full = 'FULL',
   Limited = 'LIMITED',
-  None = 'NONE'
+  None = 'NONE',
 }
 
 export interface AggregationRule {
@@ -109,7 +122,7 @@ export enum Dialect {
   Snowflake = 'SNOWFLAKE',
   Spark = 'SPARK',
   Sqlite = 'SQLITE',
-  Trino = 'TRINO'
+  Trino = 'TRINO',
 }
 
 export interface DialectInfo {
@@ -184,7 +197,7 @@ export enum ErrorCode {
   UnauthorizedAccess = 'UNAUTHORIZED_ACCESS',
   UnknownError = 'UNKNOWN_ERROR',
   UnknownNode = 'UNKNOWN_NODE',
-  UserNotFound = 'USER_NOT_FOUND'
+  UserNotFound = 'USER_NOT_FOUND',
 }
 
 export interface GeneratedSql {
@@ -200,7 +213,7 @@ export enum JoinCardinality {
   ManyToMany = 'MANY_TO_MANY',
   ManyToOne = 'MANY_TO_ONE',
   OneToMany = 'ONE_TO_MANY',
-  OneToOne = 'ONE_TO_ONE'
+  OneToOne = 'ONE_TO_ONE',
 }
 
 export enum JoinType {
@@ -208,7 +221,7 @@ export enum JoinType {
   Full = 'FULL',
   Inner = 'INNER',
   Left = 'LEFT',
-  Right = 'RIGHT'
+  Right = 'RIGHT',
 }
 
 export interface MaterializationConfig {
@@ -243,7 +256,7 @@ export interface MetricComponent {
 export enum MetricDirection {
   HigherIsBetter = 'HIGHER_IS_BETTER',
   LowerIsBetter = 'LOWER_IS_BETTER',
-  Neutral = 'NEUTRAL'
+  Neutral = 'NEUTRAL',
 }
 
 export interface MetricMetadata {
@@ -282,7 +295,7 @@ export interface NodeEdge {
 
 export enum NodeMode {
   Draft = 'DRAFT',
-  Published = 'PUBLISHED'
+  Published = 'PUBLISHED',
 }
 
 export interface NodeName {
@@ -323,7 +336,6 @@ export interface NodeRevision {
   version: Scalars['String']['output'];
 }
 
-
 export interface NodeRevisionColumnsArgs {
   attributes?: InputMaybe<Array<Scalars['String']['input']>>;
 }
@@ -335,12 +347,12 @@ export enum NodeSortField {
   Name = 'NAME',
   Status = 'STATUS',
   Type = 'TYPE',
-  UpdatedAt = 'UPDATED_AT'
+  UpdatedAt = 'UPDATED_AT',
 }
 
 export enum NodeStatus {
   Invalid = 'INVALID',
-  Valid = 'VALID'
+  Valid = 'VALID',
 }
 
 export enum NodeType {
@@ -348,13 +360,13 @@ export enum NodeType {
   Dimension = 'DIMENSION',
   Metric = 'METRIC',
   Source = 'SOURCE',
-  Transform = 'TRANSFORM'
+  Transform = 'TRANSFORM',
 }
 
 export enum OAuthProvider {
   Basic = 'BASIC',
   Github = 'GITHUB',
-  Google = 'GOOGLE'
+  Google = 'GOOGLE',
 }
 
 export interface PageInfo {
@@ -390,7 +402,7 @@ export interface PartitionBackfill {
 
 export enum PartitionType {
   Categorical = 'CATEGORICAL',
-  Temporal = 'TEMPORAL'
+  Temporal = 'TEMPORAL',
 }
 
 export interface Query {
@@ -420,18 +432,15 @@ export interface Query {
   upstreamNodes: Array<Node>;
 }
 
-
 export interface QueryCommonDimensionsArgs {
   nodes?: InputMaybe<Array<Scalars['String']['input']>>;
 }
-
 
 export interface QueryDownstreamNodesArgs {
   includeDeactivated?: Scalars['Boolean']['input'];
   nodeNames: Array<Scalars['String']['input']>;
   nodeType?: InputMaybe<NodeType>;
 }
-
 
 export interface QueryFindNodesArgs {
   ascending?: Scalars['Boolean']['input'];
@@ -452,7 +461,6 @@ export interface QueryFindNodesArgs {
   statuses?: InputMaybe<Array<NodeStatus>>;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
 }
-
 
 export interface QueryFindNodesPaginatedArgs {
   after?: InputMaybe<Scalars['String']['input']>;
@@ -476,17 +484,14 @@ export interface QueryFindNodesPaginatedArgs {
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
 }
 
-
 export interface QueryListTagsArgs {
   tagNames?: InputMaybe<Array<Scalars['String']['input']>>;
   tagTypes?: InputMaybe<Array<Scalars['String']['input']>>;
 }
 
-
 export interface QueryMaterializationPlanArgs {
   cube: CubeDefinition;
 }
-
 
 export interface QueryMeasuresSqlArgs {
   cube: CubeDefinition;
@@ -496,7 +501,6 @@ export interface QueryMeasuresSqlArgs {
   queryParameters?: InputMaybe<Scalars['JSON']['input']>;
   useMaterialized?: Scalars['Boolean']['input'];
 }
-
 
 export interface QueryUpstreamNodesArgs {
   includeDeactivated?: Scalars['Boolean']['input'];
@@ -516,7 +520,7 @@ export enum SemanticType {
   Dimension = 'DIMENSION',
   Measure = 'MEASURE',
   Metric = 'METRIC',
-  Timestamp = 'TIMESTAMP'
+  Timestamp = 'TIMESTAMP',
 }
 
 export interface Tag {
@@ -562,60 +566,157 @@ export type GetCubeForPlannerQueryVariables = Exact<{
   name: Scalars['String']['input'];
 }>;
 
-
-export type GetCubeForPlannerQuery = { findNodes: Array<{ name: string, current: { displayName?: string | null, cubeMetrics: Array<{ name: string }>, cubeDimensions: Array<{ name: string }>, materializations?: Array<{ name?: string | null, config: any, schedule: string, strategy?: string | null }> | null } }> };
+export type GetCubeForPlannerQuery = {
+  findNodes: Array<{
+    name: string;
+    current: {
+      displayName?: string | null;
+      cubeMetrics: Array<{ name: string }>;
+      cubeDimensions: Array<{ name: string }>;
+      materializations?: Array<{
+        name?: string | null;
+        config: any;
+        schedule: string;
+        strategy?: string | null;
+      }> | null;
+    };
+  }>;
+};
 
 export type GetDownstreamNodesQueryVariables = Exact<{
   nodeNames: Array<Scalars['String']['input']> | Scalars['String']['input'];
 }>;
 
-
-export type GetDownstreamNodesQuery = { downstreamNodes: Array<{ name: string, type: NodeType }> };
+export type GetDownstreamNodesQuery = {
+  downstreamNodes: Array<{ name: string; type: NodeType }>;
+};
 
 export type GetCubeForEditingQueryVariables = Exact<{
   name: Scalars['String']['input'];
 }>;
 
-
-export type GetCubeForEditingQuery = { findNodes: Array<{ name: string, type: NodeType, owners: Array<{ username: string }>, current: { displayName?: string | null, description: string, mode?: NodeMode | null, cubeMetrics: Array<{ name: string }>, cubeDimensions: Array<{ name: string, attribute?: string | null, properties: Array<string> }> }, tags: Array<{ name: string, displayName?: string | null }> }> };
+export type GetCubeForEditingQuery = {
+  findNodes: Array<{
+    name: string;
+    type: NodeType;
+    owners: Array<{ username: string }>;
+    current: {
+      displayName?: string | null;
+      description: string;
+      mode?: NodeMode | null;
+      cubeMetrics: Array<{ name: string }>;
+      cubeDimensions: Array<{
+        name: string;
+        attribute?: string | null;
+        properties: Array<string>;
+      }>;
+    };
+    tags: Array<{ name: string; displayName?: string | null }>;
+  }>;
+};
 
 export type GetMetricQueryVariables = Exact<{
   name: Scalars['String']['input'];
 }>;
 
-
-export type GetMetricQuery = { findNodes: Array<{ name: string, current: { parents: Array<{ name: string }>, metricMetadata?: { direction?: MetricDirection | null, expression: string, significantDigits?: number | null, incompatibleDruidFunctions: Array<string>, unit?: { name: string } | null } | null, requiredDimensions?: Array<{ name: string }> | null } }> };
+export type GetMetricQuery = {
+  findNodes: Array<{
+    name: string;
+    current: {
+      parents: Array<{ name: string }>;
+      metricMetadata?: {
+        direction?: MetricDirection | null;
+        expression: string;
+        significantDigits?: number | null;
+        incompatibleDruidFunctions: Array<string>;
+        unit?: { name: string } | null;
+      } | null;
+      requiredDimensions?: Array<{ name: string }> | null;
+    };
+  }>;
+};
 
 export type GetNodeColumnsWithPartitionsQueryVariables = Exact<{
   name: Scalars['String']['input'];
 }>;
 
-
-export type GetNodeColumnsWithPartitionsQuery = { findNodes: Array<{ name: string, current: { columns: Array<{ name: string, type: string, partition?: { type_: PartitionType, format?: string | null, granularity?: string | null } | null }> } }> };
+export type GetNodeColumnsWithPartitionsQuery = {
+  findNodes: Array<{
+    name: string;
+    current: {
+      columns: Array<{
+        name: string;
+        type: string;
+        partition?: {
+          type_: PartitionType;
+          format?: string | null;
+          granularity?: string | null;
+        } | null;
+      }>;
+    };
+  }>;
+};
 
 export type GetNodeForEditingQueryVariables = Exact<{
   name: Scalars['String']['input'];
 }>;
 
-
-export type GetNodeForEditingQuery = { findNodes: Array<{ name: string, type: NodeType, current: { displayName?: string | null, description: string, primaryKey: Array<string>, query?: string | null, mode?: NodeMode | null, customMetadata?: any | null, parents: Array<{ name: string, type: string }>, metricMetadata?: { direction?: MetricDirection | null, expression: string, significantDigits?: number | null, incompatibleDruidFunctions: Array<string>, unit?: { name: string } | null } | null, requiredDimensions?: Array<{ name: string }> | null }, tags: Array<{ name: string, displayName?: string | null }>, owners: Array<{ username: string }> }> };
+export type GetNodeForEditingQuery = {
+  findNodes: Array<{
+    name: string;
+    type: NodeType;
+    current: {
+      displayName?: string | null;
+      description: string;
+      primaryKey: Array<string>;
+      query?: string | null;
+      mode?: NodeMode | null;
+      customMetadata?: any | null;
+      parents: Array<{ name: string; type: string }>;
+      metricMetadata?: {
+        direction?: MetricDirection | null;
+        expression: string;
+        significantDigits?: number | null;
+        incompatibleDruidFunctions: Array<string>;
+        unit?: { name: string } | null;
+      } | null;
+      requiredDimensions?: Array<{ name: string }> | null;
+    };
+    tags: Array<{ name: string; displayName?: string | null }>;
+    owners: Array<{ username: string }>;
+  }>;
+};
 
 export type GetNodesByNamesQueryVariables = Exact<{
-  names?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  names?: InputMaybe<
+    Array<Scalars['String']['input']> | Scalars['String']['input']
+  >;
 }>;
 
+export type GetNodesByNamesQuery = {
+  findNodes: Array<{
+    name: string;
+    type: NodeType;
+    current: {
+      displayName?: string | null;
+      status: NodeStatus;
+      mode?: NodeMode | null;
+    };
+  }>;
+};
 
-export type GetNodesByNamesQuery = { findNodes: Array<{ name: string, type: NodeType, current: { displayName?: string | null, status: NodeStatus, mode?: NodeMode | null } }> };
+export type ListCubesForPresetQueryVariables = Exact<{ [key: string]: never }>;
 
-export type ListCubesForPresetQueryVariables = Exact<{ [key: string]: never; }>;
-
-
-export type ListCubesForPresetQuery = { findNodes: Array<{ name: string, current: { displayName?: string | null } }> };
+export type ListCubesForPresetQuery = {
+  findNodes: Array<{ name: string; current: { displayName?: string | null } }>;
+};
 
 export type ListNodesForLandingQueryVariables = Exact<{
   namespace?: InputMaybe<Scalars['String']['input']>;
   nodeTypes?: InputMaybe<Array<NodeType> | NodeType>;
-  tags?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  tags?: InputMaybe<
+    Array<Scalars['String']['input']> | Scalars['String']['input']
+  >;
   editedBy?: InputMaybe<Scalars['String']['input']>;
   mode?: InputMaybe<NodeMode>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -630,12 +731,37 @@ export type ListNodesForLandingQueryVariables = Exact<{
   orphanedDimension?: Scalars['Boolean']['input'];
 }>;
 
-
-export type ListNodesForLandingQuery = { findNodesPaginated: { pageInfo: { hasNextPage: boolean, endCursor?: string | null, hasPrevPage: boolean, startCursor?: string | null }, edges: Array<{ node: { name: string, type: NodeType, currentVersion: string, editedBy: Array<string>, tags: Array<{ name: string, tagType: string }>, current: { displayName?: string | null, status: NodeStatus, mode?: NodeMode | null, updatedAt: any }, createdBy: { username: string } } }> } };
+export type ListNodesForLandingQuery = {
+  findNodesPaginated: {
+    pageInfo: {
+      hasNextPage: boolean;
+      endCursor?: string | null;
+      hasPrevPage: boolean;
+      startCursor?: string | null;
+    };
+    edges: Array<{
+      node: {
+        name: string;
+        type: NodeType;
+        currentVersion: string;
+        editedBy: Array<string>;
+        tags: Array<{ name: string; tagType: string }>;
+        current: {
+          displayName?: string | null;
+          status: NodeStatus;
+          mode?: NodeMode | null;
+          updatedAt: any;
+        };
+        createdBy: { username: string };
+      };
+    }>;
+  };
+};
 
 export type GetUpstreamNodesQueryVariables = Exact<{
   nodeNames: Array<Scalars['String']['input']> | Scalars['String']['input'];
 }>;
 
-
-export type GetUpstreamNodesQuery = { upstreamNodes: Array<{ name: string, type: NodeType }> };
+export type GetUpstreamNodesQuery = {
+  upstreamNodes: Array<{ name: string; type: NodeType }>;
+};
