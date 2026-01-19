@@ -1019,7 +1019,8 @@ def group_window_metrics_by_grain(
     window_metrics: set[str],
     decomposed_metrics: dict[str, DecomposedMetricInfo],
     alias_to_dimension_node: dict[str, str],
-    dim_info: list[tuple[str, str]],
+    all_dim_info: list[tuple[str, str]],
+    user_requested_dim_info: list[tuple[str, str]],
 ) -> dict[str, GrainLevelInfo]:
     """
     Group window metrics by their ORDER BY dimension node.
@@ -1033,7 +1034,8 @@ def group_window_metrics_by_grain(
         window_metrics: Set of window metric names
         decomposed_metrics: Decomposed metric info
         alias_to_dimension_node: Mapping from alias to dimension node
-        dim_info: List of (original_dim_ref, col_alias) tuples
+        all_dim_info: All dimensions from grain groups (including required dims)
+        user_requested_dim_info: Only user-requested dimensions
 
     Returns:
         Dict mapping dimension node -> GrainLevelInfo
@@ -1043,8 +1045,11 @@ def group_window_metrics_by_grain(
 
     # Build a normalized mapping with role suffixes stripped for lookup
     dim_ref_to_alias_stripped = {
-        strip_role_suffix(dim_ref): alias for dim_ref, alias in dim_info
+        strip_role_suffix(dim_ref): alias for dim_ref, alias in all_dim_info
     }
+
+    # Get user-requested dimension aliases
+    user_requested_aliases = {alias for _, alias in user_requested_dim_info}
 
     # Group metrics by their ORDER BY dimension node
     grain_levels: dict[str, GrainLevelInfo] = {}
@@ -1079,7 +1084,7 @@ def group_window_metrics_by_grain(
                 continue
 
             # Get the alias for this ORDER BY column and track the full ref
-            # Use stripped version for lookup since dim_info may have role suffixes
+            # Use stripped version for lookup since all_dim_info may have role suffixes
             order_by_alias = dim_ref_to_alias_stripped.get(order_by_col_stripped, "")
             order_by_ref = order_by_col_stripped  # Reference without role suffix
             if not order_by_alias:
@@ -1088,7 +1093,7 @@ def group_window_metrics_by_grain(
                 for ref, alias in dim_ref_to_alias_stripped.items():
                     if ref.endswith("." + col_name):
                         order_by_alias = alias
-                        order_by_ref = ref  # Use the matching ref from dim_info
+                        order_by_ref = ref  # Use the matching ref from all_dim_info
                         dim_node = ".".join(ref.rsplit(".", 1)[:-1])
                         break
 
@@ -1105,21 +1110,23 @@ def group_window_metrics_by_grain(
                 # Exclude finer-grained dimensions from the same dimension node
                 excluded_aliases = node_to_aliases.get(dim_node, set())
                 group_by_dims = [
-                    alias for _, alias in dim_info if alias not in excluded_aliases
+                    alias
+                    for _, alias in all_dim_info
+                    if alias not in excluded_aliases
                 ]
                 # Add the ORDER BY dimension (it's the grain we're aggregating to)
                 if order_by_alias not in group_by_dims:
                     group_by_dims.append(order_by_alias)
 
-                # Skip creating grain-level CTE if base_metrics already has the right grain
-                # This happens when all dimensions are either:
-                # 1. In PARTITION BY (group_by_dims minus ORDER BY), or
-                # 2. From the same dimension node as ORDER BY (excluded_aliases)
-                # In this case, base_metrics grain = PARTITION BY dims + ORDER BY node dims
-                all_dim_aliases = {alias for _, alias in dim_info}
-                dims_covered = set(group_by_dims) | excluded_aliases
-                if dims_covered >= all_dim_aliases:
-                    # All dimensions are covered - no aggregation needed
+                # Check if user requested a finer grain from the ORDER BY dimension node
+                # If user requested dimensions include any from the ORDER BY's dimension node
+                # (other than the ORDER BY itself), we need a grain-level CTE to aggregate
+                user_requested_from_order_by_node = (
+                    excluded_aliases & user_requested_aliases
+                ) - {order_by_alias}
+
+                if not user_requested_from_order_by_node:
+                    # User didn't request a finer grain from this dimension node
                     # Window function can operate directly on base_metrics
                     continue
 
@@ -1630,14 +1637,15 @@ def generate_metrics_sql(
         )
 
         # Group window metrics by their ORDER BY grain and build grain-level CTEs
-        # Use all_grain_group_dim_info to ensure we have all dimensions including
-        # required dimensions from metrics (e.g., week, month from v3.date)
+        # Use all_grain_group_dim_info for dimension lookups, and dim_info for
+        # determining whether user requested a finer grain
         grain_levels = group_window_metrics_by_grain(
             ctx,
             window_metrics,
             decomposed_metrics,
             alias_to_dimension_node,
             all_grain_group_dim_info,
+            dim_info,  # User-requested dimensions
         )
 
         # Build CTEs for each grain level using ORIGINAL expressions
