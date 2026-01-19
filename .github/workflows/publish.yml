@@ -39,7 +39,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'  # Node 24+ includes npm 11.5.1+ required for OIDC trusted publishing
+          registry-url: 'https://registry.npmjs.org'
 
       #
       # Build Python packages
@@ -89,7 +90,10 @@ jobs:
           packages-dir: datajunction-clients/python/dist/
 
       #
-      # Publish JavaScript packages to npm
+      # Publish JavaScript packages to npm (using OIDC trusted publishing)
+      # NOTE: Each package must be configured on npmjs.com:
+      #   Package Settings → Trusted Publisher → GitHub Actions
+      #   Organization: DataJunction, Repository: dj, Workflow: publish.yml
       #
       - name: Publish DJ Javascript client to npm
         continue-on-error: true
