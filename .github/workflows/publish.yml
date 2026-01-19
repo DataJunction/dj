@@ -49,7 +49,7 @@ jobs:
         working-directory: ./datajunction-server
         run: hatch build
 
-      # TODO: Uncomment when we have PyPI ownership of datajunction-query
+      # TODO: Uncomment when PyPI datajunction-query is setup for OIDC trusted publishing
       # - name: Build DJ Query service
       #   working-directory: ./datajunction-query
       #   run: hatch build
@@ -70,7 +70,7 @@ jobs:
         with:
           packages-dir: datajunction-server/dist/
 
-      # TODO: Uncomment when we have PyPI ownership of datajunction-query
+      # TODO: Uncomment when PyPI datajunction-query is setup for OIDC trusted publishing
       # - name: Publish DJ Query service to PyPI
       #   uses: pypa/gh-action-pypi-publish@release/v1
       #   with:
