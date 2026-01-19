@@ -49,9 +49,10 @@ jobs:
         working-directory: ./datajunction-server
         run: hatch build
 
-      - name: Build DJ Query service
-        working-directory: ./datajunction-query
-        run: hatch build
+      # TODO: Uncomment when we have PyPI ownership of datajunction-query
+      # - name: Build DJ Query service
+      #   working-directory: ./datajunction-query
+      #   run: hatch build
 
       - name: Build DJ Reflection service
         working-directory: ./datajunction-reflection
@@ -69,10 +70,11 @@ jobs:
         with:
           packages-dir: datajunction-server/dist/
 
-      - name: Publish DJ Query service to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: datajunction-query/dist/
+      # TODO: Uncomment when we have PyPI ownership of datajunction-query
+      # - name: Publish DJ Query service to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     packages-dir: datajunction-query/dist/
 
       - name: Publish DJ Reflection service to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
