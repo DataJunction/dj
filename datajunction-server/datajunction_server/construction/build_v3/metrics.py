@@ -1093,65 +1093,46 @@ def group_window_metrics_by_grain(
 
 def build_grain_level_cte(
     grain_info: GrainLevelInfo,
-    base_metrics_alias: str,
+    dim_info: list[tuple[str, str]],
+    cte_aliases: list[str],
     all_grain_group_metrics: set[str],
     metric_expr_asts: dict[str, MetricExprInfo],
 ) -> ast.Query:
     """
     Build a CTE that aggregates to a specific grain level for window functions.
 
-    This CTE aggregates from the base_metrics CTE to a coarser grain
+    This CTE aggregates from the grain group CTEs to a coarser grain
     (e.g., weekly or monthly) so window functions can operate correctly.
+
+    IMPORTANT: This reuses the same aggregation logic as build_base_metrics_cte,
+    just with filtered dimensions. The metric_expr_asts contain expressions that
+    aggregate components from grain groups (e.g., SUM(comp1) / SUM(comp2)),
+    so changing the GROUP BY dimensions automatically aggregates to the right grain.
 
     Args:
         grain_info: Information about the grain level
-        base_metrics_alias: Alias of the base_metrics CTE
+        dim_info: Full list of (original_dim_ref, col_alias) tuples
+        cte_aliases: Grain group CTE aliases
         all_grain_group_metrics: Set of base metric names
-        metric_expr_asts: Metric expressions (already simple column refs to base_metrics)
+        metric_expr_asts: Metric expressions that aggregate from grain groups
 
     Returns:
         AST Query for the grain-level CTE
     """
-    projection: list[Any] = []
-
-    # Add dimension columns
-    for dim_alias in grain_info.group_by_dims:
-        col_ref = make_column_ref(dim_alias, base_metrics_alias)
-        aliased = col_ref.set_alias(ast.Name(dim_alias))
-        aliased.set_as(True)
-        projection.append(aliased)
-
-    # Add metric aggregations (SUM the pre-computed metrics from base_metrics)
-    for metric_name in sorted(all_grain_group_metrics):
-        if metric_name not in metric_expr_asts:
-            continue
-        info = metric_expr_asts[metric_name]
-        # Aggregate the metric from base_metrics
-        col_ref = make_column_ref(info.short_name, base_metrics_alias)
-        sum_func = ast.Function(ast.Name("SUM"), args=[col_ref])
-        aliased = sum_func.set_alias(ast.Name(info.short_name))
-        aliased.set_as(True)
-        projection.append(aliased)
-
-    # Build FROM clause
-    from_clause = ast.From(
-        relations=[
-            ast.Relation(primary=ast.Table(ast.Name(base_metrics_alias))),
-        ],
-    )
-
-    # Build GROUP BY
-    group_by = [
-        make_column_ref(dim_alias, base_metrics_alias)
-        for dim_alias in grain_info.group_by_dims
+    # Filter dim_info to only include dimensions at this grain level
+    # (excludes finer-grained dimensions from the same dimension node)
+    filtered_dim_info = [
+        (ref, alias) for ref, alias in dim_info
+        if alias in grain_info.group_by_dims
     ]
 
-    return ast.Query(
-        select=ast.Select(
-            projection=projection,
-            from_=from_clause,
-            group_by=group_by,
-        ),
+    # Reuse build_base_metrics_cte with filtered dimensions
+    # This properly aggregates components and applies combiner expressions
+    return build_base_metrics_cte(
+        filtered_dim_info,
+        cte_aliases,
+        all_grain_group_metrics,
+        metric_expr_asts,
     )
 
 
@@ -1433,6 +1414,17 @@ def generate_metrics_sql(
     if window_metrics:
         window_metrics_cte_alias = "base_metrics"
 
+        # Save original metric expressions BEFORE rewriting
+        # These aggregate from grain group CTEs and are needed for grain-level CTEs
+        original_metric_expr_asts = {
+            name: MetricExprInfo(
+                expr_ast=deepcopy(info.expr_ast),
+                short_name=info.short_name,
+                cte_alias=info.cte_alias,
+            )
+            for name, info in metric_expr_asts.items()
+        }
+
         # Build and add the base_metrics CTE (including intermediate derived metrics)
         base_metrics_query = build_base_metrics_cte(
             dim_info,
@@ -1475,16 +1467,18 @@ def generate_metrics_sql(
             dim_info,
         )
 
-        # Build CTEs for each grain level
+        # Build CTEs for each grain level using ORIGINAL expressions
+        # (which aggregate from grain group CTEs, not base_metrics)
         grain_window_ctes: dict[str, str] = {}  # metric_name -> window CTE alias
         for dim_node, grain_info in grain_levels.items():
-            # Build aggregation CTE (aggregates base_metrics to this grain)
+            # Build aggregation CTE (aggregates from grain groups to this grain)
             agg_cte_alias = grain_info.cte_alias + "_agg"
             agg_cte = build_grain_level_cte(
                 grain_info,
-                window_metrics_cte_alias,
+                dim_info,
+                cte_aliases,
                 all_grain_group_metrics,
-                metric_expr_asts,
+                original_metric_expr_asts,  # Use original expressions!
             )
             agg_cte.to_cte(ast.Name(agg_cte_alias), None)
             all_cte_asts.append(agg_cte)
