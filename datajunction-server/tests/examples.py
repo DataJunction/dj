@@ -3516,6 +3516,20 @@ BUILD_V3 = (  # type: ignore
     (
         "/nodes/metric/",
         {
+            "name": "v3.dod_revenue_change",
+            "description": "Day-over-day revenue change (%) - requires date_id dimension",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.date_id[order]))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.date_id[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
             "name": "v3.wow_revenue_change",
             "description": "Week-over-week revenue change (%) - requires week dimension",
             "query": """
@@ -3553,6 +3567,21 @@ BUILD_V3 = (  # type: ignore
             """,
             "mode": "published",
             "required_dimensions": ["v3.date.month"],
+        },
+    ),
+    # WoW without [order] role - for testing no-role-suffix case
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_revenue_change_no_role",
+            "description": "Week-over-week revenue change (%) - without [order] role suffix",
+            "query": """
+                SELECT
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week"],
         },
     ),
     # =========================================================================
@@ -3604,6 +3633,52 @@ BUILD_V3 = (  # type: ignore
             """,
             "mode": "published",
             "required_dimensions": ["v3.date.date_id[order]"],
+        },
+    ),
+    # =========================================================================
+    # Nested Derived Metrics - Metrics referencing other derived metrics
+    # These test the inline expansion of intermediate derived metrics
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_aov_change",
+            "description": (
+                "Week-over-week average order value change (%). "
+                "References v3.avg_order_value which is itself derived from "
+                "v3.total_revenue / v3.order_count. Tests nested derived metric expansion."
+            ),
+            "query": """
+                SELECT
+                    (v3.avg_order_value - LAG(v3.avg_order_value, 1) OVER (ORDER BY v3.date.week[order]))
+                    / NULLIF(LAG(v3.avg_order_value, 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week[order]"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.aov_growth_index",
+            "description": (
+                "Average order value growth index vs baseline. "
+                "Non-window derived metric that references v3.avg_order_value (itself a derived metric)."
+            ),
+            "query": "SELECT v3.avg_order_value / 50.0 * 100",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.efficiency_ratio",
+            "description": (
+                "Revenue efficiency ratio: avg_order_value / pages_per_session. "
+                "Tests nested derived metric referencing TWO derived metrics from DIFFERENT facts."
+            ),
+            "query": "SELECT v3.avg_order_value / NULLIF(v3.pages_per_session, 0)",
+            "mode": "published",
         },
     ),
 )

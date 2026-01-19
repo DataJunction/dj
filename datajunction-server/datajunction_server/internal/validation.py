@@ -122,24 +122,9 @@ async def validate_node_data(
         ]
 
         if metric_parents:
-            # This is a derived metric - validate that referenced metrics are base metrics
-            # (not other derived metrics). Only 1 level of metric nesting is supported.
-            nested_derived_metrics = [
-                parent.name for parent in metric_parents if parent.is_derived_metric
-            ]
-            if nested_derived_metrics:
-                node_validator.status = NodeStatus.INVALID
-                node_validator.errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_PARENT,
-                        message=(
-                            f"Derived metrics cannot reference other derived metrics. "
-                            f"Found nested derived metric(s): {', '.join(nested_derived_metrics)}. "
-                            f"Only 1 level of metric nesting is supported."
-                        ),
-                    ),
-                )
-            elif len(metric_parents) > 1:
+            # This is a derived metric - nested derived metrics are supported
+            # via inline expansion during decomposition
+            if len(metric_parents) > 1:
                 # For cross-fact derived metrics, validate that there are shared dimensions
                 # between all referenced base metrics
                 from datajunction_server.sql.dag import get_dimensions

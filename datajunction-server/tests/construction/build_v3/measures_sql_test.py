@@ -45,6 +45,13 @@ PERIOD_OVER_PERIOD = [
     "v3.mom_revenue_change",
 ]
 
+# Nested derived metrics - metrics that reference other derived metrics
+NESTED_DERIVED_METRICS = [
+    "v3.wow_aov_change",  # window function on avg_order_value (derived)
+    "v3.aov_growth_index",  # simple derived from avg_order_value
+    "v3.efficiency_ratio",  # cross-fact derived from avg_order_value and pages_per_session
+]
+
 
 class TestMeasuresSQLEndpoint:
     """Tests for the /sql/measures/v3/ endpoint."""
@@ -2825,6 +2832,129 @@ class TestCombinedMeasuresSQLEndpoint:
             GROUP BY status
             """,
         )
+
+
+class TestMeasuresSQLNestedDerived:
+    """
+    Test measures SQL for nested derived metrics.
+
+    Nested derived metrics are metrics that reference other derived metrics.
+    For measures SQL, we need to decompose down to the base components.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_metric_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a nested derived metric decomposes to its base components.
+
+        v3.aov_growth_index references v3.avg_order_value which references
+        v3.total_revenue and v3.order_count.
+
+        The measures SQL should contain the base components (line_total_sum, order_id_count).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.aov_growth_index"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have grain groups with base components
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) >= 1
+
+        # The SQL should contain the base components for total_revenue and order_count
+        gg = data["grain_groups"][0]
+        assert "line_total" in gg["sql"]
+        assert "order_id" in gg["sql"]
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_window_metric_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a window function nested derived metric decomposes correctly.
+
+        v3.wow_aov_change uses LAG() on v3.avg_order_value, which itself
+        references v3.total_revenue and v3.order_count.
+
+        The measures SQL should contain the base components.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.wow_aov_change"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have grain groups with base components
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) >= 1
+
+        # The SQL should contain the base components for total_revenue and order_count
+        gg = data["grain_groups"][0]
+        assert "line_total" in gg["sql"]
+        assert "order_id" in gg["sql"]
+
+    @pytest.mark.asyncio
+    async def test_nested_derived_cross_fact_decomposes_to_base_components(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test cross-fact nested derived metric decomposition.
+
+        v3.efficiency_ratio = v3.avg_order_value / v3.pages_per_session
+
+        Both intermediate metrics come from different facts, so we should
+        get grain groups from both order_details and page_views.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.efficiency_ratio"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        # Should have two grain groups - one from each fact
+        assert "grain_groups" in data
+        assert len(data["grain_groups"]) == 2
+
+        # Find the grain groups by their parent
+        order_gg = None
+        page_gg = None
+        for gg in data["grain_groups"]:
+            if "order_details" in gg["sql"].lower():
+                order_gg = gg
+            if "page_views" in gg["sql"].lower():
+                page_gg = gg
+
+        assert order_gg is not None, "Should have grain group from order_details"
+        assert page_gg is not None, "Should have grain group from page_views"
+
+        # Verify order_details grain group has components for total_revenue/order_count
+        assert "line_total" in order_gg["sql"]
+        assert "order_id" in order_gg["sql"]
+
+        # Verify page_views grain group has components for page_view_count/session_count
+        assert "session_id" in page_gg["sql"]
+        assert "view_id" in page_gg["sql"]
 
 
 class TestCubeMaterializeEndpoint:

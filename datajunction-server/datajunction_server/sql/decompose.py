@@ -695,12 +695,14 @@ class MetricComponentExtractor:
         parent_map: dict[str, list[str]] | None = None,
         metric_node: "Node | None" = None,
         parsed_query_cache: dict[str, ast.Query] | None = None,
+        _visited: set[str] | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract metric components from the query.
 
         For base metrics: decomposes aggregation functions into components.
         For derived metrics: collects components from base metrics and substitutes references.
+        Supports nested derived metrics via recursive inline expansion.
 
         Args:
             session: Database session for loading metric data
@@ -740,14 +742,51 @@ class MetricComponentExtractor:
         # Parse queries (pure computation, no DB)
         query_ast = cached_parse(metric_data.query)
 
-        # Extract components from each base metric (pure, no DB)
+        # Initialize visited set for cycle detection
+        if _visited is None:
+            _visited = set()
+
+        # Add current metric to visited (use metric_node name if available)
+        current_metric_name = metric_node.name if metric_node else None
+        if current_metric_name:
+            if current_metric_name in _visited:
+                raise ValueError(
+                    f"Circular metric reference detected: {current_metric_name}",
+                )
+            _visited.add(current_metric_name)
+
+        # Extract components from each parent metric
         all_components = []
         components_tracker = set()
         base_metrics_data = {}
 
         for base_metric in metric_data.base_metrics:
-            base_ast = cached_parse(base_metric.query)
-            base_components, derived_ast = self._extract_base(base_ast)
+            # Check if this parent metric is itself a derived metric
+            is_parent_derived = False
+            if nodes_cache and parent_map:
+                parent_metric_parents = [
+                    name
+                    for name in parent_map.get(base_metric.name, [])
+                    if name in nodes_cache and nodes_cache[name].type == NodeType.METRIC
+                ]
+                is_parent_derived = len(parent_metric_parents) > 0
+
+            if is_parent_derived and nodes_cache:
+                # Recursively extract the derived metric (inline expansion)
+                parent_node = nodes_cache[base_metric.name]
+                parent_extractor = MetricComponentExtractor(parent_node.current.id)
+                base_components, derived_ast = await parent_extractor.extract(
+                    session,
+                    nodes_cache=nodes_cache,
+                    parent_map=parent_map,
+                    metric_node=parent_node,
+                    parsed_query_cache=parsed_query_cache,
+                    _visited=_visited,
+                )
+            else:
+                # True base metric - decompose aggregations
+                base_ast = cached_parse(base_metric.query)
+                base_components, derived_ast = self._extract_base(base_ast)
 
             for comp in base_components:
                 if comp.name not in components_tracker:
