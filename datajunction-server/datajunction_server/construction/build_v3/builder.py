@@ -221,11 +221,13 @@ async def build_grain_groups(
     # Also returns reaggregation info for window metrics that can use base grain group
     reaggregation_window_metrics: dict[str, tuple[list[str], str]] = {}
     if window_metric_grains:
-        window_grain_groups, reaggregation_window_metrics = build_window_metric_grain_groups(
-            ctx,
-            window_metric_grains,
-            all_grain_group_sqls,
-            ctx.decomposed_metrics,
+        window_grain_groups, reaggregation_window_metrics = (
+            build_window_metric_grain_groups(
+                ctx,
+                window_metric_grains,
+                all_grain_group_sqls,
+                ctx.decomposed_metrics,
+            )
         )
         all_grain_group_sqls.extend(window_grain_groups)
 

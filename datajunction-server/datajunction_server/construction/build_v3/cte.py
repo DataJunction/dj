@@ -418,7 +418,11 @@ def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
     """
     for func in expr_ast.find_all(ast.Function):
         if func.over and func.name:
-            func_name = str(func.name.name).upper() if hasattr(func.name, "name") else str(func.name).upper()
+            func_name = (
+                str(func.name.name).upper()
+                if hasattr(func.name, "name")
+                else str(func.name).upper()
+            )
             if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
                 return True
     return False
@@ -440,7 +444,11 @@ def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]
     results: list[tuple[str, set[str]]] = []
     for func in expr_ast.find_all(ast.Function):
         if func.over and func.name:
-            func_name = str(func.name.name).upper() if hasattr(func.name, "name") else str(func.name).upper()
+            func_name = (
+                str(func.name.name).upper()
+                if hasattr(func.name, "name")
+                else str(func.name).upper()
+            )
             if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
                 order_by_cols: set[str] = set()
                 if func.over.order_by:

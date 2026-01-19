@@ -1348,7 +1348,9 @@ def build_window_metric_grain_groups(
         grain_group_sql.is_window_grain_group = True
         grain_group_sql.window_metrics_served = list(metric_names)
         # Use the first grain column as the ORDER BY dimension
-        grain_group_sql.window_order_by_dim = next(iter(grain_cols)) if grain_cols else None
+        grain_group_sql.window_order_by_dim = (
+            next(iter(grain_cols)) if grain_cols else None
+        )
 
         additional_grain_groups.append(grain_group_sql)
 
