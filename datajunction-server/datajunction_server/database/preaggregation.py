@@ -168,6 +168,7 @@ class PreAggregation(Base):
         ForeignKey(
             "noderevision.id",
             name="fk_pre_aggregation_node_revision_id_noderevision",
+            ondelete="CASCADE",
         ),
         nullable=False,
         index=True,
@@ -250,7 +251,10 @@ class PreAggregation(Base):
     )
 
     # === Relationships ===
-    node_revision: Mapped["NodeRevision"] = relationship("NodeRevision")
+    node_revision: Mapped["NodeRevision"] = relationship(
+        "NodeRevision",
+        passive_deletes=True,
+    )
     availability: Mapped[Optional["AvailabilityState"]] = relationship(
         "AvailabilityState",
     )

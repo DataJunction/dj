@@ -204,6 +204,7 @@ class NodeMissingParents(Base):
         ForeignKey(
             "noderevision.id",
             name="fk_nodemissingparents_referencing_node_id_noderevision",
+            ondelete="CASCADE",
         ),
         primary_key=True,
     )

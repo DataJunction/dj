@@ -37,7 +37,7 @@ class Metric(BaseModel):
     updated_at: UTCDatetime
 
     query: str
-    upstream_node: str
+    upstream_node: Optional[str] = None
     expression: str
 
     dimensions: List[DimensionAttributeOutput]
@@ -80,7 +80,11 @@ class Metric(BaseModel):
             created_at=node.created_at,
             updated_at=node.current.updated_at,
             query=node.current.query,  # type: ignore
-            upstream_node=node.current.parents[0].name,
+            upstream_node=(
+                node.current.non_metric_parents[0].name
+                if node.current.non_metric_parents
+                else None
+            ),
             expression=str(query_ast.select.projection[0]),
             dimensions=dims,
             metric_metadata=node.current.metric_metadata,
