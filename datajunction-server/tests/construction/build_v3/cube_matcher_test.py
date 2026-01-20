@@ -1016,13 +1016,13 @@ class TestBuildSqlFromCube:
         SELECT
           base_metrics.week_order AS week_order,
           base_metrics.category AS category,
-          SUM(test_cube_window_metrics_0.line_total_sum_e1f61696) AS total_revenue,
-          COUNT( DISTINCT test_cube_window_metrics_0.order_id_distinct_f93d50ab) AS order_count,
-          (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY category
-            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY category
+          base_metrics.total_revenue AS total_revenue,
+          base_metrics.order_count AS order_count,
+          (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
+            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
             ORDER BY base_metrics.week_order) , 0) * 100 AS wow_revenue_change,
-          (CAST(base_metrics.order_count AS DOUBLE) - LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER ( PARTITION BY category
-            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER ( PARTITION BY category
+          (CAST(base_metrics.order_count AS DOUBLE) - LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER ( PARTITION BY base_metrics.category
+            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(CAST(base_metrics.order_count AS DOUBLE), 1) OVER ( PARTITION BY base_metrics.category
             ORDER BY base_metrics.week_order) , 0) * 100 AS wow_order_growth
         FROM base_metrics
         """
@@ -1131,9 +1131,9 @@ class TestBuildSqlFromCube:
         SELECT
           base_metrics.date_id_order AS date_id_order,
           base_metrics.category AS category,
-          SUM(test_cube_trailing_metrics_0.line_total_sum_e1f61696) AS total_revenue,
-          SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue,
-          (SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) - SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
+          base_metrics.total_revenue AS total_revenue,
+          SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue,
+          (SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) - SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
         FROM base_metrics
         """
         assert_sql_equal(result.sql, expected_sql, normalize_aliases=False)

@@ -347,6 +347,10 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.visitor_count",
         "v3.wow_order_growth",
         "v3.wow_revenue_change",
+        # New v3 window and derived metrics
+        "v3.aov_growth_index",
+        "v3.efficiency_ratio",
+        "v3.wow_aov_change",
     }
 
 

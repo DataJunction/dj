@@ -1611,3 +1611,504 @@ async def test_extract_derived_metric_shared_components(
     # Verify the amount component appears only once
     amount_components = [c for c in components if c.expression == "amount"]
     assert len(amount_components) == 1
+
+
+# =============================================================================
+# Tests for Nested Derived Metrics (derived metrics referencing derived metrics)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_extract_nested_derived_metric_two_levels(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test nested derived metric: growth_index = derived_metric / constant
+
+    Structure:
+    - base_metric: SUM(amount) -> revenue
+    - derived_metric_1: revenue * 1.1 (references base_metric)
+    - nested_derived: derived_metric_1 / 100 (references derived_metric_1)
+
+    The nested derived should decompose all the way to the base components.
+    """
+    session = clean_session
+    # Level 0: Base metric
+    revenue_node, _ = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+
+    # Level 1: Derived metric referencing base metric
+    adjusted_revenue_node, _ = await create_derived_metric(
+        "default.adjusted_revenue",
+        "SELECT default.revenue * 1.1",
+        [revenue_node],
+    )
+
+    # Level 2: Nested derived metric referencing level 1 derived metric
+    _, growth_index_rev = await create_derived_metric(
+        "default.growth_index",
+        "SELECT default.adjusted_revenue / 100",
+        [adjusted_revenue_node],
+    )
+
+    extractor = MetricComponentExtractor(growth_index_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should decompose all the way to base components
+    assert len(components) == 1
+    assert components[0].aggregation == "SUM"
+    assert components[0].expression == "amount"
+
+    # Derived SQL should NOT contain any intermediate metric references
+    assert "default.revenue" not in derived_sql
+    assert "default.adjusted_revenue" not in derived_sql
+
+    # Should contain the fully expanded combiner expression
+    assert "SUM(" in derived_sql
+    assert "1.1" in derived_sql
+    assert "100" in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_nested_derived_metric_three_levels(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test 3-level nested derived metric decomposition.
+
+    Structure:
+    - L0: total_orders = COUNT(*) FROM orders
+    - L1: orders_per_day = total_orders / 30
+    - L2: weekly_avg = orders_per_day * 7
+    - L3: monthly_projection = weekly_avg * 4.3
+
+    Should decompose to the COUNT(*) component.
+    """
+    session = clean_session
+    # Level 0
+    total_orders_node, _ = await create_base_metric(
+        "default.total_orders",
+        "SELECT COUNT(*) FROM default.orders_source",
+    )
+
+    # Level 1
+    orders_per_day_node, _ = await create_derived_metric(
+        "default.orders_per_day",
+        "SELECT default.total_orders / 30",
+        [total_orders_node],
+    )
+
+    # Level 2
+    weekly_avg_node, _ = await create_derived_metric(
+        "default.weekly_avg",
+        "SELECT default.orders_per_day * 7",
+        [orders_per_day_node],
+    )
+
+    # Level 3
+    _, monthly_projection_rev = await create_derived_metric(
+        "default.monthly_projection",
+        "SELECT default.weekly_avg * 4.3",
+        [weekly_avg_node],
+    )
+
+    extractor = MetricComponentExtractor(monthly_projection_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should decompose all the way to COUNT(*) component
+    assert len(components) == 1
+    assert components[0].aggregation == "COUNT"
+    assert components[0].merge == "SUM"  # COUNT merges as SUM
+
+    # Should not contain intermediate metric references
+    assert "default.total_orders" not in derived_sql
+    assert "default.orders_per_day" not in derived_sql
+    assert "default.weekly_avg" not in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_nested_derived_metric_multiple_base_metrics(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test nested derived metric that ultimately depends on multiple base metrics.
+
+    Structure:
+    - L0: revenue = SUM(amount)
+    - L0: order_count = COUNT(*)
+    - L1: aov = revenue / order_count (derived from 2 base metrics)
+    - L2: aov_index = aov * 100 (nested derived)
+
+    Should decompose to both base metric components.
+    """
+    session = clean_session
+    # Level 0: Two base metrics
+    revenue_node, _ = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    order_count_node, _ = await create_base_metric(
+        "default.order_count",
+        "SELECT COUNT(*) FROM default.orders_source",
+    )
+
+    # Level 1: Derived metric from both base metrics
+    aov_node, _ = await create_derived_metric(
+        "default.aov",
+        "SELECT default.revenue / NULLIF(default.order_count, 0)",
+        [revenue_node, order_count_node],
+    )
+
+    # Level 2: Nested derived
+    _, aov_index_rev = await create_derived_metric(
+        "default.aov_index",
+        "SELECT default.aov * 100",
+        [aov_node],
+    )
+
+    extractor = MetricComponentExtractor(aov_index_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should have components from both base metrics
+    assert len(components) == 2
+    agg_types = {c.aggregation for c in components}
+    assert agg_types == {"SUM", "COUNT"}
+
+    # Should not contain any metric references
+    assert "default.revenue" not in derived_sql
+    assert "default.order_count" not in derived_sql
+    assert "default.aov" not in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_nested_derived_circular_reference_detection(
+    clean_session: AsyncSession,
+    clean_current_user,
+):
+    """
+    Test that circular references in nested derived metrics are detected.
+
+    Structure:
+    - metric_a references metric_b
+    - metric_b references metric_a (circular!)
+
+    Should raise ValueError with cycle detection message.
+    """
+    session = clean_session
+    current_user = clean_current_user
+
+    # Create two metric nodes that will reference each other
+    metric_a_node = Node(
+        name="default.metric_a",
+        type=NodeType.METRIC,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(metric_a_node)
+    await session.flush()
+
+    metric_b_node = Node(
+        name="default.metric_b",
+        type=NodeType.METRIC,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(metric_b_node)
+    await session.flush()
+
+    # Create revisions
+    metric_a_rev = NodeRevision(
+        node_id=metric_a_node.id,
+        version="v1.0",
+        name="default.metric_a",
+        type=NodeType.METRIC,
+        query="SELECT default.metric_b * 2",
+        created_by_id=current_user.id,
+    )
+    session.add(metric_a_rev)
+    await session.flush()
+
+    metric_b_rev = NodeRevision(
+        node_id=metric_b_node.id,
+        version="v1.0",
+        name="default.metric_b",
+        type=NodeType.METRIC,
+        query="SELECT default.metric_a / 2",
+        created_by_id=current_user.id,
+    )
+    session.add(metric_b_rev)
+    await session.flush()
+
+    # Create circular relationships
+    rel_a = NodeRelationship(parent_id=metric_b_node.id, child_id=metric_a_rev.id)
+    rel_b = NodeRelationship(parent_id=metric_a_node.id, child_id=metric_b_rev.id)
+    session.add(rel_a)
+    session.add(rel_b)
+    await session.flush()
+
+    # Build cache for cache-based extraction
+    nodes_cache = {
+        "default.metric_a": metric_a_node,
+        "default.metric_b": metric_b_node,
+    }
+    # Need to set current revision on nodes for cache-based extraction
+    metric_a_node.current = metric_a_rev
+    metric_b_node.current = metric_b_rev
+
+    parent_map = {
+        "default.metric_a": ["default.metric_b"],
+        "default.metric_b": ["default.metric_a"],
+    }
+
+    extractor = MetricComponentExtractor(metric_a_rev.id)
+
+    # Should detect the circular reference
+    with pytest.raises(ValueError, match="Circular metric reference detected"):
+        await extractor.extract(
+            session,
+            nodes_cache=nodes_cache,
+            parent_map=parent_map,
+            metric_node=metric_a_node,
+        )
+
+
+@pytest.mark.asyncio
+async def test_extract_with_cache_basic(
+    clean_session: AsyncSession,
+    create_base_metric,
+):
+    """
+    Test extraction using the cache-based path (nodes_cache, parent_map).
+
+    This is the path used by build_v3 for efficiency.
+    """
+    session = clean_session
+    # Create a base metric
+    revenue_node, revenue_rev = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+
+    # Set current revision on node
+    revenue_node.current = revenue_rev
+
+    # Build cache
+    nodes_cache = {"default.revenue": revenue_node}
+    parent_map: dict[str, list[str]] = {
+        "default.revenue": [],
+    }  # No metric parents (it's a base metric)
+
+    extractor = MetricComponentExtractor(revenue_rev.id)
+    components, derived_ast = await extractor.extract(
+        session,
+        nodes_cache=nodes_cache,
+        parent_map=parent_map,
+        metric_node=revenue_node,
+    )
+
+    # Should work the same as non-cache path
+    assert len(components) == 1
+    assert components[0].aggregation == "SUM"
+    assert components[0].expression == "amount"
+
+
+@pytest.mark.asyncio
+async def test_extract_with_cache_derived_metric(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test cache-based extraction for derived metrics.
+    """
+    session = clean_session
+    # Create base metrics
+    revenue_node, revenue_rev = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    orders_node, orders_rev = await create_base_metric(
+        "default.orders",
+        "SELECT COUNT(*) FROM default.orders_source",
+    )
+
+    # Create derived metric
+    aov_node, aov_rev = await create_derived_metric(
+        "default.aov",
+        "SELECT default.revenue / NULLIF(default.orders, 0)",
+        [revenue_node, orders_node],
+    )
+
+    # Set current revisions
+    revenue_node.current = revenue_rev
+    orders_node.current = orders_rev
+    aov_node.current = aov_rev
+
+    # Build cache
+    nodes_cache = {
+        "default.revenue": revenue_node,
+        "default.orders": orders_node,
+        "default.aov": aov_node,
+    }
+    parent_map: dict[str, list[str]] = {
+        "default.revenue": [],  # Base metric
+        "default.orders": [],  # Base metric
+        "default.aov": ["default.revenue", "default.orders"],  # Derived
+    }
+
+    extractor = MetricComponentExtractor(aov_rev.id)
+    components, derived_ast = await extractor.extract(
+        session,
+        nodes_cache=nodes_cache,
+        parent_map=parent_map,
+        metric_node=aov_node,
+    )
+
+    # Should have components from both base metrics
+    assert len(components) == 2
+    agg_types = {c.aggregation for c in components}
+    assert agg_types == {"SUM", "COUNT"}
+
+
+@pytest.mark.asyncio
+async def test_extract_with_cache_nested_derived_metric(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test cache-based extraction for nested derived metrics (the full path used by build_v3).
+    """
+    session = clean_session
+    # L0: Base metrics
+    revenue_node, revenue_rev = await create_base_metric(
+        "default.revenue",
+        "SELECT SUM(amount) FROM default.orders_source",
+    )
+    orders_node, orders_rev = await create_base_metric(
+        "default.orders",
+        "SELECT COUNT(*) FROM default.orders_source",
+    )
+
+    # L1: AOV (derived from both base metrics)
+    aov_node, aov_rev = await create_derived_metric(
+        "default.aov",
+        "SELECT default.revenue / NULLIF(default.orders, 0)",
+        [revenue_node, orders_node],
+    )
+
+    # L2: AOV Growth Index (nested derived from aov)
+    _, aov_growth_rev = await create_derived_metric(
+        "default.aov_growth_index",
+        "SELECT default.aov * 100 / 50",
+        [aov_node],
+    )
+
+    # Set current revisions
+    revenue_node.current = revenue_rev
+    orders_node.current = orders_rev
+    aov_node.current = aov_rev
+
+    # Build cache (this is how build_v3 does it)
+    nodes_cache = {
+        "default.revenue": revenue_node,
+        "default.orders": orders_node,
+        "default.aov": aov_node,
+    }
+    parent_map: dict[str, list[str]] = {
+        "default.revenue": [],
+        "default.orders": [],
+        "default.aov": ["default.revenue", "default.orders"],
+        "default.aov_growth_index": ["default.aov"],
+    }
+
+    # Note: aov_growth_index node is not in cache, but its parent (aov) is.
+    # This simulates how build_v3 works - it loads needed nodes.
+    aov_growth_node = Node(
+        name="default.aov_growth_index",
+        type=NodeType.METRIC,
+        current_version="v1.0",
+    )
+    aov_growth_node.current = aov_growth_rev
+    nodes_cache["default.aov_growth_index"] = aov_growth_node
+
+    extractor = MetricComponentExtractor(aov_growth_rev.id)
+    components, derived_ast = await extractor.extract(
+        session,
+        nodes_cache=nodes_cache,
+        parent_map=parent_map,
+        metric_node=aov_growth_node,
+    )
+    derived_sql = str(derived_ast)
+
+    # Should decompose all the way to base components
+    assert len(components) == 2
+    agg_types = {c.aggregation for c in components}
+    assert agg_types == {"SUM", "COUNT"}
+
+    # Should not contain any intermediate metric references
+    assert "default.revenue" not in derived_sql
+    assert "default.orders" not in derived_sql
+    assert "default.aov" not in derived_sql
+
+
+@pytest.mark.asyncio
+async def test_extract_nested_derived_with_avg(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Test nested derived metric where base metric uses AVG (multi-component).
+
+    AVG decomposes to SUM and COUNT components. The nested derived should
+    collect both components through the intermediate derived metric.
+    """
+    session = clean_session
+    # Base metric using AVG (decomposes to SUM + COUNT)
+    avg_price_node, _ = await create_base_metric(
+        "default.avg_price",
+        "SELECT AVG(price) FROM default.products",
+    )
+
+    # Derived metric referencing AVG metric
+    price_index_node, _ = await create_derived_metric(
+        "default.price_index",
+        "SELECT default.avg_price * 100",
+        [avg_price_node],
+    )
+
+    # Nested derived
+    _, adjusted_index_rev = await create_derived_metric(
+        "default.adjusted_price_index",
+        "SELECT default.price_index / 1.1",
+        [price_index_node],
+    )
+
+    extractor = MetricComponentExtractor(adjusted_index_rev.id)
+    components, derived_ast = await extractor.extract(session)
+    derived_sql = str(derived_ast)
+
+    # Should have both SUM and COUNT components from AVG decomposition
+    assert len(components) == 2
+    agg_types = {c.aggregation for c in components}
+    assert agg_types == {"SUM", "COUNT"}
+
+    # Expressions should be the same (both from price)
+    expressions = {c.expression for c in components}
+    assert expressions == {"price"}
+
+    # Derived SQL should contain the AVG combiner (SUM/COUNT pattern)
+    assert "SUM(" in derived_sql
+    assert "/" in derived_sql  # Division from AVG decomposition

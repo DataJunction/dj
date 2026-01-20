@@ -11,7 +11,7 @@ from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
 )
-from datajunction_server.construction.build_v3.types import BuildContext
+from datajunction_server.construction.build_v3.types import BuildContext, GrainGroupSQL
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
@@ -57,6 +57,116 @@ def get_column_full_name(col: ast.Column) -> str:
         parts.append(col.name.identifier(quotes=False))
 
     return SEPARATOR.join(parts) if parts else ""  # pragma: no cover
+
+
+def extract_dimension_node(dim_ref: str) -> str:
+    """
+    Extract the dimension node name from a full dimension reference.
+
+    For example:
+        "common.dimensions.time.date.dateint" -> "common.dimensions.time.date"
+        "common.dimensions.time.date.week_code" -> "common.dimensions.time.date"
+        "v3.product.hw_category" -> "v3.product"
+
+    Args:
+        dim_ref: Full dimension reference (node.column format)
+
+    Returns:
+        The dimension node name (everything before the last separator)
+    """
+    parts = dim_ref.rsplit(SEPARATOR, 1)
+    return parts[0] if len(parts) > 1 else dim_ref
+
+
+def build_alias_to_dimension_node(
+    dim_info: list[tuple[str, str]],
+) -> dict[str, str]:
+    """
+    Build a mapping from column alias to dimension node.
+
+    This is used to determine which aliases belong to the same dimension node,
+    so that when a window function orders by one attribute of a dimension (e.g., week_code),
+    we can exclude all attributes of that dimension (e.g., dateint) from PARTITION BY.
+
+    Args:
+        dim_info: List of (original_dim_ref, col_alias) tuples
+            e.g., [("common.dimensions.time.date.dateint", "dateint"),
+                   ("common.dimensions.time.date.week_code", "week_code")]
+
+    Returns:
+        Mapping from alias to dimension node
+            e.g., {"dateint": "common.dimensions.time.date",
+                   "week_code": "common.dimensions.time.date"}
+    """
+    return {
+        col_alias: extract_dimension_node(dim_ref) for dim_ref, col_alias in dim_info
+    }
+
+
+def build_dimension_node_to_aliases(
+    alias_to_node: dict[str, str],
+) -> dict[str, set[str]]:
+    """
+    Build a mapping from dimension node to all its aliases.
+
+    Args:
+        alias_to_node: Mapping from alias to dimension node
+            e.g., {"week": "v3.date", "month": "v3.date", "category": "v3.product"}
+
+    Returns:
+        Mapping from dimension node to set of aliases
+            e.g., {"v3.date": {"week", "month"}, "v3.product": {"category"}}
+    """
+    node_to_aliases: dict[str, set[str]] = {}
+    for alias, node in alias_to_node.items():
+        if node not in node_to_aliases:
+            node_to_aliases[node] = set()
+        node_to_aliases[node].add(alias)
+    return node_to_aliases
+
+
+def strip_role_suffix(ref: str) -> str:
+    """
+    Strip role suffix like [order], [filter] from a dimension reference.
+
+    For example:
+        "v3.date.week[order]" -> "v3.date.week"
+        "v3.date.month" -> "v3.date.month"
+    """
+    if "[" in ref:
+        return ref.split("[")[0]
+    return ref
+
+
+def extract_dim_info_from_grain_groups(
+    grain_groups: list[GrainGroupSQL],
+) -> list[tuple[str, str]]:
+    """
+    Extract dimension info (dim_ref, alias) tuples from all grain group columns.
+
+    This includes ALL dimensions in the grain groups, not just user-requested ones.
+    This is important for window function PARTITION BY logic, which needs to know
+    about all dimensions from the same dimension node (e.g., date_id, week, month
+    all come from v3.date).
+
+    Args:
+        grain_groups: List of grain group SQLs
+
+    Returns:
+        List of (dim_ref, alias) tuples for all dimension columns
+    """
+    dim_info: list[tuple[str, str]] = []
+    seen_aliases: set[str] = set()
+
+    for gg in grain_groups:
+        for col in gg.columns:
+            if col.semantic_type == "dimension" and col.name not in seen_aliases:
+                # Strip role suffix from semantic_name for consistent dimension node extraction
+                dim_ref = strip_role_suffix(col.semantic_name)
+                dim_info.append((dim_ref, col.name))
+                seen_aliases.add(col.name)
+
+    return dim_info
 
 
 def replace_component_refs_in_ast(
@@ -249,16 +359,149 @@ PARTITION_BY_INJECTION_FUNCTIONS = frozenset(
     },
 )
 
+# Navigation functions that require grain-level aggregation for period-over-period
+# LAG/LEAD compare values across rows at a specific grain, so we need to pre-aggregate
+# to that grain before applying the window function
+GRAIN_LEVEL_AGGREGATION_FUNCTIONS = frozenset(
+    {
+        "LAG",
+        "LEAD",
+    },
+)
+
+
+def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
+    """
+    Check if an expression uses LAG/LEAD window functions that need grain-level aggregation.
+
+    LAG/LEAD functions compare values across rows at a specific grain (e.g., week-over-week).
+    Unlike frame-based functions (SUM OVER ROWS BETWEEN), these need pre-aggregation to the
+    ORDER BY grain before the window function is applied.
+
+    Args:
+        expr_ast: The AST expression to check
+
+    Returns:
+        True if the expression contains LAG/LEAD window functions
+    """
+    for func in expr_ast.find_all(ast.Function):
+        if func.over and func.name:
+            func_name = (
+                str(func.name.name).upper()
+                if hasattr(func.name, "name")
+                else str(func.name).upper()
+            )
+            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
+                return True
+    return False
+
+
+def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]]:
+    """
+    Get information about LAG/LEAD window functions that need grain-level aggregation.
+
+    Returns a list of (function_name, order_by_columns) tuples for each LAG/LEAD
+    window function in the expression.
+
+    Args:
+        expr_ast: The AST expression to analyze
+
+    Returns:
+        List of (function_name, order_by_columns) tuples
+    """
+    results: list[tuple[str, set[str]]] = []
+    for func in expr_ast.find_all(ast.Function):
+        if func.over and func.name:
+            func_name = (
+                str(func.name.name).upper()
+                if hasattr(func.name, "name")
+                else str(func.name).upper()
+            )
+            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:  # pragma: no branch
+                order_by_cols: set[str] = set()
+                if func.over.order_by:  # pragma: no branch
+                    for sort_item in func.over.order_by:
+                        col_expr = sort_item.expr
+                        # Handle Subscript expressions (role suffix like [order])
+                        if isinstance(col_expr, ast.Subscript):
+                            col_expr = col_expr.expr
+                        if (
+                            isinstance(col_expr, ast.Column) and col_expr.name
+                        ):  # pragma: no branch
+                            col_name = get_column_full_name(col_expr)
+                            if col_name:  # pragma: no branch
+                                order_by_cols.add(col_name)
+                results.append((func_name, order_by_cols))
+    return results
+
+
+def detect_window_metrics_requiring_grain_groups(
+    ctx: "BuildContext",
+    decomposed_metrics: dict,
+    base_grain_group_metrics: set[str],
+) -> dict[str, set[str]]:
+    """
+    Detect window metrics that require grain-level grain groups.
+
+    Analyzes all requested metrics and identifies those with LAG/LEAD window functions
+    that operate at a different grain than the user-requested grain. Returns a mapping
+    of metric names to their required ORDER BY columns (grains).
+
+    Args:
+        ctx: Build context with metrics and nodes
+        decomposed_metrics: Decomposed metric info (metric_name -> DecomposedMetricInfo)
+        base_grain_group_metrics: Set of base metrics already in grain groups
+
+    Returns:
+        Dict mapping metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
+    """
+    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
+
+    window_metric_grains: dict[str, set[str]] = {}
+
+    for metric_name in ctx.metrics:
+        # Skip base metrics - they're already in grain groups
+        if metric_name in base_grain_group_metrics:
+            continue
+
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed:
+            continue  # pragma: no cover
+
+        # Check if this metric uses LAG/LEAD that needs grain-level aggregation
+        if (  # pragma: no branch
+            isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast
+        ):
+            if needs_grain_level_aggregation(decomposed.combiner_ast):
+                # Get the ORDER BY columns for this metric
+                grain_info = get_grain_level_window_info(decomposed.combiner_ast)
+                order_by_cols: set[str] = set()
+                for _, cols in grain_info:
+                    order_by_cols.update(cols)
+                if order_by_cols:  # pragma: no branch
+                    window_metric_grains[metric_name] = order_by_cols
+
+    return window_metric_grains
+
 
 def inject_partition_by_into_windows(
     expr_ast: ast.Node,
     all_dimension_aliases: list[str],
+    alias_to_dimension_node: dict[str, str] | None = None,
+    partition_cte_alias: str | None = None,
 ) -> None:
     """
     Inject PARTITION BY clauses into navigation/ranking window functions.
 
     For period-over-period metrics with window functions like LAG/LEAD, the PARTITION BY
-    should include all requested dimensions EXCEPT those in the ORDER BY clause.
+    should include all requested dimensions EXCEPT:
+    1. Those in the ORDER BY clause
+    2. Other columns from the same dimension node as the ORDER BY column
+
+    The second rule is critical for period-over-period metrics. For example, if ordering
+    by week_code (from common.dimensions.time.date), we should NOT partition by dateint
+    (also from common.dimensions.time.date), because dateint is a finer grain that would
+    break the week-over-week comparison.
 
     This ensures that comparisons (e.g., week-over-week) are done within each partition
     (e.g., per country, per product) rather than across the entire result set.
@@ -269,10 +512,14 @@ def inject_partition_by_into_windows(
 
     For example, given:
         LAG(revenue, 1) OVER (ORDER BY week_code)
-    And requested dimensions: [category, country_iso_code, week_code]
+    And requested dimensions: [category, dateint, week_code, month_code]
+    Where dateint, week_code, month_code are all from "common.dimensions.time.date"
 
     This function transforms it to:
-        LAG(revenue, 1) OVER (PARTITION BY category, country_iso_code ORDER BY week_code)
+        LAG(revenue, 1) OVER (PARTITION BY category ORDER BY week_code)
+
+    Note: dateint and month_code are excluded because they're from the same dimension
+    node as week_code.
 
     But this is left unchanged:
         SUM(impressions) OVER ()  -- grand total, no partition injection
@@ -281,35 +528,78 @@ def inject_partition_by_into_windows(
         expr_ast: The AST expression to modify (mutated in place)
         all_dimension_aliases: List of all requested dimension column aliases
             (already resolved, e.g., ["category", "country_iso_code", "week_code"])
+        alias_to_dimension_node: Optional mapping from alias to dimension node name.
+            If provided, all aliases from the same dimension node as ORDER BY columns
+            will be excluded from PARTITION BY.
+        partition_cte_alias: Optional CTE alias to qualify PARTITION BY columns.
+            If provided, columns will be qualified as cte_alias.column.
+            Important for JOINs where column names may be ambiguous.
     """
+    # Build reverse mapping: dimension_node -> set of aliases
+    node_to_aliases: dict[str, set[str]] = {}
+    if alias_to_dimension_node:
+        node_to_aliases = build_dimension_node_to_aliases(alias_to_dimension_node)
+
     # Find all Function nodes with an OVER clause (window functions)
     for func in expr_ast.find_all(ast.Function):
         if not func.over:
             continue
 
-        # Only inject PARTITION BY for navigation/ranking functions
-        # Aggregate functions (SUM, AVG, etc.) with OVER () should keep their grand total behavior
         func_name = func.name.name.upper() if func.name else ""
-        if func_name not in PARTITION_BY_INJECTION_FUNCTIONS:
+
+        # Determine if we should inject PARTITION BY:
+        # 1. Navigation/ranking functions (LAG, LEAD, etc.) - always inject
+        # 2. Aggregate functions with ORDER BY (trailing/rolling) - inject
+        # 3. Aggregate functions with empty OVER () (grand totals) - skip
+        should_inject = False
+        if func_name in PARTITION_BY_INJECTION_FUNCTIONS:
+            # Navigation/ranking functions always need partitioning
+            should_inject = True
+        elif func.over.order_by:
+            # Aggregate with ORDER BY = trailing/rolling metric, needs partitioning
+            should_inject = True
+        # else: OVER () with no ORDER BY = grand total, skip partitioning
+
+        if not should_inject:
             continue
 
         # Get dimensions used in ORDER BY (these should NOT be in PARTITION BY)
         order_by_dims: set[str] = set()
         for sort_item in func.over.order_by:
             # Extract the column name from the sort expression
-            if (
+            if (  # pragma: no branch
                 isinstance(sort_item.expr, ast.Column) and sort_item.expr.name
-            ):  # pragma: no branch
+            ):
                 order_by_dims.add(sort_item.expr.name.name)
+
+        # Build set of aliases to exclude from PARTITION BY
+        # Start with ORDER BY dimensions, then add all aliases from the same dimension nodes
+        excluded_aliases: set[str] = set(order_by_dims)
+        if alias_to_dimension_node:
+            for order_dim in order_by_dims:
+                # Find the dimension node for this ORDER BY column
+                dim_node = alias_to_dimension_node.get(order_dim)
+                if dim_node:  # pragma: no branch
+                    # Exclude all aliases from the same dimension node
+                    excluded_aliases.update(node_to_aliases.get(dim_node, set()))
 
         # Add all other dimensions to PARTITION BY
         # Only add if PARTITION BY is currently empty (don't override explicit partitions)
         if not func.over.partition_by:
             for dim_alias in all_dimension_aliases:
-                if dim_alias not in order_by_dims:
-                    func.over.partition_by.append(
-                        ast.Column(name=ast.Name(dim_alias)),
-                    )
+                if dim_alias not in excluded_aliases:
+                    # Optionally qualify with CTE alias to avoid ambiguity in JOINs
+                    if partition_cte_alias:
+                        func.over.partition_by.append(
+                            ast.Column(
+                                name=ast.Name(dim_alias),
+                                _table=ast.Table(ast.Name(partition_cte_alias)),
+                            ),
+                        )
+                    else:
+                        func.over.partition_by.append(
+                            ast.Column(name=ast.Name(dim_alias)),
+                        )
 
 
 def topological_sort_nodes(ctx: BuildContext, node_names: set[str]) -> list[Node]:
