@@ -218,16 +218,14 @@ async def build_grain_groups(
 
     # Build additional grain groups for window metrics at their ORDER BY grains
     # These are pre-aggregated at coarser grains (e.g., weekly) for LAG/LEAD to work
-    # Also returns reaggregation info for window metrics that can use base grain group
-    reaggregation_window_metrics: dict[str, tuple[list[str], str]] = {}
+    # Each grain group goes through pre-agg matching, so if a pre-agg exists at that
+    # grain (e.g., weekly), it will be used instead of re-scanning source tables
     if window_metric_grains:
-        window_grain_groups, reaggregation_window_metrics = (
-            build_window_metric_grain_groups(
-                ctx,
-                window_metric_grains,
-                all_grain_group_sqls,
-                ctx.decomposed_metrics,
-            )
+        window_grain_groups = build_window_metric_grain_groups(
+            ctx,
+            window_metric_grains,
+            all_grain_group_sqls,
+            ctx.decomposed_metrics,
         )
         all_grain_group_sqls.extend(window_grain_groups)
 
@@ -238,7 +236,6 @@ async def build_grain_groups(
         ctx=ctx,
         decomposed_metrics=ctx.decomposed_metrics,
         window_metric_grains=window_metric_grains,
-        reaggregation_window_metrics=reaggregation_window_metrics,
     )
 
 

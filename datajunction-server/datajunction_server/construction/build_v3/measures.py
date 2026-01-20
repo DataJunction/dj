@@ -1159,7 +1159,7 @@ def build_window_metric_grain_groups(
     window_metric_grains: dict[str, set[str]],
     existing_grain_groups: list[GrainGroupSQL],
     decomposed_metrics: dict,
-) -> tuple[list[GrainGroupSQL], dict[str, tuple[list[str], str]]]:
+) -> list[GrainGroupSQL]:
     """
     Build additional grain groups for window metrics that require grain-level aggregation.
 
@@ -1171,10 +1171,8 @@ def build_window_metric_grain_groups(
     - We need an additional grain group at the WEEKLY grain for the LAG to compare properly
     - The weekly grain group excludes finer-grained time dimensions (like daily)
 
-    When the window metric's target dimensions are a SUBSET of user-requested dimensions,
-    we DON'T create a separate grain group. Instead, we track these metrics for
-    "reaggregation" - the metrics phase will reaggregate from the base grain group.
-    This is more efficient because it avoids re-scanning fact tables.
+    These grain groups go through normal pre-agg matching, so if a pre-agg exists at the
+    window metric's grain (e.g., weekly), it will be used instead of re-scanning source tables.
 
     Args:
         ctx: Build context
@@ -1184,9 +1182,7 @@ def build_window_metric_grain_groups(
         decomposed_metrics: Decomposed metric info
 
     Returns:
-        Tuple of:
-        - List of additional GrainGroupSQL for window metrics (only for non-subset cases)
-        - Dict of reaggregation info: metric_name -> (target_dimensions, order_by_dim)
+        List of additional GrainGroupSQL for window metrics at their ORDER BY grains
     """
     from datajunction_server.construction.build_v3.cte import (
         extract_dimension_node,
@@ -1195,13 +1191,11 @@ def build_window_metric_grain_groups(
     from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
 
     if not window_metric_grains:
-        return [], {}
+        return []
 
     # Group window metrics by their ORDER BY grain
     # Multiple window metrics may share the same grain (e.g., both WoW and MoM revenue)
     grain_to_metrics: dict[frozenset[str], list[str]] = {}
-    # Track window metrics that can be computed via reaggregation from base grain group
-    reaggregation_metrics: dict[str, tuple[list[str], str]] = {}
     for metric_name, grains in window_metric_grains.items():
         grain_key = frozenset(grains)
         if grain_key not in grain_to_metrics:
@@ -1291,17 +1285,6 @@ def build_window_metric_grain_groups(
         if set(filtered_dimensions) == set(ctx.dimensions):
             continue
 
-        # If filtered_dimensions is a STRICT SUBSET of ctx.dimensions, use reaggregation
-        # instead of creating a separate grain group. This is more efficient because
-        # we can reaggregate from the base grain group instead of re-scanning fact tables.
-        # filtered_dimensions is always a subset by construction (we only iterate ctx.dimensions)
-        if set(filtered_dimensions) < set(ctx.dimensions):
-            # Record reaggregation info for each metric
-            order_by_dim = next(iter(grain_cols)) if grain_cols else ""
-            for metric_name in metric_names:
-                reaggregation_metrics[metric_name] = (filtered_dimensions, order_by_dim)
-            continue
-
         # Save original dimensions and temporarily set filtered dimensions
         # We can't deepcopy ctx because it contains AsyncSession
         original_dimensions = ctx.dimensions
@@ -1354,4 +1337,4 @@ def build_window_metric_grain_groups(
 
         additional_grain_groups.append(grain_group_sql)
 
-    return additional_grain_groups, reaggregation_metrics
+    return additional_grain_groups
