@@ -1193,18 +1193,100 @@ def build_window_metric_grain_groups(
     if not window_metric_grains:
         return []
 
-    # Group window metrics by their ORDER BY grain
-    # Multiple window metrics may share the same grain (e.g., both WoW and MoM revenue)
-    grain_to_metrics: dict[frozenset[str], list[str]] = {}
+    # First, determine the parent fact for each window metric
+    # This is based on which grain group the base metric(s) belong to
+    def find_grain_group_parent(metric_name: str, visited: set[str]) -> set[str]:
+        """
+        Recursively find the grain group parent(s) for a metric.
+
+        For base metrics: returns the grain group parent directly
+        For derived metrics: traces through to find the underlying base metrics
+
+        Returns set of grain group parent names (e.g., {"thumb_rating"})
+        """
+        if metric_name in visited:
+            return set()
+        visited.add(metric_name)
+
+        # Check if this metric is directly in a grain group
+        for gg in existing_grain_groups:
+            if metric_name in gg.metrics:
+                return {gg.parent_name}
+
+        # Not in a grain group - might be a derived metric
+        # Check parent_map for dependencies
+        parent_names = ctx.parent_map.get(metric_name, [])
+        grain_group_parents: set[str] = set()
+        for parent_name in parent_names:
+            metric_parent = ctx.nodes.get(parent_name)
+            if metric_parent and metric_parent.type.value == "metric":
+                # Recursively find grain group parents
+                grain_group_parents.update(
+                    find_grain_group_parent(parent_name, visited),
+                )
+
+        return grain_group_parents
+
+    def find_parent_for_window_metric(
+        metric_name: str,
+    ) -> tuple[Optional[str], set[str]]:
+        """
+        Find the parent fact name and base metrics for a window metric.
+
+        Returns:
+            Tuple of (parent_name, base_metrics_set)
+            parent_name is None if base metrics span multiple facts (cross-fact)
+        """
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed or not isinstance(decomposed, DecomposedMetricInfo):
+            return None, set()
+
+        base_metrics: set[str] = set()
+
+        # Find parent metrics from parent_map
+        metric_parent_names = ctx.parent_map.get(metric_name, [])
+        for parent_name in metric_parent_names:
+            metric_parent = ctx.nodes.get(parent_name)
+            if metric_parent and metric_parent.type.value == "metric":
+                base_metrics.add(parent_name)
+
+        # Trace through to find the grain group parents (handles derived metrics)
+        all_grain_group_parents: set[str] = set()
+        for base_metric in base_metrics:
+            all_grain_group_parents.update(
+                find_grain_group_parent(base_metric, set()),
+            )
+
+        if len(all_grain_group_parents) == 1:
+            return next(iter(all_grain_group_parents)), base_metrics
+        elif len(all_grain_group_parents) > 1:
+            # Cross-fact window metric
+            return None, base_metrics
+        else:
+            return None, base_metrics
+
+    # Group window metrics by (ORDER BY grain, parent fact)
+    # This ensures window metrics from different facts are processed separately
+    # Key: (frozenset of grain cols, parent_name or "cross_fact")
+    grain_parent_to_metrics: dict[tuple[frozenset[str], str], list[str]] = {}
+    grain_parent_to_base_metrics: dict[tuple[frozenset[str], str], set[str]] = {}
+
     for metric_name, grains in window_metric_grains.items():
         grain_key = frozenset(grains)
-        if grain_key not in grain_to_metrics:
-            grain_to_metrics[grain_key] = []
-        grain_to_metrics[grain_key].append(metric_name)
+        parent_name, base_metrics = find_parent_for_window_metric(metric_name)
+        # Use "cross_fact" as a marker for cross-fact window metrics
+        parent_key = parent_name if parent_name else "cross_fact"
+
+        group_key = (grain_key, parent_key)
+        if group_key not in grain_parent_to_metrics:
+            grain_parent_to_metrics[group_key] = []
+            grain_parent_to_base_metrics[group_key] = set()
+        grain_parent_to_metrics[group_key].append(metric_name)
+        grain_parent_to_base_metrics[group_key].update(base_metrics)
 
     additional_grain_groups: list[GrainGroupSQL] = []
 
-    for grain_cols, metric_names in grain_to_metrics.items():
+    for (grain_cols, parent_key), metric_names in grain_parent_to_metrics.items():
         # Build dimension node mapping for this grain
         # grain_cols contains full refs like "v3.date.week" or "v3.date.week[order]"
         grain_dim_nodes: set[str] = set()
@@ -1216,20 +1298,8 @@ def build_window_metric_grain_groups(
             col_name = clean_ref.rsplit(SEPARATOR, 1)[-1]
             grain_col_names.add(col_name)
 
-        # Find the base metrics that these window metrics reference
-        # Window metrics are derived metrics that reference base metrics
-        base_metrics_needed: set[str] = set()
-        for metric_name in metric_names:
-            decomposed = decomposed_metrics.get(metric_name)
-            if not decomposed or not isinstance(decomposed, DecomposedMetricInfo):
-                continue
-
-            # Find parent metrics from parent_map
-            parent_names = ctx.parent_map.get(metric_name, [])
-            for parent_name in parent_names:
-                metric_parent = ctx.nodes.get(parent_name)
-                if metric_parent and metric_parent.type.value == "metric":
-                    base_metrics_needed.add(parent_name)
+        # Get the base metrics needed for this group
+        base_metrics_needed = grain_parent_to_base_metrics[(grain_cols, parent_key)]
 
         if not base_metrics_needed:
             continue
@@ -1239,6 +1309,7 @@ def build_window_metric_grain_groups(
         components_for_grain: list[tuple[Node, MetricComponent]] = []
         parent_node: Optional[Node] = None
         component_aggregabilities: dict[str, Aggregability] = {}
+        is_cross_fact = parent_key == "cross_fact"
 
         for gg in existing_grain_groups:
             for base_metric_name in base_metrics_needed:
@@ -1334,6 +1405,8 @@ def build_window_metric_grain_groups(
         grain_group_sql.window_order_by_dim = (
             next(iter(grain_cols)) if grain_cols else None
         )
+        # Mark if this is a cross-fact window group (needs base_metrics as source)
+        grain_group_sql.is_cross_fact_window = is_cross_fact
 
         additional_grain_groups.append(grain_group_sql)
 

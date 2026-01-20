@@ -1379,26 +1379,31 @@ def build_grain_level_window_cte(
 
 def build_window_agg_cte_from_grain_group(
     window_grain_group: GrainGroupSQL,
+    base_grain_group: GrainGroupSQL,
     source_cte_alias: str,
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
 ) -> ast.Query:
     """
-    Build an aggregation CTE that computes base metrics from a window grain group.
+    Build an aggregation CTE that computes base metrics from a grain group.
 
-    The window grain group has raw components at a coarser grain (e.g., weekly).
-    This function creates a CTE that applies the metric combiner expressions
-    (COUNT DISTINCT, SUM, etc.) to produce the aggregated metric values.
+    This reaggregates from a base grain group (e.g., daily) to the coarser
+    window metric grain (e.g., weekly). Handles both:
+    - Base metrics: applies combiner expression with component references
+    - Derived metrics: expands metric references to underlying component expressions
 
     Args:
         window_grain_group: A grain group marked as is_window_grain_group=True
-        source_cte_alias: Alias of the grain group CTE to SELECT from
+        base_grain_group: The base grain group (source of component columns)
+        source_cte_alias: Alias of the base grain group CTE to SELECT from
         ctx: Build context
         decomposed_metrics: Decomposed metric info
 
     Returns:
         AST Query that aggregates components into metrics
     """
+    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
+
     projection: list[Any] = []
     group_by: list[ast.Expression] = []
 
@@ -1422,29 +1427,97 @@ def build_window_agg_cte_from_grain_group(
             if parent_node and parent_node.type == NodeType.METRIC:
                 base_metrics_needed.add(parent_name)
 
+    def is_derived_metric(metric_name: str) -> bool:
+        """Check if a metric is derived (has metric parents, no direct components)."""
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed or not isinstance(decomposed, DecomposedMetricInfo):
+            return False
+        # Derived metrics have parent metrics but no direct components in grain groups
+        parent_metrics = ctx.parent_map.get(metric_name, [])
+        has_metric_parents = any(
+            ctx.nodes.get(p) and ctx.nodes.get(p).type == NodeType.METRIC  # type: ignore
+            for p in parent_metrics
+        )
+        return has_metric_parents and not decomposed.components
+
+    def get_metric_aggregation_expr(
+        metric_name: str,
+        visited: set[str],
+    ) -> Optional[ast.Expression]:
+        """
+        Build aggregation expression for a metric that can be computed from
+        component columns in the source CTE.
+
+        For base metrics: returns combiner expression with component refs replaced
+        For derived metrics: recursively expands metric references
+        """
+        if metric_name in visited:
+            return None
+        visited.add(metric_name)
+
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed:
+            return None
+
+        combiner_ast = deepcopy(decomposed.combiner_ast)
+        if isinstance(combiner_ast, ast.Alias):
+            combiner_ast = combiner_ast.child
+
+        if is_derived_metric(metric_name):
+            # Derived metric: need to expand metric references
+            # Find column nodes that reference other metrics
+            for col_node in list(combiner_ast.find_all(ast.Column)):
+                col_name = (
+                    col_node.identifier() if hasattr(col_node, "identifier") else ""
+                )
+                # Check if this column references a metric
+                short_col_name = col_name.split(".")[-1] if col_name else ""
+
+                # Try to find matching metric
+                parent_metric_name = None
+                for parent_name in ctx.parent_map.get(metric_name, []):
+                    parent_short = get_short_name(parent_name)
+                    if parent_short == short_col_name or col_name.endswith(parent_name):
+                        parent_metric_name = parent_name
+                        break
+
+                if parent_metric_name:
+                    # Replace with parent metric's aggregation expression
+                    parent_expr = get_metric_aggregation_expr(
+                        parent_metric_name,
+                        visited.copy(),
+                    )
+                    if parent_expr:
+                        # Replace the column node with the parent's expression
+                        col_node.replace_with(parent_expr)
+        else:
+            # Base metric: replace component references with CTE column refs
+            # Use base_grain_group's component_aliases since that's the source CTE
+            for col_node in combiner_ast.find_all(ast.Column):
+                col_full_name = (
+                    col_node.identifier() if hasattr(col_node, "identifier") else ""
+                )
+                # Check if this matches a component alias
+                for comp_name, comp_alias in (
+                    base_grain_group.component_aliases.items()
+                ):
+                    if col_full_name == comp_name or col_full_name.endswith(comp_alias):
+                        col_node.name = ast.Name(comp_alias)
+                        col_node._table = ast.Table(ast.Name(source_cte_alias))
+                        break
+
+        return combiner_ast
+
     # Build aggregation expressions for each base metric
     for base_metric_name in sorted(base_metrics_needed):
         decomposed = decomposed_metrics.get(base_metric_name)
         if not decomposed:
             continue
 
-        # Get the combiner expression and resolve component references
-        # IMPORTANT: deepcopy to avoid mutating the shared decomposed.combiner_ast
-        combiner_ast = deepcopy(decomposed.combiner_ast)
-        if isinstance(combiner_ast, ast.Alias):
-            combiner_ast = combiner_ast.child
-
-        # Replace component references with CTE column references
-        for col_node in combiner_ast.find_all(ast.Column):
-            col_full_name = (
-                col_node.identifier() if hasattr(col_node, "identifier") else ""
-            )
-            # Check if this matches a component alias
-            for comp_name, comp_alias in window_grain_group.component_aliases.items():
-                if col_full_name == comp_name or col_full_name.endswith(comp_alias):
-                    col_node.name = ast.Name(comp_alias)
-                    col_node._table = ast.Table(ast.Name(source_cte_alias))
-                    break
+        # Get aggregation expression (handles both base and derived metrics)
+        combiner_ast = get_metric_aggregation_expr(base_metric_name, set())
+        if not combiner_ast:
+            continue
 
         short_name = get_short_name(base_metric_name)
         aliased = combiner_ast.set_alias(ast.Name(short_name))  # type: ignore
@@ -1997,27 +2070,14 @@ def generate_metrics_sql(
             )
             parent_short_name = get_short_name(wgg.parent_name)
 
-            # Detect cross-fact case: check if the window metrics reference base metrics
-            # from multiple parent facts. If so, we need to use base_metrics CTE.
-            base_metrics_needed: set[str] = set()
-            base_metric_parents: set[str] = set()
-            for window_metric_name in wgg.window_metrics_served:
-                parent_names = ctx.parent_map.get(window_metric_name, [])
-                for parent_name in parent_names:
-                    parent_node = ctx.nodes.get(parent_name)
-                    if parent_node and parent_node.type == NodeType.METRIC:
-                        base_metrics_needed.add(parent_name)
-                        # Find which grain group contains this base metric
-                        for gg in base_grain_groups:
-                            if parent_name in gg.metrics:
-                                base_metric_parents.add(gg.parent_name)
-                                break
-
-            is_cross_fact = len(base_metric_parents) > 1
+            # Use the is_cross_fact_window flag set during measures phase
+            # Cross-fact window groups need base_metrics CTE as source
+            is_cross_fact = wgg.is_cross_fact_window
 
             # Find the base grain group CTE alias for this window grain group
             # For single-fact: use the matching base grain group CTE
             # For cross-fact: use base_metrics CTE
+            base_grain_group: Optional[GrainGroupSQL] = None
             if is_cross_fact:
                 # Cross-fact: use base_metrics CTE (already has FULL OUTER JOIN)
                 source_cte_alias = window_metrics_cte_alias
@@ -2027,6 +2087,7 @@ def generate_metrics_sql(
                 for i, gg in enumerate(base_grain_groups):
                     if gg.parent_name == wgg.parent_name:
                         source_cte_alias = cte_aliases[i]
+                        base_grain_group = gg
                         break
                 if not source_cte_alias:  # pragma: no cover
                     # Fallback to base_metrics if parent not found
@@ -2045,8 +2106,10 @@ def generate_metrics_sql(
                 )
             else:
                 # Single-fact: use base grain group as source, reference components
+                assert base_grain_group is not None  # Guaranteed by loop above
                 agg_cte = build_window_agg_cte_from_grain_group(
                     wgg,
+                    base_grain_group,
                     source_cte_alias,  # Base grain group CTE
                     ctx,
                     decomposed_metrics,

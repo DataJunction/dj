@@ -201,6 +201,11 @@ class GrainGroupSQL:
     # For window grain groups: the ORDER BY dimension ref (e.g., "v3.date.week")
     window_order_by_dim: Optional[str] = None
 
+    # For window grain groups: True if window metrics reference base metrics from
+    # multiple facts (cross-fact). This requires using base_metrics CTE as source
+    # instead of individual grain group CTEs.
+    is_cross_fact_window: bool = False
+
     @property
     def sql(self) -> str:
         """Render the query AST to SQL string for the target dialect."""
