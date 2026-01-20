@@ -95,6 +95,7 @@ class NodeAvailabilityState(Base):
         ForeignKey(
             "noderevision.id",
             name="fk_nodeavailabilitystate_node_id_noderevision",
+            ondelete="CASCADE",
         ),
         primary_key=True,
     )

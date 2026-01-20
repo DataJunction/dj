@@ -108,7 +108,8 @@ async def get_a_metric(
     Return a metric by name.
     """
     node = await get_metric(session, name)
-    dims = await get_dimensions(session, node.current.parents[0])
+    # get_dimensions handles derived metrics by finding ultimate non-metric parents
+    dims = await get_dimensions(session, node)
     metric = await Metric.parse_node(node, dims, session)
     return metric
 
