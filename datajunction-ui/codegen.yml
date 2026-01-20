@@ -1,0 +1,24 @@
+overwrite: true
+# Use static schema file from server (no live server needed)
+schema: ../datajunction-server/datajunction_server/api/graphql/schema.graphql
+documents: src/graphql/**/*.graphql
+generates:
+  src/types/graphql.ts:
+    plugins:
+      - typescript
+      - typescript-operations
+    config:
+      # Use interface instead of type for better extensibility
+      declarationKind: interface
+      # Make optional fields nullable
+      maybeValue: T | null
+      # Skip __typename by default
+      skipTypename: true
+      # Use enums as TypeScript enums
+      enumsAsTypes: false
+      # Avoid 'Maybe' wrapper, use 'T | null' directly
+      inputMaybeValue: T | null
+      # Flatten pick helpers for cleaner types
+      flattenGeneratedTypes: true
+      # Export fragment types
+      exportFragmentSpreadSubTypes: true

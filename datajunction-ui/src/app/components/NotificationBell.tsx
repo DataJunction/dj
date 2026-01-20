@@ -29,7 +29,7 @@ interface NodeInfo {
   name: string;
   type: string;
   current?: {
-    displayName?: string;
+    displayName?: string | null;
   };
 }
 
@@ -54,7 +54,7 @@ const enrichWithNodeInfo = (
     return {
       ...entry,
       node_type: node?.type,
-      display_name: node?.current?.displayName,
+      display_name: node?.current?.displayName ?? undefined,
     };
   });
 };

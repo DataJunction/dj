@@ -1,0 +1,6 @@
+query GetUpstreamNodes($nodeNames: [String!]!) {
+  upstreamNodes(nodeNames: $nodeNames) {
+    name
+    type
+  }
+}

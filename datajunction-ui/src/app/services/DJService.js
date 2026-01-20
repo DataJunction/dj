@@ -1,19 +1,19 @@
 // Note: MarkerType.Arrow is just the string "arrow" - we use the literal
 // to avoid importing reactflow in this service (which would bloat the main bundle)
+// Import the typed GraphQL service - all GraphQL methods delegate to this
+import { DJGraphQLService } from './DJGraphQLService';
+
 const MARKER_TYPE_ARROW = 'arrow';
 
 const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
   : 'http://localhost:8000';
 
-const DJ_GQL = process.env.REACT_APP_DJ_GQL
-  ? process.env.REACT_APP_DJ_GQL
-  : process.env.REACT_APP_DJ_URL + '/graphql';
-
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
 export const DataJunctionAPI = {
+  // Delegates to typed DJGraphQLService
   listNodesForLanding: async function (
     namespace,
     nodeTypes,
@@ -24,215 +24,30 @@ export const DataJunctionAPI = {
     limit,
     sortConfig,
     mode,
-    {
-      ownedBy = null,
-      statuses = null,
-      missingDescription = false,
-      hasMaterialization = false,
-      orphanedDimension = false,
-    } = {},
+    filters = {},
   ) {
-    const query = `
-      query ListNodes($namespace: String, $nodeTypes: [NodeType!], $tags: [String!], $editedBy: String, $mode: NodeMode, $before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $ascending: Boolean, $ownedBy: String, $statuses: [NodeStatus!], $missingDescription: Boolean, $hasMaterialization: Boolean, $orphanedDimension: Boolean) {
-        findNodesPaginated(
-          namespace: $namespace
-          nodeTypes: $nodeTypes
-          tags: $tags
-          editedBy: $editedBy
-          mode: $mode
-          limit: $limit
-          before: $before
-          after: $after
-          orderBy: $orderBy
-          ascending: $ascending
-          ownedBy: $ownedBy
-          statuses: $statuses
-          missingDescription: $missingDescription
-          hasMaterialization: $hasMaterialization
-          orphanedDimension: $orphanedDimension
-        ) {
-          pageInfo {
-            hasNextPage
-            endCursor
-            hasPrevPage
-            startCursor
-          }
-          edges {
-            node {
-              name
-              type
-              currentVersion
-              tags {
-                name
-                tagType
-              }
-              editedBy
-              current {
-                displayName
-                status
-                mode
-                updatedAt
-              }
-              createdBy {
-                username
-              }
-            }
-          }
-        }
-      }
-    `;
-    const sortOrderMapping = {
-      name: 'NAME',
-      displayName: 'DISPLAY_NAME',
-      type: 'TYPE',
-      status: 'STATUS',
-      updatedAt: 'UPDATED_AT',
-    };
-
-    return await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: {
-            namespace: namespace,
-            nodeTypes: nodeTypes,
-            tags: tags,
-            editedBy: editedBy,
-            mode: mode || null,
-            before: before,
-            after: after,
-            limit: limit,
-            orderBy: sortOrderMapping[sortConfig.key],
-            ascending: sortConfig.direction === 'ascending',
-            ownedBy: ownedBy,
-            statuses: statuses,
-            missingDescription: missingDescription,
-            hasMaterialization: hasMaterialization,
-            orphanedDimension: orphanedDimension,
-          },
-        }),
-      })
-    ).json();
+    return DJGraphQLService.listNodesForLanding(
+      namespace,
+      nodeTypes,
+      tags,
+      editedBy,
+      before,
+      after,
+      limit,
+      sortConfig,
+      mode,
+      filters,
+    );
   },
 
-  // Lightweight GraphQL query for listing cubes with display names (for preset dropdown)
-  listCubesForPreset: async function () {
-    const query = `
-      query ListCubes {
-        findNodes(nodeTypes: [CUBE]) {
-          name
-          current {
-            displayName
-          }
-        }
-      }
-    `;
-
-    try {
-      const result = await (
-        await fetch(DJ_GQL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ query }),
-        })
-      ).json();
-
-      // Transform to simple array: [{name, display_name}]
-      const nodes = result?.data?.findNodes || [];
-      return nodes.map(node => ({
-        name: node.name,
-        display_name: node.current?.displayName || null,
-      }));
-    } catch (err) {
-      console.error('Failed to fetch cubes via GraphQL:', err);
-      return [];
-    }
+  // Delegates to typed DJGraphQLService
+  listCubesForPreset: function () {
+    return DJGraphQLService.listCubesForPreset();
   },
 
-  // Lightweight GraphQL query for planner page - only fetches fields needed
-  // Much faster than REST /cubes/{name}/ which loads all columns, elements, etc.
-  cubeForPlanner: async function (name) {
-    const query = `
-      query GetCubeForPlanner($name: String!) {
-        findNodes(names: [$name]) {
-          name
-          current {
-            displayName
-            cubeMetrics {
-              name
-            }
-            cubeDimensions {
-              name
-            }
-            materializations {
-              name
-              config
-              schedule
-              strategy
-            }
-          }
-        }
-      }
-    `;
-
-    try {
-      const result = await (
-        await fetch(DJ_GQL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ query, variables: { name } }),
-        })
-      ).json();
-
-      const node = result?.data?.findNodes?.[0];
-      if (!node) {
-        return null;
-      }
-
-      // Transform to match the shape expected by QueryPlannerPage
-      const current = node.current || {};
-      const cubeMetrics = (current.cubeMetrics || []).map(m => m.name);
-      const cubeDimensions = (current.cubeDimensions || []).map(d => d.name);
-
-      // Extract druid_cube materialization if present (v3 or legacy)
-      const druidMat = (current.materializations || []).find(
-        m => m.name === 'druid_cube' || m.name === 'druid_cube_v3',
-      );
-      const cubeMaterialization = druidMat
-        ? {
-            strategy: druidMat.strategy,
-            schedule: druidMat.schedule,
-            lookbackWindow: druidMat.config?.lookback_window,
-            druidDatasource: druidMat.config?.druid_datasource,
-            preaggTables: druidMat.config?.preagg_tables || [],
-            workflowUrls: druidMat.config?.workflow_urls || [],
-            timestampColumn: druidMat.config?.timestamp_column,
-            timestampFormat: druidMat.config?.timestamp_format,
-          }
-        : null;
-
-      return {
-        name: node.name,
-        display_name: current.displayName,
-        cube_node_metrics: cubeMetrics,
-        cube_node_dimensions: cubeDimensions,
-        cubeMaterialization, // Included so we don't need a second fetch
-      };
-    } catch (err) {
-      console.error('Failed to fetch cube via GraphQL:', err);
-      return null;
-    }
+  // Delegates to typed DJGraphQLService
+  cubeForPlanner: function (name) {
+    return DJGraphQLService.cubeForPlanner(name);
   },
 
   whoami: async function () {
@@ -403,187 +218,24 @@ export const DataJunctionAPI = {
     return data;
   },
 
-  getNodeForEditing: async function (name) {
-    const query = `
-      query GetNodeForEditing($name: String!) {
-        findNodes (names: [$name]) {
-          name
-          type
-          current {
-            displayName
-            description
-            primaryKey
-            query
-            parents { name type }
-            metricMetadata {
-              direction
-              unit { name }
-              expression
-              significantDigits
-              incompatibleDruidFunctions
-            }
-            requiredDimensions {
-              name
-            }
-            mode
-            customMetadata
-          }
-          tags {
-            name
-            displayName
-          }
-          owners {
-            username
-          }
-        }
-      }
-    `;
-
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: {
-            name: name,
-          },
-        }),
-      })
-    ).json();
-    if (results.data.findNodes.length === 0) {
-      return null;
-    }
-    return results.data.findNodes[0];
+  // Delegates to typed DJGraphQLService
+  getNodeForEditing: function (name) {
+    return DJGraphQLService.getNodeForEditing(name);
   },
 
-  // Fetch basic node info for multiple nodes by name (for Settings page)
-  getNodesByNames: async function (names) {
-    if (!names || names.length === 0) {
-      return [];
-    }
-    const query = `
-      query GetNodesByNames($names: [String!]) {
-        findNodes(names: $names) {
-          name
-          type
-          current {
-            displayName
-            status
-            mode
-          }
-        }
-      }
-    `;
-
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: { names },
-        }),
-      })
-    ).json();
-    return results.data?.findNodes || [];
+  // Delegates to typed DJGraphQLService
+  getNodesByNames: function (names) {
+    return DJGraphQLService.getNodesByNames(names);
   },
 
-  getMetric: async function (name) {
-    const query = `
-      query GetMetric($name: String!) {
-        findNodes (names: [$name]) {
-          name
-          current {
-            parents { name }
-            metricMetadata {
-              direction
-              unit { name }
-              expression
-              significantDigits
-              incompatibleDruidFunctions
-            }
-            requiredDimensions {
-              name
-            }
-          }
-        }
-      }
-    `;
-
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: {
-            name: name,
-          },
-        }),
-      })
-    ).json();
-    return results.data.findNodes[0];
+  // Delegates to typed DJGraphQLService
+  getMetric: function (name) {
+    return DJGraphQLService.getMetric(name);
   },
 
-  getCubeForEditing: async function (name) {
-    const query = `
-      query GetCubeForEditing($name: String!) {
-        findNodes(names: [$name]) {
-          name
-          type
-          owners {
-            username
-          }
-          current {
-            displayName
-            description
-            mode
-            cubeMetrics {
-              name
-            }
-            cubeDimensions {
-              name
-              attribute
-              properties
-            }
-          }
-          tags {
-            name
-            displayName
-          }
-        }
-      }
-    `;
-
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: {
-            name: name,
-          },
-        }),
-      })
-    ).json();
-    if (results.data.findNodes.length === 0) {
-      return null;
-    }
-    return results.data.findNodes[0];
+  // Delegates to typed DJGraphQLService
+  getCubeForEditing: function (name) {
+    return DJGraphQLService.getCubeForEditing(name);
   },
 
   nodes: async function (prefix) {
@@ -827,47 +479,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  // GraphQL-based upstream/downstream queries - more efficient as they only fetch needed fields
-  upstreamsGQL: async function (nodeNames) {
-    const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
-    const query = `
-      query GetUpstreamNodes($nodeNames: [String!]!) {
-        upstreamNodes(nodeNames: $nodeNames) {
-          name
-          type
-        }
-      }
-    `;
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ query, variables: { nodeNames: names } }),
-      })
-    ).json();
-    return results.data?.upstreamNodes || [];
+  // Delegates to typed DJGraphQLService
+  upstreamsGQL: function (nodeNames) {
+    return DJGraphQLService.upstreamNodes(nodeNames);
   },
 
-  downstreamsGQL: async function (nodeNames) {
-    const names = Array.isArray(nodeNames) ? nodeNames : [nodeNames];
-    const query = `
-      query GetDownstreamNodes($nodeNames: [String!]!) {
-        downstreamNodes(nodeNames: $nodeNames) {
-          name
-          type
-        }
-      }
-    `;
-    const results = await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ query, variables: { nodeNames: names } }),
-      })
-    ).json();
-    return results.data?.downstreamNodes || [];
+  // Delegates to typed DJGraphQLService
+  downstreamsGQL: function (nodeNames) {
+    return DJGraphQLService.downstreamNodes(nodeNames);
   },
 
   node_dag: async function (name) {
@@ -878,54 +497,9 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  // Fetch node columns with partition info via GraphQL
-  // Used to check if a node has temporal partitions defined
-  getNodeColumnsWithPartitions: async function (nodeName) {
-    const query = `
-      query GetNodeColumnsWithPartitions($name: String!) {
-        findNodes(names: [$name]) {
-          name
-          current {
-            columns {
-              name
-              type
-              partition {
-                type_
-                format
-                granularity
-              }
-            }
-          }
-        }
-      }
-    `;
-
-    try {
-      const results = await (
-        await fetch(DJ_GQL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ query, variables: { name: nodeName } }),
-        })
-      ).json();
-
-      const node = results.data?.findNodes?.[0];
-      if (!node) return { columns: [], temporalPartitions: [] };
-
-      const columns = node.current?.columns || [];
-      const temporalPartitions = columns.filter(
-        col => col.partition?.type_ === 'TEMPORAL',
-      );
-
-      return {
-        columns,
-        temporalPartitions,
-      };
-    } catch (err) {
-      console.error('Failed to fetch node columns with partitions:', err);
-      return { columns: [], temporalPartitions: [] };
-    }
+  // Delegates to typed DJGraphQLService
+  getNodeColumnsWithPartitions: function (nodeName) {
+    return DJGraphQLService.getNodeColumnsWithPartitions(nodeName);
   },
 
   node_lineage: async function (name) {
