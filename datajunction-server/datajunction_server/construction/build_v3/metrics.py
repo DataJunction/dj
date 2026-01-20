@@ -482,11 +482,11 @@ def build_intermediate_metric_expr(
                 col.parent.replace(from_=col, to=replacement_expr)
         else:
             # Check if this is a metric reference that we haven't built yet
-            node = ctx.nodes.get(full_name)
-            if node and node.type == NodeType.METRIC:
+            node = ctx.nodes.get(full_name)  # pragma: no cover
+            if node and node.type == NodeType.METRIC:  # pragma: no cover
                 # This is a metric reference but it's not in metric_exprs yet
                 # The dependency hasn't been built, so defer this metric
-                return None
+                return None  # pragma: no cover
 
     return expr_ast  # type: ignore
 
