@@ -2362,3 +2362,137 @@ class TestMetricsSQLNestedDerived:
             LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
             """,
         )
+
+
+class TestMetricsSQLCrossFactWindow:
+    """Tests for window metrics that span multiple facts."""
+
+    @pytest.mark.asyncio
+    async def test_cross_fact_wow_conversion_rate(self, client_with_build_v3):
+        """
+        Test cross-fact window metric: week-over-week conversion rate change.
+
+        v3.wow_conversion_rate_change uses LAG() on v3.conversion_rate, which
+        is itself a cross-fact derived metric:
+            conversion_rate = order_count (order_details) / visitor_count (page_views)
+
+        This tests that:
+        1. Metrics from both facts are computed in their own grain group CTEs
+        2. The base_metrics CTE has FULL OUTER JOIN to combine them
+        3. conversion_rate is computed as an intermediate derived metric
+        4. The window aggregation CTE uses base_metrics as source (not individual CTEs)
+        5. The final SELECT applies LAG on the cross-fact derived metric
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_conversion_rate_change"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # For cross-fact window metrics, the window aggregation CTE must
+        # aggregate FROM base_metrics (which has FULL OUTER JOIN already done)
+        # rather than from individual grain group CTEs.
+        #
+        # Expected structure:
+        # 1. order_details_0: grain group CTE with order_count components
+        # 2. page_views_enriched_0: grain group CTE with visitor_count components
+        # 3. base_metrics: FULL OUTER JOIN + computes conversion_rate
+        # 4. base_metrics_week_agg: aggregates FROM base_metrics to weekly grain
+        # 5. base_metrics_week: applies LAG on conversion_rate
+        # 6. Final SELECT: joins base_metrics with window metric CTE
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, week
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, o.order_date, oi.product_id
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views_enriched AS (
+                SELECT customer_id, product_id
+                FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+                SELECT t2.category, t3.week, t1.order_id
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+                GROUP BY t2.category, t3.week, t1.order_id
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, t1.customer_id
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.customer_id
+            ),
+            base_metrics AS (
+                SELECT
+                    COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
+                    COALESCE(order_details_0.week) AS week,
+                    COUNT(DISTINCT order_details_0.order_id) AS order_count,
+                    COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
+                    CAST(COUNT(DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
+                FROM order_details_0
+                FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
+                GROUP BY order_details_0.category, order_details_0.week
+            ),
+            base_metrics_week_agg AS (
+                SELECT
+                    base_metrics.category AS category,
+                    base_metrics.week AS week,
+                    base_metrics.conversion_rate AS conversion_rate
+                FROM base_metrics
+                GROUP BY base_metrics.category, base_metrics.week, base_metrics.conversion_rate
+            ),
+            base_metrics_week AS (
+                SELECT
+                    base_metrics_week_agg.category AS category,
+                    base_metrics_week_agg.week AS week,
+                    (base_metrics_week_agg.conversion_rate - LAG(base_metrics_week_agg.conversion_rate, 1) OVER (PARTITION BY base_metrics_week_agg.category ORDER BY base_metrics_week_agg.week))
+                        / NULLIF(LAG(base_metrics_week_agg.conversion_rate, 1) OVER (PARTITION BY base_metrics_week_agg.category ORDER BY base_metrics_week_agg.week), 0) * 100
+                        AS wow_conversion_rate_change
+                FROM base_metrics_week_agg
+            )
+            SELECT
+                base_metrics.category AS category,
+                base_metrics.week AS week,
+                base_metrics_week.wow_conversion_rate_change AS wow_conversion_rate_change
+            FROM base_metrics
+            LEFT OUTER JOIN base_metrics_week ON base_metrics.category = base_metrics_week.category AND base_metrics.week = base_metrics_week.week
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "week",
+                "type": "int",
+                "semantic_entity": "v3.date.week",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "wow_conversion_rate_change",
+                "type": "double",
+                "semantic_entity": "v3.wow_conversion_rate_change",
+                "semantic_type": "metric",
+            },
+        ]

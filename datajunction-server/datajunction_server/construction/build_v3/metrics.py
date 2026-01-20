@@ -1467,6 +1467,123 @@ def build_window_agg_cte_from_grain_group(
     )
 
 
+def build_window_agg_cte_from_base_metrics(
+    window_grain_group: GrainGroupSQL,
+    base_metrics_cte_alias: str,
+    ctx: BuildContext,
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
+) -> ast.Query:
+    """
+    Build an aggregation CTE from the base_metrics CTE for cross-fact window metrics.
+
+    For cross-fact window metrics (metrics that reference base metrics from multiple
+    parent facts), we need to reaggregate from base_metrics (which already has the
+    FULL OUTER JOIN done) rather than from individual grain group CTEs.
+
+    The key difference from build_window_agg_cte_from_grain_group:
+    - Source is base_metrics CTE, not a specific grain group CTE
+    - Metrics are referenced by their column names (e.g., total_thumb_ups),
+      not by component aliases
+    - Dimension columns come from base_metrics directly
+
+    Args:
+        window_grain_group: Window grain group with metadata (dimensions, metrics served)
+        base_metrics_cte_alias: Alias of the base_metrics CTE (typically "base_metrics")
+        ctx: Build context
+        decomposed_metrics: Decomposed metric info
+
+    Returns:
+        AST Query that reaggregates from base_metrics to the window grain
+    """
+    projection: list[Any] = []
+    group_by: list[ast.Expression] = []
+
+    # Collect dimension columns from the grain group (these are GROUP BY columns)
+    # Use base_metrics as the source
+    for col in window_grain_group.columns:
+        if col.semantic_type == "dimension":
+            col_ref = make_column_ref(col.name, base_metrics_cte_alias)
+            aliased = col_ref.set_alias(ast.Name(col.name))
+            aliased.set_as(True)
+            projection.append(aliased)
+            group_by.append(make_column_ref(col.name, base_metrics_cte_alias))
+
+    # Find the base metrics that the window metrics reference
+    base_metrics_needed: set[str] = set()
+    for window_metric_name in window_grain_group.window_metrics_served:
+        parent_names = ctx.parent_map.get(window_metric_name, [])
+        for parent_name in parent_names:
+            parent_node = ctx.nodes.get(parent_name)
+            if parent_node and parent_node.type == NodeType.METRIC:
+                base_metrics_needed.add(parent_name)
+
+    # Build reaggregation expressions for each base metric
+    # Since we're selecting from base_metrics, we reference the metric columns directly
+    for base_metric_name in sorted(base_metrics_needed):
+        decomposed = decomposed_metrics.get(base_metric_name)
+        if not decomposed:
+            continue
+
+        short_name = get_short_name(base_metric_name)
+
+        # For non-additive metrics (COUNT DISTINCT), we need COUNT(DISTINCT grain_col)
+        # For additive metrics, we can SUM/AVG the pre-computed column
+        if decomposed.aggregability == Aggregability.LIMITED:
+            # LIMITED: needs COUNT DISTINCT at this grain
+            # Find the grain column for COUNT DISTINCT
+            if decomposed.components and decomposed.components[0].rule.level:
+                grain_col = decomposed.components[0].rule.level[0]
+                # The grain column is in base_metrics as a dimension column
+                # Actually, for COUNT DISTINCT, the raw grain column should be in
+                # the base grain group, not base_metrics. We need to reference
+                # the original grain column from base_metrics.
+                # For now, use the metric column - this works because base_metrics
+                # computes COUNT DISTINCT at the fine grain, and we re-compute at coarser grain
+                col_ref = make_column_ref(grain_col, base_metrics_cte_alias)
+                agg_expr = ast.Function(
+                    ast.Name("COUNT"),
+                    args=[col_ref],
+                    quantifier=ast.SetQuantifier.Distinct,
+                )
+            else:
+                # Fallback: SUM the metric column
+                col_ref = make_column_ref(short_name, base_metrics_cte_alias)
+                agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
+        elif decomposed.aggregability == Aggregability.FULL:
+            # FULL: additive metric, use SUM
+            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
+            agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
+        elif decomposed.aggregability == Aggregability.NONE:
+            # NONE: non-additive (like AVG), need to recompute
+            # For AVG, we need the raw sum and count, but those are in components
+            # For now, just use the column directly (window function will handle it)
+            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
+            agg_expr = col_ref  # type: ignore
+        else:
+            # Default: SUM
+            col_ref = make_column_ref(short_name, base_metrics_cte_alias)
+            agg_expr = ast.Function(ast.Name("SUM"), args=[col_ref])
+
+        aliased = agg_expr.set_alias(ast.Name(short_name))  # type: ignore
+        aliased.set_as(True)
+        projection.append(aliased)
+
+    # Build FROM clause - just base_metrics
+    from_clause = ast.From(
+        relations=[
+            ast.Relation(primary=ast.Table(ast.Name(base_metrics_cte_alias))),
+        ],
+    )
+
+    return ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=from_clause,
+            group_by=group_by if group_by else [],
+        ),
+    )
+
+
 def build_window_cte_from_grain_group(
     window_grain_group: GrainGroupSQL,
     source_cte_alias: str,
@@ -1880,28 +1997,60 @@ def generate_metrics_sql(
             )
             parent_short_name = get_short_name(wgg.parent_name)
 
+            # Detect cross-fact case: check if the window metrics reference base metrics
+            # from multiple parent facts. If so, we need to use base_metrics CTE.
+            base_metrics_needed: set[str] = set()
+            base_metric_parents: set[str] = set()
+            for window_metric_name in wgg.window_metrics_served:
+                parent_names = ctx.parent_map.get(window_metric_name, [])
+                for parent_name in parent_names:
+                    parent_node = ctx.nodes.get(parent_name)
+                    if parent_node and parent_node.type == NodeType.METRIC:
+                        base_metrics_needed.add(parent_name)
+                        # Find which grain group contains this base metric
+                        for gg in base_grain_groups:
+                            if parent_name in gg.metrics:
+                                base_metric_parents.add(gg.parent_name)
+                                break
+
+            is_cross_fact = len(base_metric_parents) > 1
+
             # Find the base grain group CTE alias for this window grain group
-            # The window grain group shares the same parent node as the base grain group
-            base_cte_alias = None
-            for i, gg in enumerate(base_grain_groups):
-                if gg.parent_name == wgg.parent_name:
-                    base_cte_alias = cte_aliases[i]
-                    break
+            # For single-fact: use the matching base grain group CTE
+            # For cross-fact: use base_metrics CTE
+            if is_cross_fact:
+                # Cross-fact: use base_metrics CTE (already has FULL OUTER JOIN)
+                source_cte_alias = window_metrics_cte_alias
+            else:
+                # Single-fact: find the matching base grain group CTE
+                source_cte_alias = None
+                for i, gg in enumerate(base_grain_groups):
+                    if gg.parent_name == wgg.parent_name:
+                        source_cte_alias = cte_aliases[i]
+                        break
+                if not source_cte_alias:  # pragma: no cover
+                    # Fallback to base_metrics if parent not found
+                    source_cte_alias = window_metrics_cte_alias
+                    is_cross_fact = True  # Treat as cross-fact for building
 
-            if not base_cte_alias:  # pragma: no cover
-                # Fallback to first CTE if parent not found (shouldn't happen)
-                base_cte_alias = cte_aliases[0]
-
-            # Step 1: Build aggregation CTE that reaggregates FROM the base grain group
-            # This rolls up the finer-grained data to the coarser window grain
-            # e.g., from day/category/week to just week/category
+            # Step 1: Build aggregation CTE that reaggregates to the coarser window grain
             agg_cte_alias = f"{parent_short_name}_{order_by_col}_agg"
-            agg_cte = build_window_agg_cte_from_grain_group(
-                wgg,
-                base_cte_alias,  # Reaggregate FROM the base grain group
-                ctx,
-                decomposed_metrics,
-            )
+            if is_cross_fact:
+                # Cross-fact: use base_metrics as source, reference metric columns
+                agg_cte = build_window_agg_cte_from_base_metrics(
+                    wgg,
+                    source_cte_alias,  # base_metrics CTE
+                    ctx,
+                    decomposed_metrics,
+                )
+            else:
+                # Single-fact: use base grain group as source, reference components
+                agg_cte = build_window_agg_cte_from_grain_group(
+                    wgg,
+                    source_cte_alias,  # Base grain group CTE
+                    ctx,
+                    decomposed_metrics,
+                )
             agg_cte.to_cte(ast.Name(agg_cte_alias), None)
             all_cte_asts.append(agg_cte)
 

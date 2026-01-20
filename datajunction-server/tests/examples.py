@@ -3681,6 +3681,28 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
+    # =========================================================================
+    # Cross-Fact Window Metrics
+    # These test window functions on metrics from multiple facts
+    # =========================================================================
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.wow_conversion_rate_change",
+            "description": (
+                "Week-over-week conversion rate change (%). "
+                "Cross-fact window metric: conversion_rate = order_count (order_details) / visitor_count (page_views). "
+                "Tests window functions on metrics spanning multiple facts."
+            ),
+            "query": """
+                SELECT
+                    (v3.conversion_rate - LAG(v3.conversion_rate, 1) OVER (ORDER BY v3.date.week[order]))
+                    / NULLIF(LAG(v3.conversion_rate, 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
+            """,
+            "mode": "published",
+            "required_dimensions": ["v3.date.week[order]"],
+        },
+    ),
 )
 
 EXAMPLES = {  # type: ignore
