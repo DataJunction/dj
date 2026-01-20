@@ -55,11 +55,13 @@ class Materialization(Base):
         ForeignKey(
             "noderevision.id",
             name="fk_materialization_node_revision_id_noderevision",
+            ondelete="CASCADE",
         ),
     )
     node_revision: Mapped["NodeRevision"] = relationship(
         "NodeRevision",
         back_populates="materializations",
+        passive_deletes=True,
     )
 
     name: Mapped[str]
