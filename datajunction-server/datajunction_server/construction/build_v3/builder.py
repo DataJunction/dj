@@ -12,6 +12,9 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube_impl,
     find_matching_cube,
 )
+from datajunction_server.construction.build_v3.cte import (
+    detect_window_metrics_requiring_grain_groups,
+)
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
@@ -20,6 +23,7 @@ from datajunction_server.construction.build_v3.loaders import (
     load_available_preaggs,
 )
 from datajunction_server.construction.build_v3.measures import (
+    build_window_metric_grain_groups,
     process_metric_group,
 )
 from datajunction_server.construction.build_v3.metrics import (
@@ -204,12 +208,34 @@ async def build_grain_groups(
                 "this indicates a bug",
             )
 
+    # Detect window metrics that require grain-level grain groups (LAG/LEAD)
+    # These are period-over-period metrics that need aggregation at the ORDER BY grain
+    window_metric_grains = detect_window_metrics_requiring_grain_groups(
+        ctx,
+        ctx.decomposed_metrics,
+        all_grain_group_metrics,
+    )
+
+    # Build additional grain groups for window metrics at their ORDER BY grains
+    # These are pre-aggregated at coarser grains (e.g., weekly) for LAG/LEAD to work
+    # Each grain group goes through pre-agg matching, so if a pre-agg exists at that
+    # grain (e.g., weekly), it will be used instead of re-scanning source tables
+    if window_metric_grains:
+        window_grain_groups = build_window_metric_grain_groups(
+            ctx,
+            window_metric_grains,
+            all_grain_group_sqls,
+            ctx.decomposed_metrics,
+        )
+        all_grain_group_sqls.extend(window_grain_groups)
+
     return GeneratedMeasuresSQL(
         grain_groups=all_grain_group_sqls,
         dialect=ctx.dialect,
         requested_dimensions=ctx.dimensions,
         ctx=ctx,
         decomposed_metrics=ctx.decomposed_metrics,
+        window_metric_grains=window_metric_grains,
     )
 
 

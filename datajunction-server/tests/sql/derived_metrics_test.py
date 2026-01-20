@@ -777,7 +777,7 @@ class TestDerivedMetricsIntegration:
         )
 
     @pytest.mark.asyncio
-    async def test_nested_derived_metric_fails(
+    async def test_nested_derived_metric_succeeds(
         self,
         client_example_loader: Callable[
             [Optional[List[str]]],
@@ -785,24 +785,25 @@ class TestDerivedMetricsIntegration:
         ],
     ):
         """
-        Test that creating a derived metric that references another derived metric fails.
-        We enforce 1-level nesting only - derived metrics can only reference base metrics.
+        Test that creating a derived metric that references another derived metric succeeds.
+        Multi-level derived metrics are now supported - derived metrics can reference other
+        derived metrics, and SQL generation will recursively expand them to base metrics.
         """
         client = await client_example_loader(["DERIVED_METRICS"])
 
-        # Try to create a derived metric that references revenue_per_order (which is derived)
+        # Create a derived metric that references revenue_per_order (which is derived)
         response = await client.post(
             "/nodes/metric/",
             json={
                 "name": "default.nested_derived_metric",
-                "description": "This should fail - references a derived metric",
+                "description": "Nested derived metric - references another derived metric",
                 "query": "SELECT default.dm_revenue_per_order * 2",
                 "mode": "published",
             },
         )
 
-        # This should fail because revenue_per_order is already a derived metric
-        assert response.status_code in (400, 422), (
-            f"Expected failure for nested derived metric, "
+        # This should succeed - nested derived metrics are now supported
+        assert response.status_code in (200, 201), (
+            f"Expected success for nested derived metric, "
             f"got {response.status_code}: {response.json()}"
         )

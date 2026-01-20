@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
+    extract_dimension_node,
+    strip_role_suffix,
 )
 from datajunction_server.construction.build_v3.decomposition import (
     build_component_expression,
@@ -40,6 +42,7 @@ from datajunction_server.construction.build_v3.materialization import (
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
+    DecomposedMetricInfo,
     GrainGroup,
     GrainGroupSQL,
     ResolvedDimension,
@@ -1152,3 +1155,263 @@ def process_metric_group(
         )
         grain_group_sqls.append(grain_group_sql)
     return grain_group_sqls
+
+
+def build_window_metric_grain_groups(
+    ctx: BuildContext,
+    window_metric_grains: dict[str, set[str]],
+    existing_grain_groups: list[GrainGroupSQL],
+    decomposed_metrics: dict,
+) -> list[GrainGroupSQL]:
+    """
+    Build additional grain groups for window metrics that require grain-level aggregation.
+
+    LAG/LEAD window functions need pre-aggregation at their ORDER BY grain before the
+    window function is applied. This function creates grain groups at those grains.
+
+    For example, for a WoW metric `LAG(revenue, 1) OVER (ORDER BY v3.date.week)`:
+    - The base metric `revenue` is already computed at the user's requested grain (e.g., daily)
+    - We need an additional grain group at the WEEKLY grain for the LAG to compare properly
+    - The weekly grain group excludes finer-grained time dimensions (like daily)
+
+    These grain groups go through normal pre-agg matching, so if a pre-agg exists at the
+    window metric's grain (e.g., weekly), it will be used instead of re-scanning source tables.
+
+    Args:
+        ctx: Build context
+        window_metric_grains: Mapping of metric_name -> set of ORDER BY column refs
+            (e.g., {"v3.wow_revenue": {"v3.date.week"}})
+        existing_grain_groups: Grain groups already built (for finding components)
+        decomposed_metrics: Decomposed metric info
+
+    Returns:
+        List of additional GrainGroupSQL for window metrics at their ORDER BY grains
+    """
+    if not window_metric_grains:
+        return []  # pragma: no cover
+
+    # First, determine the parent fact for each window metric
+    # This is based on which grain group the base metric(s) belong to
+    def find_grain_group_parent(metric_name: str, visited: set[str]) -> set[str]:
+        """
+        Recursively find the grain group parent(s) for a metric.
+
+        For base metrics: returns the grain group parent directly
+        For derived metrics: traces through to find the underlying base metrics
+
+        Returns set of grain group parent names (e.g., {"thumb_rating"})
+        """
+        if metric_name in visited:
+            return set()  # pragma: no cover
+        visited.add(metric_name)
+
+        # Check if this metric is directly in a grain group
+        for gg in existing_grain_groups:
+            if metric_name in gg.metrics:
+                return {gg.parent_name}
+
+        # Not in a grain group - might be a derived metric
+        # Check parent_map for dependencies
+        parent_names = ctx.parent_map.get(metric_name, [])
+        grain_group_parents: set[str] = set()
+        for parent_name in parent_names:
+            metric_parent = ctx.nodes.get(parent_name)
+            if (
+                metric_parent and metric_parent.type.value == "metric"
+            ):  # pragma: no branch
+                # Recursively find grain group parents
+                grain_group_parents.update(
+                    find_grain_group_parent(parent_name, visited),
+                )
+
+        return grain_group_parents
+
+    def find_parent_for_window_metric(
+        metric_name: str,
+    ) -> tuple[Optional[str], set[str]]:
+        """
+        Find the parent fact name and base metrics for a window metric.
+
+        Returns:
+            Tuple of (parent_name, base_metrics_set)
+            parent_name is None if base metrics span multiple facts (cross-fact)
+        """
+        decomposed = decomposed_metrics.get(metric_name)
+        if not decomposed or not isinstance(decomposed, DecomposedMetricInfo):
+            return None, set()  # pragma: no cover
+
+        base_metrics: set[str] = set()
+
+        # Find parent metrics from parent_map
+        metric_parent_names = ctx.parent_map.get(metric_name, [])
+        for parent_name in metric_parent_names:
+            metric_parent = ctx.nodes.get(parent_name)
+            if (
+                metric_parent and metric_parent.type.value == "metric"
+            ):  # pragma: no branch
+                base_metrics.add(parent_name)
+
+        # Trace through to find the grain group parents (handles derived metrics)
+        all_grain_group_parents: set[str] = set()
+        for base_metric in base_metrics:
+            all_grain_group_parents.update(
+                find_grain_group_parent(base_metric, set()),
+            )
+
+        if len(all_grain_group_parents) == 1:
+            return next(iter(all_grain_group_parents)), base_metrics
+        elif len(all_grain_group_parents) > 1:
+            # Cross-fact window metric
+            return None, base_metrics
+        else:
+            return None, base_metrics  # pragma: no cover
+
+    # Group window metrics by (ORDER BY grain, parent fact)
+    # This ensures window metrics from different facts are processed separately
+    # Key: (frozenset of grain cols, parent_name or "cross_fact")
+    grain_parent_to_metrics: dict[tuple[frozenset[str], str], list[str]] = {}
+    grain_parent_to_base_metrics: dict[tuple[frozenset[str], str], set[str]] = {}
+
+    for metric_name, grains in window_metric_grains.items():
+        grain_key = frozenset(grains)
+        parent_name, base_metrics = find_parent_for_window_metric(metric_name)
+        # Use "cross_fact" as a marker for cross-fact window metrics
+        parent_key = parent_name if parent_name else "cross_fact"
+
+        group_key = (grain_key, parent_key)
+        if group_key not in grain_parent_to_metrics:
+            grain_parent_to_metrics[group_key] = []
+            grain_parent_to_base_metrics[group_key] = set()
+        grain_parent_to_metrics[group_key].append(metric_name)
+        grain_parent_to_base_metrics[group_key].update(base_metrics)
+
+    additional_grain_groups: list[GrainGroupSQL] = []
+
+    for (grain_cols, parent_key), metric_names in grain_parent_to_metrics.items():
+        # Build dimension node mapping for this grain
+        # grain_cols contains full refs like "v3.date.week" or "v3.date.week[order]"
+        grain_dim_nodes: set[str] = set()
+        grain_col_names: set[str] = set()
+        for grain_col in grain_cols:
+            clean_ref = strip_role_suffix(grain_col)
+            grain_dim_nodes.add(extract_dimension_node(clean_ref))
+            # Extract just the column name
+            col_name = clean_ref.rsplit(SEPARATOR, 1)[-1]
+            grain_col_names.add(col_name)
+
+        # Get the base metrics needed for this group
+        base_metrics_needed = grain_parent_to_base_metrics[(grain_cols, parent_key)]
+
+        if not base_metrics_needed:
+            continue  # pragma: no cover
+
+        # Find the components for these base metrics from existing grain groups
+        # Also identify the parent node for the grain group
+        components_for_grain: list[tuple[Node, MetricComponent]] = []
+        parent_node: Optional[Node] = None
+        component_aggregabilities: dict[str, Aggregability] = {}
+        is_cross_fact = parent_key == "cross_fact"
+
+        for gg in existing_grain_groups:
+            for base_metric_name in base_metrics_needed:
+                if base_metric_name in gg.metrics:
+                    # Found a grain group containing this base metric
+                    if parent_node is None:
+                        parent_node = ctx.nodes.get(gg.parent_name)
+
+                    # Get the components for this metric from decomposed_metrics
+                    base_decomposed = decomposed_metrics.get(base_metric_name)
+                    if base_decomposed and isinstance(  # pragma: no branch
+                        base_decomposed,
+                        DecomposedMetricInfo,
+                    ):
+                        metric_node = base_decomposed.metric_node
+                        for component in base_decomposed.components:
+                            components_for_grain.append((metric_node, component))
+                            component_aggregabilities[component.name] = (
+                                base_decomposed.aggregability
+                            )
+
+        if not parent_node or not components_for_grain:
+            continue
+
+        # Determine which dimensions to include at this grain
+        # Exclude all dimensions from the same dimension node as the ORDER BY columns
+        # (except the ORDER BY columns themselves)
+        filtered_dimensions: list[str] = []
+        for dim_ref in ctx.dimensions:
+            clean_ref = strip_role_suffix(dim_ref)
+            dim_node = extract_dimension_node(clean_ref)
+            col_name = clean_ref.rsplit(SEPARATOR, 1)[-1]
+
+            if dim_node in grain_dim_nodes:
+                # Same dimension node as ORDER BY - only include if it's the ORDER BY column
+                if col_name in grain_col_names:
+                    filtered_dimensions.append(dim_ref)
+            else:
+                # Different dimension node - include it
+                filtered_dimensions.append(dim_ref)
+
+        # Skip creating a window grain group if the grain matches the user-requested grain
+        # In this case, the window function can be applied directly to base_metrics
+        if set(filtered_dimensions) == set(ctx.dimensions):
+            continue
+
+        # Save original dimensions and temporarily set filtered dimensions
+        # We can't deepcopy ctx because it contains AsyncSession
+        original_dimensions = ctx.dimensions
+        ctx.dimensions = filtered_dimensions
+        ctx.alias_registry = AliasRegistry()
+        ctx._table_alias_counter = 0
+
+        # Resolve dimensions for this grain
+        resolved_dimensions = resolve_dimensions(ctx, parent_node)
+
+        # Create GrainGroup for the window metrics
+        # Use FULL aggregability since we're aggregating to a specific grain
+        grain_group = GrainGroup(
+            parent_node=parent_node,
+            aggregability=Aggregability.FULL,
+            grain_columns=[],
+            components=components_for_grain,
+            is_merged=False,
+            component_aggregabilities=component_aggregabilities,
+        )
+
+        # Build GrainGroupSQL
+        components_per_metric: dict[str, int] = {}
+        for metric_name in base_metrics_needed:
+            base_decomposed = decomposed_metrics.get(metric_name)
+            if base_decomposed and isinstance(  # pragma: no branch
+                base_decomposed,
+                DecomposedMetricInfo,
+            ):
+                components_per_metric[metric_name] = len(base_decomposed.components)
+
+        grain_group_sql = build_grain_group_sql(
+            ctx,
+            grain_group,
+            resolved_dimensions,
+            components_per_metric,
+        )
+
+        # Restore original dimensions
+        ctx.dimensions = original_dimensions
+
+        # Tag this grain group with the window metrics it serves
+        # This helps metrics SQL identify which grain group to use
+        grain_group_sql.metrics = list(metric_names)
+
+        # Mark as a window grain group with metadata for metrics phase
+        grain_group_sql.is_window_grain_group = True
+        grain_group_sql.window_metrics_served = list(metric_names)
+        # Use the first grain column as the ORDER BY dimension
+        grain_group_sql.window_order_by_dim = (
+            next(iter(grain_cols)) if grain_cols else None
+        )
+        # Mark if this is a cross-fact window group (needs base_metrics as source)
+        grain_group_sql.is_cross_fact_window = is_cross_fact
+
+        additional_grain_groups.append(grain_group_sql)
+
+    return additional_grain_groups
