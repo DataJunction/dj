@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
+    extract_dimension_node,
+    strip_role_suffix,
 )
 from datajunction_server.construction.build_v3.decomposition import (
     build_component_expression,
@@ -40,6 +42,7 @@ from datajunction_server.construction.build_v3.materialization import (
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
+    DecomposedMetricInfo,
     GrainGroup,
     GrainGroupSQL,
     ResolvedDimension,
@@ -1184,12 +1187,6 @@ def build_window_metric_grain_groups(
     Returns:
         List of additional GrainGroupSQL for window metrics at their ORDER BY grains
     """
-    from datajunction_server.construction.build_v3.cte import (
-        extract_dimension_node,
-        strip_role_suffix,
-    )
-    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
-
     if not window_metric_grains:
         return []
 

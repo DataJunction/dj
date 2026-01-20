@@ -1905,7 +1905,9 @@ async def test_extract_with_cache_basic(
 
     # Build cache
     nodes_cache = {"default.revenue": revenue_node}
-    parent_map = {"default.revenue": []}  # No metric parents (it's a base metric)
+    parent_map: dict[str, list[str]] = {
+        "default.revenue": [],
+    }  # No metric parents (it's a base metric)
 
     extractor = MetricComponentExtractor(revenue_rev.id)
     components, derived_ast = await extractor.extract(
@@ -1959,7 +1961,7 @@ async def test_extract_with_cache_derived_metric(
         "default.orders": orders_node,
         "default.aov": aov_node,
     }
-    parent_map = {
+    parent_map: dict[str, list[str]] = {
         "default.revenue": [],  # Base metric
         "default.orders": [],  # Base metric
         "default.aov": ["default.revenue", "default.orders"],  # Derived
@@ -2024,7 +2026,7 @@ async def test_extract_with_cache_nested_derived_metric(
         "default.orders": orders_node,
         "default.aov": aov_node,
     }
-    parent_map = {
+    parent_map: dict[str, list[str]] = {
         "default.revenue": [],
         "default.orders": [],
         "default.aov": ["default.revenue", "default.orders"],

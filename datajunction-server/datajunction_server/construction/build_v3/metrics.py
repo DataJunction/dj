@@ -16,6 +16,7 @@ from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
     build_dimension_node_to_aliases,
     extract_dim_info_from_grain_groups,
+    get_column_full_name,
     get_window_order_by_columns,
     has_window_function,
     inject_partition_by_into_windows,
@@ -534,8 +535,6 @@ def build_intermediate_metric_expr(
     Returns:
         Expression AST for the intermediate metric, or None if cannot be built
     """
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
-
     metric_node = ctx.nodes.get(metric_name)
     if not metric_node:
         return None
@@ -1402,8 +1401,6 @@ def build_window_agg_cte_from_grain_group(
     Returns:
         AST Query that aggregates components into metrics
     """
-    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
-
     projection: list[Any] = []
     group_by: list[ast.Expression] = []
 
@@ -1488,8 +1485,8 @@ def build_window_agg_cte_from_grain_group(
                         visited.copy(),
                     )
                     if parent_expr:
-                        # Replace the column node with the parent's expression
-                        col_node.replace_with(parent_expr)
+                        # Swap the column node with the parent's expression
+                        col_node.swap(parent_expr)
         else:
             # Base metric: replace component references with CTE column refs
             # Use base_grain_group's component_aliases since that's the source CTE
@@ -1708,12 +1705,15 @@ def build_window_cte_from_grain_group(
         # Extract just the column alias from the full dimension ref
         order_by_alias = get_short_name(order_by_dim.split("[")[0])  # Strip role suffix
 
+    # Get the dimension node for the ORDER BY alias (used for filtering)
+    order_by_dim_node = (
+        alias_to_dimension_node.get(order_by_alias) if order_by_alias else None
+    )
     partition_cols = [
         dim
         for dim in dim_columns
         if dim != order_by_alias
-        and alias_to_dimension_node.get(dim)
-        != alias_to_dimension_node.get(order_by_alias)
+        and alias_to_dimension_node.get(dim) != order_by_dim_node
     ]
 
     # Apply window function expressions for each window metric
@@ -2096,6 +2096,8 @@ def generate_metrics_sql(
 
             # Step 1: Build aggregation CTE that reaggregates to the coarser window grain
             agg_cte_alias = f"{parent_short_name}_{order_by_col}_agg"
+            # source_cte_alias is guaranteed to be set by the branches above
+            assert source_cte_alias is not None
             if is_cross_fact:
                 # Cross-fact: use base_metrics as source, reference metric columns
                 agg_cte = build_window_agg_cte_from_base_metrics(
