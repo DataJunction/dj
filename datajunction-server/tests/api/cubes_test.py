@@ -3825,7 +3825,10 @@ class TestCubeMaterializeV2SuccessPaths:
                 "v3.total_revenue": "SUM(line_total_sum_e1f61696)",
                 "v3.order_count": "COUNT( DISTINCT order_id_distinct_f93d50ab)",
                 "v3.avg_order_value": "SAFE_DIVIDE(SUM(line_total_sum_e1f61696), NULLIF(COUNT( DISTINCT order_id_distinct_f93d50ab), 0))",
-                "v3.wow_revenue_change": "SAFE_DIVIDE((SUM(line_total_sum_e1f61696) - LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) ), NULLIF(LAG(SUM(line_total_sum_e1f61696), 1) OVER ( ORDER BY v3.date.week[order]) , 0)) * 100",
+                # wow_revenue_change now has:
+                # - PARTITION BY injected (for querying the materialized cube)
+                # - Dimension refs replaced with column aliases (week_order instead of v3.date.week[order])
+                "v3.wow_revenue_change": "SAFE_DIVIDE((SUM(line_total_sum_e1f61696) - LAG(SUM(line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, order_id\n ORDER BY week_order) ), NULLIF(LAG(SUM(line_total_sum_e1f61696), 1) OVER ( PARTITION BY category, order_id\n ORDER BY week_order) , 0)) * 100",
                 "v3.customer_count": "hll_sketch_estimate(ds_hll(customer_id_hll_23002251))",
             }
 
@@ -3943,18 +3946,14 @@ class TestCubeDeactivateSuccessPaths:
             ),
         )
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        # Set up mock query service client
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
         )
-        mock_deactivate = mocker.patch.object(
-            qs_client,
-            "deactivate_cube_workflow",
-            return_value={"status": "deactivated"},
+        mock_qs_client.deactivate_cube_workflow.return_value = {"status": "deactivated"}
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
         # Create materialization
@@ -3972,7 +3971,7 @@ class TestCubeDeactivateSuccessPaths:
         assert "deactivated" in response.json()["message"].lower()
 
         # Verify workflow deactivation was called with version
-        mock_deactivate.assert_called_once_with(
+        mock_qs_client.deactivate_cube_workflow.assert_called_once_with(
             cube_name,
             version="v1.0",
             request_headers=mocker.ANY,
@@ -4023,13 +4022,13 @@ class TestCubeDeactivateSuccessPaths:
             ),
         )
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        # Set up mock query service client
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
         # Create materialization
@@ -4040,10 +4039,8 @@ class TestCubeDeactivateSuccessPaths:
         assert response.status_code == 200
 
         # Mock workflow deactivation to fail
-        mocker.patch.object(
-            qs_client,
-            "deactivate_cube_workflow",
-            side_effect=Exception("Workflow not found"),
+        mock_qs_client.deactivate_cube_workflow.side_effect = Exception(
+            "Workflow not found",
         )
 
         # Deactivation should still succeed (materialization deleted)
@@ -4103,18 +4100,16 @@ class TestCubeBackfillSuccessPaths:
             ),
         )
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        # Set up mock query service client
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
         )
-        mock_backfill = mocker.patch.object(
-            qs_client,
-            "run_cube_backfill",
-            return_value={"job_url": "http://workflow/backfill-job-123"},
+        mock_qs_client.run_cube_backfill.return_value = {
+            "job_url": "http://workflow/backfill-job-123",
+        }
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
         # Create materialization
@@ -4140,8 +4135,8 @@ class TestCubeBackfillSuccessPaths:
         assert data["status"] == "running"
 
         # Verify cube_version was passed to run_cube_backfill
-        mock_backfill.assert_called_once()
-        backfill_input = mock_backfill.call_args[0][0]
+        mock_qs_client.run_cube_backfill.assert_called_once()
+        backfill_input = mock_qs_client.run_cube_backfill.call_args[0][0]
         assert backfill_input.cube_name == cube_name
         assert backfill_input.cube_version == "v1.0"
 
@@ -4190,18 +4185,14 @@ class TestCubeBackfillSuccessPaths:
             ),
         )
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        # Set up mock query service client
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
         )
-        mocker.patch.object(
-            qs_client,
-            "run_cube_backfill",
-            return_value={"job_url": "http://backfill"},
+        mock_qs_client.run_cube_backfill.return_value = {"job_url": "http://backfill"}
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
         # Create materialization
@@ -4266,13 +4257,13 @@ class TestCubeBackfillSuccessPaths:
             ),
         )
 
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
-        mocker.patch.object(
-            qs_client,
-            "materialize_cube_v2",
-            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        # Set up mock query service client
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
         )
 
         # Create materialization
@@ -4283,11 +4274,7 @@ class TestCubeBackfillSuccessPaths:
         assert response.status_code == 200
 
         # Mock backfill to fail
-        mocker.patch.object(
-            qs_client,
-            "run_cube_backfill",
-            side_effect=Exception("Backfill failed"),
-        )
+        mock_qs_client.run_cube_backfill.side_effect = Exception("Backfill failed")
 
         # Run backfill - should raise
         response = await client_with_repairs_cube.post(
