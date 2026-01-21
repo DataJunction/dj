@@ -29,6 +29,9 @@ from datajunction_server.database.preaggregation import (
     compute_grain_group_hash,
 )
 
+from datajunction_server.construction.build_v3.cte import (
+    process_metric_combiner_expression,
+)
 from datajunction_server.construction.build_v3.types import GrainGroupSQL
 from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.models.column import SemanticType
@@ -595,10 +598,29 @@ async def build_combiner_sql_from_preaggs(
 
     # Populate metric_combiners from decomposed_metrics
     # These are the expressions that combine pre-aggregated components into final metric values
+    # Use the same expression processing as generate_metrics_sql to ensure consistency
     # Render in Druid dialect since these are used by viz tools that query Druid directly
+    #
+    # Build dimension refs in tuple format: {name: (cte_alias, column_name)}
+    # For cube queries, cte_alias is empty string (no CTEs, direct column access)
+    # Note: We don't replace component refs because combiner_ast already has the correct
+    # component hash names which ARE the column names in the Druid cube output
+    dimension_refs = {
+        dim_ref: ("", col_alias)
+        for dim_ref, col_alias in ctx.alias_registry.all_mappings().items()
+    }
     with render_for_dialect(Dialect.DRUID):
         for metric_name, decomposed in result.decomposed_metrics.items():
-            combined_result.metric_combiners[metric_name] = str(decomposed.combiner_ast)
+            # Process the expression using the shared helper function
+            # This applies the same transformations as generate_metrics_sql:
+            # - Replace dimension refs (e.g., "v3.date.dateint" -> "dateint")
+            # - Inject PARTITION BY for window functions
+            processed_expr = process_metric_combiner_expression(
+                combiner_ast=decomposed.combiner_ast,
+                dimension_refs=dimension_refs,
+                partition_dimensions=combined_result.shared_dimensions,
+            )
+            combined_result.metric_combiners[metric_name] = str(processed_expr)
 
     # Determine temporal partition info
     # If all grain groups agree on temporal partition, use it; otherwise None
