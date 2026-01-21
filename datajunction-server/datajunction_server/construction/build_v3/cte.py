@@ -196,7 +196,8 @@ def replace_component_refs_in_ast(
             table_alias, actual_col = component_aliases[col_name]
             # Replace with qualified column reference
             col.name = ast.Name(actual_col)
-            col._table = ast.Table(ast.Name(table_alias))
+            # Only set table if alias is non-empty (empty = no CTE prefix)
+            col._table = ast.Table(ast.Name(table_alias)) if table_alias else None
 
 
 def replace_metric_refs_in_ast(
@@ -225,7 +226,8 @@ def replace_metric_refs_in_ast(
         if full_name in metric_aliases:
             cte_alias, col_name = metric_aliases[full_name]
             col.name = ast.Name(col_name)
-            col._table = ast.Table(ast.Name(cte_alias))
+            # Only set table if alias is non-empty (empty = no CTE prefix)
+            col._table = ast.Table(ast.Name(cte_alias)) if cte_alias else None
 
 
 def replace_dimension_refs_in_ast(
@@ -284,10 +286,11 @@ def replace_dimension_refs_in_ast(
 
         if ref_tuple:  # pragma: no branch
             cte_alias, col_name = ref_tuple
-            # Replace the Subscript with a CTE-qualified Column using swap
+            # Replace the Subscript with a column reference using swap
+            # Only set table if alias is non-empty (empty = no CTE prefix)
             replacement = ast.Column(
                 name=ast.Name(col_name),
-                _table=ast.Table(ast.Name(cte_alias)),
+                _table=ast.Table(ast.Name(cte_alias)) if cte_alias else None,
             )
             subscript.swap(replacement)
 
@@ -300,9 +303,13 @@ def replace_dimension_refs_in_ast(
         # Check for exact match first (handles roles like "v3.date.month[order]")
         if full_name in dimension_refs:
             cte_alias, col_name = dimension_refs[full_name]
-            # Replace with CTE-qualified column reference
+            # Replace with column reference
             col.name = ast.Name(col_name)
-            col._table = ast.Table(ast.Name(cte_alias))
+            # Only set table if alias is non-empty (empty = no CTE prefix)
+            if cte_alias:
+                col._table = ast.Table(ast.Name(cte_alias))
+            else:
+                col._table = None
             continue
 
         # Check without role suffix (for base dimension refs)
@@ -314,7 +321,11 @@ def replace_dimension_refs_in_ast(
             ):  # pragma: no cover
                 cte_alias, col_name = ref_tuple
                 col.name = ast.Name(col_name)
-                col._table = ast.Table(ast.Name(cte_alias))
+                # Only set table if alias is non-empty (empty = no CTE prefix)
+                if cte_alias:
+                    col._table = ast.Table(ast.Name(cte_alias))
+                else:
+                    col._table = None
                 break
 
 
@@ -972,3 +983,81 @@ def collect_node_ctes(
         ctes.append((cte_name, query_ast))
 
     return ctes
+
+
+def process_metric_combiner_expression(
+    combiner_ast: ast.Expression,
+    dimension_refs: dict[str, tuple[str, str]],
+    component_refs: dict[str, tuple[str, str]] | None = None,
+    metric_refs: dict[str, tuple[str, str]] | None = None,
+    partition_dimensions: list[str] | None = None,
+    alias_to_dimension_node: dict[str, str] | None = None,
+) -> ast.Expression:
+    """
+    Process a metric combiner expression for final output.
+
+    This function applies the same transformations used in generate_metrics_sql
+    (specifically build_derived_metric_expr) to ensure consistency between
+    SQL generation and stored metric expressions.
+
+    Used by:
+    - build_derived_metric_expr in generate_metrics_sql
+    - cube materialization for storing metric_expression in config
+
+    Transformations applied (in order, matching build_derived_metric_expr):
+    1. Replace metric references (e.g., "v3.total_revenue" -> column ref)
+    2. Replace component references (e.g., "revenue_sum_abc123" -> column ref)
+    3. Replace dimension references (e.g., "v3.date.dateint" -> column ref)
+    4. Inject PARTITION BY clauses for window functions
+
+    Args:
+        combiner_ast: The metric combiner expression AST
+        dimension_refs: Mapping from dimension refs to (cte_alias, column_name)
+            e.g., {"v3.date.dateint": ("base_metrics", "dateint")}
+            For cube queries, use empty string for cte_alias: ("", "dateint")
+        component_refs: Optional mapping from component names to (cte_alias, column_name)
+            e.g., {"revenue_sum_abc123": ("gg0", "revenue_sum_abc123")}
+        metric_refs: Optional mapping from metric names to (cte_alias, column_name)
+            e.g., {"v3.total_revenue": ("base_metrics", "total_revenue")}
+            For derived metrics that reference other metrics
+        partition_dimensions: Optional list of dimension aliases for PARTITION BY.
+            If provided, window functions will have PARTITION BY injected.
+        alias_to_dimension_node: Optional mapping from alias to dimension node name.
+            Used to exclude related dimensions from PARTITION BY (e.g., if ordering
+            by week_code, also exclude dateint from the same time dimension node).
+
+    Returns:
+        A deep copy of the expression with all transformations applied.
+    """
+    # Deep copy to avoid mutating the original
+    expr_ast = deepcopy(combiner_ast)
+
+    # Replace metric references (for derived metrics referencing other metrics)
+    # This must happen first, matching build_derived_metric_expr order
+    if metric_refs:
+        replace_metric_refs_in_ast(expr_ast, metric_refs)
+
+    # Replace component references
+    if component_refs:
+        replace_component_refs_in_ast(expr_ast, component_refs)
+
+    # Replace dimension references
+    replace_dimension_refs_in_ast(expr_ast, dimension_refs)
+
+    # Inject PARTITION BY for window functions if dimensions provided
+    if partition_dimensions:
+        # Get CTE alias from dimension refs (all should have same alias)
+        # Use None if empty string (for cube queries)
+        cte_alias = None
+        if dimension_refs:  # pragma: no branch
+            first_alias = next(iter(dimension_refs.values()))[0]
+            cte_alias = first_alias if first_alias else None
+
+        inject_partition_by_into_windows(
+            expr_ast,
+            partition_dimensions,
+            alias_to_dimension_node,
+            partition_cte_alias=cte_alias,
+        )
+
+    return expr_ast

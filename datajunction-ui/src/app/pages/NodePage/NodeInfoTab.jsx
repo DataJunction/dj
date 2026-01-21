@@ -66,10 +66,13 @@ export default function NodeInfoTab({ node }) {
   useEffect(() => {
     const fetchData = async () => {
       const metric = await djClient.getMetric(node.name);
+      // For derived metrics (multiple parents), upstream_node is null
+      const parents = metric.current.parents || [];
+      const upstreamNode = parents.length === 1 ? parents[0]?.name : null;
       setMetricInfo({
         metric_metadata: metric.current.metricMetadata,
         required_dimensions: metric.current.requiredDimensions,
-        upstream_node: metric.current.parents[0]?.name,
+        upstream_node: upstreamNode,
         expression: metric.current.metricMetadata?.expression,
         incompatible_druid_functions:
           metric.current.metricMetadata?.incompatibleDruidFunctions || [],
@@ -134,14 +137,16 @@ export default function NodeInfoTab({ node }) {
     node?.type === 'metric' ? (
       <div className="list-group-item d-flex">
         <div className="gap-2 w-100 justify-content-between py-3">
-          <div style={{ marginBottom: '30px' }}>
-            <h6 className="mb-0 w-100">Upstream Node</h6>
-            <p>
-              <a href={`/nodes/${metricInfo?.upstream_node}`}>
-                {metricInfo?.upstream_node}
-              </a>
-            </p>
-          </div>
+          {metricInfo?.upstream_node && (
+            <div style={{ marginBottom: '30px' }}>
+              <h6 className="mb-0 w-100">Upstream Node</h6>
+              <p>
+                <a href={`/nodes/${metricInfo?.upstream_node}`}>
+                  {metricInfo?.upstream_node}
+                </a>
+              </p>
+            </div>
+          )}
           <div>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
             <SyntaxHighlighter language="sql" style={foundation}>

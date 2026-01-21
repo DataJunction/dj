@@ -18,6 +18,7 @@ from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
     has_window_function,
     inject_partition_by_into_windows,
+    process_metric_combiner_expression,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
@@ -818,21 +819,15 @@ def build_derived_metric_expr(
     Returns:
         Expression AST with refs resolved and PARTITION BY injected
     """
-    expr_ast = deepcopy(decomposed.combiner_ast)
-
-    # Replace refs using resolver
-    replace_metric_refs_in_ast(expr_ast, resolver.metric_refs())
-    replace_component_refs_in_ast(expr_ast, resolver.component_refs())
-    replace_dimension_refs_in_ast(expr_ast, resolver.dimension_refs())
-
-    # Inject PARTITION BY for any window functions in the expression
-    inject_partition_by_into_windows(
-        expr_ast,
-        partition_columns,
-        alias_to_dimension_node,
+    # Use the shared helper to ensure consistency with cube materialization
+    return process_metric_combiner_expression(
+        combiner_ast=decomposed.combiner_ast,
+        dimension_refs=resolver.dimension_refs(),
+        component_refs=resolver.component_refs(),
+        metric_refs=resolver.metric_refs(),
+        partition_dimensions=partition_columns,
+        alias_to_dimension_node=alias_to_dimension_node,
     )
-
-    return expr_ast
 
 
 def process_derived_metrics(
