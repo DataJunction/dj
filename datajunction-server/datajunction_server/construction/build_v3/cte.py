@@ -197,10 +197,7 @@ def replace_component_refs_in_ast(
             # Replace with qualified column reference
             col.name = ast.Name(actual_col)
             # Only set table if alias is non-empty (empty = no CTE prefix)
-            if table_alias:
-                col._table = ast.Table(ast.Name(table_alias))
-            else:
-                col._table = None
+            col._table = ast.Table(ast.Name(table_alias)) if table_alias else None
 
 
 def replace_metric_refs_in_ast(
@@ -230,10 +227,7 @@ def replace_metric_refs_in_ast(
             cte_alias, col_name = metric_aliases[full_name]
             col.name = ast.Name(col_name)
             # Only set table if alias is non-empty (empty = no CTE prefix)
-            if cte_alias:
-                col._table = ast.Table(ast.Name(cte_alias))
-            else:
-                col._table = None
+            col._table = ast.Table(ast.Name(cte_alias)) if cte_alias else None
 
 
 def replace_dimension_refs_in_ast(
@@ -1055,7 +1049,7 @@ def process_metric_combiner_expression(
         # Get CTE alias from dimension refs (all should have same alias)
         # Use None if empty string (for cube queries)
         cte_alias = None
-        if dimension_refs:
+        if dimension_refs:  # pragma: no branch
             first_alias = next(iter(dimension_refs.values()))[0]
             cte_alias = first_alias if first_alias else None
 
