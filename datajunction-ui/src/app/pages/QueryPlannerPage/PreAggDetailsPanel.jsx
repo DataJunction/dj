@@ -292,6 +292,7 @@ export function QueryOverviewPanel({
   onClearWorkflowUrls,
   loadedCubeName = null, // Existing cube name if loaded from preset
   cubeMaterialization = null, // Full cube materialization info {schedule, strategy, lookbackWindow, ...}
+  cubeAvailability = null, // Cube availability info for data freshness
   onUpdateCubeConfig,
   onRefreshCubeWorkflow,
   onRunCubeBackfill,
@@ -578,6 +579,9 @@ export function QueryOverviewPanel({
   const grainGroups = measuresResult.grain_groups || [];
   const metricFormulas = measuresResult.metric_formulas || [];
   const sql = metricsResult.sql || '';
+  const dialect = metricsResult.dialect || null;
+  const cubeName = metricsResult.cube_name || null;
+  const isFastQuery = !!cubeName; // Fast if using materialized cube
 
   // Determine if materialization is already configured (has active workflows)
   const isMaterialized =
@@ -609,11 +613,29 @@ export function QueryOverviewPanel({
       {/* Header */}
       <div className="details-header">
         <h2 className="details-title">Query Plan</h2>
-        <p className="details-full-name">
+        <p className="details-info-row">
           {selectedMetrics.length} metric
           {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
           {selectedDimensions.length} dimension
           {selectedDimensions.length !== 1 ? 's' : ''}
+          {isFastQuery && (
+            <>
+              {' · '}
+              <span className="info-materialized">
+                <span style={{ fontFamily: 'sans-serif' }}>⚡</span>{' '}
+                Materialized cube available
+              </span>
+              {cubeAvailability?.validThroughTs && (
+                <>
+                  {' '}
+                  · Valid thru{' '}
+                  {new Date(
+                    cubeAvailability.validThroughTs,
+                  ).toLocaleDateString()}
+                </>
+              )}
+            </>
+          )}
         </p>
       </div>
 
@@ -2198,6 +2220,29 @@ export function QueryOverviewPanel({
               <span className="section-icon">⌘</span>
               Generated SQL
             </h3>
+            <span className="sql-info-inline">
+              {sqlViewMode === 'optimized' && isFastQuery ? (
+                <>
+                  <span className="info-materialized">
+                    <span style={{ fontFamily: 'sans-serif' }}>⚡</span> Using
+                    materialized cube
+                  </span>
+                  {cubeAvailability?.validThroughTs && (
+                    <>
+                      {' · Valid thru '}
+                      {new Date(
+                        cubeAvailability.validThroughTs,
+                      ).toLocaleDateString()}
+                    </>
+                  )}
+                </>
+              ) : sqlViewMode === 'raw' ? (
+                <span className="info-base-tables">
+                  <span style={{ fontFamily: 'sans-serif' }}>⚠️</span> Using
+                  base tables
+                </span>
+              ) : null}
+            </span>
             <div className="sql-view-toggle">
               <button
                 className={`sql-toggle-btn ${

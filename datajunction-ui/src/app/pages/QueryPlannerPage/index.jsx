@@ -15,6 +15,7 @@ import {
   MetricDetailsPanel,
   QueryOverviewPanel,
 } from './PreAggDetailsPanel';
+import ResultsView from './ResultsView';
 import './styles.css';
 
 // Lazy load the graph component - ReactFlow and dagre are heavy (~500KB)
@@ -58,6 +59,20 @@ export function QueryPlannerPage() {
   const [loading, setLoading] = useState(false);
   const [dimensionsLoading, setDimensionsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Query execution state
+  const [showResults, setShowResults] = useState(false);
+  const [queryResults, setQueryResults] = useState(null);
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryError, setQueryError] = useState(null);
+  const [queryStartTime, setQueryStartTime] = useState(null);
+  const [queryElapsedTime, setQueryElapsedTime] = useState(null);
+
+  // Filters state
+  const [filters, setFilters] = useState([]);
+
+  // Cube availability state (for displaying freshness info)
+  const [cubeAvailability, setCubeAvailability] = useState(null);
 
   // Node selection for details panel
   const [selectedNode, setSelectedNode] = useState(null);
@@ -176,12 +191,8 @@ export function QueryPlannerPage() {
 
             // Materialization info is included in the GraphQL response
             const cubeMat = cubeData.cubeMaterialization;
-            if (cubeMat) {
-              setCubeMaterialization(cubeMat);
-              if (cubeMat.workflowUrls?.length > 0) {
-                setWorkflowUrls(cubeMat.workflowUrls);
-              }
-            }
+            setCubeMaterialization(cubeMat || null);
+            setWorkflowUrls(cubeMat?.workflowUrls || []);
           } else {
             console.error('Invalid cube data from URL:', cubeData);
           }
@@ -354,13 +365,52 @@ export function QueryPlannerPage() {
     fetchExistingPreaggs();
   }, [measuresResult, djClient]);
 
+  // Auto-detect cube info when metricsResult has cube_name (backend found a matching cube)
+  // This effect manages cubeAvailability, cubeMaterialization, and workflowUrls based on
+  // either: 1) explicit user selection (loadedCubeName), or 2) auto-detected cube (metricsResult.cube_name)
+  useEffect(() => {
+    const fetchCubeInfo = async () => {
+      // Determine which cube to use: explicit selection takes precedence over auto-detection
+      const cubeName = loadedCubeName || metricsResult?.cube_name;
+
+      if (!cubeName) {
+        // No cube - clear state
+        setCubeAvailability(null);
+        setCubeMaterialization(null);
+        setWorkflowUrls([]);
+        return;
+      }
+
+      try {
+        // Fetch full cube info including materialization
+        const cubeData = await djClient.cubeForPlanner(cubeName);
+        setCubeAvailability(cubeData?.availability || null);
+
+        if (cubeData) {
+          const cubeMat = cubeData.cubeMaterialization;
+          setCubeMaterialization(cubeMat || null);
+          setWorkflowUrls(cubeMat?.workflowUrls || []);
+        } else {
+          setCubeMaterialization(null);
+          setWorkflowUrls([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch cube info:', err);
+        setCubeAvailability(null);
+        setCubeMaterialization(null);
+        setWorkflowUrls([]);
+      }
+    };
+
+    fetchCubeInfo();
+  }, [metricsResult?.cube_name, loadedCubeName, djClient]);
+
   const handleMetricsChange = useCallback(newMetrics => {
     setSelectedMetrics(newMetrics);
     setSelectedNode(null);
-    // Clear cube state since user is manually changing selection
+    // Clear loaded cube name to indicate user is manually changing selection
+    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
-    setWorkflowUrls([]);
-    setCubeMaterialization(null);
   }, []);
 
   // Load a cube preset - sets both metrics and dimensions from the cube definition
@@ -385,14 +435,11 @@ export function QueryPlannerPage() {
           pendingDimensionsFromUrl.current = cubeDimensions;
           setSelectedNode(null);
 
-          // Materialization info is included in the GraphQL response
+          // Materialization and availability info is included in the GraphQL response
+          setCubeAvailability(cubeData.availability || null);
           const cubeMat = cubeData.cubeMaterialization;
-          if (cubeMat) {
-            setCubeMaterialization(cubeMat);
-            if (cubeMat.workflowUrls?.length > 0) {
-              setWorkflowUrls(cubeMat.workflowUrls);
-            }
-          }
+          setCubeMaterialization(cubeMat || null);
+          setWorkflowUrls(cubeMat?.workflowUrls || []);
         } else {
           console.error('Invalid cube data received:', cubeData);
         }
@@ -415,10 +462,9 @@ export function QueryPlannerPage() {
   const handleDimensionsChange = useCallback(newDimensions => {
     setSelectedDimensions(newDimensions);
     setSelectedNode(null);
-    // Clear cube state since user is manually changing selection
+    // Clear loaded cube name to indicate user is manually changing selection
+    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
-    setWorkflowUrls([]);
-    setCubeMaterialization(null);
   }, []);
 
   const handleNodeSelect = useCallback(node => {
@@ -1078,6 +1124,51 @@ export function QueryPlannerPage() {
     [djClient],
   );
 
+  // Run query and fetch results
+  const handleRunQuery = useCallback(async () => {
+    if (selectedMetrics.length === 0 || selectedDimensions.length === 0) {
+      setQueryError('Select at least one metric and one dimension');
+      return;
+    }
+
+    setQueryLoading(true);
+    setQueryError(null);
+    setQueryResults(null);
+    setShowResults(true);
+    const startTime = Date.now();
+    setQueryStartTime(startTime);
+    setQueryElapsedTime(null);
+
+    try {
+      // Fetch data from /data/ endpoint
+      const results = await djClient.data(
+        selectedMetrics,
+        selectedDimensions,
+        filters,
+      );
+      const elapsed = (Date.now() - startTime) / 1000;
+      setQueryElapsedTime(elapsed);
+      setQueryResults(results);
+    } catch (err) {
+      console.error('Query failed:', err);
+      setQueryError(err.message || 'Failed to execute query');
+    } finally {
+      setQueryLoading(false);
+    }
+  }, [djClient, selectedMetrics, selectedDimensions, filters]);
+
+  // Handle back to plan view
+  const handleBackToPlan = useCallback(() => {
+    setShowResults(false);
+    setQueryResults(null);
+    setQueryError(null);
+  }, []);
+
+  // Handle filter changes
+  const handleFiltersChange = useCallback(newFilters => {
+    setFilters(newFilters);
+  }, []);
+
   return (
     <div className="planner-page">
       {/* Header */}
@@ -1105,109 +1196,138 @@ export function QueryPlannerPage() {
             onLoadCubePreset={handleLoadCubePreset}
             loadedCubeName={loadedCubeName}
             onClearSelection={handleClearSelection}
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            onRunQuery={handleRunQuery}
+            canRunQuery={
+              selectedMetrics.length > 0 && selectedDimensions.length > 0
+            }
+            queryLoading={queryLoading}
           />
         </aside>
 
-        {/* Center: Graph */}
-        <main className="planner-graph">
-          {loading ? (
-            <div className="graph-loading">
-              <div className="loading-spinner" />
-              <span>Building data flow...</span>
-            </div>
-          ) : measuresResult ? (
-            <>
-              <div className="graph-header">
-                <span className="graph-stats">
-                  {measuresResult.grain_groups?.length || 0} pre-aggregations →{' '}
-                  {measuresResult.metric_formulas?.length || 0} metrics
-                </span>
-              </div>
-              {/* Suspense boundary for lazy-loaded ReactFlow graph */}
-              <Suspense
-                fallback={
-                  <div className="graph-loading">
-                    <div className="loading-spinner" />
-                    <span>Loading graph...</span>
+        {/* Main Content Area - Either Results or Graph+Details */}
+        {showResults ? (
+          <ResultsView
+            sql={metricsResult?.sql}
+            results={queryResults}
+            loading={queryLoading}
+            error={queryError}
+            elapsedTime={queryElapsedTime}
+            onBackToPlan={handleBackToPlan}
+            selectedMetrics={selectedMetrics}
+            selectedDimensions={selectedDimensions}
+            filters={filters}
+            dialect={metricsResult?.dialect}
+            cubeName={metricsResult?.cube_name}
+            availability={cubeAvailability}
+          />
+        ) : (
+          <>
+            {/* Center: Graph */}
+            <main className="planner-graph">
+              {loading ? (
+                <div className="graph-loading">
+                  <div className="loading-spinner" />
+                  <span>Building data flow...</span>
+                </div>
+              ) : measuresResult ? (
+                <>
+                  <div className="graph-header">
+                    <span className="graph-stats">
+                      {measuresResult.grain_groups?.length || 0}{' '}
+                      pre-aggregations →{' '}
+                      {measuresResult.metric_formulas?.length || 0} metrics
+                    </span>
                   </div>
-                }
-              >
-                <MetricFlowGraph
-                  grainGroups={measuresResult.grain_groups}
-                  metricFormulas={measuresResult.metric_formulas}
-                  selectedNode={selectedNode}
-                  onNodeSelect={handleNodeSelect}
-                />
-              </Suspense>
-            </>
-          ) : (
-            <div className="graph-empty">
-              <div className="empty-icon">⊞</div>
-              <h3>Select Metrics & Dimensions</h3>
-              <p>
-                Choose metrics from the left panel, then select dimensions to
-                see how they decompose into pre-aggregations.
-              </p>
-            </div>
-          )}
-        </main>
+                  {/* Suspense boundary for lazy-loaded ReactFlow graph */}
+                  <Suspense
+                    fallback={
+                      <div className="graph-loading">
+                        <div className="loading-spinner" />
+                        <span>Loading graph...</span>
+                      </div>
+                    }
+                  >
+                    <MetricFlowGraph
+                      grainGroups={measuresResult.grain_groups}
+                      metricFormulas={measuresResult.metric_formulas}
+                      selectedNode={selectedNode}
+                      onNodeSelect={handleNodeSelect}
+                    />
+                  </Suspense>
+                </>
+              ) : (
+                <div className="graph-empty">
+                  <div className="empty-icon">⊞</div>
+                  <h3>Select Metrics & Dimensions</h3>
+                  <p>
+                    Choose metrics from the left panel, then select dimensions
+                    to see how they decompose into pre-aggregations.
+                  </p>
+                </div>
+              )}
+            </main>
 
-        {/* Right: Details Panel */}
-        <aside className="planner-details">
-          {selectedNode?.type === 'preagg' ||
-          selectedNode?.type === 'component' ? (
-            <PreAggDetailsPanel
-              preAgg={
-                selectedNode?.type === 'component'
-                  ? measuresResult?.grain_groups?.[
-                      selectedNode.data?.grainGroupIndex
-                    ]
-                  : selectedNode.data
-              }
-              metricFormulas={measuresResult?.metric_formulas}
-              onClose={handleClosePanel}
-              highlightedComponent={
-                selectedNode?.type === 'component'
-                  ? selectedNode.data?.name
-                  : null
-              }
-            />
-          ) : selectedNode?.type === 'metric' ? (
-            <MetricDetailsPanel
-              metric={selectedNode.data}
-              grainGroups={measuresResult?.grain_groups}
-              onClose={handleClosePanel}
-            />
-          ) : (
-            <QueryOverviewPanel
-              measuresResult={measuresResult}
-              metricsResult={metricsResult}
-              selectedMetrics={selectedMetrics}
-              selectedDimensions={selectedDimensions}
-              plannedPreaggs={plannedPreaggs}
-              onPlanMaterialization={handlePlanMaterialization}
-              onUpdateConfig={handleUpdateConfig}
-              onCreateWorkflow={handleCreateWorkflow}
-              onRunBackfill={handleRunBackfill}
-              onRunAdhoc={handleRunAdhoc}
-              onFetchRawSql={handleFetchRawSql}
-              onSetPartition={handleSetPartition}
-              onRefreshMeasures={handleRefreshMeasures}
-              onFetchNodePartitions={handleFetchNodePartitions}
-              materializationError={materializationError}
-              onClearError={() => setMaterializationError(null)}
-              workflowUrls={workflowUrls}
-              onClearWorkflowUrls={() => setWorkflowUrls([])}
-              loadedCubeName={loadedCubeName}
-              cubeMaterialization={cubeMaterialization}
-              onUpdateCubeConfig={handleUpdateCubeConfig}
-              onRefreshCubeWorkflow={handleRefreshCubeWorkflow}
-              onRunCubeBackfill={handleRunCubeBackfill}
-              onDeactivatePreaggWorkflow={handleDeactivatePreaggWorkflow}
-              onDeactivateCubeWorkflow={handleDeactivateCubeWorkflow}
-            />
-          )}
-        </aside>
+            {/* Right: Details Panel */}
+            <aside className="planner-details">
+              {selectedNode?.type === 'preagg' ||
+              selectedNode?.type === 'component' ? (
+                <PreAggDetailsPanel
+                  preAgg={
+                    selectedNode?.type === 'component'
+                      ? measuresResult?.grain_groups?.[
+                          selectedNode.data?.grainGroupIndex
+                        ]
+                      : selectedNode.data
+                  }
+                  metricFormulas={measuresResult?.metric_formulas}
+                  onClose={handleClosePanel}
+                  highlightedComponent={
+                    selectedNode?.type === 'component'
+                      ? selectedNode.data?.name
+                      : null
+                  }
+                />
+              ) : selectedNode?.type === 'metric' ? (
+                <MetricDetailsPanel
+                  metric={selectedNode.data}
+                  grainGroups={measuresResult?.grain_groups}
+                  onClose={handleClosePanel}
+                />
+              ) : (
+                <QueryOverviewPanel
+                  measuresResult={measuresResult}
+                  metricsResult={metricsResult}
+                  selectedMetrics={selectedMetrics}
+                  selectedDimensions={selectedDimensions}
+                  plannedPreaggs={plannedPreaggs}
+                  onPlanMaterialization={handlePlanMaterialization}
+                  onUpdateConfig={handleUpdateConfig}
+                  onCreateWorkflow={handleCreateWorkflow}
+                  onRunBackfill={handleRunBackfill}
+                  onRunAdhoc={handleRunAdhoc}
+                  onFetchRawSql={handleFetchRawSql}
+                  onSetPartition={handleSetPartition}
+                  onRefreshMeasures={handleRefreshMeasures}
+                  onFetchNodePartitions={handleFetchNodePartitions}
+                  materializationError={materializationError}
+                  onClearError={() => setMaterializationError(null)}
+                  workflowUrls={workflowUrls}
+                  onClearWorkflowUrls={() => setWorkflowUrls([])}
+                  loadedCubeName={loadedCubeName}
+                  cubeMaterialization={cubeMaterialization}
+                  cubeAvailability={cubeAvailability}
+                  onUpdateCubeConfig={handleUpdateCubeConfig}
+                  onRefreshCubeWorkflow={handleRefreshCubeWorkflow}
+                  onRunCubeBackfill={handleRunCubeBackfill}
+                  onDeactivatePreaggWorkflow={handleDeactivatePreaggWorkflow}
+                  onDeactivateCubeWorkflow={handleDeactivateCubeWorkflow}
+                />
+              )}
+            </aside>
+          </>
+        )}
       </div>
     </div>
   );

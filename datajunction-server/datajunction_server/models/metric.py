@@ -119,6 +119,15 @@ class TranslatedSQL(TranspiledSQL):
         )
 
 
+class V3AvailabilityInfo(BaseModel):
+    """Availability information for a cube used in query generation."""
+
+    catalog: str
+    schema_: Optional[str] = None
+    table: str
+    valid_through_ts: int  # Unix timestamp in milliseconds
+
+
 class V3TranslatedSQL(BaseModel):
     """
     SQL response model for V3 SQL generation endpoints.
@@ -131,3 +140,7 @@ class V3TranslatedSQL(BaseModel):
     sql: str
     columns: List[V3ColumnMetadata]
     dialect: Dialect
+
+    # If a cube was used, contains cube info
+    cube_name: Optional[str] = None
+    availability: Optional[V3AvailabilityInfo] = None

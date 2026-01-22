@@ -17,6 +17,11 @@ export function SelectionPanel({
   onLoadCubePreset,
   loadedCubeName = null, // Managed by parent for URL persistence
   onClearSelection,
+  filters = [],
+  onFiltersChange,
+  onRunQuery,
+  canRunQuery = false,
+  queryLoading = false,
 }) {
   const [metricsSearch, setMetricsSearch] = useState('');
   const [dimensionsSearch, setDimensionsSearch] = useState('');
@@ -25,8 +30,11 @@ export function SelectionPanel({
   const [cubeSearch, setCubeSearch] = useState('');
   const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
   const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
+  const [filterInput, setFilterInput] = useState('');
   const prevSearchRef = useRef('');
   const cubeDropdownRef = useRef(null);
+  const metricsSearchRef = useRef(null);
+  const dimensionsSearchRef = useRef(null);
 
   // Threshold for showing expand/collapse button
   const CHIPS_COLLAPSE_THRESHOLD = 8;
@@ -261,6 +269,27 @@ export function SelectionPanel({
     }
   };
 
+  const handleAddFilter = () => {
+    const trimmed = filterInput.trim();
+    if (trimmed && !filters.includes(trimmed) && onFiltersChange) {
+      onFiltersChange([...filters, trimmed]);
+      setFilterInput('');
+    }
+  };
+
+  const handleFilterKeyDown = e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddFilter();
+    }
+  };
+
+  const handleRemoveFilter = filterToRemove => {
+    if (onFiltersChange) {
+      onFiltersChange(filters.filter(f => f !== filterToRemove));
+    }
+  };
+
   return (
     <div className="selection-panel">
       {/* Cube Preset Dropdown */}
@@ -286,7 +315,7 @@ export function SelectionPanel({
             </button>
             {(selectedMetrics.length > 0 || selectedDimensions.length > 0) && (
               <button className="clear-all-btn" onClick={clearSelection}>
-                Clear all
+                Clear
               </button>
             )}
           </div>
@@ -312,7 +341,9 @@ export function SelectionPanel({
                   filteredCubes.map(cube => (
                     <button
                       key={cube.name}
-                      className="cube-option"
+                      className={`cube-option ${
+                        loadedCubeName === cube.name ? 'selected' : ''
+                      }`}
                       onClick={() => handleCubeSelect(cube)}
                     >
                       <span className="cube-name">
@@ -320,6 +351,9 @@ export function SelectionPanel({
                           (cube.name ? cube.name.split('.').pop() : 'Unknown')}
                       </span>
                       <span className="cube-info">{cube.name}</span>
+                      {loadedCubeName === cube.name && (
+                        <span className="cube-selected-icon">✓</span>
+                      )}
                     </button>
                   ))
                 )}
@@ -338,62 +372,71 @@ export function SelectionPanel({
           </span>
         </div>
 
-        {/* Selected Metrics Chips */}
-        {selectedMetrics.length > 0 && (
-          <div className="selected-chips-container">
+        {/* Combined Chips + Search Input */}
+        <div
+          className="combobox-input"
+          onClick={() => metricsSearchRef.current?.focus()}
+        >
+          {selectedMetrics.length > 0 && (
             <div
-              className={`selected-chips-wrapper ${
-                metricsChipsExpanded ? 'expanded' : ''
+              className={`combobox-chips ${
+                selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD
+                  ? metricsChipsExpanded
+                    ? 'expanded'
+                    : 'collapsed'
+                  : ''
               }`}
             >
-              <div className="selected-chips">
-                {selectedMetrics.map(metric => (
-                  <span key={metric} className="selected-chip metric-chip">
-                    <span className="chip-label">{getShortName(metric)}</span>
-                    <button
-                      className="chip-remove"
-                      onClick={() => removeMetric(metric)}
-                      title={`Remove ${getShortName(metric)}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
+              {selectedMetrics.map(metric => (
+                <span key={metric} className="selected-chip metric-chip">
+                  {getShortName(metric)}
+                  <button
+                    className="chip-remove"
+                    onClick={e => {
+                      e.stopPropagation();
+                      removeMetric(metric);
+                    }}
+                    title={`Remove ${getShortName(metric)}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
             </div>
+          )}
+          <div className="combobox-input-row">
+            <input
+              ref={metricsSearchRef}
+              type="text"
+              className="combobox-search"
+              placeholder="Search metrics..."
+              value={metricsSearch}
+              onChange={e => setMetricsSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
             {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
               <button
-                className="chips-toggle"
-                onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
+                className="combobox-action"
+                onClick={e => {
+                  e.stopPropagation();
+                  setMetricsChipsExpanded(!metricsChipsExpanded);
+                }}
               >
-                <span>
-                  {metricsChipsExpanded
-                    ? 'Show less'
-                    : `Show all ${selectedMetrics.length}`}
-                </span>
-                <span className="chips-toggle-icon">
-                  {metricsChipsExpanded ? '▲' : '▼'}
-                </span>
+                {metricsChipsExpanded ? 'Show less' : 'Show all'}
+              </button>
+            )}
+            {selectedMetrics.length > 0 && (
+              <button
+                className="combobox-action"
+                onClick={e => {
+                  e.stopPropagation();
+                  onMetricsChange([]);
+                }}
+              >
+                Clear
               </button>
             )}
           </div>
-        )}
-
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Search metrics..."
-            value={metricsSearch}
-            onChange={e => setMetricsSearch(e.target.value)}
-          />
-          {metricsSearch && (
-            <button
-              className="clear-search"
-              onClick={() => setMetricsSearch('')}
-            >
-              ×
-            </button>
-          )}
         </div>
 
         <div className="selection-list">
@@ -489,69 +532,74 @@ export function SelectionPanel({
           <div className="empty-list">Loading dimensions...</div>
         ) : (
           <>
-            {/* Selected Dimensions Chips */}
-            {selectedDimensions.length > 0 && (
-              <div className="selected-chips-container">
+            {/* Combined Chips + Search Input */}
+            <div
+              className="combobox-input"
+              onClick={() => dimensionsSearchRef.current?.focus()}
+            >
+              {selectedDimensions.length > 0 && (
                 <div
-                  className={`selected-chips-wrapper ${
-                    dimensionsChipsExpanded ? 'expanded' : ''
+                  className={`combobox-chips ${
+                    selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD
+                      ? dimensionsChipsExpanded
+                        ? 'expanded'
+                        : 'collapsed'
+                      : ''
                   }`}
                 >
-                  <div className="selected-chips">
-                    {selectedDimensions.map(dimName => (
-                      <span
-                        key={dimName}
-                        className="selected-chip dimension-chip"
+                  {selectedDimensions.map(dimName => (
+                    <span
+                      key={dimName}
+                      className="selected-chip dimension-chip"
+                    >
+                      {getDimDisplayName(dimName)}
+                      <button
+                        className="chip-remove"
+                        onClick={e => {
+                          e.stopPropagation();
+                          removeDimension(dimName);
+                        }}
+                        title={`Remove ${getDimDisplayName(dimName)}`}
                       >
-                        <span className="chip-label">
-                          {getDimDisplayName(dimName)}
-                        </span>
-                        <button
-                          className="chip-remove"
-                          onClick={() => removeDimension(dimName)}
-                          title={`Remove ${getDimDisplayName(dimName)}`}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
+                        ×
+                      </button>
+                    </span>
+                  ))}
                 </div>
+              )}
+              <div className="combobox-input-row">
+                <input
+                  ref={dimensionsSearchRef}
+                  type="text"
+                  className="combobox-search"
+                  placeholder="Search dimensions..."
+                  value={dimensionsSearch}
+                  onChange={e => setDimensionsSearch(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                />
                 {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
                   <button
-                    className="chips-toggle"
-                    onClick={() =>
-                      setDimensionsChipsExpanded(!dimensionsChipsExpanded)
-                    }
+                    className="combobox-action"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setDimensionsChipsExpanded(!dimensionsChipsExpanded);
+                    }}
                   >
-                    <span>
-                      {dimensionsChipsExpanded
-                        ? 'Show less'
-                        : `Show all ${selectedDimensions.length}`}
-                    </span>
-                    <span className="chips-toggle-icon">
-                      {dimensionsChipsExpanded ? '▲' : '▼'}
-                    </span>
+                    {dimensionsChipsExpanded ? 'Show less' : 'Show all'}
+                  </button>
+                )}
+                {selectedDimensions.length > 0 && (
+                  <button
+                    className="combobox-action"
+                    onClick={e => {
+                      e.stopPropagation();
+                      onDimensionsChange([]);
+                    }}
+                  >
+                    Clear
                   </button>
                 )}
               </div>
-            )}
-
-            <div className="search-box">
-              <input
-                type="text"
-                placeholder="Search dimensions..."
-                value={dimensionsSearch}
-                onChange={e => setDimensionsSearch(e.target.value)}
-              />
-              {dimensionsSearch && (
-                <button
-                  className="clear-search"
-                  onClick={() => setDimensionsSearch('')}
-                >
-                  ×
-                </button>
-              )}
             </div>
 
             <div className="selection-list dimensions-list">
@@ -584,6 +632,83 @@ export function SelectionPanel({
               )}
             </div>
           </>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="section-divider" />
+
+      {/* Filters Section */}
+      <div className="selection-section filters-section">
+        <div className="section-header">
+          <h3>Filters</h3>
+          <span className="selection-count">{filters.length} applied</span>
+        </div>
+
+        {/* Filter chips */}
+        {filters.length > 0 && (
+          <div className="filter-chips-container">
+            {filters.map((filter, idx) => (
+              <span key={idx} className="filter-chip">
+                <span className="filter-chip-text">{filter}</span>
+                <button
+                  className="filter-chip-remove"
+                  onClick={() => handleRemoveFilter(filter)}
+                  title="Remove filter"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Filter input */}
+        <div className="filter-input-container">
+          <input
+            type="text"
+            className="filter-input"
+            placeholder="e.g. v3.date.date_id >= '2024-01-01'"
+            value={filterInput}
+            onChange={e => setFilterInput(e.target.value)}
+            onKeyDown={handleFilterKeyDown}
+          />
+          <button
+            className="filter-add-btn"
+            onClick={handleAddFilter}
+            disabled={!filterInput.trim()}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Run Query Section */}
+      <div className="run-query-section">
+        <button
+          className="run-query-btn"
+          onClick={onRunQuery}
+          disabled={!canRunQuery || queryLoading}
+        >
+          {queryLoading ? (
+            <>
+              <span className="spinner small" />
+              Running...
+            </>
+          ) : (
+            <>
+              <span className="run-icon">▶</span>
+              Run Query
+            </>
+          )}
+        </button>
+        {!canRunQuery && selectedMetrics.length > 0 && (
+          <span className="run-hint">Select at least one dimension</span>
+        )}
+        {!canRunQuery && selectedMetrics.length === 0 && (
+          <span className="run-hint">
+            Select metrics and dimensions to run a query
+          </span>
         )}
       </div>
     </div>

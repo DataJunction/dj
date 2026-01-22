@@ -16,9 +16,10 @@ from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
 )
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.cube_matcher import find_matching_cube
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.transpilation import transpile_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -460,7 +461,36 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Determine dialect and engine BEFORE building SQL
+    # If a cube with availability exists, use the availability catalog's dialect
+    engine = None
+    catalog_name = None
+    dialect = Dialect.SPARK  # Default
+
+    if use_materialized:
+        # Check if a matching cube with availability exists
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+        if cube and cube.availability:
+            # Get the catalog from the availability state
+            avail_catalog_name = cube.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+                dialect = engine.dialect
+                _logger.info(
+                    "[/data/] Found cube %s with availability in catalog=%s, using dialect=%s",
+                    cube.name,
+                    avail_catalog_name,
+                    dialect,
+                )
+
+    # Build SQL using the determined dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -468,29 +498,43 @@ async def get_data_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
-        session=session,
-        node=node,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        dialect=generated_sql.dialect,
+    # If no cube was used, resolve engine from the first metric node
+    if not engine:
+        node = cast(
+            Node,
+            await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+        )
+        catalog_name = node.current.catalog.name
+        engine = await resolve_engine(
+            session=session,
+            node=node,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            dialect=generated_sql.dialect,
+        )
+
+    _logger.info(
+        "[/data/] Using engine=%s version=%s dialect=%s catalog=%s cube=%s for metrics=%s",
+        engine.name,
+        engine.version,
+        engine.dialect,
+        catalog_name,
+        generated_sql.cube_name,
+        metrics,
     )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    # SQL is already in the correct dialect, no transpilation needed
+    final_sql = generated_sql.sql
+
+    _logger.info("[/data/] Final SQL:\n%s", final_sql)
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=async_,
@@ -540,7 +584,27 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Determine dialect and engine BEFORE building SQL
+    engine = None
+    catalog_name = None
+    dialect = Dialect.SPARK  # Default
+
+    if use_materialized:
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+        if cube and cube.availability:
+            avail_catalog_name = cube.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+                dialect = engine.dialect
+
+    # Build SQL using the determined dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -548,29 +612,31 @@ async def get_data_stream_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
-        session=session,
-        node=node,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        dialect=generated_sql.dialect,
-    )
+    # If no cube was used, resolve engine from the first metric node
+    if not engine:
+        node = cast(
+            Node,
+            await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+        )
+        catalog_name = node.current.catalog.name
+        engine = await resolve_engine(
+            session=session,
+            node=node,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            dialect=generated_sql.dialect,
+        )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    # SQL is already in the correct dialect
+    final_sql = generated_sql.sql
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=True,
