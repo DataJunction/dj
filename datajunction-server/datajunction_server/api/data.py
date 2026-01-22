@@ -3,6 +3,7 @@ Data related APIs.
 """
 
 import logging
+from dataclasses import asdict
 from typing import Callable, Dict, List, Optional, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
@@ -15,9 +16,9 @@ from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
 )
-from datajunction_server.internal.sql import (
-    build_sql_for_multiple_metrics,
-)
+from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -437,41 +438,41 @@ async def get_data_for_metrics(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
-    query_params: str = Query("{}", description="Query parameters"),
     async_: bool = False,
+    use_materialized: bool = Query(
+        default=True,
+        description="Whether to use materialized tables when available",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-    cache: Cache = Depends(get_cache),
-    background_tasks: BackgroundTasks,
 ) -> QueryWithResults:
     """
-    Return data for a set of metrics with dimensions and filters
+    Return data for a set of metrics with dimensions and filters.
+
+    Uses v3 SQL builder which supports:
+    - Derived metrics (multi-level)
+    - Cube matching for materialized tables
+    - Grain group joins for metrics from different facts
     """
     request_headers = dict(request.headers)
-    query_cache_manager = QueryCacheManager(
-        cache=cache,
-        query_type=QueryBuildType.METRICS,
+
+    # Build SQL using v3 builder (generates Spark dialect by default)
+    generated_sql = await build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters if filters else None,
+        orderby=orderby if orderby else None,
+        limit=limit,
+        dialect=Dialect.SPARK,
+        use_materialized=use_materialized,
     )
-    translated_sql = await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=metrics,
-            dimensions=dimensions,
-            filters=filters,
-            orderby=orderby,
-            limit=limit,
-            query_params=query_params,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            use_materialized=True,
-            ignore_errors=False,
-        ),
-    )
+
+    # Get the first metric node to resolve engine and catalog
     node = cast(
         Node,
         await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
@@ -481,13 +482,17 @@ async def get_data_for_metrics(
         node=node,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect=translated_sql.dialect,
+        dialect=generated_sql.dialect,
     )
+
+    # Transpile SQL to the engine's dialect
+    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+
     query_create = QueryCreate(
         engine_name=engine.name,
         catalog_name=node.current.catalog.name,
         engine_version=engine.version,
-        submitted_query=translated_sql.sql,
+        submitted_query=final_sql,
         async_=async_,
     )
     result = query_service_client.submit_query(
@@ -497,7 +502,12 @@ async def get_data_for_metrics(
 
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
-        result.results.root[0].columns = translated_sql.columns or []
+        # Convert dataclass columns to dicts for proper serialization
+        result.results.root[0].columns = (
+            [asdict(col) for col in generated_sql.columns]  # type: ignore
+            if generated_sql.columns
+            else []
+        )
     return result
 
 
@@ -508,6 +518,10 @@ async def get_data_stream_for_metrics(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
+    use_materialized: bool = Query(
+        default=True,
+        description="Whether to use materialized tables when available",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -515,29 +529,50 @@ async def get_data_stream_for_metrics(
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: User = Depends(get_current_user),
-    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> QueryWithResults:
     """
-    Return data for a set of metrics with dimensions and filters using server sent events
+    Return data for a set of metrics with dimensions and filters using server sent events.
+
+    Uses v3 SQL builder which supports:
+    - Derived metrics (multi-level)
+    - Cube matching for materialized tables
+    - Grain group joins for metrics from different facts
     """
     request_headers = dict(request.headers)
-    translated_sql, engine, catalog = await build_sql_for_multiple_metrics(
-        session,
-        metrics,
-        dimensions,
-        filters,
-        orderby,
-        limit,
-        engine_name,
-        engine_version,
-        access_checker,
+
+    # Build SQL using v3 builder (generates Spark dialect by default)
+    generated_sql = await build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters if filters else None,
+        orderby=orderby if orderby else None,
+        limit=limit,
+        dialect=Dialect.SPARK,
+        use_materialized=use_materialized,
     )
+
+    # Get the first metric node to resolve engine and catalog
+    node = cast(
+        Node,
+        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+    )
+    engine = await resolve_engine(
+        session=session,
+        node=node,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        dialect=generated_sql.dialect,
+    )
+
+    # Transpile SQL to the engine's dialect
+    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=catalog.name,
+        catalog_name=node.current.catalog.name,
         engine_version=engine.version,
-        submitted_query=translated_sql.sql,
+        submitted_query=final_sql,
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly
@@ -550,7 +585,9 @@ async def get_data_stream_for_metrics(
             query=initial_query_info,
             request_headers=request_headers,
             query_service_client=query_service_client,
-            columns=translated_sql.columns,  # type: ignore
+            columns=[asdict(col) for col in generated_sql.columns]  # type: ignore
+            if generated_sql.columns
+            else [],
             request=request,
         ),
     )
