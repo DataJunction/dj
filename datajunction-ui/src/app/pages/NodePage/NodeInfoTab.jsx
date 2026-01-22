@@ -260,12 +260,7 @@ export default function NodeInfoTab({ node }) {
   const cubeElementsDiv = cubeElements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
-        <div
-          style={{
-            width: '100%',
-            maxWidth: '100%',
-          }}
-        >
+        <div style={{ flex: 1, minWidth: 0 }}>
           <h6 className="mb-0 w-100">Cube Elements</h6>
           <div className={`list-group-item`}>
             {cubeElements.map(cubeElem =>
