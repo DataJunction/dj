@@ -124,7 +124,7 @@ export default function NodeInfoTab({ node }) {
               </p>
             </div>
           )}
-          <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
             <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
               {metricInfo?.expression}
@@ -138,13 +138,7 @@ export default function NodeInfoTab({ node }) {
   const queryDiv = node?.query ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
-        <div
-          style={{
-            width: '100%',
-            maxWidth: '100%',
-            overflow: 'hidden',
-          }}
-        >
+        <div style={{ flex: 1, minWidth: 0 }}>
           <h6 className="mb-0 w-100">Query</h6>
           <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
             {node?.query}
@@ -251,13 +245,9 @@ export default function NodeInfoTab({ node }) {
     node?.custom_metadata && Object.keys(node.custom_metadata).length > 0 ? (
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 justify-content-between py-3">
-          <div
-            style={{
-              width: window.innerWidth * 0.8,
-            }}
-          >
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h6 className="mb-0 w-100">Custom Metadata</h6>
-            <SyntaxHighlighter language="json" style={foundation}>
+            <SyntaxHighlighter language="json" style={foundation} wrapLongLines={true}>
               {JSON.stringify(node.custom_metadata, null, 2)}
             </SyntaxHighlighter>
           </div>
@@ -272,7 +262,8 @@ export default function NodeInfoTab({ node }) {
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
         <div
           style={{
-            width: window.innerWidth * 0.8,
+            width: '100%',
+            maxWidth: '100%',
           }}
         >
           <h6 className="mb-0 w-100">Cube Elements</h6>
