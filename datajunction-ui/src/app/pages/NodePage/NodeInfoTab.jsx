@@ -5,7 +5,6 @@ import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';
-import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
 
@@ -32,8 +31,6 @@ foundation.hljs['padding'] = '2rem';
 
 export default function NodeInfoTab({ node }) {
   const navigate = useNavigate();
-  const [compiledSQL, setCompiledSQL] = useState('');
-  const [checked, setChecked] = useState(false);
 
   // For metrics
   const [metricInfo, setMetricInfo] = useState(null);
@@ -52,24 +49,6 @@ export default function NodeInfoTab({ node }) {
     </span>
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-
-  // Fetch compiled SQL for metrics using v3 builder
-  useEffect(() => {
-    const fetchData = async () => {
-      if (checked === true && node.type === 'metric') {
-        // Use v3 SQL builder for metrics - handles derived metrics correctly
-        const data = await djClient.metricsV3([node.name], [], '', false);
-        if (data.sql) {
-          setCompiledSQL(data.sql);
-        } else {
-          setCompiledSQL(
-            '/* Ran into an issue while generating compiled SQL */',
-          );
-        }
-      }
-    };
-    fetchData().catch(console.error);
-  }, [node, djClient, checked]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -104,9 +83,6 @@ export default function NodeInfoTab({ node }) {
     }
   }, [node, djClient]);
 
-  function toggle(value) {
-    return !value;
-  }
   const metricsWarning =
     node?.type === 'metric' &&
     metricInfo?.incompatible_druid_functions?.length > 0 ? (
@@ -156,17 +132,9 @@ export default function NodeInfoTab({ node }) {
             </div>
           )}
           <div>
-            <h6 className="mb-0 w-100">
-              {checked ? 'Compiled SQL' : 'Aggregate Expression'}
-            </h6>
-            <ToggleSwitch
-              id="toggleSwitch"
-              checked={checked}
-              onChange={() => setChecked(toggle)}
-              toggleName="Show Compiled SQL"
-            />
+            <h6 className="mb-0 w-100">Aggregate Expression</h6>
             <SyntaxHighlighter language="sql" style={foundation}>
-              {checked ? compiledSQL : metricInfo?.expression}
+              {metricInfo?.expression}
             </SyntaxHighlighter>
           </div>
           <div style={{ marginTop: '1rem' }}>
@@ -233,7 +201,20 @@ export default function NodeInfoTab({ node }) {
     node?.type === 'metric' ? (
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 py-3">
-          <div>
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Output Type</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="OutputType"
+            >
+              <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: '3px' }}>
+                {node?.columns?.[0]?.type || 'Unknown'}
+              </code>
+            </p>
+          </div>
+          <div style={{ marginRight: '2rem' }}>
             <h6 className="mb-0 w-100">Direction</h6>
             <p
               className="mb-0 opacity-75"

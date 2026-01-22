@@ -73,7 +73,7 @@ export function NodePage() {
       {
         id: 'columns',
         name: 'Columns',
-        display: true,
+        display: node?.type !== 'metric',
       },
       {
         id: 'graph',
@@ -88,7 +88,7 @@ export function NodePage() {
       {
         id: 'materializations',
         name: 'Materializations',
-        display: node?.type !== 'source',
+        display: node?.type !== 'source' && node?.type !== 'metric',
       },
       {
         id: 'linked',
