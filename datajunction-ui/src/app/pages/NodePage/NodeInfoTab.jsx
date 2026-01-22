@@ -126,7 +126,11 @@ export default function NodeInfoTab({ node }) {
           )}
           <div>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
-            <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
+            <SyntaxHighlighter
+              language="sql"
+              style={foundation}
+              wrapLongLines={true}
+            >
               {metricInfo?.expression}
             </SyntaxHighlighter>
           </div>
@@ -144,7 +148,11 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
+          <SyntaxHighlighter
+            language="sql"
+            style={foundation}
+            wrapLongLines={true}
+          >
             {node?.query}
           </SyntaxHighlighter>
         </div>
@@ -193,7 +201,13 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="OutputType"
             >
-              <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: '3px' }}>
+              <code
+                style={{
+                  background: '#f5f5f5',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                }}
+              >
                 {node?.columns?.[0]?.type || 'Unknown'}
               </code>
             </p>
@@ -255,7 +269,11 @@ export default function NodeInfoTab({ node }) {
             }}
           >
             <h6 className="mb-0 w-100">Custom Metadata</h6>
-            <SyntaxHighlighter language="json" style={foundation} wrapLongLines={true}>
+            <SyntaxHighlighter
+              language="json"
+              style={foundation}
+              wrapLongLines={true}
+            >
               {JSON.stringify(node.custom_metadata, null, 2)}
             </SyntaxHighlighter>
           </div>
