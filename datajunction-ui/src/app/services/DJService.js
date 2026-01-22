@@ -1169,15 +1169,26 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  data: async function (metricSelection, dimensionSelection) {
+  data: async function (metricSelection, dimensionSelection, filters = []) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    return await (
-      await fetch(`${DJ_URL}/data/?` + params + '&limit=10000', {
-        credentials: 'include',
-      })
-    ).json();
+    if (filters && filters.length > 0) {
+      filters.forEach(f => params.append('filters', f));
+    }
+    params.append('limit', '10000');
+    const response = await fetch(`${DJ_URL}/data/?${params}`, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.message ||
+          errorData.detail ||
+          `Query failed: ${response.status}`,
+      );
+    }
+    return await response.json();
   },
 
   nodeData: async function (nodeName, selection = null) {

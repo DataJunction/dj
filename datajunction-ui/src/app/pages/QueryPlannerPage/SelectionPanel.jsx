@@ -17,6 +17,11 @@ export function SelectionPanel({
   onLoadCubePreset,
   loadedCubeName = null, // Managed by parent for URL persistence
   onClearSelection,
+  filters = [],
+  onFiltersChange,
+  onRunQuery,
+  canRunQuery = false,
+  queryLoading = false,
 }) {
   const [metricsSearch, setMetricsSearch] = useState('');
   const [dimensionsSearch, setDimensionsSearch] = useState('');
@@ -25,6 +30,7 @@ export function SelectionPanel({
   const [cubeSearch, setCubeSearch] = useState('');
   const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
   const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
+  const [filterInput, setFilterInput] = useState('');
   const prevSearchRef = useRef('');
   const cubeDropdownRef = useRef(null);
 
@@ -258,6 +264,27 @@ export function SelectionPanel({
     } else {
       onMetricsChange([]);
       onDimensionsChange([]);
+    }
+  };
+
+  const handleAddFilter = () => {
+    const trimmed = filterInput.trim();
+    if (trimmed && !filters.includes(trimmed) && onFiltersChange) {
+      onFiltersChange([...filters, trimmed]);
+      setFilterInput('');
+    }
+  };
+
+  const handleFilterKeyDown = e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddFilter();
+    }
+  };
+
+  const handleRemoveFilter = filterToRemove => {
+    if (onFiltersChange) {
+      onFiltersChange(filters.filter(f => f !== filterToRemove));
     }
   };
 
@@ -584,6 +611,83 @@ export function SelectionPanel({
               )}
             </div>
           </>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="section-divider" />
+
+      {/* Filters Section */}
+      <div className="selection-section filters-section">
+        <div className="section-header">
+          <h3>Filters</h3>
+          <span className="selection-count">
+            {filters.length} applied
+          </span>
+        </div>
+
+        {/* Filter chips */}
+        {filters.length > 0 && (
+          <div className="filter-chips-container">
+            {filters.map((filter, idx) => (
+              <span key={idx} className="filter-chip">
+                <span className="filter-chip-text">{filter}</span>
+                <button
+                  className="filter-chip-remove"
+                  onClick={() => handleRemoveFilter(filter)}
+                  title="Remove filter"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Filter input */}
+        <div className="filter-input-container">
+          <input
+            type="text"
+            className="filter-input"
+            placeholder="e.g. v3.date.date_id >= '2024-01-01'"
+            value={filterInput}
+            onChange={e => setFilterInput(e.target.value)}
+            onKeyDown={handleFilterKeyDown}
+          />
+          <button
+            className="filter-add-btn"
+            onClick={handleAddFilter}
+            disabled={!filterInput.trim()}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Run Query Section */}
+      <div className="run-query-section">
+        <button
+          className="run-query-btn"
+          onClick={onRunQuery}
+          disabled={!canRunQuery || queryLoading}
+        >
+          {queryLoading ? (
+            <>
+              <span className="spinner small" />
+              Running...
+            </>
+          ) : (
+            <>
+              <span className="run-icon">▶</span>
+              Run Query
+            </>
+          )}
+        </button>
+        {!canRunQuery && selectedMetrics.length > 0 && (
+          <span className="run-hint">Select at least one dimension</span>
+        )}
+        {!canRunQuery && selectedMetrics.length === 0 && (
+          <span className="run-hint">Select metrics and dimensions to run a query</span>
         )}
       </div>
     </div>
