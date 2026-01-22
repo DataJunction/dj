@@ -3216,3 +3216,83 @@ class TestMetricsSQLOrderByLimit:
             ORDER BY status ASC, total_revenue DESC
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_order_by_invalid_column_ignored(self, client_with_build_v3):
+        """
+        Test that invalid ORDER BY columns are ignored with a warning.
+        Valid columns should still work.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.nonexistent_column DESC", "v3.total_revenue ASC"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # The invalid column should be skipped, valid one should work
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY total_revenue ASC
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_order_by_all_invalid_columns(self, client_with_build_v3):
+        """
+        Test that when all ORDER BY columns are invalid, no ORDER BY is added.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.nonexistent_column DESC"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # No ORDER BY should be in the SQL since all columns were invalid
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
