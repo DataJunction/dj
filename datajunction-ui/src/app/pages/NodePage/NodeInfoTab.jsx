@@ -124,9 +124,9 @@ export default function NodeInfoTab({ node }) {
               </p>
             </div>
           )}
-          <div>
+          <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
-            <SyntaxHighlighter language="sql" style={foundation}>
+            <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
               {metricInfo?.expression}
             </SyntaxHighlighter>
           </div>
@@ -140,11 +140,13 @@ export default function NodeInfoTab({ node }) {
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
         <div
           style={{
-            width: window.innerWidth * 0.8,
+            width: '100%',
+            maxWidth: '100%',
+            overflow: 'hidden',
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          <SyntaxHighlighter language="sql" style={foundation}>
+          <SyntaxHighlighter language="sql" style={foundation} wrapLongLines={true}>
             {node?.query}
           </SyntaxHighlighter>
         </div>
