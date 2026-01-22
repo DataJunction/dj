@@ -33,6 +33,7 @@ from psycopg import connect
 
 import duckdb
 import httpx
+import sqlglot
 import pytest
 import pytest_asyncio
 from cachelib.simple import SimpleCache
@@ -77,6 +78,24 @@ from datajunction_server.utils import (
 )
 
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
+
+
+def transpile_to_duckdb(sql: str) -> str:
+    """
+    Transpile SQL from Spark dialect to DuckDB dialect for test execution.
+    """
+    try:
+        # Transpile from Spark to DuckDB
+        transpiled = sqlglot.transpile(sql, read="spark", write="duckdb", pretty=True)[
+            0
+        ]
+        print(f"\n=== TRANSPILED SQL ===\n{transpiled}\n=== END ===\n")
+        return transpiled
+    except Exception as e:
+        # If transpilation fails, return original SQL and let DuckDB try
+        print(f"\n=== TRANSPILATION FAILED: {e} ===\n{sql}\n=== END ===\n")
+        return sql
+
 
 PostgresCluster = namedtuple("PostgresCluster", ["writer", "reader"])
 
@@ -290,7 +309,9 @@ def settings_no_qs(
 @pytest.fixture(scope="session")
 def duckdb_conn() -> duckdb.DuckDBPyConnection:
     """
-    DuckDB connection fixture with mock roads data loaded
+    DuckDB connection fixture with mock roads data loaded.
+
+    Creates a 'default' catalog so that queries like "default".roads.table work.
     """
     with open(
         os.path.join(os.path.dirname(__file__), "duckdb.sql"),
@@ -298,6 +319,9 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
         with duckdb.connect(
             ":memory:",
         ) as conn:
+            # Attach memory database as 'default' catalog so "default".schema.table works
+            conn.execute("""ATTACH ':memory:' AS "default" """)
+            conn.execute("""USE "default" """)
             conn.execute(mock_data.read())
             yield conn
 
@@ -637,7 +661,10 @@ def query_service_client(
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        result = duckdb_conn.sql(query_create.submitted_query)
+        # Transpile from Spark to DuckDB before executing
+        transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
+        print("transpiled_sql!!", transpiled_sql)
+        result = duckdb_conn.sql(transpiled_sql)
         columns = [
             {"name": col, "type": str(type_).lower()}
             for col, type_ in zip(result.columns, result.types)
@@ -667,7 +694,9 @@ def query_service_client(
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
-        duckdb_conn.sql(query_create.submitted_query)
+        # Transpile from Spark to DuckDB before executing
+        transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
+        duckdb_conn.sql(transpiled_sql)
         return f"View {view_name} created successfully."
 
     mocker.patch.object(
@@ -2082,11 +2111,17 @@ def module__query_service_client(
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> QueryWithResults:
-        result = duckdb_conn.sql(query_create.submitted_query)
+        # Transpile from Spark to DuckDB before executing
+        transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
+        result = duckdb_conn.sql(transpiled_sql)
         columns = [
             {"name": col, "type": str(type_).lower()}
             for col, type_ in zip(result.columns, result.types)
         ]
+        rows = result.fetchall()
+        print(
+            f"\n=== QUERY RESULT ===\nColumns: {columns}\nRows: {rows}\n=== END ===\n",
+        )
         return QueryWithResults(
             id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             submitted_query=query_create.submitted_query,
@@ -2094,7 +2129,7 @@ def module__query_service_client(
             results=[
                 {
                     "columns": columns,
-                    "rows": result.fetchall(),
+                    "rows": rows,
                     "sql": query_create.submitted_query,
                 },
             ],
@@ -2112,7 +2147,9 @@ def module__query_service_client(
         query_create: QueryCreate,
         request_headers: Optional[Dict[str, str]] = None,
     ) -> str:
-        duckdb_conn.sql(query_create.submitted_query)
+        # Transpile from Spark to DuckDB before executing
+        transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
+        duckdb_conn.sql(transpiled_sql)
         return f"View {view_name} created successfully."
 
     module_mocker.patch.object(

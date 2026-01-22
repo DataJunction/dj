@@ -469,32 +469,22 @@ class TestDataForNode:
                 {
                     "columns": [
                         {
-                            "column": "company_name",
-                            "name": "default_DOT_dispatcher_DOT_company_name",
-                            "node": "default.dispatcher",
-                            "semantic_entity": "default.dispatcher.company_name",
-                            "semantic_type": "dimension",
+                            "name": "company_name",
+                            "semantic_name": "default.dispatcher.company_name",
                             "type": "string",
+                            "semantic_type": "dimension",
                         },
                         {
-                            "column": "default_DOT_num_repair_orders",
-                            "name": "default_DOT_num_repair_orders",
-                            "node": "default.num_repair_orders",
-                            "semantic_entity": (
-                                "default.num_repair_orders.default_DOT_num_repair_orders"
-                            ),
-                            "semantic_type": "metric",
+                            "name": "num_repair_orders",
+                            "semantic_name": "default.num_repair_orders",
                             "type": "bigint",
+                            "semantic_type": "metric",
                         },
                         {
-                            "column": "default_DOT_avg_repair_price",
-                            "name": "default_DOT_avg_repair_price",
-                            "node": "default.avg_repair_price",
-                            "semantic_entity": (
-                                "default.avg_repair_price.default_DOT_avg_repair_price"
-                            ),
-                            "semantic_type": "metric",
+                            "name": "avg_repair_price",
+                            "semantic_name": "default.avg_repair_price",
                             "type": "double",
+                            "semantic_type": "metric",
                         },
                     ],
                     "row_count": 0,
