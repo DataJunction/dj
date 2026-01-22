@@ -327,12 +327,12 @@ export default function NodeInfoTab({ node }) {
                 <a href={`/nodes/${node?.name}`}>{dim}</a>
               </span>
             ))
-          : node?.required_dimensions?.map((dim, idx) => (
+          : metricInfo?.required_dimensions?.map((dim, idx) => (
               <span
                 key={`rd-${idx}`}
                 className="rounded-pill badge bg-secondary-soft PrimaryKey"
               >
-                <a href={`/nodes/${node?.upstream_node}`}>{dim.name}</a>
+                <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
               </span>
             ))}
       </p>
