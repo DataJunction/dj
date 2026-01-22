@@ -443,6 +443,14 @@ async def get_metrics_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderby: List[str] = Query(
+        [],
+        description="ORDER BY clauses using semantic names (e.g., 'v3.total_revenue DESC', 'v3.date.month')",
+    ),
+    limit: Optional[int] = Query(
+        None,
+        description="Maximum number of rows to return",
+    ),
     use_materialized: bool = Query(True),
     dialect: Dialect = Query(
         Dialect.SPARK,
@@ -489,6 +497,8 @@ async def get_metrics_sql_v3(
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
+        orderby=orderby if orderby else None,
+        limit=limit,
         dialect=dialect,
         use_materialized=use_materialized,
     )
