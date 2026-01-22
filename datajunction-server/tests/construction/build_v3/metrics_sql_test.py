@@ -3009,3 +3009,210 @@ class TestMetricsSQLCrossFactWindow:
             FROM base_metrics
             """,
         )
+
+
+class TestMetricsSQLOrderByLimit:
+    """Tests for ORDER BY and LIMIT functionality in metrics SQL."""
+
+    @pytest.mark.asyncio
+    async def test_order_by_metric_desc(self, client_with_build_v3):
+        """
+        Test ORDER BY a metric in descending order.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.total_revenue DESC"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY total_revenue DESC
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_order_by_dimension(self, client_with_build_v3):
+        """
+        Test ORDER BY a dimension.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_limit(self, client_with_build_v3):
+        """
+        Test LIMIT clause.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "limit": 10,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            LIMIT 10
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_order_by_and_limit(self, client_with_build_v3):
+        """
+        Test ORDER BY combined with LIMIT (top N query pattern).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.total_revenue DESC"],
+                "limit": 5,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY total_revenue DESC
+            LIMIT 5
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_order_by_multiple_columns(self, client_with_build_v3):
+        """
+        Test ORDER BY multiple columns (dimension ASC, metric DESC).
+
+        Note: order_count has LIMITED aggregability (COUNT DISTINCT), so the
+        CTE keeps the finer grain (order_id) and does COUNT DISTINCT in final SELECT.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.order_count"],
+                "dimensions": ["v3.order_details.status"],
+                "orderby": ["v3.order_details.status ASC", "v3.total_revenue DESC"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status,
+                       t1.order_id,
+                       SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status, t1.order_id
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            ORDER BY status ASC, total_revenue DESC
+            """,
+        )

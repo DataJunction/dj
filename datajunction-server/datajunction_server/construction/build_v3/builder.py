@@ -40,8 +40,79 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 logger = logging.getLogger(__name__)
+
+
+def apply_orderby_limit(
+    result: GeneratedSQL,
+    orderby: list[str] | None,
+    limit: int | None,
+) -> GeneratedSQL:
+    """
+    Apply ORDER BY and LIMIT clauses to the generated SQL.
+
+    Args:
+        result: The GeneratedSQL object with the query AST
+        orderby: List of ORDER BY expressions using semantic names
+                 (e.g., ["v3.date.month DESC", "v3.total_revenue"])
+        limit: Maximum number of rows to return
+
+    Returns:
+        Modified GeneratedSQL with ORDER BY and LIMIT applied
+    """
+    if not orderby and limit is None:
+        return result
+
+    select = result.query.select
+
+    # Apply ORDER BY
+    if orderby:
+        # Build mapping from semantic_name -> output column name
+        semantic_to_output: dict[str, str] = {
+            col.semantic_name: col.name for col in result.columns
+        }
+
+        # Parse the orderby expressions
+        orderby_str = ",".join(orderby)
+        parsed = parse(f"SELECT 1 ORDER BY {orderby_str}")
+        sort_items = (
+            parsed.select.organization.order if parsed.select.organization else []
+        )
+
+        resolved_sort_items = []
+        for sort_item in sort_items:
+            # Get semantic name from the sort expression
+            if isinstance(sort_item.expr, ast.Column):
+                semantic_name = sort_item.expr.identifier()
+            else:
+                semantic_name = str(sort_item.expr)
+
+            if semantic_name in semantic_to_output:
+                output_col_name = semantic_to_output[semantic_name]
+                # Use simple column reference to output alias
+                resolved_sort_items.append(
+                    ast.SortItem(
+                        expr=ast.Column(name=ast.Name(output_col_name)),
+                        asc=sort_item.asc,
+                        nulls=sort_item.nulls,
+                    ),
+                )
+            else:
+                logger.warning(
+                    f"[BuildV3] ORDER BY '{semantic_name}' not found in columns, skipping",
+                )
+
+        if resolved_sort_items:
+            select.organization = ast.Organization(order=resolved_sort_items)
+
+    # Apply LIMIT
+    if limit is not None:
+        select.limit = ast.Number(limit)
+
+    return result
 
 
 async def setup_build_context(
@@ -244,6 +315,8 @@ async def build_metrics_sql(
     metrics: list[str],
     dimensions: list[str],
     filters: list[str] | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
     dialect: Dialect = Dialect.SPARK,
     use_materialized: bool = True,
 ) -> GeneratedSQL:
@@ -285,7 +358,8 @@ async def build_metrics_sql(
         )
         if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
-            return build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+            result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+            return apply_orderby_limit(result, orderby, limit)
 
     # No cube - build grain groups
     measures_result = await build_grain_groups(ctx, metrics)
@@ -293,8 +367,9 @@ async def build_metrics_sql(
     if not measures_result.grain_groups:  # pragma: no cover
         raise DJInvalidInputException("No grain groups produced from measures SQL")
 
-    return generate_metrics_sql(
+    result = generate_metrics_sql(
         ctx,
         measures_result,
         ctx.decomposed_metrics,
     )
+    return apply_orderby_limit(result, orderby, limit)
