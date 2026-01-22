@@ -9,7 +9,6 @@ import NodeGraphTab from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
-import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import NodePreAggregationsTab from './NodePreAggregationsTab';
 import ClientCodePopover from './ClientCodePopover';
@@ -35,6 +34,11 @@ export function NodePage() {
   const [node, setNode] = useState(null);
 
   const onClickTab = id => () => {
+    // Preview tab redirects to Query Planner instead of showing content
+    if (id === 'preview') {
+      navigate(`/planner?metrics=${encodeURIComponent(name)}`);
+      return;
+    }
     navigate(`/nodes/${name}/${id}`);
     setState({ selectedTab: id });
   };
@@ -74,7 +78,7 @@ export function NodePage() {
       {
         id: 'columns',
         name: 'Columns',
-        display: true,
+        display: node?.type !== 'metric',
       },
       {
         id: 'graph',
@@ -87,14 +91,9 @@ export function NodePage() {
         display: true,
       },
       {
-        id: 'validate',
-        name: '► Validate',
-        display: node?.type !== 'source',
-      },
-      {
         id: 'materializations',
         name: 'Materializations',
-        display: node?.type !== 'source',
+        display: node?.type !== 'source' && node?.type !== 'metric',
       },
       {
         id: 'linked',
@@ -110,6 +109,11 @@ export function NodePage() {
         id: 'dependencies',
         name: 'Dependencies',
         display: node?.type !== 'cube',
+      },
+      {
+        id: 'preview',
+        name: 'Preview →',
+        display: node?.type === 'metric',
       },
     ];
   };
@@ -127,9 +131,6 @@ export function NodePage() {
       break;
     case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
-      break;
-    case 'validate':
-      tabToDisplay = <NodeValidateTab node={node} djClient={djClient} />;
       break;
     case 'materializations':
       // Cube nodes use cube-specific materialization tab
