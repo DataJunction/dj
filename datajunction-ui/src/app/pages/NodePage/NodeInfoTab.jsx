@@ -1,4 +1,5 @@
 import { useState, useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -30,11 +31,16 @@ foundation.hljs['padding'] = '2rem';
 // }
 
 export default function NodeInfoTab({ node }) {
+  const navigate = useNavigate();
   const [compiledSQL, setCompiledSQL] = useState('');
   const [checked, setChecked] = useState(false);
 
   // For metrics
   const [metricInfo, setMetricInfo] = useState(null);
+
+  const handlePreviewInQueryPlanner = () => {
+    navigate(`/query-planner?metrics=${encodeURIComponent(node.name)}`);
+  };
 
   const nodeTags = node?.tags.map(tag => (
     <span
@@ -47,10 +53,12 @@ export default function NodeInfoTab({ node }) {
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
+  // Fetch compiled SQL for metrics using v3 builder
   useEffect(() => {
     const fetchData = async () => {
-      if (checked === true) {
-        const data = await djClient.compiledSql(node.name);
+      if (checked === true && node.type === 'metric') {
+        // Use v3 SQL builder for metrics - handles derived metrics correctly
+        const data = await djClient.metricsV3([node.name], [], '', false);
         if (data.sql) {
           setCompiledSQL(data.sql);
         } else {
@@ -148,10 +156,27 @@ export default function NodeInfoTab({ node }) {
             </div>
           )}
           <div>
-            <h6 className="mb-0 w-100">Aggregate Expression</h6>
+            <h6 className="mb-0 w-100">
+              {checked ? 'Compiled SQL' : 'Aggregate Expression'}
+            </h6>
+            <ToggleSwitch
+              id="toggleSwitch"
+              checked={checked}
+              onChange={() => setChecked(toggle)}
+              toggleName="Show Compiled SQL"
+            />
             <SyntaxHighlighter language="sql" style={foundation}>
-              {metricInfo?.expression}
+              {checked ? compiledSQL : metricInfo?.expression}
             </SyntaxHighlighter>
+          </div>
+          <div style={{ marginTop: '1rem' }}>
+            <button
+              className="button-3"
+              onClick={handlePreviewInQueryPlanner}
+              title="Open this metric in Query Planner to run queries and see data"
+            >
+              Preview in Query Planner →
+            </button>
           </div>
         </div>
       </div>
@@ -167,18 +192,8 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
-            <ToggleSwitch
-              id="toggleSwitch"
-              checked={checked}
-              onChange={() => setChecked(toggle)}
-              toggleName="Show Compiled SQL"
-            />
-          ) : (
-            <></>
-          )}
           <SyntaxHighlighter language="sql" style={foundation}>
-            {checked ? compiledSQL : node?.query}
+            {node?.query}
           </SyntaxHighlighter>
         </div>
       </div>
