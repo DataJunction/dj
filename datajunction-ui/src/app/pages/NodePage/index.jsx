@@ -9,7 +9,6 @@ import NodeGraphTab from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
-import NodeValidateTab from './NodeValidateTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import NodePreAggregationsTab from './NodePreAggregationsTab';
 import ClientCodePopover from './ClientCodePopover';
@@ -87,11 +86,6 @@ export function NodePage() {
         display: true,
       },
       {
-        id: 'validate',
-        name: '► Validate',
-        display: node?.type !== 'source',
-      },
-      {
         id: 'materializations',
         name: 'Materializations',
         display: node?.type !== 'source',
@@ -127,9 +121,6 @@ export function NodePage() {
       break;
     case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
-      break;
-    case 'validate':
-      tabToDisplay = <NodeValidateTab node={node} djClient={djClient} />;
       break;
     case 'materializations':
       // Cube nodes use cube-specific materialization tab
