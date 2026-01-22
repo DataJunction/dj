@@ -34,6 +34,11 @@ export function NodePage() {
   const [node, setNode] = useState(null);
 
   const onClickTab = id => () => {
+    // Preview tab redirects to Query Planner instead of showing content
+    if (id === 'preview') {
+      navigate(`/planner?metrics=${encodeURIComponent(name)}`);
+      return;
+    }
     navigate(`/nodes/${name}/${id}`);
     setState({ selectedTab: id });
   };
@@ -104,6 +109,11 @@ export function NodePage() {
         id: 'dependencies',
         name: 'Dependencies',
         display: node?.type !== 'cube',
+      },
+      {
+        id: 'preview',
+        name: 'Preview →',
+        display: node?.type === 'metric',
       },
     ];
   };

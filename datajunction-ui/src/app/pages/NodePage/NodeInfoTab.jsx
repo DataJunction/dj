@@ -1,5 +1,4 @@
 import { useState, useContext, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -30,14 +29,8 @@ foundation.hljs['padding'] = '2rem';
 // }
 
 export default function NodeInfoTab({ node }) {
-  const navigate = useNavigate();
-
   // For metrics
   const [metricInfo, setMetricInfo] = useState(null);
-
-  const handlePreviewInQueryPlanner = () => {
-    navigate(`/query-planner?metrics=${encodeURIComponent(node.name)}`);
-  };
 
   const nodeTags = node?.tags.map(tag => (
     <span
@@ -136,15 +129,6 @@ export default function NodeInfoTab({ node }) {
             <SyntaxHighlighter language="sql" style={foundation}>
               {metricInfo?.expression}
             </SyntaxHighlighter>
-          </div>
-          <div style={{ marginTop: '1rem' }}>
-            <button
-              className="button-3"
-              onClick={handlePreviewInQueryPlanner}
-              title="Open this metric in Query Planner to run queries and see data"
-            >
-              Preview in Query Planner →
-            </button>
           </div>
         </div>
       </div>
