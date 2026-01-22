@@ -4,15 +4,17 @@ exports[`<NodePage /> renders the NodeInfo tab correctly for a metric node 1`] =
 HTMLCollection [
   <code
     class="language-sql"
-    style="white-space: pre;"
+    style="white-space: pre-wrap;"
   >
-    <span
-      class="hljs-built_in"
-    >
-      count
-    </span>
     <span>
-      (repair_order_id)
+      <span
+        class="hljs-built_in"
+      >
+        count
+      </span>
+      <span>
+        (repair_order_id)
+      </span>
     </span>
   </code>,
 ]

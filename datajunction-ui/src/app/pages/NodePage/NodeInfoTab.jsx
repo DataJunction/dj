@@ -4,7 +4,6 @@ import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';
-import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
 
@@ -30,9 +29,6 @@ foundation.hljs['padding'] = '2rem';
 // }
 
 export default function NodeInfoTab({ node }) {
-  const [compiledSQL, setCompiledSQL] = useState('');
-  const [checked, setChecked] = useState(false);
-
   // For metrics
   const [metricInfo, setMetricInfo] = useState(null);
 
@@ -46,22 +42,6 @@ export default function NodeInfoTab({ node }) {
     </span>
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-
-  useEffect(() => {
-    const fetchData = async () => {
-      if (checked === true) {
-        const data = await djClient.compiledSql(node.name);
-        if (data.sql) {
-          setCompiledSQL(data.sql);
-        } else {
-          setCompiledSQL(
-            '/* Ran into an issue while generating compiled SQL */',
-          );
-        }
-      }
-    };
-    fetchData().catch(console.error);
-  }, [node, djClient, checked]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -96,9 +76,6 @@ export default function NodeInfoTab({ node }) {
     }
   }, [node, djClient]);
 
-  function toggle(value) {
-    return !value;
-  }
   const metricsWarning =
     node?.type === 'metric' &&
     metricInfo?.incompatible_druid_functions?.length > 0 ? (
@@ -149,7 +126,11 @@ export default function NodeInfoTab({ node }) {
           )}
           <div>
             <h6 className="mb-0 w-100">Aggregate Expression</h6>
-            <SyntaxHighlighter language="sql" style={foundation}>
+            <SyntaxHighlighter
+              language="sql"
+              style={foundation}
+              wrapLongLines={true}
+            >
               {metricInfo?.expression}
             </SyntaxHighlighter>
           </div>
@@ -167,18 +148,12 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
-            <ToggleSwitch
-              id="toggleSwitch"
-              checked={checked}
-              onChange={() => setChecked(toggle)}
-              toggleName="Show Compiled SQL"
-            />
-          ) : (
-            <></>
-          )}
-          <SyntaxHighlighter language="sql" style={foundation}>
-            {checked ? compiledSQL : node?.query}
+          <SyntaxHighlighter
+            language="sql"
+            style={foundation}
+            wrapLongLines={true}
+          >
+            {node?.query}
           </SyntaxHighlighter>
         </div>
       </div>
@@ -218,7 +193,26 @@ export default function NodeInfoTab({ node }) {
     node?.type === 'metric' ? (
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 py-3">
-          <div>
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Output Type</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="OutputType"
+            >
+              <code
+                style={{
+                  background: '#f5f5f5',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                }}
+              >
+                {node?.columns?.[0]?.type || 'Unknown'}
+              </code>
+            </p>
+          </div>
+          <div style={{ marginRight: '2rem' }}>
             <h6 className="mb-0 w-100">Direction</h6>
             <p
               className="mb-0 opacity-75"
@@ -275,7 +269,11 @@ export default function NodeInfoTab({ node }) {
             }}
           >
             <h6 className="mb-0 w-100">Custom Metadata</h6>
-            <SyntaxHighlighter language="json" style={foundation}>
+            <SyntaxHighlighter
+              language="json"
+              style={foundation}
+              wrapLongLines={true}
+            >
               {JSON.stringify(node.custom_metadata, null, 2)}
             </SyntaxHighlighter>
           </div>
@@ -331,12 +329,12 @@ export default function NodeInfoTab({ node }) {
                 <a href={`/nodes/${node?.name}`}>{dim}</a>
               </span>
             ))
-          : node?.required_dimensions?.map((dim, idx) => (
+          : metricInfo?.required_dimensions?.map((dim, idx) => (
               <span
                 key={`rd-${idx}`}
                 className="rounded-pill badge bg-secondary-soft PrimaryKey"
               >
-                <a href={`/nodes/${node?.upstream_node}`}>{dim.name}</a>
+                <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
               </span>
             ))}
       </p>
