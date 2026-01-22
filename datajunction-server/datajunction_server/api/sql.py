@@ -8,8 +8,10 @@ from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.utils import get_current_user
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
     build_metrics_sql,
@@ -503,6 +505,30 @@ async def get_metrics_sql_v3(
         use_materialized=use_materialized,
     )
 
+    # Get availability info if a cube was used
+    availability_info = None
+    if result.cube_name:
+        from datajunction_server.database.node import Node
+        from datajunction_server.models.metric import V3AvailabilityInfo
+
+        cube_node = await Node.get_by_name(
+            session,
+            result.cube_name,
+            options=[
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.availability),
+                ),
+            ],
+        )
+        if cube_node and cube_node.current and cube_node.current.availability:
+            avail = cube_node.current.availability
+            availability_info = V3AvailabilityInfo(
+                catalog=avail.catalog,
+                schema_=avail.schema_,
+                table=avail.table,
+                valid_through_ts=avail.valid_through_ts,
+            )
+
     return V3TranslatedSQL(
         sql=result.sql,
         columns=[
@@ -515,6 +541,8 @@ async def get_metrics_sql_v3(
             for col in result.columns
         ],
         dialect=result.dialect,
+        cube_name=result.cube_name,
+        availability=availability_info,
     )
 
 

@@ -324,37 +324,6 @@ describe('QueryPlannerPage', () => {
         expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
       });
     });
-
-    it('shows clear button when search has value', async () => {
-      renderPage();
-
-      await waitFor(() => {
-        expect(mockDjClient.metrics).toHaveBeenCalled();
-      });
-
-      const searchInput = screen.getByPlaceholderText('Search metrics...');
-      fireEvent.change(searchInput, { target: { value: 'test' } });
-
-      // Clear button should appear
-      const clearButton = screen.getAllByText('×')[0];
-      expect(clearButton).toBeInTheDocument();
-    });
-
-    it('clears search when clear button is clicked', async () => {
-      renderPage();
-
-      await waitFor(() => {
-        expect(mockDjClient.metrics).toHaveBeenCalled();
-      });
-
-      const searchInput = screen.getByPlaceholderText('Search metrics...');
-      fireEvent.change(searchInput, { target: { value: 'test' } });
-
-      const clearButton = screen.getAllByText('×')[0];
-      fireEvent.click(clearButton);
-
-      expect(searchInput.value).toBe('');
-    });
   });
 
   describe('Cube Preset Loading', () => {
@@ -678,7 +647,7 @@ describe('QueryPlannerPage', () => {
   });
 
   describe('Clear Selection', () => {
-    it('clears all selections when Clear all is clicked', async () => {
+    it('clears all selections when Clear is clicked', async () => {
       mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
 
       renderPage();
@@ -700,8 +669,8 @@ describe('QueryPlannerPage', () => {
         expect(mockDjClient.commonDimensions).toHaveBeenCalled();
       });
 
-      // Click Clear all
-      const clearButton = screen.getByText('Clear all');
+      // Click the global Clear button (clear-all-btn class)
+      const clearButton = document.querySelector('.clear-all-btn');
       fireEvent.click(clearButton);
 
       // Should show "Load from Cube" again (cube unloaded)

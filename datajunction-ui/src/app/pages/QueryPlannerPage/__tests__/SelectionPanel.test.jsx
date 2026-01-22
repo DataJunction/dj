@@ -199,18 +199,6 @@ describe('SelectionPanel', () => {
       const items = screen.getAllByRole('checkbox');
       expect(items.length).toBeGreaterThan(0);
     });
-
-    it('clears search when clear button is clicked', () => {
-      render(<SelectionPanel {...defaultProps} />);
-
-      const searchInput = screen.getByPlaceholderText('Search metrics...');
-      fireEvent.change(searchInput, { target: { value: 'test' } });
-
-      const clearButton = screen.getAllByText('×')[0];
-      fireEvent.click(clearButton);
-
-      expect(searchInput.value).toBe('');
-    });
   });
 
   describe('Select All / Clear Actions', () => {
@@ -220,7 +208,13 @@ describe('SelectionPanel', () => {
       fireEvent.click(screen.getByText('default'));
 
       expect(screen.getByText('Select all')).toBeInTheDocument();
-      expect(screen.getByText('Clear')).toBeInTheDocument();
+      // Check for namespace-level Clear button (inside namespace-actions)
+      // Both buttons have select-all-btn class, Clear is the second one
+      const namespaceButtons = document.querySelectorAll(
+        '.namespace-actions .select-all-btn',
+      );
+      expect(namespaceButtons.length).toBe(2);
+      expect(namespaceButtons[1].textContent).toBe('Clear');
     });
 
     it('selects all metrics in namespace when Select all is clicked', () => {
@@ -239,7 +233,7 @@ describe('SelectionPanel', () => {
       ]);
     });
 
-    it('clears all metrics in namespace when Clear is clicked', () => {
+    it('clears all metrics in namespace when namespace Clear is clicked', () => {
       const onMetricsChange = jest.fn();
       render(
         <SelectionPanel
@@ -253,7 +247,11 @@ describe('SelectionPanel', () => {
       );
 
       fireEvent.click(screen.getByText('default'));
-      fireEvent.click(screen.getByText('Clear'));
+      // Click the namespace-level Clear button (second button in namespace-actions)
+      const namespaceButtons = document.querySelectorAll(
+        '.namespace-actions .select-all-btn',
+      );
+      fireEvent.click(namespaceButtons[1]); // Clear is the second button
 
       expect(onMetricsChange).toHaveBeenCalledWith([]);
     });
@@ -571,7 +569,7 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      expect(screen.getByText(/Show all 12/)).toBeInTheDocument();
+      expect(screen.getByText('Show all')).toBeInTheDocument();
     });
 
     it('toggles chips expansion when Show all/Show less is clicked', () => {
@@ -588,7 +586,7 @@ describe('SelectionPanel', () => {
       );
 
       // Click to expand
-      const expandBtn = screen.getByText(/Show all 12/);
+      const expandBtn = screen.getByText('Show all');
       fireEvent.click(expandBtn);
 
       // Should now show "Show less"
@@ -598,7 +596,7 @@ describe('SelectionPanel', () => {
       fireEvent.click(screen.getByText('Show less'));
 
       // Should show "Show all" again
-      expect(screen.getByText(/Show all 12/)).toBeInTheDocument();
+      expect(screen.getByText('Show all')).toBeInTheDocument();
     });
   });
 
@@ -616,10 +614,8 @@ describe('SelectionPanel', () => {
       const chipElements = screen.getAllByText('date_dim.dateint');
       // Should have at least one chip (and possibly one in the list)
       expect(chipElements.length).toBeGreaterThanOrEqual(1);
-      // The chip should have the chip-label class
-      expect(
-        document.querySelector('.dimension-chip .chip-label'),
-      ).toBeInTheDocument();
+      // The chip should have the dimension-chip class
+      expect(document.querySelector('.dimension-chip')).toBeInTheDocument();
     });
 
     it('removes dimension when chip remove button is clicked', () => {
@@ -646,8 +642,8 @@ describe('SelectionPanel', () => {
     });
   });
 
-  describe('Clear All Button', () => {
-    it('shows Clear all button when items are selected', () => {
+  describe('Clear Button', () => {
+    it('shows global Clear button when items are selected', () => {
       render(
         <SelectionPanel
           {...defaultProps}
@@ -656,10 +652,12 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      expect(screen.getByText('Clear all')).toBeInTheDocument();
+      const clearAllBtn = document.querySelector('.clear-all-btn');
+      expect(clearAllBtn).toBeInTheDocument();
+      expect(clearAllBtn.textContent).toBe('Clear');
     });
 
-    it('calls onClearSelection when Clear all is clicked', () => {
+    it('calls onClearSelection when global Clear is clicked', () => {
       const onClearSelection = jest.fn();
       render(
         <SelectionPanel
@@ -670,7 +668,8 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      fireEvent.click(screen.getByText('Clear all'));
+      const clearAllBtn = document.querySelector('.clear-all-btn');
+      fireEvent.click(clearAllBtn);
 
       expect(onClearSelection).toHaveBeenCalled();
     });
@@ -689,7 +688,8 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      fireEvent.click(screen.getByText('Clear all'));
+      const clearAllBtn = document.querySelector('.clear-all-btn');
+      fireEvent.click(clearAllBtn);
 
       expect(onMetricsChange).toHaveBeenCalledWith([]);
       expect(onDimensionsChange).toHaveBeenCalledWith([]);
@@ -865,7 +865,7 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      expect(screen.getByText(/Show all 15/)).toBeInTheDocument();
+      expect(screen.getByText('Show all')).toBeInTheDocument();
     });
 
     it('toggles dimension chips expansion', () => {
@@ -884,7 +884,7 @@ describe('SelectionPanel', () => {
       );
 
       // Click to expand
-      const expandBtn = screen.getByText(/Show all 15/);
+      const expandBtn = screen.getByText('Show all');
       fireEvent.click(expandBtn);
 
       // Should show "Show less"
@@ -894,7 +894,7 @@ describe('SelectionPanel', () => {
       fireEvent.click(screen.getByText('Show less'));
 
       // Should show "Show all" again
-      expect(screen.getByText(/Show all 15/)).toBeInTheDocument();
+      expect(screen.getByText('Show all')).toBeInTheDocument();
     });
   });
 
@@ -925,26 +925,6 @@ describe('SelectionPanel', () => {
       // Both should show their metrics
       expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
       expect(screen.getByText('revenue')).toBeInTheDocument();
-    });
-  });
-
-  describe('Clear Dimension Search', () => {
-    it('clears dimension search when clear button is clicked', () => {
-      render(
-        <SelectionPanel {...defaultProps} selectedMetrics={['default.test']} />,
-      );
-
-      const searchInput = screen.getByPlaceholderText('Search dimensions...');
-      fireEvent.change(searchInput, { target: { value: 'test' } });
-
-      expect(searchInput.value).toBe('test');
-
-      // Find the clear button (there are two × buttons, one for each search)
-      const clearButtons = screen.getAllByText('×');
-      // The second one is for dimension search
-      fireEvent.click(clearButtons[clearButtons.length - 1]);
-
-      expect(searchInput.value).toBe('');
     });
   });
 

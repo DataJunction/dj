@@ -2278,6 +2278,7 @@ describe('DataJunctionAPI', () => {
         timestampColumn: 'ts',
         timestampFormat: 'yyyy-MM-dd',
       },
+      availability: null,
     });
   });
 
