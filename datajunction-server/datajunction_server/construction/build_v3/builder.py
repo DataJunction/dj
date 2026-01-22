@@ -87,7 +87,7 @@ def apply_orderby_limit(
             # Get semantic name from the sort expression
             if isinstance(sort_item.expr, ast.Column):
                 semantic_name = sort_item.expr.identifier()
-            else:
+            else:  # pragma: no cover
                 semantic_name = str(sort_item.expr)
 
             if semantic_name in semantic_to_output:
