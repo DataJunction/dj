@@ -423,19 +423,41 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "A node with name `default.repair_order_details12` does not exist."
         )
 
-        # Retrieve measures sql for metrics
-        result = client.sql(
+    def test_plan(self, client):
+        """
+        Test query execution plan retrieval
+        """
+        # Retrieve plan for metrics
+        result = client.plan(
             metrics=["default.avg_repair_price", "default.num_repair_orders"],
             dimensions=["default.hard_hat.city"],
             filters=["default.hard_hat.state = 'NY'"],
-            measures=True,
         )
-        for generated_sql in result:
-            assert generated_sql["node"]["name"] in (
-                "default.repair_order_details",
-                "default.repair_orders",
-            )
-            assert isinstance(generated_sql["sql"], str)
+        assert isinstance(result, dict)
+        assert "grain_groups" in result
+        assert "metric_formulas" in result
+        assert "requested_dimensions" in result
+
+        # Verify grain_groups structure
+        assert isinstance(result["grain_groups"], list)
+        for grain_group in result["grain_groups"]:
+            assert "parent_name" in grain_group
+            assert "grain" in grain_group
+            assert "sql" in grain_group
+            assert "components" in grain_group
+
+        # Verify metric_formulas structure
+        assert isinstance(result["metric_formulas"], list)
+        for formula in result["metric_formulas"]:
+            assert "name" in formula
+            assert "combiner" in formula
+            assert "components" in formula
+
+        # Test plan with invalid metric returns error
+        result = client.plan(
+            metrics=["default.nonexistent_metric"],
+        )
+        assert "message" in result or "detail" in result
 
     #
     # Data Catalog and Engines
