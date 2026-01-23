@@ -1259,6 +1259,13 @@
   font-weight: 500;
 }
 
+/* SQL info row (Generated SQL section in Query Plan) */
+.sql-info-row {
+  margin: 4px 16px 8px;
+  font-size: 11px;
+  color: var(--planner-text-dim);
+}
+
 /* Details Sections */
 .details-section {
   padding: 14px 16px;

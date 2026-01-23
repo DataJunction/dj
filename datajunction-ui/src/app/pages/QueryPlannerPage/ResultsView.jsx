@@ -106,7 +106,7 @@ export function ResultsView({
         <div className="sql-pane">
           <div className="sql-pane-header">
             <span className="sql-pane-title">SQL Query</span>
-            {(cubeName || dialect || availability) && (
+            {cubeName && (
               <span
                 className="sql-pane-info"
                 title={
@@ -123,8 +123,7 @@ export function ResultsView({
                     : undefined
                 }
               >
-                {cubeName && <><span className="info-materialized">⚡ Materialized</span></>}
-                {dialect && <>{cubeName ? ' · ' : ''}{dialect}</>}
+                Using materialized cube
                 {availability?.validThroughTs && (
                   <> · Valid thru {new Date(availability.validThroughTs).toLocaleDateString()}</>
                 )}

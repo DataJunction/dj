@@ -619,8 +619,7 @@ export function QueryOverviewPanel({
           {isFastQuery && (
             <>
               {' · '}
-              <span className="info-materialized"><span style="font-family: sans-serif">⚡</span> Using materialized cube</span>
-              {dialect && <> · {dialect.toUpperCase()}</>}
+              <span className="info-materialized">⚡ Materialized cube available</span>
               {cubeAvailability?.validThroughTs && (
                 <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>
               )}
@@ -2234,6 +2233,18 @@ export function QueryOverviewPanel({
               </button>
             </div>
           </div>
+          <p className="sql-info-row">
+            {sqlViewMode === 'optimized' && isFastQuery ? (
+              <>
+                Using materialized cube
+                {cubeAvailability?.validThroughTs && (
+                  <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>
+                )}
+              </>
+            ) : sqlViewMode === 'raw' ? (
+              <>Computes from base tables</>
+            ) : null}
+          </p>
           <div className="sql-code-wrapper">
             <SyntaxHighlighter
               language="sql"
