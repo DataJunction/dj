@@ -183,9 +183,10 @@ class DJClient(_internal.DJClient):
             "dimensions": dimensions or [],
             "filters": filters or [],
             "orderby": orderby or [],
-            "limit": limit,
             "use_materialized": use_materialized,
         }
+        if limit is not None:
+            params["limit"] = limit
         effective_dialect = dialect or self.engine_name
         if effective_dialect:
             params["dialect"] = effective_dialect  # pragma: no cover
