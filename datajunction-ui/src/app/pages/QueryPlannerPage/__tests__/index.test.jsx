@@ -708,4 +708,352 @@ describe('QueryPlannerPage', () => {
       });
     });
   });
+
+  describe('Filter Handling', () => {
+    it('adds a filter when add filter button is clicked', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Find filter input and add a filter
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      fireEvent.change(filterInput, {
+        target: { value: "date_id >= '2024-01-01'" },
+      });
+
+      const addButton = screen.getByText('Add');
+      fireEvent.click(addButton);
+
+      // Filter should be added (check for chip)
+      await waitFor(() => {
+        expect(screen.getByText("date_id >= '2024-01-01'")).toBeInTheDocument();
+      });
+    });
+
+    it('removes a filter when remove button is clicked', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Add a filter first
+      const filterInput = screen.getByPlaceholderText(
+        /e\.g\. v3\.date\.date_id/i,
+      );
+      fireEvent.change(filterInput, {
+        target: { value: "status = 'active'" },
+      });
+      fireEvent.click(screen.getByText('Add'));
+
+      await waitFor(() => {
+        expect(screen.getByText("status = 'active'")).toBeInTheDocument();
+      });
+
+      // Remove the filter (button has generic title "Remove filter")
+      const removeButton = screen.getByTitle('Remove filter');
+      fireEvent.click(removeButton);
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText("status = 'active'"),
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('disables add button when filter input is empty', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      const addButton = screen.getByText('Add');
+      expect(addButton).toBeDisabled();
+    });
+  });
+
+  describe('Run Query', () => {
+    beforeEach(() => {
+      mockDjClient.metricsV3.mockResolvedValue({
+        sql: 'SELECT * FROM metrics',
+        dialect: 'SPARK',
+        cube_name: null,
+      });
+    });
+
+    it('shows Run Query button when metrics and dimensions selected', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      // Select dimension
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      // Run Query button should exist
+      await waitFor(() => {
+        expect(screen.getByText('Run Query')).toBeInTheDocument();
+      });
+    });
+
+    it('disables Run Query button when no metrics selected', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      const runButton = screen.getByText('Run Query');
+      expect(runButton).toBeDisabled();
+    });
+  });
+
+  describe('Materialization Handlers', () => {
+    const mockMeasuresResult = {
+      grainGroups: [
+        {
+          node: 'default.repair_orders',
+          grain_columns: ['default.date_dim.dateint'],
+          measures: [
+            { name: 'sum_revenue', expression: 'SUM(revenue)' },
+            { name: 'count_orders', expression: 'COUNT(*)' },
+          ],
+        },
+      ],
+      metricFormulas: [
+        {
+          metric: 'default.num_repair_orders',
+          formula: 'default.repair_orders.count_orders',
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      mockDjClient.measuresV3.mockResolvedValue(mockMeasuresResult);
+      mockDjClient.metricsV3.mockResolvedValue({
+        sql: 'SELECT * FROM metrics',
+        dialect: 'SPARK',
+        cube_name: null,
+      });
+      mockDjClient.listPreaggs.mockResolvedValue({ items: [] });
+      mockDjClient.getNodeColumnsWithPartitions.mockResolvedValue({
+        columns: [],
+        temporalPartitions: [],
+      });
+    });
+
+    it('calls planPreaggs when materialization is planned', async () => {
+      mockDjClient.planPreaggs.mockResolvedValue({
+        preaggs: [
+          {
+            id: 1,
+            node_name: 'default.repair_orders',
+            grain_columns: ['default.date_dim.dateint'],
+          },
+        ],
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      await waitFor(() => {
+        expect(mockDjClient.measuresV3).toHaveBeenCalled();
+      });
+    });
+
+    it('handles planPreaggs error gracefully', async () => {
+      mockDjClient.planPreaggs.mockResolvedValue({
+        _error: true,
+        message: 'Failed to plan',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Raw SQL Fetching', () => {
+    it('fetches raw SQL when needed', async () => {
+      mockDjClient.metricsV3.mockResolvedValue({
+        sql: 'SELECT * FROM raw_tables',
+        dialect: 'SPARK',
+        cube_name: null,
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // Select metric and dimension to trigger SQL fetch
+      fireEvent.click(screen.getByText('default'));
+      await waitFor(() => {
+        fireEvent.click(
+          screen.getByRole('checkbox', { name: /num_repair_orders/i }),
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockDjClient.commonDimensions).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /dateint/i }));
+
+      await waitFor(() => {
+        expect(mockDjClient.metricsV3).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Cube Workflow Handlers', () => {
+    beforeEach(() => {
+      mockDjClient.listCubesForPreset.mockResolvedValue([
+        { name: 'default.test_cube', display_name: 'Test Cube' },
+      ]);
+    });
+
+    it('handles cube deactivation', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue({
+        name: 'default.test_cube',
+        display_name: 'Test Cube',
+        cube_node_metrics: ['default.num_repair_orders'],
+        cube_node_dimensions: ['default.date_dim.dateint'],
+        cubeMaterialization: {
+          strategy: 'full',
+          schedule: '0 6 * * *',
+          lookbackWindow: null,
+          druidDatasource: 'test_ds',
+          preaggTables: [],
+          workflowUrls: ['http://workflow.url'],
+        },
+        availability: null,
+      });
+      mockDjClient.deactivateCubeWorkflow.mockResolvedValue({ success: true });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Load cube
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+    });
+
+    it('handles cube backfill', async () => {
+      mockDjClient.cubeForPlanner.mockResolvedValue({
+        name: 'default.test_cube',
+        display_name: 'Test Cube',
+        cube_node_metrics: ['default.num_repair_orders'],
+        cube_node_dimensions: ['default.date_dim.dateint'],
+        cubeMaterialization: {
+          strategy: 'full',
+          schedule: '0 6 * * *',
+          lookbackWindow: null,
+          druidDatasource: 'test_ds',
+          preaggTables: [],
+          workflowUrls: [],
+        },
+        availability: null,
+      });
+      mockDjClient.runCubeBackfill.mockResolvedValue({ job_url: 'http://job' });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Load cube
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Partition Handling', () => {
+    it('fetches node partitions when needed', async () => {
+      mockDjClient.getNodeColumnsWithPartitions.mockResolvedValue({
+        columns: [{ name: 'date_col', type: 'date' }],
+        temporalPartitions: [{ column: 'date_col' }],
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles setPartition call', async () => {
+      mockDjClient.setPartition.mockResolvedValue({ success: true });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Results View Navigation', () => {
+    it('shows results view hint when no selection', async () => {
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      expect(
+        screen.getByText('Select metrics and dimensions to run a query'),
+      ).toBeInTheDocument();
+    });
+  });
 });

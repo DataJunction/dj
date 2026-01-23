@@ -429,4 +429,197 @@ describe('MetricFlowGraph Node Display', () => {
     expect(screen.getByText('num_repair_orders')).toBeInTheDocument();
     expect(screen.getByText('avg_repair_price')).toBeInTheDocument();
   });
+
+  describe('Branch Coverage - Edge Cases', () => {
+    it('handles grain group with empty grain array', () => {
+      const grainGroupsEmptyGrain = [
+        {
+          parent_name: 'default.orders',
+          grain: [], // Empty grain array
+          components: [{ name: 'count_orders', expression: 'COUNT(*)' }],
+        },
+      ];
+
+      render(
+        <MetricFlowGraph
+          grainGroups={grainGroupsEmptyGrain}
+          metricFormulas={[
+            {
+              name: 'default.metric',
+              short_name: 'metric',
+              components: ['count_orders'],
+              is_derived: false,
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles grain group with no components', () => {
+      const grainGroupsNoComponents = [
+        {
+          parent_name: 'default.orders',
+          grain: ['date_id'],
+          components: [], // Empty components
+        },
+      ];
+
+      render(
+        <MetricFlowGraph
+          grainGroups={grainGroupsNoComponents}
+          metricFormulas={[
+            {
+              name: 'default.metric',
+              short_name: 'metric',
+              components: [],
+              is_derived: false,
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles grain group with undefined components', () => {
+      const grainGroupsUndefinedComponents = [
+        {
+          parent_name: 'default.orders',
+          grain: ['date_id'],
+          // components is undefined
+        },
+      ];
+
+      render(
+        <MetricFlowGraph
+          grainGroups={grainGroupsUndefinedComponents}
+          metricFormulas={[
+            {
+              name: 'default.metric',
+              short_name: 'metric',
+              components: [],
+              is_derived: false,
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles metric with is_derived false', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={[
+            {
+              name: 'default.simple_metric',
+              short_name: 'simple_metric',
+              combiner: 'SUM(count)',
+              is_derived: false,
+              components: ['count_orders'],
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText('simple_metric')).toBeInTheDocument();
+    });
+
+    it('handles metric with is_derived true', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={[
+            {
+              name: 'default.derived_metric',
+              short_name: 'derived_metric',
+              combiner: 'SUM(a) / SUM(b)',
+              is_derived: true,
+              components: ['sum_revenue', 'count_orders'],
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText('derived_metric')).toBeInTheDocument();
+    });
+
+    it('handles selectedNode prop for preagg', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+          selectedNode={{ type: 'preagg', index: 0, data: mockGrainGroups[0] }}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles selectedNode prop for metric', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+          selectedNode={{
+            type: 'metric',
+            index: 0,
+            data: mockMetricFormulas[0],
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles no selectedNode', () => {
+      render(
+        <MetricFlowGraph
+          grainGroups={mockGrainGroups}
+          metricFormulas={mockMetricFormulas}
+          onNodeSelect={jest.fn()}
+          selectedNode={null}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+
+    it('handles grain group with undefined grain', () => {
+      const grainGroupsUndefinedGrain = [
+        {
+          parent_name: 'default.orders',
+          // grain is undefined
+          components: [{ name: 'count_orders', expression: 'COUNT(*)' }],
+        },
+      ];
+
+      render(
+        <MetricFlowGraph
+          grainGroups={grainGroupsUndefinedGrain}
+          metricFormulas={[
+            {
+              name: 'default.metric',
+              short_name: 'metric',
+              components: ['count_orders'],
+              is_derived: false,
+            },
+          ]}
+          onNodeSelect={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('react-flow')).toBeInTheDocument();
+    });
+  });
 });
