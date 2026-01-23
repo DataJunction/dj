@@ -22,7 +22,7 @@ type AvailabilityState {
   catalog: String!
   schema_: String
   table: String!
-  validThroughTs: Int!
+  validThroughTs: Union!
   url: String
   categoricalPartitions: [String!]
   temporalPartitions: [String!]
@@ -365,7 +365,7 @@ type PartitionAvailability {
   minTemporalPartition: [String!]
   maxTemporalPartition: [String!]
   value: [String]!
-  validThroughTs: Int
+  validThroughTs: Union
 }
 
 type PartitionBackfill {

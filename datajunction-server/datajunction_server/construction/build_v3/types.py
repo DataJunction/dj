@@ -256,6 +256,10 @@ class GeneratedSQL:
     columns: list[ColumnMetadata]
     dialect: Dialect
 
+    # If a cube was used to generate this SQL, contains the cube name
+    # This is used by the /data/ endpoint to select the correct engine (e.g., Druid)
+    cube_name: Optional[str] = None
+
     @property
     def sql(self) -> str:
         """Render the query AST to SQL string for the target dialect."""

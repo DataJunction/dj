@@ -2278,6 +2278,7 @@ describe('DataJunctionAPI', () => {
         timestampColumn: 'ts',
         timestampFormat: 'yyyy-MM-dd',
       },
+      availability: null,
     });
   });
 
@@ -2772,5 +2773,167 @@ describe('DataJunctionAPI', () => {
     );
     expect(result._error).toBe(true);
     expect(result.message).toBeDefined();
+  });
+
+  // Namespace sources tests
+  it('calls namespaceSources correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ primary_source: { type: 'git', repository: 'repo' } }),
+    );
+    const result = await DataJunctionAPI.namespaceSources('default');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/namespaces/default/sources',
+      { credentials: 'include' },
+    );
+    expect(result.primary_source.type).toBe('git');
+  });
+
+  it('calls namespaceSourcesBulk correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        default: { primary_source: { type: 'git' } },
+        other: { primary_source: { type: 'local' } },
+      }),
+    );
+    const result = await DataJunctionAPI.namespaceSourcesBulk([
+      'default',
+      'other',
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/namespaces/sources/bulk',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ namespaces: ['default', 'other'] }),
+        credentials: 'include',
+      },
+    );
+  });
+
+  it('calls listDeployments correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([{ uuid: '123', status: 'success' }]),
+    );
+    const result = await DataJunctionAPI.listDeployments('default', 10);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/deployments?namespace=default&limit=10',
+      { credentials: 'include' },
+    );
+  });
+
+  it('calls listDeployments without namespace', async () => {
+    fetch.mockResponseOnce(JSON.stringify([]));
+    await DataJunctionAPI.listDeployments(null, 5);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/deployments?limit=5',
+      { credentials: 'include' },
+    );
+  });
+
+  // Notification/history tests
+  it('calls getSubscribedHistory correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([{ id: 1, activity_type: 'create' }]),
+    );
+    const result = await DataJunctionAPI.getSubscribedHistory(20);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/history/?only_subscribed=true&limit=20',
+      { credentials: 'include' },
+    );
+  });
+
+  it('calls getSubscribedHistory with default limit', async () => {
+    fetch.mockResponseOnce(JSON.stringify([]));
+    await DataJunctionAPI.getSubscribedHistory();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/history/?only_subscribed=true&limit=10',
+      { credentials: 'include' },
+    );
+  });
+
+  it('calls markNotificationsRead correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ marked: 5 }));
+    const result = await DataJunctionAPI.markNotificationsRead();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/notifications/mark-read',
+      { method: 'POST', credentials: 'include' },
+    );
+    expect(result.marked).toBe(5);
+  });
+
+  // Service account tests
+  it('calls listServiceAccounts correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify([{ client_id: 'abc', name: 'test-account' }]),
+    );
+    const result = await DataJunctionAPI.listServiceAccounts();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/service-accounts',
+      { credentials: 'include' },
+    );
+    expect(result[0].name).toBe('test-account');
+  });
+
+  it('calls createServiceAccount correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ client_id: 'new-id', name: 'new-account' }),
+    );
+    const result = await DataJunctionAPI.createServiceAccount('new-account');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/service-accounts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: 'new-account' }),
+      },
+    );
+    expect(result.client_id).toBe('new-id');
+  });
+
+  it('calls deleteServiceAccount correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ deleted: true }));
+    const result = await DataJunctionAPI.deleteServiceAccount('client-123');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/service-accounts/client-123',
+      { method: 'DELETE', credentials: 'include' },
+    );
+    expect(result.deleted).toBe(true);
+  });
+
+  // Bulk deactivate preagg workflows tests
+  it('calls bulkDeactivatePreaggWorkflows correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ deactivated: 3 }));
+    const result = await DataJunctionAPI.bulkDeactivatePreaggWorkflows(
+      'default.metric1',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/workflows?node_name=default.metric1',
+      { method: 'DELETE', credentials: 'include' },
+    );
+    expect(result.deactivated).toBe(3);
+  });
+
+  it('calls bulkDeactivatePreaggWorkflows with staleOnly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ deactivated: 1 }));
+    const result = await DataJunctionAPI.bulkDeactivatePreaggWorkflows(
+      'default.metric1',
+      true,
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8000/preaggs/workflows?node_name=default.metric1&stale_only=true',
+      { method: 'DELETE', credentials: 'include' },
+    );
+  });
+
+  it('handles bulkDeactivatePreaggWorkflows error', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ detail: 'Not found' }), {
+      status: 404,
+    });
+    const result = await DataJunctionAPI.bulkDeactivatePreaggWorkflows(
+      'default.metric1',
+    );
+    expect(result._error).toBe(true);
+    expect(result._status).toBe(404);
   });
 });
