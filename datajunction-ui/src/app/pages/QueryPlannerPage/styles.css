@@ -3158,25 +3158,19 @@ a.action-btn {
   color: var(--planner-text-dim);
 }
 
-.combobox-clear {
+.combobox-action {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: var(--planner-text-dim);
+  padding: 2px 8px;
+  background: transparent;
   border: none;
-  border-radius: 50%;
-  color: white;
-  font-size: 12px;
-  line-height: 1;
+  color: var(--planner-text-muted);
+  font-size: 11px;
   cursor: pointer;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-  align-self: center;
+  transition: color 0.15s;
 }
 
-.combobox-clear:hover {
-  opacity: 1;
+.combobox-action:hover {
+  color: var(--accent-primary);
 }
 
 .chips-toggle-inline {

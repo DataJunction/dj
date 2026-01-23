@@ -530,17 +530,6 @@ export function SelectionPanel({
                       </button>
                     </span>
                   ))}
-                  {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
-                    <button
-                      className="chips-toggle-inline"
-                      onClick={() =>
-                        setDimensionsChipsExpanded(!dimensionsChipsExpanded)
-                      }
-                      title={dimensionsChipsExpanded ? 'Show less' : `Show all ${selectedDimensions.length}`}
-                    >
-                      {dimensionsChipsExpanded ? '▲' : `+${selectedDimensions.length - CHIPS_COLLAPSE_THRESHOLD}`}
-                    </button>
-                  )}
                 </div>
               )}
               <div className="combobox-input-row">
@@ -551,13 +540,20 @@ export function SelectionPanel({
                   value={dimensionsSearch}
                   onChange={e => setDimensionsSearch(e.target.value)}
                 />
+                {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
+                  <button
+                    className="combobox-action"
+                    onClick={() => setDimensionsChipsExpanded(!dimensionsChipsExpanded)}
+                  >
+                    {dimensionsChipsExpanded ? 'Show less' : 'Show all'}
+                  </button>
+                )}
                 {selectedDimensions.length > 0 && (
                   <button
-                    className="combobox-clear"
+                    className="combobox-action"
                     onClick={() => onDimensionsChange([])}
-                    title="Clear all dimensions"
                   >
-                    ×
+                    Clear
                   </button>
                 )}
               </div>
