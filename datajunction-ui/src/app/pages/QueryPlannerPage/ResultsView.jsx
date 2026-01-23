@@ -105,17 +105,11 @@ export function ResultsView({
               {dialect && (
                 <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
               )}
-              {cubeName && (
-                <a
-                  href={`/nodes/${cubeName}`}
-                  className="sql-cube-badge"
-                  title={`Using materialized cube: ${cubeName}`}
-                >
-                  Materialized Cube: {cubeName}
-                </a>
-              )}
               {availability && (
-                <span className="sql-freshness" title={`Data valid through: ${new Date(availability.valid_through_ts).toISOString()}`}>
+                <span
+                  className="sql-freshness"
+                  title={`Querying materialized Druid datasource, last refreshed for data through ${new Date(availability.valid_through_ts).toLocaleDateString()}`}
+                >
                   Valid thru: {new Date(availability.valid_through_ts).toLocaleDateString()}
                 </span>
               )}
