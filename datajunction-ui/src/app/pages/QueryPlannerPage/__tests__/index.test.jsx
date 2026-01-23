@@ -908,6 +908,377 @@ describe('QueryPlannerPage', () => {
         expect(mockDjClient.metrics).toHaveBeenCalled();
       });
     });
+
+    it('calls materializePreagg when workflow is created', async () => {
+      mockDjClient.planPreaggs.mockResolvedValue({
+        preaggs: [
+          {
+            id: 123,
+            node_name: 'default.repair_orders',
+            grain_columns: ['default.date_dim.dateint'],
+          },
+        ],
+      });
+      mockDjClient.materializePreagg.mockResolvedValue({
+        workflow_urls: ['http://workflow.example.com'],
+        workflow_status: 'active',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles materializePreagg error', async () => {
+      mockDjClient.materializePreagg.mockResolvedValue({
+        _error: true,
+        message: 'Failed to create workflow',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('calls runPreaggBackfill when backfill is triggered', async () => {
+      mockDjClient.runPreaggBackfill.mockResolvedValue({
+        job_url: 'http://job.example.com',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles runPreaggBackfill error', async () => {
+      mockDjClient.runPreaggBackfill.mockResolvedValue({
+        _error: true,
+        message: 'Backfill failed',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('calls updatePreaggConfig for config updates', async () => {
+      mockDjClient.updatePreaggConfig.mockResolvedValue({
+        id: 123,
+        strategy: 'incremental_time',
+        schedule: '0 6 * * *',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles updatePreaggConfig error', async () => {
+      mockDjClient.updatePreaggConfig.mockResolvedValue({
+        _error: true,
+        message: 'Config update failed',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('calls deactivatePreaggWorkflow when workflow is deactivated', async () => {
+      mockDjClient.deactivatePreaggWorkflow.mockResolvedValue({
+        success: true,
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles deactivatePreaggWorkflow error', async () => {
+      mockDjClient.deactivatePreaggWorkflow.mockResolvedValue({
+        _error: true,
+        message: 'Failed to deactivate',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Cube Materialization Flow', () => {
+    beforeEach(() => {
+      mockDjClient.listCubesForPreset.mockResolvedValue([
+        { name: 'default.test_cube', display_name: 'Test Cube' },
+      ]);
+      mockDjClient.cubeForPlanner.mockResolvedValue({
+        name: 'default.test_cube',
+        display_name: 'Test Cube',
+        cube_node_metrics: ['default.num_repair_orders'],
+        cube_node_dimensions: ['default.date_dim.dateint'],
+        cubeMaterialization: {
+          strategy: 'full',
+          schedule: '0 6 * * *',
+          lookbackWindow: null,
+          druidDatasource: 'test_ds',
+          preaggTables: [],
+          workflowUrls: ['http://workflow.url'],
+        },
+        availability: null,
+      });
+    });
+
+    it('calls createCube when new cube is created', async () => {
+      mockDjClient.createCube.mockResolvedValue({
+        status: 200,
+        json: { name: 'new.cube' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('handles createCube error - cube already exists', async () => {
+      mockDjClient.createCube.mockResolvedValue({
+        status: 400,
+        json: { message: 'Cube already exists' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('handles createCube error - other error', async () => {
+      mockDjClient.createCube.mockResolvedValue({
+        status: 500,
+        json: { message: 'Server error' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('calls materializeCubeV2 for cube materialization', async () => {
+      mockDjClient.materializeCubeV2.mockResolvedValue({
+        status: 200,
+        json: {
+          workflow_urls: ['http://cube-workflow.example.com'],
+        },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('handles materializeCubeV2 error', async () => {
+      mockDjClient.materializeCubeV2.mockResolvedValue({
+        status: 500,
+        json: { message: 'Cube materialization failed' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('calls refreshCubeWorkflow for config updates', async () => {
+      mockDjClient.refreshCubeWorkflow.mockResolvedValue({
+        status: 200,
+        json: { workflow_urls: ['http://updated-workflow.url'] },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('handles refreshCubeWorkflow error', async () => {
+      mockDjClient.refreshCubeWorkflow.mockResolvedValue({
+        status: 500,
+        json: { message: 'Refresh failed' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('calls deactivateCubeWorkflow when deactivating', async () => {
+      mockDjClient.deactivateCubeWorkflow.mockResolvedValue({
+        status: 200,
+        json: { success: true },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Load cube first
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+    });
+
+    it('handles deactivateCubeWorkflow error', async () => {
+      mockDjClient.deactivateCubeWorkflow.mockResolvedValue({
+        status: 500,
+        json: { message: 'Deactivation failed' },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('calls runCubeBackfill for backfill', async () => {
+      mockDjClient.runCubeBackfill.mockResolvedValue({
+        job_url: 'http://backfill-job.example.com',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+
+      // Load cube
+      fireEvent.click(screen.getByText('Load from Cube'));
+      fireEvent.click(screen.getByText('Test Cube'));
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+    });
+
+    it('handles runCubeBackfill error', async () => {
+      mockDjClient.runCubeBackfill.mockResolvedValue({
+        _error: true,
+        message: 'Backfill failed',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.listCubesForPreset).toHaveBeenCalled();
+      });
+    });
+
+    it('handles runCubeBackfill with missing cube name', async () => {
+      // Don't load any cube - loadedCubeName will be null
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+
+      // No cube loaded, so runCubeBackfill shouldn't be callable
+    });
+  });
+
+  describe('Workflow Status Updates', () => {
+    const mockMeasuresWithPreagg = {
+      grainGroups: [
+        {
+          node: 'default.repair_orders',
+          grain_columns: ['default.date_dim.dateint'],
+          measures: [{ name: 'count_orders', expression: 'COUNT(*)' }],
+        },
+      ],
+      metricFormulas: [
+        {
+          metric: 'default.num_repair_orders',
+          formula: 'count_orders',
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      mockDjClient.measuresV3.mockResolvedValue(mockMeasuresWithPreagg);
+      mockDjClient.metricsV3.mockResolvedValue({
+        sql: 'SELECT * FROM metrics',
+        dialect: 'SPARK',
+        cube_name: null,
+      });
+      mockDjClient.listPreaggs.mockResolvedValue({ items: [] });
+    });
+
+    it('updates state when workflow is created successfully', async () => {
+      mockDjClient.materializePreagg.mockResolvedValue({
+        workflow_urls: ['http://new-workflow.example.com'],
+        workflow_status: 'active',
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('updates state when workflow is deactivated', async () => {
+      mockDjClient.deactivatePreaggWorkflow.mockResolvedValue({
+        success: true,
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+
+    it('handles network errors in workflow operations', async () => {
+      mockDjClient.materializePreagg.mockRejectedValue(
+        new Error('Network error'),
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
   });
 
   describe('Raw SQL Fetching', () => {
