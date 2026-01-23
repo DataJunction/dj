@@ -613,15 +613,14 @@ export function QueryOverviewPanel({
       <div className="details-header">
         <div className="details-title-row">
           <h2 className="details-title">Query Plan</h2>
-          <span
-            className={`query-speed-badge ${isFastQuery ? 'fast' : 'slow'}`}
-            title={isFastQuery
-              ? 'Using materialized Druid cube for fast queries'
-              : 'No matching cube - will query Spark (slower)'
-            }
-          >
-            {isFastQuery ? 'Fast' : 'Slow'}
-          </span>
+          {isFastQuery && (
+            <span
+              className="query-speed-badge optimized"
+              title="Using materialized Druid cube for fast queries"
+            >
+              ⚡ Optimized
+            </span>
+          )}
         </div>
         <p className="details-full-name">
           {selectedMetrics.length} metric
