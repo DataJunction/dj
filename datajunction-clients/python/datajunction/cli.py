@@ -442,23 +442,42 @@ class DJCLI:
 
     def get_sql(
         self,
-        node_name: str,
+        node_name: Optional[str] = None,
+        metrics: Optional[list[str]] = None,
         dimensions: Optional[list[str]] = None,
         filters: Optional[list[str]] = None,
+        orderby: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+        dialect: Optional[str] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
     ):
         """
-        Generate SQL for a node.
+        Generate SQL for a node or metrics.
         """
         try:
-            sql = self.builder_client.node_sql(
-                node_name=node_name,
-                dimensions=dimensions,
-                filters=filters,
-                engine_name=engine_name,
-                engine_version=engine_version,
-            )
+            if metrics:
+                # Use v3 metrics SQL API
+                sql = self.builder_client.sql(
+                    metrics=metrics,
+                    dimensions=dimensions,
+                    filters=filters,
+                    orderby=orderby,
+                    limit=limit,
+                    dialect=dialect,
+                )
+            elif node_name:
+                # Use node SQL API
+                sql = self.builder_client.node_sql(
+                    node_name=node_name,
+                    dimensions=dimensions,
+                    filters=filters,
+                    engine_name=engine_name,
+                    engine_version=engine_version,
+                )
+            else:
+                print("ERROR: Either node_name or --metrics must be provided")
+                return
             print(sql)
         except Exception as exc:  # pragma: no cover
             logger.error("Error generating SQL: %s", exc)
@@ -862,37 +881,68 @@ class DJCLI:
             help="Output format (default: text)",
         )
 
-        # `dj sql <node-name> --dimensions d1,d2 --filters f1,f2`
+        # `dj sql <node-name>` or `dj sql --metrics m1 m2`
         sql_parser = subparsers.add_parser(
             "sql",
-            help="Generate SQL for a node",
+            help="Generate SQL for a node or metrics",
         )
-        sql_parser.add_argument("node_name", help="The name of the node")
+        sql_parser.add_argument(
+            "node_name",
+            nargs="?",
+            default=None,
+            help="The name of the node (for single-node SQL)",
+        )
+        sql_parser.add_argument(
+            "--metrics",
+            nargs=argparse.ONE_OR_MORE,
+            type=str,
+            default=None,
+            help="List of metrics (for multi-metric SQL using v3 API)",
+        )
         sql_parser.add_argument(
             "--dimensions",
             nargs=argparse.ZERO_OR_MORE,
             type=str,
             default=[],
-            help="Comma-separated list of dimensions",
+            help="List of dimensions",
         )
         sql_parser.add_argument(
             "--filters",
             nargs=argparse.ZERO_OR_MORE,
             type=str,
             default=[],
-            help="Comma-separated list of filters",
+            help="List of filters",
+        )
+        sql_parser.add_argument(
+            "--orderby",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of ORDER BY clauses (for metrics SQL)",
+        )
+        sql_parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Limit number of rows (for metrics SQL)",
+        )
+        sql_parser.add_argument(
+            "--dialect",
+            type=str,
+            default=None,
+            help="SQL dialect (e.g., spark, trino)",
         )
         sql_parser.add_argument(
             "--engine",
             type=str,
             default=None,
-            help="Engine name",
+            help="Engine name (for node SQL, deprecated - use --dialect)",
         )
         sql_parser.add_argument(
             "--engine-version",
             type=str,
             default=None,
-            help="Engine version",
+            help="Engine version (for node SQL)",
         )
 
         # `dj plan --metrics <metrics> --dimensions <dims> --filters <filters>`
@@ -1009,9 +1059,13 @@ class DJCLI:
             self.list_objects(args.type, namespace=args.namespace, format=args.format)
         elif args.command == "sql":
             self.get_sql(
-                args.node_name,
+                node_name=args.node_name,
+                metrics=args.metrics,
                 dimensions=args.dimensions,
                 filters=args.filters,
+                orderby=args.orderby,
+                limit=args.limit,
+                dialect=args.dialect,
                 engine_name=args.engine,
                 engine_version=args.engine_version,
             )
