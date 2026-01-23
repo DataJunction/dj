@@ -366,10 +366,14 @@ export function QueryPlannerPage() {
   }, [measuresResult, djClient]);
 
   // Fetch cube info when metricsResult has cube_name (backend found a matching cube)
+  // We depend on metricsResult (not just cube_name) so this runs even when the matched
+  // cube is the same but the user changed dimensions (which clears workflowUrls)
   useEffect(() => {
     const fetchMatchingCubeInfo = async () => {
       if (!metricsResult?.cube_name) {
         setCubeAvailability(null);
+        setCubeMaterialization(null);
+        setWorkflowUrls([]);
         return;
       }
 
@@ -389,19 +393,20 @@ export function QueryPlannerPage() {
       } catch (err) {
         console.error('Failed to fetch cube info:', err);
         setCubeAvailability(null);
+        setCubeMaterialization(null);
+        setWorkflowUrls([]);
       }
     };
 
     fetchMatchingCubeInfo();
-  }, [metricsResult?.cube_name, djClient]);
+  }, [metricsResult, djClient]);
 
   const handleMetricsChange = useCallback(newMetrics => {
     setSelectedMetrics(newMetrics);
     setSelectedNode(null);
-    // Clear cube state since user is manually changing selection
+    // Clear loaded cube name to indicate user is manually changing selection
+    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
-    setWorkflowUrls([]);
-    setCubeMaterialization(null);
   }, []);
 
   // Load a cube preset - sets both metrics and dimensions from the cube definition
@@ -452,10 +457,9 @@ export function QueryPlannerPage() {
   const handleDimensionsChange = useCallback(newDimensions => {
     setSelectedDimensions(newDimensions);
     setSelectedNode(null);
-    // Clear cube state since user is manually changing selection
+    // Clear loaded cube name to indicate user is manually changing selection
+    // (workflowUrls and cubeMaterialization will be updated by the effect when metricsResult changes)
     setLoadedCubeName(null);
-    setWorkflowUrls([]);
-    setCubeMaterialization(null);
   }, []);
 
   const handleNodeSelect = useCallback(node => {
@@ -1190,7 +1194,9 @@ export function QueryPlannerPage() {
             filters={filters}
             onFiltersChange={handleFiltersChange}
             onRunQuery={handleRunQuery}
-            canRunQuery={selectedMetrics.length > 0 && selectedDimensions.length > 0}
+            canRunQuery={
+              selectedMetrics.length > 0 && selectedDimensions.length > 0
+            }
             queryLoading={queryLoading}
           />
         </aside>
@@ -1224,7 +1230,8 @@ export function QueryPlannerPage() {
                 <>
                   <div className="graph-header">
                     <span className="graph-stats">
-                      {measuresResult.grain_groups?.length || 0} pre-aggregations →{' '}
+                      {measuresResult.grain_groups?.length || 0}{' '}
+                      pre-aggregations →{' '}
                       {measuresResult.metric_formulas?.length || 0} metrics
                     </span>
                   </div>
@@ -1250,8 +1257,8 @@ export function QueryPlannerPage() {
                   <div className="empty-icon">⊞</div>
                   <h3>Select Metrics & Dimensions</h3>
                   <p>
-                    Choose metrics from the left panel, then select dimensions to
-                    see how they decompose into pre-aggregations.
+                    Choose metrics from the left panel, then select dimensions
+                    to see how they decompose into pre-aggregations.
                   </p>
                 </div>
               )}

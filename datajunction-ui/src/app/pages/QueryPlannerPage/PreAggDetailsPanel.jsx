@@ -2211,7 +2211,9 @@ export function QueryOverviewPanel({
               <span className="section-icon">⌘</span>
               Generated SQL
               {dialect && (
-                <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
+                <span className="sql-dialect-badge">
+                  {dialect.toUpperCase()}
+                </span>
               )}
             </h3>
             <div className="sql-view-toggle">

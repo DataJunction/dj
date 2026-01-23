@@ -41,14 +41,17 @@ export function ResultsView({
   const rowCount = rows.length;
 
   // Handle column header click for sorting
-  const handleSort = useCallback((columnIndex) => {
-    if (sortColumn === columnIndex) {
-      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortColumn(columnIndex);
-      setSortDirection('asc');
-    }
-  }, [sortColumn]);
+  const handleSort = useCallback(
+    columnIndex => {
+      if (sortColumn === columnIndex) {
+        setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortColumn(columnIndex);
+        setSortDirection('asc');
+      }
+    },
+    [sortColumn],
+  );
 
   // Sort rows based on current sort state
   const sortedRows = useMemo(() => {
@@ -86,7 +89,9 @@ export function ResultsView({
             <span className="results-error-text">Query failed</span>
           ) : (
             <>
-              <span className="results-count">{rowCount.toLocaleString()} rows</span>
+              <span className="results-count">
+                {rowCount.toLocaleString()} rows
+              </span>
               {elapsedTime != null && (
                 <span className="results-time">{elapsedTime.toFixed(2)}s</span>
               )}
@@ -103,14 +108,25 @@ export function ResultsView({
             <span className="sql-pane-title">SQL Query</span>
             <div className="sql-pane-meta">
               {dialect && (
-                <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
+                <span className="sql-dialect-badge">
+                  {dialect.toUpperCase()}
+                </span>
               )}
               {availability && (
                 <span
                   className="sql-freshness"
-                  title={`Querying materialized dataset ${[availability.catalog, availability.schema_, availability.table].filter(Boolean).join('.')}, last refreshed for data through ${new Date(availability.valid_through_ts).toLocaleDateString()}`}
+                  title={`Querying materialized dataset ${[
+                    availability.catalog,
+                    availability.schema_,
+                    availability.table,
+                  ]
+                    .filter(Boolean)
+                    .join('.')}, last refreshed for data through ${new Date(
+                    availability.valid_through_ts,
+                  ).toLocaleDateString()}`}
                 >
-                  Valid thru: {new Date(availability.valid_through_ts).toLocaleDateString()}
+                  Valid thru:{' '}
+                  {new Date(availability.valid_through_ts).toLocaleDateString()}
                 </span>
               )}
             </div>
@@ -152,7 +168,8 @@ export function ResultsView({
               <div className="loading-spinner large" />
               <span>Executing query...</span>
               <span className="loading-hint">
-                Querying {selectedMetrics.length} metric(s) with {selectedDimensions.length} dimension(s)
+                Querying {selectedMetrics.length} metric(s) with{' '}
+                {selectedDimensions.length} dimension(s)
               </span>
             </div>
           ) : error ? (
@@ -160,7 +177,10 @@ export function ResultsView({
               <div className="error-icon">⚠</div>
               <h3>Query Failed</h3>
               <p className="error-message">{error}</p>
-              <button className="action-btn action-btn-primary" onClick={onBackToPlan}>
+              <button
+                className="action-btn action-btn-primary"
+                onClick={onBackToPlan}
+              >
                 Back to Plan
               </button>
             </div>
@@ -168,11 +188,15 @@ export function ResultsView({
             <div className="results-table-section">
               <div className="table-header">
                 <span className="table-title">Results</span>
-                <span className="table-count">{rowCount.toLocaleString()} rows</span>
+                <span className="table-count">
+                  {rowCount.toLocaleString()} rows
+                </span>
                 {filters && filters.length > 0 && (
                   <div className="table-filters">
                     {filters.map((filter, idx) => (
-                      <span key={idx} className="filter-chip small">{filter}</span>
+                      <span key={idx} className="filter-chip small">
+                        {filter}
+                      </span>
                     ))}
                   </div>
                 )}
@@ -196,8 +220,26 @@ export function ResultsView({
                             <span className="col-header-content">
                               {col.name}
                               <span className="sort-arrows">
-                                <span className={`sort-arrow up ${sortColumn === idx && sortDirection === 'asc' ? 'active' : ''}`}>▲</span>
-                                <span className={`sort-arrow down ${sortColumn === idx && sortDirection === 'desc' ? 'active' : ''}`}>▼</span>
+                                <span
+                                  className={`sort-arrow up ${
+                                    sortColumn === idx &&
+                                    sortDirection === 'asc'
+                                      ? 'active'
+                                      : ''
+                                  }`}
+                                >
+                                  ▲
+                                </span>
+                                <span
+                                  className={`sort-arrow down ${
+                                    sortColumn === idx &&
+                                    sortDirection === 'desc'
+                                      ? 'active'
+                                      : ''
+                                  }`}
+                                >
+                                  ▼
+                                </span>
                               </span>
                             </span>
                             <span className="col-type">{col.type}</span>

@@ -341,7 +341,9 @@ export function SelectionPanel({
                   filteredCubes.map(cube => (
                     <button
                       key={cube.name}
-                      className={`cube-option ${loadedCubeName === cube.name ? 'selected' : ''}`}
+                      className={`cube-option ${
+                        loadedCubeName === cube.name ? 'selected' : ''
+                      }`}
                       onClick={() => handleCubeSelect(cube)}
                     >
                       <span className="cube-name">
@@ -379,7 +381,9 @@ export function SelectionPanel({
             <div
               className={`combobox-chips ${
                 selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD
-                  ? (metricsChipsExpanded ? 'expanded' : 'collapsed')
+                  ? metricsChipsExpanded
+                    ? 'expanded'
+                    : 'collapsed'
                   : ''
               }`}
             >
@@ -537,7 +541,9 @@ export function SelectionPanel({
                 <div
                   className={`combobox-chips ${
                     selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD
-                      ? (dimensionsChipsExpanded ? 'expanded' : 'collapsed')
+                      ? dimensionsChipsExpanded
+                        ? 'expanded'
+                        : 'collapsed'
                       : ''
                   }`}
                 >
@@ -636,9 +642,7 @@ export function SelectionPanel({
       <div className="selection-section filters-section">
         <div className="section-header">
           <h3>Filters</h3>
-          <span className="selection-count">
-            {filters.length} applied
-          </span>
+          <span className="selection-count">{filters.length} applied</span>
         </div>
 
         {/* Filter chips */}
@@ -702,7 +706,9 @@ export function SelectionPanel({
           <span className="run-hint">Select at least one dimension</span>
         )}
         {!canRunQuery && selectedMetrics.length === 0 && (
-          <span className="run-hint">Select metrics and dimensions to run a query</span>
+          <span className="run-hint">
+            Select metrics and dimensions to run a query
+          </span>
         )}
       </div>
     </div>
