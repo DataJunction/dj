@@ -184,11 +184,16 @@ def build_sql_from_cube_impl(
         decomposed_metrics=decomposed_metrics,
     )
 
-    return generate_metrics_sql(
+    result = generate_metrics_sql(
         ctx,
         measures_result,
         decomposed_metrics,
     )
+
+    # Set cube_name so /data/ endpoint knows to use Druid engine
+    result.cube_name = cube.node.name if cube.node else cube.name
+
+    return result
 
 
 async def build_sql_from_cube(

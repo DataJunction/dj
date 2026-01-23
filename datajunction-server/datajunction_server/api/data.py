@@ -15,7 +15,9 @@ from sse_starlette.sse import EventSourceResponse
 from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
+    get_engine,
 )
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.transpilation import transpile_sql
@@ -472,24 +474,75 @@ async def get_data_for_metrics(
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
-        session=session,
-        node=node,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        dialect=generated_sql.dialect,
+    # Determine the engine to use
+    # If a cube with availability was matched, use the engine from the availability's catalog
+    # Otherwise, use the first metric node's catalog
+    _logger.info(
+        "[/data/] cube_name from generated_sql: %s (use_materialized=%s)",
+        generated_sql.cube_name,
+        use_materialized,
     )
 
+    engine = None
+    catalog_name = None
+
+    if generated_sql.cube_name:
+        # Load the cube node with its availability to get the materialized catalog
+        cube_node = cast(
+            Node,
+            await Node.get_by_name(
+                session,
+                generated_sql.cube_name,
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+                raise_if_not_exists=True,
+            ),
+        )
+        availability = cube_node.current.availability if cube_node.current else None
+        if availability:
+            # Get the catalog from the availability state
+            avail_catalog_name = availability.catalog
+            _logger.info(
+                "[/data/] Cube %s has availability in catalog=%s",
+                generated_sql.cube_name,
+                avail_catalog_name,
+            )
+            # Look up the catalog and its engines
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+                _logger.info(
+                    "[/data/] Using engine=%s from availability catalog=%s",
+                    engine.name,
+                    avail_catalog_name,
+                )
+
+    # Fallback: use the first metric node's catalog
+    if not engine:
+        node = cast(
+            Node,
+            await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+        )
+        catalog_name = node.current.catalog.name
+        engine = await resolve_engine(
+            session=session,
+            node=node,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            dialect=generated_sql.dialect,
+        )
+
     _logger.info(
-        "[/data/] Using engine=%s version=%s dialect=%s for metrics=%s",
+        "[/data/] Using engine=%s version=%s dialect=%s catalog=%s cube=%s for metrics=%s",
         engine.name,
         engine.version,
         engine.dialect,
+        catalog_name,
+        generated_sql.cube_name,
         metrics,
     )
 
@@ -500,7 +553,7 @@ async def get_data_for_metrics(
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=async_,
@@ -562,25 +615,54 @@ async def get_data_stream_for_metrics(
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
-        session=session,
-        node=node,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        dialect=generated_sql.dialect,
-    )
+    # Determine the engine to use
+    # If a cube with availability was matched, use the engine from the availability's catalog
+    engine = None
+    catalog_name = None
+
+    if generated_sql.cube_name:
+        cube_node = cast(
+            Node,
+            await Node.get_by_name(
+                session,
+                generated_sql.cube_name,
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.availability),
+                    ),
+                ],
+                raise_if_not_exists=True,
+            ),
+        )
+        availability = cube_node.current.availability if cube_node.current else None
+        if availability:
+            avail_catalog_name = availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+
+    # Fallback: use the first metric node's catalog
+    if not engine:
+        node = cast(
+            Node,
+            await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+        )
+        catalog_name = node.current.catalog.name
+        engine = await resolve_engine(
+            session=session,
+            node=node,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            dialect=generated_sql.dialect,
+        )
 
     # Transpile SQL to the engine's dialect
     final_sql = transpile_sql(generated_sql.sql, engine.dialect)
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=True,
