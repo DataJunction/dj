@@ -191,12 +191,8 @@ export function QueryPlannerPage() {
 
             // Materialization info is included in the GraphQL response
             const cubeMat = cubeData.cubeMaterialization;
-            if (cubeMat) {
-              setCubeMaterialization(cubeMat);
-              if (cubeMat.workflowUrls?.length > 0) {
-                setWorkflowUrls(cubeMat.workflowUrls);
-              }
-            }
+            setCubeMaterialization(cubeMat || null);
+            setWorkflowUrls(cubeMat?.workflowUrls || []);
           } else {
             console.error('Invalid cube data from URL:', cubeData);
           }
@@ -422,12 +418,8 @@ export function QueryPlannerPage() {
 
           // Materialization info is included in the GraphQL response
           const cubeMat = cubeData.cubeMaterialization;
-          if (cubeMat) {
-            setCubeMaterialization(cubeMat);
-            if (cubeMat.workflowUrls?.length > 0) {
-              setWorkflowUrls(cubeMat.workflowUrls);
-            }
-          }
+          setCubeMaterialization(cubeMat || null);
+          setWorkflowUrls(cubeMat?.workflowUrls || []);
         } else {
           console.error('Invalid cube data received:', cubeData);
         }

@@ -315,7 +315,7 @@ export function SelectionPanel({
             </button>
             {(selectedMetrics.length > 0 || selectedDimensions.length > 0) && (
               <button className="clear-all-btn" onClick={clearSelection}>
-                Clear all
+                Clear
               </button>
             )}
           </div>
