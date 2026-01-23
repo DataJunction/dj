@@ -421,7 +421,6 @@ export function QueryPlannerPage() {
       try {
         // Use lightweight GraphQL query - much faster than REST endpoint
         const cubeData = await djClient.cubeForPlanner(cubeName);
-        console.log('handleLoadCubePreset - cubeData:', cubeData);
         // Validate cube data has expected fields
         if (cubeData && Array.isArray(cubeData.cube_node_metrics)) {
           // Extract metrics and dimensions from the cube
@@ -441,14 +440,6 @@ export function QueryPlannerPage() {
           const cubeMat = cubeData.cubeMaterialization;
           setCubeMaterialization(cubeMat || null);
           setWorkflowUrls(cubeMat?.workflowUrls || []);
-          console.log('handleLoadCubePreset - set state:', {
-            loadedCubeName: cubeName,
-            metrics: cubeMetrics,
-            dimensions: cubeDimensions,
-            availability: cubeData.availability,
-            cubeMaterialization: cubeMat,
-            workflowUrls: cubeMat?.workflowUrls,
-          });
         } else {
           console.error('Invalid cube data received:', cubeData);
         }

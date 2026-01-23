@@ -122,11 +122,11 @@ export function ResultsView({
                   ]
                     .filter(Boolean)
                     .join('.')}, last refreshed for data through ${new Date(
-                    availability.valid_through_ts,
+                    availability.validThroughTs,
                   ).toLocaleDateString()}`}
                 >
                   Valid thru:{' '}
-                  {new Date(availability.valid_through_ts).toLocaleDateString()}
+                  {new Date(availability.validThroughTs).toLocaleDateString()}
                 </span>
               )}
             </div>
