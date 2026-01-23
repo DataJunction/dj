@@ -24,10 +24,8 @@ from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import (
-    ColumnMetadata,
     QueryCreate,
     QueryWithResults,
-    StatementResults,
 )
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
