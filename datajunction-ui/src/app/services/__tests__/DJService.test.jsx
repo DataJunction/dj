@@ -2832,7 +2832,9 @@ describe('DataJunctionAPI', () => {
 
   // Notification/history tests
   it('calls getSubscribedHistory correctly', async () => {
-    fetch.mockResponseOnce(JSON.stringify([{ id: 1, activity_type: 'create' }]));
+    fetch.mockResponseOnce(
+      JSON.stringify([{ id: 1, activity_type: 'create' }]),
+    );
     const result = await DataJunctionAPI.getSubscribedHistory(20);
     expect(fetch).toHaveBeenCalledWith(
       'http://localhost:8000/history/?only_subscribed=true&limit=20',
