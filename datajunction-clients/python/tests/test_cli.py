@@ -472,6 +472,26 @@ def test_sql_no_node_or_metrics(builder_client: DJBuilder):  # pylint: disable=r
     assert "ERROR" in output
 
 
+def test_sql_with_error_response(builder_client: DJBuilder, capsys):
+    """
+    Test `dj sql` handles error responses from API
+    """
+    error_response = {"message": "Test error message from API"}
+    with patch.object(builder_client, "sql", return_value=error_response):
+        test_args = ["dj", "sql", "--metrics", "some.metric"]
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.out
+    assert "Test error message from API" in captured.out
+
+
 def test_lineage(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
     """
     Test `dj lineage <node-name>`

@@ -423,6 +423,13 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "A node with name `default.repair_order_details12` does not exist."
         )
 
+        # Retrieve sql for invalid metric (error)
+        result = client.sql(
+            metrics=["default.nonexistent_metric"],
+        )
+        assert isinstance(result, dict)
+        assert "message" in result or "detail" in result
+
     def test_plan(self, client):
         """
         Test query execution plan retrieval
