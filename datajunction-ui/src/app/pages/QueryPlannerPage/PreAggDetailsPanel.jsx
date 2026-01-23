@@ -614,14 +614,25 @@ export function QueryOverviewPanel({
       <div className="details-header">
         <h2 className="details-title">Query Plan</h2>
         <p className="details-info-row">
-          {selectedMetrics.length} metric{selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
-          {selectedDimensions.length} dimension{selectedDimensions.length !== 1 ? 's' : ''}
+          {selectedMetrics.length} metric
+          {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
+          {selectedDimensions.length} dimension
+          {selectedDimensions.length !== 1 ? 's' : ''}
           {isFastQuery && (
             <>
               {' · '}
-              <span className="info-materialized">⚡ Materialized cube available</span>
+              <span className="info-materialized">
+                <span style={{ fontFamily: 'sans-serif' }}>⚡</span>{' '}
+                Materialized cube available
+              </span>
               {cubeAvailability?.validThroughTs && (
-                <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>
+                <>
+                  {' '}
+                  · Valid thru{' '}
+                  {new Date(
+                    cubeAvailability.validThroughTs,
+                  ).toLocaleDateString()}
+                </>
               )}
             </>
           )}
@@ -2238,7 +2249,13 @@ export function QueryOverviewPanel({
               <>
                 Using materialized cube
                 {cubeAvailability?.validThroughTs && (
-                  <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>
+                  <>
+                    {' '}
+                    · Valid thru{' '}
+                    {new Date(
+                      cubeAvailability.validThroughTs,
+                    ).toLocaleDateString()}
+                  </>
                 )}
               </>
             ) : sqlViewMode === 'raw' ? (

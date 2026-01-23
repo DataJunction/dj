@@ -125,7 +125,11 @@ export function ResultsView({
               >
                 Using materialized cube
                 {availability?.validThroughTs && (
-                  <> · Valid thru {new Date(availability.validThroughTs).toLocaleDateString()}</>
+                  <>
+                    {' '}
+                    · Valid thru{' '}
+                    {new Date(availability.validThroughTs).toLocaleDateString()}
+                  </>
                 )}
               </span>
             )}
