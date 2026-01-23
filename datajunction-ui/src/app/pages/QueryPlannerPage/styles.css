@@ -3155,14 +3155,18 @@ a.action-btn {
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
-  max-height: 52px; /* ~2 rows */
-  overflow: hidden;
+}
+
+.combobox-chips.collapsed {
+  max-height: 56px; /* ~2 rows */
+  overflow-y: auto;
   transition: max-height 0.2s ease;
 }
 
 .combobox-chips.expanded {
   max-height: 200px;
   overflow-y: auto;
+  transition: max-height 0.2s ease;
 }
 
 .combobox-input-row {

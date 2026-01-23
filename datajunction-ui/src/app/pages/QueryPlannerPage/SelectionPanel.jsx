@@ -375,7 +375,9 @@ export function SelectionPanel({
           {selectedMetrics.length > 0 && (
             <div
               className={`combobox-chips ${
-                metricsChipsExpanded ? 'expanded' : ''
+                selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD
+                  ? (metricsChipsExpanded ? 'expanded' : 'collapsed')
+                  : ''
               }`}
             >
               {selectedMetrics.map(metric => (
@@ -531,7 +533,9 @@ export function SelectionPanel({
               {selectedDimensions.length > 0 && (
                 <div
                   className={`combobox-chips ${
-                    dimensionsChipsExpanded ? 'expanded' : ''
+                    selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD
+                      ? (dimensionsChipsExpanded ? 'expanded' : 'collapsed')
+                      : ''
                   }`}
                 >
                   {selectedDimensions.map(dimName => (
