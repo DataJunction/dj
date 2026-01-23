@@ -2229,6 +2229,9 @@ export function QueryOverviewPanel({
                 type="button"
                 title="SQL using pre-aggregations (when available)"
               >
+                {isFastQuery && (
+                  <span style={{ fontFamily: 'sans-serif' }}>⚡</span>
+                )}{' '}
                 Optimized
               </button>
               <button
@@ -2243,25 +2246,24 @@ export function QueryOverviewPanel({
                 {loadingRawSql ? '...' : 'Raw'}
               </button>
             </div>
+            <span className="sql-info-inline">
+              {sqlViewMode === 'optimized' && isFastQuery ? (
+                <>
+                  Using materialized cube
+                  {cubeAvailability?.validThroughTs && (
+                    <>
+                      {' · Valid thru '}
+                      {new Date(
+                        cubeAvailability.validThroughTs,
+                      ).toLocaleDateString()}
+                    </>
+                  )}
+                </>
+              ) : sqlViewMode === 'raw' ? (
+                <>Computes from base tables</>
+              ) : null}
+            </span>
           </div>
-          <p className="sql-info-row">
-            {sqlViewMode === 'optimized' && isFastQuery ? (
-              <>
-                Using materialized cube
-                {cubeAvailability?.validThroughTs && (
-                  <>
-                    {' '}
-                    · Valid thru{' '}
-                    {new Date(
-                      cubeAvailability.validThroughTs,
-                    ).toLocaleDateString()}
-                  </>
-                )}
-              </>
-            ) : sqlViewMode === 'raw' ? (
-              <>Computes from base tables</>
-            ) : null}
-          </p>
           <div className="sql-code-wrapper">
             <SyntaxHighlighter
               language="sql"

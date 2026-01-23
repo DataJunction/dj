@@ -1258,11 +1258,11 @@
   font-weight: 500;
 }
 
-/* SQL info row (Generated SQL section in Query Plan) */
-.sql-info-row {
-  margin: 4px 16px 8px;
+/* SQL info inline (next to Optimized/Raw toggle) */
+.sql-info-inline {
   font-size: 11px;
   color: var(--planner-text-dim);
+  margin-left: auto;
 }
 
 /* Details Sections */
