@@ -1244,6 +1244,7 @@
 .info-materialized {
   color: #7c3aed;
   font-weight: 500;
+  background-color: #7c3aed;
 }
 
 /* SQL pane info row */

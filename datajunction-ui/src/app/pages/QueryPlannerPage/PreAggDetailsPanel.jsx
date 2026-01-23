@@ -619,7 +619,7 @@ export function QueryOverviewPanel({
           {isFastQuery && (
             <>
               {' · '}
-              <span className="info-materialized">⚡ Using materialized cube</span>
+              <span className="info-materialized"><span style="font-family: sans-serif">⚡</span> Using materialized cube</span>
               {dialect && <> · {dialect.toUpperCase()}</>}
               {cubeAvailability?.validThroughTs && (
                 <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>

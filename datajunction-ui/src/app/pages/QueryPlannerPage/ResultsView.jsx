@@ -124,7 +124,7 @@ export function ResultsView({
                 }
               >
                 {cubeName && <><span className="info-materialized">⚡ Materialized</span></>}
-                {dialect && <>{cubeName ? ' · ' : ''}{dialect.toUpperCase()}</>}
+                {dialect && <>{cubeName ? ' · ' : ''}{dialect}</>}
                 {availability?.validThroughTs && (
                   <> · Valid thru {new Date(availability.validThroughTs).toLocaleDateString()}</>
                 )}
