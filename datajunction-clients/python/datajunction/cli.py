@@ -455,10 +455,11 @@ class DJCLI:
         """
         Generate SQL for a node or metrics.
         """
+        console = Console()
         try:
             if metrics:
                 # Use v3 metrics SQL API
-                sql = self.builder_client.sql(
+                result = self.builder_client.sql(
                     metrics=metrics,
                     dimensions=dimensions,
                     filters=filters,
@@ -468,7 +469,7 @@ class DJCLI:
                 )
             elif node_name:
                 # Use node SQL API
-                sql = self.builder_client.node_sql(
+                result = self.builder_client.node_sql(
                     node_name=node_name,
                     dimensions=dimensions,
                     filters=filters,
@@ -476,9 +477,24 @@ class DJCLI:
                     engine_version=engine_version,
                 )
             else:
-                print("ERROR: Either node_name or --metrics must be provided")
+                console.print(
+                    "[bold red]ERROR:[/bold red] Either node_name or --metrics must be provided",
+                )
                 return
-            print(sql)
+
+            # Handle error responses (dict) vs SQL string
+            if isinstance(result, dict):
+                message = result.get("message", str(result))
+                console.print(f"[bold red]ERROR:[/bold red] {message}")
+            else:
+                syntax = Syntax(
+                    result.strip(),
+                    "sql",
+                    theme="ansi_light",
+                    line_numbers=False,
+                    background_color=None,
+                )
+                console.print(syntax)
         except Exception as exc:  # pragma: no cover
             logger.error("Error generating SQL: %s", exc)
             raise
