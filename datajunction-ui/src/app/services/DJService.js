@@ -201,8 +201,17 @@ export const DataJunctionAPI = {
         })
       ).json();
 
+      // Debug: log the full response
+      console.log('cubeForPlanner GraphQL response:', result);
+
+      if (result.errors) {
+        console.error('GraphQL errors:', result.errors);
+        return null;
+      }
+
       const node = result?.data?.findNodes?.[0];
       if (!node) {
+        console.warn('cubeForPlanner: No node found for name:', name);
         return null;
       }
 
