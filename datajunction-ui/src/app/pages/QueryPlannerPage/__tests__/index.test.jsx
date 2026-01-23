@@ -759,9 +759,7 @@ describe('QueryPlannerPage', () => {
       fireEvent.click(removeButton);
 
       await waitFor(() => {
-        expect(
-          screen.queryByText("status = 'active'"),
-        ).not.toBeInTheDocument();
+        expect(screen.queryByText("status = 'active'")).not.toBeInTheDocument();
       });
     });
 

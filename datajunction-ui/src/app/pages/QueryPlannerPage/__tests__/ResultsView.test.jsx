@@ -380,7 +380,9 @@ describe('ResultsView', () => {
       );
 
       // Should show "1,000 rows" with locale formatting (appears in both header and table)
-      expect(screen.getAllByText('1,000 rows').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('1,000 rows').length).toBeGreaterThanOrEqual(
+        1,
+      );
     });
   });
 });
