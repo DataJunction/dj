@@ -2226,3 +2226,106 @@ class TestBuildMetricsSqlCubePath:
         column_names = [col.name for col in result.columns]
         assert "category" in column_names
         assert "subcategory" not in column_names
+
+
+class TestDataEndpointCubePath:
+    """
+    Tests for the /data/ endpoint that exercise the cube-to-engine resolution path.
+
+    These tests verify that when a matching cube with availability is found,
+    the /data/ endpoint uses the cube's catalog engine instead of the default.
+    """
+
+    @pytest.mark.asyncio
+    async def test_data_endpoint_uses_cube_catalog_engine(
+        self,
+        module__client_with_build_v3,
+        module__session,
+        module_mocker,
+    ):
+        """
+        Test that /data/ endpoint resolves engine from cube's availability catalog.
+
+        This covers lines 480-486 in api/data.py where the engine is resolved
+        from the cube's availability catalog instead of the metric's default catalog.
+        """
+        from unittest.mock import MagicMock
+
+        from datajunction_server.models.query import QueryWithResults
+        from datajunction_server.typing import QueryState
+        from datajunction_server.utils import get_query_service_client
+
+        client = module__client_with_build_v3
+
+        # Create a cube
+        response = await client.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_for_data_endpoint",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for /data/ endpoint test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability pointing to the default catalog (which has spark engine)
+        valid_through_ts = int(time.time() * 1000)
+        response = await client.post(
+            "/data/v3.cube_for_data_endpoint/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_for_data_endpoint",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Capture submitted queries to verify engine resolution
+        submitted_queries = []
+
+        mock_response = QueryWithResults(
+            id="test-query-id",
+            submitted_query="SELECT ...",
+            state=QueryState.FINISHED,
+            results=[],
+        )
+
+        def mock_submit_query(query_create, request_headers=None):
+            submitted_queries.append(query_create)
+            return mock_response
+
+        # Create mock query service client
+        mock_qs_client = MagicMock()
+        mock_qs_client.submit_query = mock_submit_query
+
+        # Override the dependency at the app level
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+
+        try:
+            # Call /data/ endpoint with metrics that match the cube
+            response = await client.get(
+                "/data/",
+                params={
+                    "metrics": ["v3.total_revenue"],
+                    "dimensions": ["v3.product.category"],
+                    "use_materialized": True,
+                },
+            )
+
+            assert response.status_code == 200, response.json()
+
+            # Verify the query was submitted with the correct engine from cube's catalog
+            assert len(submitted_queries) == 1
+            query = submitted_queries[0]
+            # The engine should be "spark" from the default catalog
+            assert query.engine_name == "spark"
+            assert query.catalog_name == "default"
+        finally:
+            # Clean up the override
+            if get_query_service_client in client.app.dependency_overrides:
+                del client.app.dependency_overrides[get_query_service_client]

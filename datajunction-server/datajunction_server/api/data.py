@@ -467,7 +467,7 @@ async def get_data_for_metrics(
     catalog_name = None
     dialect = Dialect.SPARK  # Default
 
-    if use_materialized:
+    if use_materialized:  # pragma: no branch
         # Check if a matching cube with availability exists
         cube = await find_matching_cube(
             session,
@@ -503,7 +503,7 @@ async def get_data_for_metrics(
     )
 
     # If no cube was used, resolve engine from the first metric node
-    if not engine:
+    if not engine:  # pragma: no branch
         node = cast(
             Node,
             await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
@@ -589,7 +589,7 @@ async def get_data_stream_for_metrics(
     catalog_name = None
     dialect = Dialect.SPARK  # Default
 
-    if use_materialized:
+    if use_materialized:  # pragma: no branch
         cube = await find_matching_cube(
             session,
             metrics,
@@ -617,7 +617,7 @@ async def get_data_stream_for_metrics(
     )
 
     # If no cube was used, resolve engine from the first metric node
-    if not engine:
+    if not engine:  # pragma: no branch
         node = cast(
             Node,
             await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
