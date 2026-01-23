@@ -485,8 +485,18 @@ async def get_data_for_metrics(
         dialect=generated_sql.dialect,
     )
 
+    _logger.info(
+        "[/data/] Using engine=%s version=%s dialect=%s for metrics=%s",
+        engine.name,
+        engine.version,
+        engine.dialect,
+        metrics,
+    )
+
     # Transpile SQL to the engine's dialect
     final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+
+    _logger.info("[/data/] Final SQL:\n%s", final_sql)
 
     query_create = QueryCreate(
         engine_name=engine.name,
