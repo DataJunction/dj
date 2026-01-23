@@ -1875,6 +1875,9 @@ class TestBuildMetricsSqlCubePath:
             """,
         )
 
+        # Verify cube_name is returned
+        assert result.cube_name == "v3.cube_for_metrics_sql"
+
         # Verify output columns
         assert len(result.columns) == 2
         column_names = [col.name for col in result.columns]
@@ -1927,6 +1930,9 @@ class TestBuildMetricsSqlCubePath:
             """,
         )
 
+        # Verify cube_name is None (no cube used)
+        assert result.cube_name is None
+
         # Verify output columns
         column_names = [col.name for col in result.columns]
         assert "category" in column_names
@@ -1975,6 +1981,9 @@ class TestBuildMetricsSqlCubePath:
             dialect=Dialect.SPARK,
             use_materialized=False,  # Should skip cube lookup
         )
+
+        # Verify cube_name is None (cube skipped due to use_materialized=False)
+        assert result.cube_name is None
 
         # Verify SQL does NOT reference the cube table - uses source tables
         assert_sql_equal(
@@ -2068,6 +2077,9 @@ class TestBuildMetricsSqlCubePath:
             normalize_aliases=True,
         )
 
+        # Verify cube_name is returned
+        assert result.cube_name == "v3.cube_avg_metric"
+
         # Verify output columns
         column_names = [col.name for col in result.columns]
         assert "avg_unit_price" in column_names
@@ -2133,6 +2145,9 @@ class TestBuildMetricsSqlCubePath:
             GROUP BY cube_multi_metrics_0.category
             """,
         )
+
+        # Verify cube_name is returned
+        assert result.cube_name == "v3.cube_multi_metrics"
 
         # Verify both metrics in output
         column_names = [col.name for col in result.columns]
@@ -2203,6 +2218,9 @@ class TestBuildMetricsSqlCubePath:
             GROUP BY cube_rollup_test_0.category
             """,
         )
+
+        # Verify cube_name is returned
+        assert result.cube_name == "v3.cube_rollup_test"
 
         # Only category should be in output (not subcategory)
         column_names = [col.name for col in result.columns]
