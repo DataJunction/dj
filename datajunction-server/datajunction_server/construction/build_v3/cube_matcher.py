@@ -191,7 +191,8 @@ def build_sql_from_cube_impl(
     )
 
     # Set cube_name so /data/ endpoint knows to use Druid engine
-    result.cube_name = cube.node.name if cube.node else cube.name
+    # cube is a NodeRevision, use its name directly
+    result.cube_name = cube.name
 
     return result
 
