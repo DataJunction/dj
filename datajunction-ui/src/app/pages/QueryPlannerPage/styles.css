@@ -3106,14 +3106,14 @@ a.action-btn {
 /* Combobox-style input: chips + search combined */
 .combobox-input {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 4px;
   padding: 6px 10px;
   background: var(--planner-bg);
   border: 1px solid var(--planner-border);
   border-radius: var(--radius-md);
   margin: 8px 12px;
-  min-height: 36px;
+  min-height: 32px;
   cursor: text;
   transition: border-color 0.15s;
 }
@@ -3126,9 +3126,8 @@ a.action-btn {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  flex: 1;
   align-items: center;
-  max-height: 54px; /* ~2 rows */
+  max-height: 52px; /* ~2 rows */
   overflow: hidden;
   transition: max-height 0.2s ease;
 }
@@ -3138,9 +3137,15 @@ a.action-btn {
   overflow-y: auto;
 }
 
+.combobox-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .combobox-search {
   flex: 1;
-  min-width: 80px;
+  min-width: 60px;
   border: none;
   background: transparent;
   outline: none;
@@ -3151,6 +3156,27 @@ a.action-btn {
 
 .combobox-search::placeholder {
   color: var(--planner-text-dim);
+}
+
+.combobox-clear {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--planner-text-dim);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  align-self: center;
+}
+
+.combobox-clear:hover {
+  opacity: 1;
 }
 
 .chips-toggle-inline {
@@ -3182,12 +3208,6 @@ a.action-btn {
   font-weight: 500;
   font-family: var(--font-display);
   transition: all 0.12s ease;
-  max-width: 140px;
-}
-
-.selected-chip .chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
