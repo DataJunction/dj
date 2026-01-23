@@ -19,6 +19,7 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.cube_matcher import find_matching_cube
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.api.helpers import get_save_history
@@ -462,7 +463,36 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Determine dialect and engine BEFORE building SQL
+    # If a cube with availability exists, use the availability catalog's dialect
+    engine = None
+    catalog_name = None
+    dialect = Dialect.SPARK  # Default
+
+    if use_materialized:
+        # Check if a matching cube with availability exists
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+        if cube and cube.availability:
+            # Get the catalog from the availability state
+            avail_catalog_name = cube.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+                dialect = engine.dialect
+                _logger.info(
+                    "[/data/] Found cube %s with availability in catalog=%s, using dialect=%s",
+                    cube.name,
+                    avail_catalog_name,
+                    dialect,
+                )
+
+    # Build SQL using the determined dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -470,58 +500,11 @@ async def get_data_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
-    # Determine the engine to use
-    # If a cube with availability was matched, use the engine from the availability's catalog
-    # Otherwise, use the first metric node's catalog
-    _logger.info(
-        "[/data/] cube_name from generated_sql: %s (use_materialized=%s)",
-        generated_sql.cube_name,
-        use_materialized,
-    )
-
-    engine = None
-    catalog_name = None
-
-    if generated_sql.cube_name:
-        # Load the cube node with its availability to get the materialized catalog
-        cube_node = cast(
-            Node,
-            await Node.get_by_name(
-                session,
-                generated_sql.cube_name,
-                options=[
-                    joinedload(Node.current).options(
-                        selectinload(NodeRevision.availability),
-                    ),
-                ],
-                raise_if_not_exists=True,
-            ),
-        )
-        availability = cube_node.current.availability if cube_node.current else None
-        if availability:
-            # Get the catalog from the availability state
-            avail_catalog_name = availability.catalog
-            _logger.info(
-                "[/data/] Cube %s has availability in catalog=%s",
-                generated_sql.cube_name,
-                avail_catalog_name,
-            )
-            # Look up the catalog and its engines
-            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
-            if avail_catalog and avail_catalog.engines:
-                engine = avail_catalog.engines[0]
-                catalog_name = avail_catalog_name
-                _logger.info(
-                    "[/data/] Using engine=%s from availability catalog=%s",
-                    engine.name,
-                    avail_catalog_name,
-                )
-
-    # Fallback: use the first metric node's catalog
+    # If no cube was used, resolve engine from the first metric node
     if not engine:
         node = cast(
             Node,
@@ -546,8 +529,8 @@ async def get_data_for_metrics(
         metrics,
     )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    # SQL is already in the correct dialect, no transpilation needed
+    final_sql = generated_sql.sql
 
     _logger.info("[/data/] Final SQL:\n%s", final_sql)
 
@@ -603,7 +586,27 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Determine dialect and engine BEFORE building SQL
+    engine = None
+    catalog_name = None
+    dialect = Dialect.SPARK  # Default
+
+    if use_materialized:
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+        if cube and cube.availability:
+            avail_catalog_name = cube.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:
+                engine = avail_catalog.engines[0]
+                catalog_name = avail_catalog_name
+                dialect = engine.dialect
+
+    # Build SQL using the determined dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -611,38 +614,11 @@ async def get_data_stream_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
-    # Determine the engine to use
-    # If a cube with availability was matched, use the engine from the availability's catalog
-    engine = None
-    catalog_name = None
-
-    if generated_sql.cube_name:
-        cube_node = cast(
-            Node,
-            await Node.get_by_name(
-                session,
-                generated_sql.cube_name,
-                options=[
-                    joinedload(Node.current).options(
-                        selectinload(NodeRevision.availability),
-                    ),
-                ],
-                raise_if_not_exists=True,
-            ),
-        )
-        availability = cube_node.current.availability if cube_node.current else None
-        if availability:
-            avail_catalog_name = availability.catalog
-            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
-            if avail_catalog and avail_catalog.engines:
-                engine = avail_catalog.engines[0]
-                catalog_name = avail_catalog_name
-
-    # Fallback: use the first metric node's catalog
+    # If no cube was used, resolve engine from the first metric node
     if not engine:
         node = cast(
             Node,
@@ -657,8 +633,8 @@ async def get_data_stream_for_metrics(
             dialect=generated_sql.dialect,
         )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    # SQL is already in the correct dialect
+    final_sql = generated_sql.sql
 
     query_create = QueryCreate(
         engine_name=engine.name,
