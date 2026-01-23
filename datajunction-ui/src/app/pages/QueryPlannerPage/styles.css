@@ -3478,12 +3478,19 @@ a.action-btn {
 
 .sql-cube-badge {
   padding: 2px 8px;
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
+  background: rgba(88, 0, 118, 0.1);
+  color: var(--accent-cube);
   font-size: 10px;
   font-weight: 500;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid rgba(88, 0, 118, 0.3);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sql-cube-badge:hover {
+  background: rgba(88, 0, 118, 0.2);
+  text-decoration: underline;
 }
 
 .sql-freshness {
@@ -3678,6 +3685,44 @@ a.action-btn {
   text-align: left;
   border-bottom: 2px solid var(--planner-border);
   white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.results-table th:hover {
+  background: var(--planner-bg-hover, #f1f5f9);
+}
+
+.results-table th.sorted {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.results-table th .col-header-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.results-table th .sort-arrows {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 8px;
+  line-height: 1;
+  color: var(--planner-text-dim);
+  opacity: 0.4;
+}
+
+.results-table th:hover .sort-arrows {
+  opacity: 0.7;
+}
+
+.results-table th .sort-arrow {
+  line-height: 0.8;
+}
+
+.results-table th .sort-arrow.active {
+  color: var(--planner-primary);
+  opacity: 1;
 }
 
 .results-table th .col-type {

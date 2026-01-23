@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -24,6 +24,8 @@ export function ResultsView({
   availability,
 }) {
   const [copied, setCopied] = useState(false);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
 
   const handleCopySql = useCallback(() => {
     if (sqlQuery) {
@@ -37,6 +39,37 @@ export function ResultsView({
   const columns = results?.results?.[0]?.columns || [];
   const rows = results?.results?.[0]?.rows || [];
   const rowCount = rows.length;
+
+  // Handle column header click for sorting
+  const handleSort = useCallback((columnIndex) => {
+    if (sortColumn === columnIndex) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(columnIndex);
+      setSortDirection('asc');
+    }
+  }, [sortColumn]);
+
+  // Sort rows based on current sort state
+  const sortedRows = useMemo(() => {
+    if (sortColumn === null) return rows;
+    return [...rows].sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+      // Handle nulls - nulls go last
+      if (aVal === null && bVal === null) return 0;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+      // Compare values
+      let cmp;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        cmp = aVal - bVal;
+      } else {
+        cmp = String(aVal).localeCompare(String(bVal));
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [rows, sortColumn, sortDirection]);
 
   return (
     <div className="results-view">
@@ -73,13 +106,17 @@ export function ResultsView({
                 <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
               )}
               {cubeName && (
-                <span className="sql-cube-badge" title={`Using cube: ${cubeName}`}>
-                  Cube: {cubeName.split('.').pop()}
-                </span>
+                <a
+                  href={`/nodes/${cubeName}`}
+                  className="sql-cube-badge"
+                  title={`Using materialized cube: ${cubeName}`}
+                >
+                  Materialized Cube: {cubeName}
+                </a>
               )}
               {availability && (
                 <span className="sql-freshness" title={`Data valid through: ${new Date(availability.valid_through_ts).toISOString()}`}>
-                  Fresh: {new Date(availability.valid_through_ts).toLocaleDateString()}
+                  Valid thru: {new Date(availability.valid_through_ts).toLocaleDateString()}
                 </span>
               )}
             </div>
@@ -156,15 +193,26 @@ export function ResultsView({
                     <thead>
                       <tr>
                         {columns.map((col, idx) => (
-                          <th key={idx} title={col.semantic_name || col.name}>
-                            {col.name}
+                          <th
+                            key={idx}
+                            title={col.semantic_name || col.name}
+                            onClick={() => handleSort(idx)}
+                            className={sortColumn === idx ? 'sorted' : ''}
+                          >
+                            <span className="col-header-content">
+                              {col.name}
+                              <span className="sort-arrows">
+                                <span className={`sort-arrow up ${sortColumn === idx && sortDirection === 'asc' ? 'active' : ''}`}>▲</span>
+                                <span className={`sort-arrow down ${sortColumn === idx && sortDirection === 'desc' ? 'active' : ''}`}>▼</span>
+                              </span>
+                            </span>
                             <span className="col-type">{col.type}</span>
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row, rowIdx) => (
+                      {sortedRows.map((row, rowIdx) => (
                         <tr key={rowIdx}>
                           {row.map((cell, cellIdx) => (
                             <td key={cellIdx}>
