@@ -1246,6 +1246,11 @@
   font-weight: 500;
 }
 
+.info-base-tables {
+  color: #d97706;
+  font-weight: 500;
+}
+
 /* SQL pane info row */
 .sql-pane-info {
   font-size: 11px;

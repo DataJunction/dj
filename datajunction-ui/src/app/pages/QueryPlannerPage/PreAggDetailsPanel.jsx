@@ -2237,7 +2237,10 @@ export function QueryOverviewPanel({
                   )}
                 </>
               ) : sqlViewMode === 'raw' ? (
-                <>Using base tables</>
+                <span className="info-base-tables">
+                  <span style={{ fontFamily: 'sans-serif' }}>⚠️</span> Using base
+                  tables
+                </span>
               ) : null}
             </span>
             <div className="sql-view-toggle">
