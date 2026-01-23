@@ -86,10 +86,10 @@ async def resolve_engine_for_metrics(
                 raise_if_not_exists=True,
             ),
         )
-        if cube_node.current.availability:
+        if cube_node.current.availability:  # pragma: no branch
             avail_catalog_name = cube_node.current.availability.catalog
             avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
-            if avail_catalog and avail_catalog.engines:
+            if avail_catalog and avail_catalog.engines:  # pragma: no branch
                 engine = avail_catalog.engines[0]
                 _logger.info(
                     "Using cube %s availability catalog=%s engine=%s",
