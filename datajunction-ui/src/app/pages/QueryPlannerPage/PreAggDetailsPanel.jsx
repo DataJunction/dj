@@ -2237,7 +2237,7 @@ export function QueryOverviewPanel({
                   )}
                 </>
               ) : sqlViewMode === 'raw' ? (
-                <>Computes from base tables</>
+                <>Using base tables</>
               ) : null}
             </span>
             <div className="sql-view-toggle">
