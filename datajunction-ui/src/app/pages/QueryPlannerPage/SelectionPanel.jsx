@@ -33,6 +33,8 @@ export function SelectionPanel({
   const [filterInput, setFilterInput] = useState('');
   const prevSearchRef = useRef('');
   const cubeDropdownRef = useRef(null);
+  const metricsSearchRef = useRef(null);
+  const dimensionsSearchRef = useRef(null);
 
   // Threshold for showing expand/collapse button
   const CHIPS_COLLAPSE_THRESHOLD = 8;
@@ -366,7 +368,10 @@ export function SelectionPanel({
         </div>
 
         {/* Combined Chips + Search Input */}
-        <div className="combobox-input">
+        <div
+          className="combobox-input"
+          onClick={() => metricsSearchRef.current?.focus()}
+        >
           {selectedMetrics.length > 0 && (
             <div
               className={`combobox-chips ${
@@ -378,7 +383,10 @@ export function SelectionPanel({
                   {getShortName(metric)}
                   <button
                     className="chip-remove"
-                    onClick={() => removeMetric(metric)}
+                    onClick={e => {
+                      e.stopPropagation();
+                      removeMetric(metric);
+                    }}
                     title={`Remove ${getShortName(metric)}`}
                   >
                     ×
@@ -389,16 +397,21 @@ export function SelectionPanel({
           )}
           <div className="combobox-input-row">
             <input
+              ref={metricsSearchRef}
               type="text"
               className="combobox-search"
               placeholder="Search metrics..."
               value={metricsSearch}
               onChange={e => setMetricsSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
             />
             {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
               <button
                 className="combobox-action"
-                onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
+                onClick={e => {
+                  e.stopPropagation();
+                  setMetricsChipsExpanded(!metricsChipsExpanded);
+                }}
               >
                 {metricsChipsExpanded ? 'Show less' : 'Show all'}
               </button>
@@ -406,7 +419,10 @@ export function SelectionPanel({
             {selectedMetrics.length > 0 && (
               <button
                 className="combobox-action"
-                onClick={() => onMetricsChange([])}
+                onClick={e => {
+                  e.stopPropagation();
+                  onMetricsChange([]);
+                }}
               >
                 Clear
               </button>
@@ -508,7 +524,10 @@ export function SelectionPanel({
         ) : (
           <>
             {/* Combined Chips + Search Input */}
-            <div className="combobox-input">
+            <div
+              className="combobox-input"
+              onClick={() => dimensionsSearchRef.current?.focus()}
+            >
               {selectedDimensions.length > 0 && (
                 <div
                   className={`combobox-chips ${
@@ -523,7 +542,10 @@ export function SelectionPanel({
                       {getDimDisplayName(dimName)}
                       <button
                         className="chip-remove"
-                        onClick={() => removeDimension(dimName)}
+                        onClick={e => {
+                          e.stopPropagation();
+                          removeDimension(dimName);
+                        }}
                         title={`Remove ${getDimDisplayName(dimName)}`}
                       >
                         ×
@@ -534,16 +556,21 @@ export function SelectionPanel({
               )}
               <div className="combobox-input-row">
                 <input
+                  ref={dimensionsSearchRef}
                   type="text"
                   className="combobox-search"
                   placeholder="Search dimensions..."
                   value={dimensionsSearch}
                   onChange={e => setDimensionsSearch(e.target.value)}
+                  onClick={e => e.stopPropagation()}
                 />
                 {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
                   <button
                     className="combobox-action"
-                    onClick={() => setDimensionsChipsExpanded(!dimensionsChipsExpanded)}
+                    onClick={e => {
+                      e.stopPropagation();
+                      setDimensionsChipsExpanded(!dimensionsChipsExpanded);
+                    }}
                   >
                     {dimensionsChipsExpanded ? 'Show less' : 'Show all'}
                   </button>
@@ -551,7 +578,10 @@ export function SelectionPanel({
                 {selectedDimensions.length > 0 && (
                   <button
                     className="combobox-action"
-                    onClick={() => onDimensionsChange([])}
+                    onClick={e => {
+                      e.stopPropagation();
+                      onDimensionsChange([]);
+                    }}
                   >
                     Clear
                   </button>
