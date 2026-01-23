@@ -23,7 +23,12 @@ from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.materialization import MaterializationInfo
-from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryWithResults,
+    StatementResults,
+)
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -211,12 +216,17 @@ def module__query_service_client(
             Dict[str, str]
         ] = None,
     ) -> QueryWithResults:
-        results = QUERY_DATA_MAPPINGS[
+        normalized_query = (
             query_create.submitted_query.strip()
             .replace('"', "")
             .replace("\n", "")
             .replace(" ", "")
-        ]
+        )
+
+        if normalized_query not in QUERY_DATA_MAPPINGS:
+            raise KeyError(f"No mock found for query:\n{normalized_query}")
+        results = QUERY_DATA_MAPPINGS[normalized_query]
+
         if isinstance(results, Exception):
             raise results
 
