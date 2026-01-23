@@ -365,12 +365,16 @@ export function QueryPlannerPage() {
     fetchExistingPreaggs();
   }, [measuresResult, djClient]);
 
-  // Fetch cube info when metricsResult has cube_name (backend found a matching cube)
-  // We depend on metricsResult (not just cube_name) so this runs even when the matched
-  // cube is the same but the user changed dimensions (which clears workflowUrls)
+  // Auto-detect cube info when metricsResult has cube_name (backend found a matching cube)
+  // This effect manages cubeAvailability, cubeMaterialization, and workflowUrls based on
+  // either: 1) explicit user selection (loadedCubeName), or 2) auto-detected cube (metricsResult.cube_name)
   useEffect(() => {
-    const fetchMatchingCubeInfo = async () => {
-      if (!metricsResult?.cube_name) {
+    const fetchCubeInfo = async () => {
+      // Determine which cube to use: explicit selection takes precedence over auto-detection
+      const cubeName = loadedCubeName || metricsResult?.cube_name;
+
+      if (!cubeName) {
+        // No cube - clear state
         setCubeAvailability(null);
         setCubeMaterialization(null);
         setWorkflowUrls([]);
@@ -379,16 +383,16 @@ export function QueryPlannerPage() {
 
       try {
         // Fetch full cube info including materialization
-        const cubeData = await djClient.cubeForPlanner(metricsResult.cube_name);
+        const cubeData = await djClient.cubeForPlanner(cubeName);
         setCubeAvailability(cubeData?.availability || null);
 
-        // Set the matched cube name and materialization info
-        // This allows showing cube info even when user didn't explicitly select a cube
         if (cubeData) {
-          setLoadedCubeName(metricsResult.cube_name);
           const cubeMat = cubeData.cubeMaterialization;
           setCubeMaterialization(cubeMat || null);
           setWorkflowUrls(cubeMat?.workflowUrls || []);
+        } else {
+          setCubeMaterialization(null);
+          setWorkflowUrls([]);
         }
       } catch (err) {
         console.error('Failed to fetch cube info:', err);
@@ -398,8 +402,8 @@ export function QueryPlannerPage() {
       }
     };
 
-    fetchMatchingCubeInfo();
-  }, [metricsResult, djClient]);
+    fetchCubeInfo();
+  }, [metricsResult?.cube_name, loadedCubeName, djClient]);
 
   const handleMetricsChange = useCallback(newMetrics => {
     setSelectedMetrics(newMetrics);
