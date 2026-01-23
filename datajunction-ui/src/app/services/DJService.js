@@ -172,12 +172,6 @@ export const DataJunctionAPI = {
             cubeDimensions {
               name
             }
-            availability {
-              catalog
-              schema_
-              table
-              validThroughTs
-            }
             materializations {
               name
               config
@@ -239,7 +233,7 @@ export const DataJunctionAPI = {
         cube_node_metrics: cubeMetrics,
         cube_node_dimensions: cubeDimensions,
         cubeMaterialization, // Included so we don't need a second fetch
-        availability: current.availability || null, // For showing data freshness
+        // Note: availability not fetched here due to GraphQL Int overflow issue with validThroughTs
       };
     } catch (err) {
       console.error('Failed to fetch cube via GraphQL:', err);
