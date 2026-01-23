@@ -71,6 +71,9 @@ export function QueryPlannerPage() {
   // Filters state
   const [filters, setFilters] = useState([]);
 
+  // Cube availability state (for displaying freshness info)
+  const [cubeAvailability, setCubeAvailability] = useState(null);
+
   // Node selection for details panel
   const [selectedNode, setSelectedNode] = useState(null);
 
@@ -365,6 +368,26 @@ export function QueryPlannerPage() {
 
     fetchExistingPreaggs();
   }, [measuresResult, djClient]);
+
+  // Fetch cube availability when metricsResult has cube_name
+  useEffect(() => {
+    const fetchCubeAvailability = async () => {
+      if (!metricsResult?.cube_name) {
+        setCubeAvailability(null);
+        return;
+      }
+
+      try {
+        const cubeData = await djClient.cube(metricsResult.cube_name);
+        setCubeAvailability(cubeData?.availability || null);
+      } catch (err) {
+        console.error('Failed to fetch cube availability:', err);
+        setCubeAvailability(null);
+      }
+    };
+
+    fetchCubeAvailability();
+  }, [metricsResult?.cube_name, djClient]);
 
   const handleMetricsChange = useCallback(newMetrics => {
     setSelectedMetrics(newMetrics);
@@ -1182,6 +1205,9 @@ export function QueryPlannerPage() {
             selectedMetrics={selectedMetrics}
             selectedDimensions={selectedDimensions}
             filters={filters}
+            dialect={metricsResult?.dialect}
+            cubeName={metricsResult?.cube_name}
+            availability={cubeAvailability}
           />
         ) : (
           <>
