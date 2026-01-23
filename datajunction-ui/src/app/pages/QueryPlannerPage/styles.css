@@ -608,15 +608,39 @@
   gap: 2px;
   width: 100%;
   padding: 8px 12px;
+  padding-right: 32px;
   background: transparent;
   border: none;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s ease;
+  position: relative;
 }
 
 .cube-option:hover {
   background: var(--planner-surface);
+}
+
+.cube-option.selected {
+  background: rgba(88, 0, 118, 0.08);
+}
+
+.cube-option.selected:hover {
+  background: rgba(88, 0, 118, 0.12);
+}
+
+.cube-option.selected .cube-name {
+  color: var(--accent-cube);
+}
+
+.cube-selected-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent-cube);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .cube-name {

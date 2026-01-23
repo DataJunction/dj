@@ -341,7 +341,7 @@ export function SelectionPanel({
                   filteredCubes.map(cube => (
                     <button
                       key={cube.name}
-                      className="cube-option"
+                      className={`cube-option ${loadedCubeName === cube.name ? 'selected' : ''}`}
                       onClick={() => handleCubeSelect(cube)}
                     >
                       <span className="cube-name">
@@ -349,6 +349,9 @@ export function SelectionPanel({
                           (cube.name ? cube.name.split('.').pop() : 'Unknown')}
                       </span>
                       <span className="cube-info">{cube.name}</span>
+                      {loadedCubeName === cube.name && (
+                        <span className="cube-selected-icon">✓</span>
+                      )}
                     </button>
                   ))
                 )}

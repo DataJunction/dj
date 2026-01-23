@@ -365,24 +365,34 @@ export function QueryPlannerPage() {
     fetchExistingPreaggs();
   }, [measuresResult, djClient]);
 
-  // Fetch cube availability when metricsResult has cube_name
+  // Fetch cube info when metricsResult has cube_name (backend found a matching cube)
   useEffect(() => {
-    const fetchCubeAvailability = async () => {
+    const fetchMatchingCubeInfo = async () => {
       if (!metricsResult?.cube_name) {
         setCubeAvailability(null);
         return;
       }
 
       try {
-        const cubeData = await djClient.cube(metricsResult.cube_name);
+        // Fetch full cube info including materialization
+        const cubeData = await djClient.cubeForPlanner(metricsResult.cube_name);
         setCubeAvailability(cubeData?.availability || null);
+
+        // Set the matched cube name and materialization info
+        // This allows showing cube info even when user didn't explicitly select a cube
+        if (cubeData) {
+          setLoadedCubeName(metricsResult.cube_name);
+          const cubeMat = cubeData.cubeMaterialization;
+          setCubeMaterialization(cubeMat || null);
+          setWorkflowUrls(cubeMat?.workflowUrls || []);
+        }
       } catch (err) {
-        console.error('Failed to fetch cube availability:', err);
+        console.error('Failed to fetch cube info:', err);
         setCubeAvailability(null);
       }
     };
 
-    fetchCubeAvailability();
+    fetchMatchingCubeInfo();
   }, [metricsResult?.cube_name, djClient]);
 
   const handleMetricsChange = useCallback(newMetrics => {
