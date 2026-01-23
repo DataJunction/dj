@@ -3446,7 +3446,7 @@ a.action-btn {
 .sql-pane-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 10px 16px;
   background: var(--planner-bg);
   border-bottom: 1px solid var(--planner-border);
@@ -3457,6 +3457,44 @@ a.action-btn {
   font-size: 12px;
   font-weight: 600;
   color: var(--planner-text);
+}
+
+.sql-pane-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.sql-dialect-badge {
+  padding: 2px 8px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+.sql-cube-badge {
+  padding: 2px 8px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sql-freshness {
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  cursor: help;
 }
 
 .sql-pane-content {

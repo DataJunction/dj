@@ -19,6 +19,9 @@ export function ResultsView({
   selectedMetrics,
   selectedDimensions,
   filters,
+  dialect,
+  cubeName,
+  availability,
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -65,6 +68,21 @@ export function ResultsView({
         <div className="sql-pane">
           <div className="sql-pane-header">
             <span className="sql-pane-title">SQL Query</span>
+            <div className="sql-pane-meta">
+              {dialect && (
+                <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
+              )}
+              {cubeName && (
+                <span className="sql-cube-badge" title={`Using cube: ${cubeName}`}>
+                  Cube: {cubeName.split('.').pop()}
+                </span>
+              )}
+              {availability && (
+                <span className="sql-freshness" title={`Data valid through: ${new Date(availability.valid_through_ts).toISOString()}`}>
+                  Fresh: {new Date(availability.valid_through_ts).toLocaleDateString()}
+                </span>
+              )}
+            </div>
             <button
               className={`copy-btn ${copied ? 'copied' : ''}`}
               onClick={handleCopySql}
