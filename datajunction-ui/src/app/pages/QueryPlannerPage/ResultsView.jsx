@@ -7,6 +7,7 @@ SyntaxHighlighter.registerLanguage('sql', sql);
 
 /**
  * ResultsView - Displays query results with SQL and data table
+ * Layout: SQL in top 1/3, results in bottom 2/3
  */
 export function ResultsView({
   sql: sqlQuery,
@@ -19,7 +20,6 @@ export function ResultsView({
   selectedDimensions,
   filters,
 }) {
-  const [sqlExpanded, setSqlExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 
   const handleCopySql = useCallback(() => {
@@ -59,70 +59,74 @@ export function ResultsView({
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="results-content">
-        {loading ? (
-          <div className="results-loading">
-            <div className="loading-spinner large" />
-            <span>Executing query...</span>
-            <span className="loading-hint">
-              Querying {selectedMetrics.length} metric(s) with {selectedDimensions.length} dimension(s)
-            </span>
-          </div>
-        ) : error ? (
-          <div className="results-error">
-            <div className="error-icon">⚠</div>
-            <h3>Query Failed</h3>
-            <p className="error-message">{error}</p>
-            <button className="action-btn action-btn-primary" onClick={onBackToPlan}>
-              Back to Plan
+      {/* Two-pane layout: SQL (top 1/3) + Results (bottom 2/3) */}
+      <div className="results-panes">
+        {/* SQL Pane - always visible, top 1/3 */}
+        <div className="sql-pane">
+          <div className="sql-pane-header">
+            <span className="sql-pane-title">SQL Query</span>
+            <button
+              className={`copy-btn ${copied ? 'copied' : ''}`}
+              onClick={handleCopySql}
+              disabled={!sqlQuery}
+            >
+              {copied ? '✓ Copied' : 'Copy'}
             </button>
           </div>
-        ) : (
-          <>
-            {/* SQL Section */}
-            <div className="results-sql-section">
-              <div
-                className="sql-section-header"
-                onClick={() => setSqlExpanded(!sqlExpanded)}
+          <div className="sql-pane-content">
+            {sqlQuery ? (
+              <SyntaxHighlighter
+                language="sql"
+                style={foundation}
+                wrapLongLines={true}
+                customStyle={{
+                  margin: 0,
+                  padding: '12px 16px',
+                  background: '#f8fafc',
+                  fontSize: '12px',
+                  height: '100%',
+                  overflow: 'auto',
+                }}
               >
-                <span className="expand-icon">{sqlExpanded ? '▼' : '▶'}</span>
-                <span className="sql-section-title">SQL Query</span>
-                <div className="sql-section-actions" onClick={e => e.stopPropagation()}>
-                  <button
-                    className={`copy-btn ${copied ? 'copied' : ''}`}
-                    onClick={handleCopySql}
-                    disabled={!sqlQuery}
-                  >
-                    {copied ? '✓ Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
-              {sqlExpanded && sqlQuery && (
-                <div className="sql-content">
-                  <SyntaxHighlighter
-                    language="sql"
-                    style={foundation}
-                    wrapLongLines={true}
-                    customStyle={{
-                      margin: 0,
-                      padding: '12px 16px',
-                      background: '#f8fafc',
-                      borderRadius: '0 0 8px 8px',
-                      fontSize: '12px',
-                    }}
-                  >
-                    {sqlQuery}
-                  </SyntaxHighlighter>
-                </div>
-              )}
-            </div>
+                {sqlQuery}
+              </SyntaxHighlighter>
+            ) : (
+              <div className="sql-pane-empty">Generating SQL...</div>
+            )}
+          </div>
+        </div>
 
-            {/* Results Table */}
+        {/* Results Pane - bottom 2/3 */}
+        <div className="results-pane">
+          {loading ? (
+            <div className="results-loading">
+              <div className="loading-spinner large" />
+              <span>Executing query...</span>
+              <span className="loading-hint">
+                Querying {selectedMetrics.length} metric(s) with {selectedDimensions.length} dimension(s)
+              </span>
+            </div>
+          ) : error ? (
+            <div className="results-error">
+              <div className="error-icon">⚠</div>
+              <h3>Query Failed</h3>
+              <p className="error-message">{error}</p>
+              <button className="action-btn action-btn-primary" onClick={onBackToPlan}>
+                Back to Plan
+              </button>
+            </div>
+          ) : (
             <div className="results-table-section">
               <div className="table-header">
                 <span className="table-title">Results</span>
                 <span className="table-count">{rowCount.toLocaleString()} rows</span>
+                {filters && filters.length > 0 && (
+                  <div className="table-filters">
+                    {filters.map((filter, idx) => (
+                      <span key={idx} className="filter-chip small">{filter}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="results-table-wrapper">
                 {rowCount === 0 ? (
@@ -160,20 +164,8 @@ export function ResultsView({
                 )}
               </div>
             </div>
-
-            {/* Query Info Footer */}
-            {filters && filters.length > 0 && (
-              <div className="results-filters-info">
-                <span className="filters-label">Filters applied:</span>
-                <div className="filters-list">
-                  {filters.map((filter, idx) => (
-                    <span key={idx} className="filter-chip">{filter}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
