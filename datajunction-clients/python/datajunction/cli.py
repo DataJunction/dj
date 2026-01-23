@@ -9,7 +9,10 @@ from typing import Optional
 
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 
 from datajunction import DJBuilder, Project
 from datajunction.deployment import DeploymentService
@@ -461,6 +464,133 @@ class DJCLI:
             logger.error("Error generating SQL: %s", exc)
             raise
 
+    def show_plan(
+        self,
+        metrics: list[str],
+        dimensions: Optional[list[str]] = None,
+        filters: Optional[list[str]] = None,
+        dialect: Optional[str] = None,
+        format: str = "text",
+    ):
+        """
+        Show query execution plan for metrics.
+        """
+        try:
+            plan = self.builder_client.plan(
+                metrics=metrics,
+                dimensions=dimensions,
+                filters=filters,
+                dialect=dialect,
+            )
+            if format == "json":
+                print(json.dumps(plan, indent=2))
+            else:
+                self._print_plan_text(plan)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Error generating plan: %s", exc)
+            raise
+
+    def _print_plan_text(self, plan: dict):
+        """Format and print the query plan using rich formatting."""
+        console = Console()
+
+        # Header info
+        formulas = plan.get("metric_formulas", [])
+        metric_names = [mf.get("name", "") for mf in formulas]
+        dims = plan.get("requested_dimensions", [])
+        dialect = plan.get("dialect", "spark")
+
+        # Summary table
+        summary = Table(show_header=False, box=None, padding=(0, 2))
+        summary.add_column(style="bold")
+        summary.add_column(style="dim")
+        summary.add_row(
+            "Metrics",
+            ", ".join(metric_names) if metric_names else "(none)",
+        )
+        summary.add_row("Dimensions", ", ".join(dims) if dims else "(none)")
+        summary.add_row("Dialect", dialect)
+
+        console.print(
+            Panel(summary, title="[bold]Query Execution Plan[/bold]", border_style=""),
+        )
+
+        # Grain Groups
+        grain_groups = plan.get("grain_groups", [])
+        console.print(f"\n[bold]Grain Groups ({len(grain_groups)})[/bold]")
+
+        for i, gg in enumerate(grain_groups, 1):
+            parent = gg.get("parent_name", "")
+            grain = ", ".join(gg.get("grain", []))
+            aggregability = gg.get("aggregability", "")
+            metrics = ", ".join(gg.get("metrics", []))
+
+            # Components table
+            comp_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+            comp_table.add_column("Component")
+            comp_table.add_column("Expression", style="dim")
+            comp_table.add_column("Agg", style="dim")
+            comp_table.add_column("Merge", style="dim")
+
+            for comp in gg.get("components", []):
+                comp_table.add_row(
+                    comp.get("name", ""),
+                    comp.get("expression", ""),
+                    comp.get("aggregation") or "-",
+                    comp.get("merge") or "-",
+                )
+
+            # Group info
+            info = Text()
+            info.append("Grain: ", style="bold")
+            info.append(f"{grain}\n", style="dim")
+            info.append("Metrics: ", style="bold")
+            info.append(f"{metrics}\n", style="dim")
+            info.append("Aggregability: ", style="bold")
+            info.append(f"{aggregability}\n\n", style="dim")
+            info.append("Components:\n", style="bold")
+
+            console.print(
+                Panel(
+                    info,
+                    title=f"[bold]Group {i}: {parent}[/bold]",
+                    border_style="",
+                ),
+            )
+            console.print(comp_table)
+
+            # SQL with syntax highlighting (light theme, no background)
+            sql = gg.get("sql", "")
+            if sql:
+                syntax = Syntax(
+                    sql.strip(),
+                    "sql",
+                    theme="ansi_light",
+                    line_numbers=False,
+                    background_color=None,
+                )
+                console.print(Panel(syntax, title="[bold]SQL", border_style="dim"))
+
+        # Metric Formulas
+        console.print(f"\n[bold]Metric Formulas ({len(formulas)})[/bold]")
+
+        formula_table = Table(box=box.ROUNDED, show_header=True, header_style="bold")
+        formula_table.add_column("Metric")
+        formula_table.add_column("Formula", style="dim")
+        formula_table.add_column("Components", style="dim")
+        formula_table.add_column("Derived", justify="center", style="dim")
+
+        for mf in formulas:
+            formula_table.add_row(
+                mf.get("name", ""),
+                mf.get("combiner", ""),
+                ", ".join(mf.get("components", [])),
+                "✓" if mf.get("is_derived") else "",
+            )
+
+        console.print(formula_table)
+        console.print()
+
     def show_lineage(
         self,
         node_name: str,
@@ -765,6 +895,46 @@ class DJCLI:
             help="Engine version",
         )
 
+        # `dj plan --metrics <metrics> --dimensions <dims> --filters <filters>`
+        plan_parser = subparsers.add_parser(
+            "plan",
+            help="Show query execution plan for metrics",
+        )
+        plan_parser.add_argument(
+            "--metrics",
+            nargs=argparse.ONE_OR_MORE,
+            type=str,
+            required=True,
+            help="List of metric names",
+        )
+        plan_parser.add_argument(
+            "--dimensions",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of dimensions",
+        )
+        plan_parser.add_argument(
+            "--filters",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of filters",
+        )
+        plan_parser.add_argument(
+            "--dialect",
+            type=str,
+            default=None,
+            help="SQL dialect (e.g., spark, trino)",
+        )
+        plan_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
         # `dj lineage <node-name> --direction upstream|downstream|both --format json`
         lineage_parser = subparsers.add_parser(
             "lineage",
@@ -844,6 +1014,14 @@ class DJCLI:
                 filters=args.filters,
                 engine_name=args.engine,
                 engine_version=args.engine_version,
+            )
+        elif args.command == "plan":
+            self.show_plan(
+                metrics=args.metrics,
+                dimensions=args.dimensions,
+                filters=args.filters,
+                dialect=args.dialect,
+                format=args.format,
             )
         elif args.command == "lineage":
             self.show_lineage(
