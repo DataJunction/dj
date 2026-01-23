@@ -385,15 +385,6 @@ export function SelectionPanel({
                   </button>
                 </span>
               ))}
-              {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
-                <button
-                  className="chips-toggle-inline"
-                  onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
-                  title={metricsChipsExpanded ? 'Show less' : `Show all ${selectedMetrics.length}`}
-                >
-                  {metricsChipsExpanded ? '▲' : `+${selectedMetrics.length - CHIPS_COLLAPSE_THRESHOLD}`}
-                </button>
-              )}
             </div>
           )}
           <div className="combobox-input-row">
@@ -404,13 +395,20 @@ export function SelectionPanel({
               value={metricsSearch}
               onChange={e => setMetricsSearch(e.target.value)}
             />
+            {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
+              <button
+                className="combobox-action"
+                onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
+              >
+                {metricsChipsExpanded ? 'Show less' : 'Show all'}
+              </button>
+            )}
             {selectedMetrics.length > 0 && (
               <button
-                className="combobox-clear"
+                className="combobox-action"
                 onClick={() => onMetricsChange([])}
-                title="Clear all metrics"
               >
-                ×
+                Clear
               </button>
             )}
           </div>
