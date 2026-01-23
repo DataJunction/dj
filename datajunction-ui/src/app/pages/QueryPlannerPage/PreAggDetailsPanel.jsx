@@ -2220,6 +2220,23 @@ export function QueryOverviewPanel({
               <span className="section-icon">⌘</span>
               Generated SQL
             </h3>
+            <span className="sql-info-inline">
+              {sqlViewMode === 'optimized' && isFastQuery ? (
+                <>
+                  Using materialized cube
+                  {cubeAvailability?.validThroughTs && (
+                    <>
+                      {' · Valid thru '}
+                      {new Date(
+                        cubeAvailability.validThroughTs,
+                      ).toLocaleDateString()}
+                    </>
+                  )}
+                </>
+              ) : sqlViewMode === 'raw' ? (
+                <>Computes from base tables</>
+              ) : null}
+            </span>
             <div className="sql-view-toggle">
               <button
                 className={`sql-toggle-btn ${
@@ -2246,23 +2263,6 @@ export function QueryOverviewPanel({
                 {loadingRawSql ? '...' : 'Raw'}
               </button>
             </div>
-            <span className="sql-info-inline">
-              {sqlViewMode === 'optimized' && isFastQuery ? (
-                <>
-                  Using materialized cube
-                  {cubeAvailability?.validThroughTs && (
-                    <>
-                      {' · Valid thru '}
-                      {new Date(
-                        cubeAvailability.validThroughTs,
-                      ).toLocaleDateString()}
-                    </>
-                  )}
-                </>
-              ) : sqlViewMode === 'raw' ? (
-                <>Computes from base tables</>
-              ) : null}
-            </span>
           </div>
           <div className="sql-code-wrapper">
             <SyntaxHighlighter
