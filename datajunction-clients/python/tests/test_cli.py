@@ -422,6 +422,56 @@ def test_sql_with_dimensions(builder_client: DJBuilder):  # pylint: disable=rede
     assert "SELECT" in output.upper()
 
 
+def test_sql_with_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql --metrics m1 m2` using v3 API
+    """
+    # Use metrics from the same parent node, or add a shared dimension
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "sql",
+            "--metrics",
+            "default.num_repair_orders",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+        ],
+    )
+    assert "SELECT" in output.upper()
+
+
+def test_sql_with_metrics_and_dimensions(
+    builder_client: DJBuilder,
+):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql --metrics m1 --dimensions d1` using v3 API
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "sql",
+            "--metrics",
+            "default.num_repair_orders",
+            "--dimensions",
+            "default.hard_hat.city",
+            "--filters",
+            "default.hard_hat.state = 'NY'",
+        ],
+    )
+    assert "SELECT" in output.upper()
+
+
+def test_sql_no_node_or_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql` without node_name or --metrics shows error
+    """
+    output = run_cli_command(builder_client, ["dj", "sql"])
+    assert "ERROR" in output
+
+
 def test_lineage(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
     """
     Test `dj lineage <node-name>`

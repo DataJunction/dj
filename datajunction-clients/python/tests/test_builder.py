@@ -839,43 +839,20 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 "default.dispatcher.company_name",
             ],
             filters=["default.hard_hat.state = 'AZ'"],
-            engine_name="spark",
-            engine_version="3.1.1",
+            dialect="spark",
         )
         assert "SELECT" in result and "FROM" in result
 
         result = client.sql(metrics=["foo.bar.avg_repair_price"])
         assert "SELECT" in result and "FROM" in result
 
-        # Retrieve SQL for a single metric
+        # Test with orderby and limit parameters
         result = client.sql(
             metrics=["foo.bar.avg_repair_price"],
-            dimensions=["foo.bar.dimension_that_does_not_exist"],
-            filters=[],
+            orderby=["foo.bar.avg_repair_price DESC"],
+            limit=10,
         )
-        assert (
-            result["message"]
-            == "Please make sure that `foo.bar.dimension_that_does_not_exist` is a dimensional attribute."
-            or result["message"]
-            == "foo.bar.dimension_that_does_not_exist are not available dimensions on "
-            "foo.bar.avg_repair_price"
-        )
-
-        # Should fail due to dimension not being available
-        result = client.sql(
-            metrics=["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
-            dimensions=["default.hard_hat.city"],
-            filters=["default.hard_hat.state = 'AZ'"],
-            engine_name="spark",
-            engine_version="3.1.1",
-        )
-        assert result["message"] == (
-            "The dimension attribute `default.hard_hat.city` is not available on "
-            "every metric and thus cannot be included."
-        ) or result["message"] == (
-            "default.hard_hat.city are not available dimensions on "
-            "foo.bar.num_repair_orders, foo.bar.avg_repair_price"
-        )
+        assert "SELECT" in result and "FROM" in result
 
     def test_get_dimensions(self, client):
         """

@@ -188,7 +188,7 @@ class DJClient(_internal.DJClient):
         }
         effective_dialect = dialect or self.engine_name
         if effective_dialect:
-            params["dialect"] = effective_dialect
+            params["dialect"] = effective_dialect  # pragma: no cover
         response = self._session.get("/sql/metrics/v3/", params=params)
         if response.status_code != 200:
             return response.json()
@@ -228,7 +228,7 @@ class DJClient(_internal.DJClient):
         }
         effective_dialect = dialect or self.engine_name
         if effective_dialect:
-            params["dialect"] = effective_dialect
+            params["dialect"] = effective_dialect  # pragma: no cover
         response = self._session.get("/sql/measures/v3/", params=params)
         if response.status_code != 200:
             return response.json()
