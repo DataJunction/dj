@@ -1317,6 +1317,7 @@ export function QueryPlannerPage() {
                   onClearWorkflowUrls={() => setWorkflowUrls([])}
                   loadedCubeName={loadedCubeName}
                   cubeMaterialization={cubeMaterialization}
+                  cubeAvailability={cubeAvailability}
                   onUpdateCubeConfig={handleUpdateCubeConfig}
                   onRefreshCubeWorkflow={handleRefreshCubeWorkflow}
                   onRunCubeBackfill={handleRunCubeBackfill}

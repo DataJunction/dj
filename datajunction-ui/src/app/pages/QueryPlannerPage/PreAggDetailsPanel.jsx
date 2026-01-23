@@ -292,6 +292,7 @@ export function QueryOverviewPanel({
   onClearWorkflowUrls,
   loadedCubeName = null, // Existing cube name if loaded from preset
   cubeMaterialization = null, // Full cube materialization info {schedule, strategy, lookbackWindow, ...}
+  cubeAvailability = null, // Cube availability info for data freshness
   onUpdateCubeConfig,
   onRefreshCubeWorkflow,
   onRunCubeBackfill,
@@ -611,22 +612,20 @@ export function QueryOverviewPanel({
     <div className="details-panel">
       {/* Header */}
       <div className="details-header">
-        <div className="details-title-row">
-          <h2 className="details-title">Query Plan</h2>
+        <h2 className="details-title">Query Plan</h2>
+        <p className="details-info-row">
+          {selectedMetrics.length} metric{selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
+          {selectedDimensions.length} dimension{selectedDimensions.length !== 1 ? 's' : ''}
           {isFastQuery && (
-            <span
-              className="query-speed-badge optimized"
-              title="Using materialized Druid cube for fast queries"
-            >
-              ⚡ Materialized
-            </span>
+            <>
+              {' · '}
+              <span className="info-materialized">⚡ Using materialized cube</span>
+              {dialect && <> · {dialect.toUpperCase()}</>}
+              {cubeAvailability?.validThroughTs && (
+                <> · Valid thru {new Date(cubeAvailability.validThroughTs).toLocaleDateString()}</>
+              )}
+            </>
           )}
-        </div>
-        <p className="details-full-name">
-          {selectedMetrics.length} metric
-          {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
-          {selectedDimensions.length} dimension
-          {selectedDimensions.length !== 1 ? 's' : ''}
         </p>
       </div>
 
@@ -2210,11 +2209,6 @@ export function QueryOverviewPanel({
             <h3 className="section-title">
               <span className="section-icon">⌘</span>
               Generated SQL
-              {dialect && (
-                <span className="sql-dialect-badge">
-                  {dialect.toUpperCase()}
-                </span>
-              )}
             </h3>
             <div className="sql-view-toggle">
               <button

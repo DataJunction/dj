@@ -106,30 +106,30 @@ export function ResultsView({
         <div className="sql-pane">
           <div className="sql-pane-header">
             <span className="sql-pane-title">SQL Query</span>
-            <div className="sql-pane-meta">
-              {dialect && (
-                <span className="sql-dialect-badge">
-                  {dialect.toUpperCase()}
-                </span>
-              )}
-              {availability && (
-                <span
-                  className="sql-freshness"
-                  title={`Querying materialized dataset ${[
-                    availability.catalog,
-                    availability.schema_,
-                    availability.table,
-                  ]
-                    .filter(Boolean)
-                    .join('.')}, last refreshed for data through ${new Date(
-                    availability.validThroughTs,
-                  ).toLocaleDateString()}`}
-                >
-                  Valid thru:{' '}
-                  {new Date(availability.validThroughTs).toLocaleDateString()}
-                </span>
-              )}
-            </div>
+            {(cubeName || dialect || availability) && (
+              <span
+                className="sql-pane-info"
+                title={
+                  availability
+                    ? `Querying materialized dataset ${[
+                        availability.catalog,
+                        availability.schema_,
+                        availability.table,
+                      ]
+                        .filter(Boolean)
+                        .join('.')}, last refreshed for data through ${new Date(
+                        availability.validThroughTs,
+                      ).toLocaleDateString()}`
+                    : undefined
+                }
+              >
+                {cubeName && <><span className="info-materialized">⚡ Materialized</span></>}
+                {dialect && <>{cubeName ? ' · ' : ''}{dialect.toUpperCase()}</>}
+                {availability?.validThroughTs && (
+                  <> · Valid thru {new Date(availability.validThroughTs).toLocaleDateString()}</>
+                )}
+              </span>
+            )}
             <button
               className={`copy-btn ${copied ? 'copied' : ''}`}
               onClick={handleCopySql}

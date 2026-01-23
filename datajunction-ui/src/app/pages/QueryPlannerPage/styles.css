@@ -1168,13 +1168,6 @@
   border-bottom: 1px solid var(--planner-border);
 }
 
-.details-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
 .details-type-badge {
   font-size: 9px;
   font-weight: 700;
@@ -1232,33 +1225,37 @@
   font-family: var(--font-display);
 }
 
-.details-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.query-speed-badge {
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  cursor: help;
-}
-
-.query-speed-badge.optimized {
-  background: linear-gradient(135deg, rgba(88, 0, 118, 0.04), var(--planner-bg));
-  color: #674f00;
-  border: 1px solid rgb(180 143 182 / 30%);
-}
-
 .details-full-name {
   margin: 0;
   font-size: 11px;
   color: var(--planner-text-dim);
   font-family: var(--font-display);
   word-break: break-all;
+}
+
+/* Info row below title - shows metrics count, materialization status, dialect, freshness */
+.details-info-row {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  font-family: var(--font-display);
+}
+
+.info-materialized {
+  color: #7c3aed;
+  font-weight: 500;
+}
+
+/* SQL pane info row */
+.sql-pane-info {
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  flex: 1;
+}
+
+.sql-pane-info .info-materialized {
+  color: #7c3aed;
+  font-weight: 500;
 }
 
 /* Details Sections */
