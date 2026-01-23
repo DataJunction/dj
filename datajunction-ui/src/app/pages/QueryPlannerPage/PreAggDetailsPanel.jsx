@@ -618,7 +618,7 @@ export function QueryOverviewPanel({
               className="query-speed-badge optimized"
               title="Using materialized Druid cube for fast queries"
             >
-              ⚡ Optimized
+              ⚡ Materialized
             </span>
           )}
         </div>
