@@ -517,7 +517,7 @@ async def get_data_for_metrics(
             dialect=generated_sql.dialect,
         )
 
-    _logger.info(
+    _logger.debug(
         "[/data/] Using engine=%s version=%s dialect=%s catalog=%s cube=%s for metrics=%s",
         engine.name,
         engine.version,
@@ -530,7 +530,7 @@ async def get_data_for_metrics(
     # SQL is already in the correct dialect, no transpilation needed
     final_sql = generated_sql.sql
 
-    _logger.info("[/data/] Final SQL:\n%s", final_sql)
+    _logger.debug("[/data/] Final SQL:\n%s", final_sql)
 
     query_create = QueryCreate(
         engine_name=engine.name,
