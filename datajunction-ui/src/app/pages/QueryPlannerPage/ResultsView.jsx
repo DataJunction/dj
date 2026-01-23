@@ -108,7 +108,7 @@ export function ResultsView({
               {availability && (
                 <span
                   className="sql-freshness"
-                  title={`Querying materialized Druid datasource, last refreshed for data through ${new Date(availability.valid_through_ts).toLocaleDateString()}`}
+                  title={`Querying materialized dataset ${[availability.catalog, availability.schema_, availability.table].filter(Boolean).join('.')}, last refreshed for data through ${new Date(availability.valid_through_ts).toLocaleDateString()}`}
                 >
                   Valid thru: {new Date(availability.valid_through_ts).toLocaleDateString()}
                 </span>

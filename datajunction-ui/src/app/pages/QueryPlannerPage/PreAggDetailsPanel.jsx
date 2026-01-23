@@ -579,6 +579,8 @@ export function QueryOverviewPanel({
   const metricFormulas = measuresResult.metric_formulas || [];
   const sql = metricsResult.sql || '';
   const dialect = metricsResult.dialect || null;
+  const cubeName = metricsResult.cube_name || null;
+  const isFastQuery = !!cubeName; // Fast if using materialized cube
 
   // Determine if materialization is already configured (has active workflows)
   const isMaterialized =
@@ -609,7 +611,18 @@ export function QueryOverviewPanel({
     <div className="details-panel">
       {/* Header */}
       <div className="details-header">
-        <h2 className="details-title">Query Plan</h2>
+        <div className="details-title-row">
+          <h2 className="details-title">Query Plan</h2>
+          <span
+            className={`query-speed-badge ${isFastQuery ? 'fast' : 'slow'}`}
+            title={isFastQuery
+              ? 'Using materialized Druid cube for fast queries'
+              : 'No matching cube - will query Spark (slower)'
+            }
+          >
+            {isFastQuery ? 'Fast' : 'Slow'}
+          </span>
+        </div>
         <p className="details-full-name">
           {selectedMetrics.length} metric
           {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
