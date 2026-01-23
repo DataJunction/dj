@@ -15,13 +15,11 @@ from sse_starlette.sse import EventSourceResponse
 from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
-    get_engine,
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.cube_matcher import find_matching_cube
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.transpilation import transpile_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History

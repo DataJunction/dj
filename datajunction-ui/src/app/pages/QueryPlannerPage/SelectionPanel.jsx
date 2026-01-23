@@ -365,60 +365,40 @@ export function SelectionPanel({
           </span>
         </div>
 
-        {/* Selected Metrics Chips */}
-        {selectedMetrics.length > 0 && (
-          <div className="selected-chips-container">
-            <div
-              className={`selected-chips-wrapper ${
-                metricsChipsExpanded ? 'expanded' : ''
-              }`}
-            >
-              <div className="selected-chips">
-                {selectedMetrics.map(metric => (
-                  <span key={metric} className="selected-chip metric-chip">
-                    <span className="chip-label">{getShortName(metric)}</span>
-                    <button
-                      className="chip-remove"
-                      onClick={() => removeMetric(metric)}
-                      title={`Remove ${getShortName(metric)}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-            {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
-              <button
-                className="chips-toggle"
-                onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
-              >
-                <span>
-                  {metricsChipsExpanded
-                    ? 'Show less'
-                    : `Show all ${selectedMetrics.length}`}
-                </span>
-                <span className="chips-toggle-icon">
-                  {metricsChipsExpanded ? '▲' : '▼'}
-                </span>
-              </button>
-            )}
+        {/* Combined Chips + Search Input */}
+        <div className="combobox-input">
+          <div
+            className={`combobox-chips ${
+              metricsChipsExpanded ? 'expanded' : ''
+            }`}
+          >
+            {selectedMetrics.map(metric => (
+              <span key={metric} className="selected-chip metric-chip">
+                <span className="chip-label">{getShortName(metric)}</span>
+                <button
+                  className="chip-remove"
+                  onClick={() => removeMetric(metric)}
+                  title={`Remove ${getShortName(metric)}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              className="combobox-search"
+              placeholder={selectedMetrics.length === 0 ? "Search metrics..." : ""}
+              value={metricsSearch}
+              onChange={e => setMetricsSearch(e.target.value)}
+            />
           </div>
-        )}
-
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Search metrics..."
-            value={metricsSearch}
-            onChange={e => setMetricsSearch(e.target.value)}
-          />
-          {metricsSearch && (
+          {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
             <button
-              className="clear-search"
-              onClick={() => setMetricsSearch('')}
+              className="chips-toggle-inline"
+              onClick={() => setMetricsChipsExpanded(!metricsChipsExpanded)}
+              title={metricsChipsExpanded ? 'Show less' : `Show all ${selectedMetrics.length}`}
             >
-              ×
+              {metricsChipsExpanded ? '▲' : `+${selectedMetrics.length - CHIPS_COLLAPSE_THRESHOLD}`}
             </button>
           )}
         </div>
@@ -517,66 +497,47 @@ export function SelectionPanel({
         ) : (
           <>
             {/* Selected Dimensions Chips */}
-            {selectedDimensions.length > 0 && (
-              <div className="selected-chips-container">
-                <div
-                  className={`selected-chips-wrapper ${
-                    dimensionsChipsExpanded ? 'expanded' : ''
-                  }`}
-                >
-                  <div className="selected-chips">
-                    {selectedDimensions.map(dimName => (
-                      <span
-                        key={dimName}
-                        className="selected-chip dimension-chip"
-                      >
-                        <span className="chip-label">
-                          {getDimDisplayName(dimName)}
-                        </span>
-                        <button
-                          className="chip-remove"
-                          onClick={() => removeDimension(dimName)}
-                          title={`Remove ${getDimDisplayName(dimName)}`}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
-                  <button
-                    className="chips-toggle"
-                    onClick={() =>
-                      setDimensionsChipsExpanded(!dimensionsChipsExpanded)
-                    }
+            {/* Combined Chips + Search Input */}
+            <div className="combobox-input">
+              <div
+                className={`combobox-chips ${
+                  dimensionsChipsExpanded ? 'expanded' : ''
+                }`}
+              >
+                {selectedDimensions.map(dimName => (
+                  <span
+                    key={dimName}
+                    className="selected-chip dimension-chip"
                   >
-                    <span>
-                      {dimensionsChipsExpanded
-                        ? 'Show less'
-                        : `Show all ${selectedDimensions.length}`}
+                    <span className="chip-label">
+                      {getDimDisplayName(dimName)}
                     </span>
-                    <span className="chips-toggle-icon">
-                      {dimensionsChipsExpanded ? '▲' : '▼'}
-                    </span>
-                  </button>
-                )}
+                    <button
+                      className="chip-remove"
+                      onClick={() => removeDimension(dimName)}
+                      title={`Remove ${getDimDisplayName(dimName)}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  className="combobox-search"
+                  placeholder={selectedDimensions.length === 0 ? "Search dimensions..." : ""}
+                  value={dimensionsSearch}
+                  onChange={e => setDimensionsSearch(e.target.value)}
+                />
               </div>
-            )}
-
-            <div className="search-box">
-              <input
-                type="text"
-                placeholder="Search dimensions..."
-                value={dimensionsSearch}
-                onChange={e => setDimensionsSearch(e.target.value)}
-              />
-              {dimensionsSearch && (
+              {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
                 <button
-                  className="clear-search"
-                  onClick={() => setDimensionsSearch('')}
+                  className="chips-toggle-inline"
+                  onClick={() =>
+                    setDimensionsChipsExpanded(!dimensionsChipsExpanded)
+                  }
+                  title={dimensionsChipsExpanded ? 'Show less' : `Show all ${selectedDimensions.length}`}
                 >
-                  ×
+                  {dimensionsChipsExpanded ? '▲' : `+${selectedDimensions.length - CHIPS_COLLAPSE_THRESHOLD}`}
                 </button>
               )}
             </div>

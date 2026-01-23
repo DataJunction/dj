@@ -578,6 +578,7 @@ export function QueryOverviewPanel({
   const grainGroups = measuresResult.grain_groups || [];
   const metricFormulas = measuresResult.metric_formulas || [];
   const sql = metricsResult.sql || '';
+  const dialect = metricsResult.dialect || null;
 
   // Determine if materialization is already configured (has active workflows)
   const isMaterialized =
@@ -2197,6 +2198,9 @@ export function QueryOverviewPanel({
             <h3 className="section-title">
               <span className="section-icon">⌘</span>
               Generated SQL
+              {dialect && (
+                <span className="sql-dialect-badge">{dialect.toUpperCase()}</span>
+              )}
             </h3>
             <div className="sql-view-toggle">
               <button
