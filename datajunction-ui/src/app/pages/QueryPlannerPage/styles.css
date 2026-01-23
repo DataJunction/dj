@@ -1263,6 +1263,7 @@
   font-size: 11px;
   color: var(--planner-text-dim);
   margin-left: auto;
+  margin-right: 1em;
 }
 
 /* Details Sections */
@@ -1284,7 +1285,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;

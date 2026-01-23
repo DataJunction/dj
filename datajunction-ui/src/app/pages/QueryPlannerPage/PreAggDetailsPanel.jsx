@@ -2223,7 +2223,10 @@ export function QueryOverviewPanel({
             <span className="sql-info-inline">
               {sqlViewMode === 'optimized' && isFastQuery ? (
                 <>
-                  Using materialized cube
+                  <span className="info-materialized">
+                    <span style={{ fontFamily: 'sans-serif' }}>⚡</span> Using
+                    materialized cube
+                  </span>
                   {cubeAvailability?.validThroughTs && (
                     <>
                       {' · Valid thru '}
@@ -2246,9 +2249,6 @@ export function QueryOverviewPanel({
                 type="button"
                 title="SQL using pre-aggregations (when available)"
               >
-                {isFastQuery && (
-                  <span style={{ fontFamily: 'sans-serif' }}>⚡</span>
-                )}{' '}
                 Optimized
               </button>
               <button

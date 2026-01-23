@@ -123,11 +123,13 @@ export function ResultsView({
                     : undefined
                 }
               >
-                Using materialized cube
+                <span className="info-materialized">
+                  <span style={{ fontFamily: 'sans-serif' }}>⚡</span> Using
+                  materialized cube
+                </span>
                 {availability?.validThroughTs && (
                   <>
-                    {' '}
-                    · Valid thru{' '}
+                    {' · Valid thru '}
                     {new Date(availability.validThroughTs).toLocaleDateString()}
                   </>
                 )}
