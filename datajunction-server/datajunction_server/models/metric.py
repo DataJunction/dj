@@ -131,3 +131,6 @@ class V3TranslatedSQL(BaseModel):
     sql: str
     columns: List[V3ColumnMetadata]
     dialect: Dialect
+
+    # If a cube was used, contains cube name (fetch details via /cubes/{name}/)
+    cube_name: Optional[str] = None

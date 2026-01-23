@@ -515,6 +515,7 @@ async def get_metrics_sql_v3(
             for col in result.columns
         ],
         dialect=result.dialect,
+        cube_name=result.cube_name,
     )
 
 

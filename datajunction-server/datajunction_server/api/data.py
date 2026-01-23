@@ -4,7 +4,7 @@ Data related APIs.
 
 import logging
 from dataclasses import asdict
-from typing import Callable, Dict, List, Optional, cast
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -16,9 +16,9 @@ from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
 )
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.engine import Engine
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.models.dialect import Dialect
-from datajunction_server.transpilation import transpile_sql
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -53,12 +53,66 @@ from datajunction_server.internal.caching.query_cache_manager import (
     QueryRequestParams,
     QueryBuildType,
 )
-from datajunction_server.models.sql import GeneratedSQL
+from datajunction_server.construction.build_v3.types import GeneratedSQL
 
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
+
+
+async def resolve_engine_for_metrics(
+    session: AsyncSession,
+    metrics: List[str],
+    generated_sql: GeneratedSQL,
+    engine_name: Optional[str],
+    engine_version: Optional[str],
+) -> Tuple[Engine, str]:
+    """
+    Resolve engine and catalog for a metrics query based on generated SQL.
+
+    If a cube was used (indicated by generated_sql.cube_name), gets engine from
+    the cube's availability catalog. Otherwise falls back to the first metric's catalog.
+
+    Returns (engine, catalog_name).
+    """
+    # If a cube was used, get engine from the cube's availability catalog
+    if generated_sql.cube_name:
+        cube_node = cast(
+            Node,
+            await Node.get_by_name(
+                session,
+                generated_sql.cube_name,
+                raise_if_not_exists=True,
+            ),
+        )
+        if cube_node.current.availability:  # pragma: no branch
+            avail_catalog_name = cube_node.current.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:  # pragma: no branch
+                engine = avail_catalog.engines[0]
+                _logger.info(
+                    "Using cube %s availability catalog=%s engine=%s",
+                    generated_sql.cube_name,
+                    avail_catalog_name,
+                    engine.name,
+                )
+                return engine, avail_catalog_name
+
+    # Fallback: resolve engine from the first metric's catalog
+    node = cast(
+        Node,
+        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
+    )
+    catalog_name = node.current.catalog.name
+    engine = await resolve_engine(
+        session=session,
+        node=node,
+        engine_name=engine_name,
+        engine_version=engine_version,
+        dialect=generated_sql.dialect,
+    )
+    return engine, catalog_name
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")
@@ -460,7 +514,7 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Build SQL first - this handles cube matching internally
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -468,29 +522,36 @@ async def get_data_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
+    # Resolve engine based on what was actually used to generate the SQL
+    engine, catalog_name = await resolve_engine_for_metrics(
         session=session,
-        node=node,
+        metrics=metrics,
+        generated_sql=generated_sql,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect=generated_sql.dialect,
     )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    _logger.debug(
+        "[/data/] Using engine=%s version=%s dialect=%s catalog=%s cube=%s for metrics=%s",
+        engine.name,
+        engine.version,
+        engine.dialect,
+        catalog_name,
+        generated_sql.cube_name,
+        metrics,
+    )
+
+    # SQL is already in the correct dialect, no transpilation needed
+    final_sql = generated_sql.sql
+
+    _logger.debug("[/data/] Final SQL:\n%s", final_sql)
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=async_,
@@ -540,7 +601,7 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Build SQL using v3 builder (generates Spark dialect by default)
+    # Build SQL first - this handles cube matching internally
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -548,29 +609,24 @@ async def get_data_stream_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=Dialect.SPARK,
         use_materialized=use_materialized,
     )
 
-    # Get the first metric node to resolve engine and catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    engine = await resolve_engine(
+    # Resolve engine based on what was actually used to generate the SQL
+    engine, catalog_name = await resolve_engine_for_metrics(
         session=session,
-        node=node,
+        metrics=metrics,
+        generated_sql=generated_sql,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect=generated_sql.dialect,
     )
 
-    # Transpile SQL to the engine's dialect
-    final_sql = transpile_sql(generated_sql.sql, engine.dialect)
+    # SQL is already in the correct dialect
+    final_sql = generated_sql.sql
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=node.current.catalog.name,
+        catalog_name=catalog_name,
         engine_version=engine.version,
         submitted_query=final_sql,
         async_=True,
