@@ -4,6 +4,7 @@ Fixtures for testing DJ client.
 
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 import asyncio
+import re
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import timedelta
 import os
@@ -220,6 +221,8 @@ def module__query_service_client(
             .replace("\n", "")
             .replace(" ", "")
         )
+        # Strip LIMIT clause for matching (allows queries with/without LIMIT to match)
+        normalized_query = re.sub(r"LIMIT\d+$", "", normalized_query)
 
         if normalized_query not in QUERY_DATA_MAPPINGS:
             raise KeyError(f"No mock found for query:\n{normalized_query}")
