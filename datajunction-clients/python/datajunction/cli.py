@@ -757,6 +757,93 @@ class DJCLI:
             logger.error("Error fetching dimensions: %s", exc)
             raise
 
+    def get_data(
+        self,
+        node_name: Optional[str] = None,
+        metrics: Optional[list[str]] = None,
+        dimensions: Optional[list[str]] = None,
+        filters: Optional[list[str]] = None,
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+        limit: Optional[int] = None,
+        format: str = "table",
+    ):
+        """
+        Fetch and display data for a node or metrics.
+        """
+        console = Console()
+        # Default to 1000 rows to avoid unbounded queries
+        effective_limit = limit if limit is not None else 1000
+        try:
+            if metrics:
+                # Use metrics data API
+                result = self.builder_client.data(
+                    metrics=metrics,
+                    dimensions=dimensions,
+                    filters=filters,
+                    engine_name=engine_name,
+                    engine_version=engine_version,
+                    limit=effective_limit,
+                )
+            elif node_name:
+                # Use node data API
+                result = self.builder_client.node_data(
+                    node_name=node_name,
+                    dimensions=dimensions,
+                    filters=filters,
+                    engine_name=engine_name,
+                    engine_version=engine_version,
+                    limit=effective_limit,
+                )
+            else:
+                console.print(
+                    "[bold red]ERROR:[/bold red] Either node_name or --metrics must be provided",
+                )
+                return
+
+            # Handle error responses
+            if isinstance(result, dict) and "message" in result:
+                console.print(f"[bold red]ERROR:[/bold red] {result['message']}")
+                return
+
+            # result should be a DataFrame (already limited by API)
+            if format == "json":
+                print(result.to_json(orient="records", indent=2))
+            elif format == "csv":
+                print(result.to_csv(index=False))
+            else:
+                # Table format using Rich
+                table = Table(
+                    box=box.ROUNDED,
+                    show_header=True,
+                    header_style="bold cyan",
+                )
+
+                # Add columns
+                for col in result.columns:
+                    table.add_column(str(col))
+
+                # Add rows
+                for idx, row in result.iterrows():
+                    table.add_row(*[str(v) for v in row.values])
+
+                console.print(table)
+
+                # Show row count info
+                total_rows = len(result)
+                if total_rows == effective_limit:
+                    console.print(
+                        f"\n[dim]Showing {total_rows} rows (limit: {effective_limit}). "
+                        f"Use --limit to adjust.[/dim]",
+                    )
+                else:
+                    console.print(f"\n[dim]{total_rows} row(s)[/dim]")
+
+        except Exception as exc:  # pragma: no cover
+            logger.error("Error fetching data: %s", exc)
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise
+
     def create_parser(self):
         """Creates the CLI arg parser"""
         parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
@@ -784,10 +871,10 @@ class DJCLI:
             help="Output format for dry run (default: text)",
         )
 
-        # `dj push <directory>` (alias for deploy without dryrun)
+        # `dj push <directory>` - primary deployment command
         push_parser = subparsers.add_parser(
             "push",
-            help="Push node YAML definitions from a directory (alias for deploy)",
+            help="Push node YAML definitions from a directory to DJ server",
         )
         push_parser.add_argument(
             "directory",
@@ -798,6 +885,18 @@ class DJCLI:
             type=str,
             default=None,
             help="The namespace to push to (optionally overrides the namespace in the YAML files)",
+        )
+        push_parser.add_argument(
+            "--dryrun",
+            action="store_true",
+            help="Perform a dry run (show impact analysis without deploying)",
+        )
+        push_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format for dry run (default: text)",
         )
         # Deployment source tracking flags
         push_parser.add_argument(
@@ -1074,6 +1173,64 @@ class DJCLI:
             help="Output format (default: text)",
         )
 
+        # `dj data <node-name>` or `dj data --metrics m1 m2`
+        data_parser = subparsers.add_parser(
+            "data",
+            help="Fetch and display data for a node or metrics",
+        )
+        data_parser.add_argument(
+            "node_name",
+            nargs="?",
+            default=None,
+            help="The name of the node (for single-node data)",
+        )
+        data_parser.add_argument(
+            "--metrics",
+            nargs=argparse.ONE_OR_MORE,
+            type=str,
+            default=None,
+            help="List of metrics (for multi-metric data)",
+        )
+        data_parser.add_argument(
+            "--dimensions",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of dimensions to group by",
+        )
+        data_parser.add_argument(
+            "--filters",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of filters (e.g., 'default.date.year = 2024')",
+        )
+        data_parser.add_argument(
+            "--engine",
+            type=str,
+            default=None,
+            help="Engine name for query execution",
+        )
+        data_parser.add_argument(
+            "--engine-version",
+            type=str,
+            default=None,
+            help="Engine version for query execution",
+        )
+        data_parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Limit number of rows returned",
+        )
+        data_parser.add_argument(
+            "--format",
+            type=str,
+            default="table",
+            choices=["table", "json", "csv"],
+            help="Output format (default: table)",
+        )
+
         return parser
 
     def dispatch_command(self, args, parser):
@@ -1087,6 +1244,14 @@ class DJCLI:
                 return
             self.push(args.directory)
         elif args.command == "push":
+            # Handle dry run first
+            if args.dryrun:
+                self.dryrun(
+                    args.directory,
+                    namespace=args.namespace,
+                    format=args.format,
+                )
+                return
             # CLI flags override env vars for deployment source tracking
             if args.repo:
                 os.environ["DJ_DEPLOY_REPO"] = args.repo
@@ -1139,6 +1304,17 @@ class DJCLI:
             )
         elif args.command == "dimensions":
             self.list_node_dimensions(args.node_name, format=args.format)
+        elif args.command == "data":
+            self.get_data(
+                node_name=args.node_name,
+                metrics=args.metrics,
+                dimensions=args.dimensions,
+                filters=args.filters,
+                engine_name=args.engine,
+                engine_version=args.engine_version,
+                limit=args.limit,
+                format=args.format,
+            )
         else:
             parser.print_help()  # pragma: no cover
 
