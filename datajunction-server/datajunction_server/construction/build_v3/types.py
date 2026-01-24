@@ -18,6 +18,8 @@ from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 if TYPE_CHECKING:
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.database.node import NodeRevision
     from datajunction_server.database.preaggregation import PreAggregation
 
 logger = logging.getLogger(__name__)
@@ -145,6 +147,21 @@ class ColumnMetadata:
     )
     type: str  # SQL type (string, number, etc.)
     semantic_type: str  # "dimension", "metric", "metric_component", or "metric_input"
+
+
+@dataclass
+class ResolvedExecutionContext:
+    """
+    Resolved dialect and engine for executing a metrics query.
+
+    This is returned by resolve_dialect_and_engine_for_metrics() to provide
+    all execution context in a single lookup, avoiding duplicate cube matching.
+    """
+
+    dialect: Dialect
+    engine: "Engine"  # Forward reference to avoid circular import
+    catalog_name: str
+    cube: Optional["NodeRevision"] = None  # The matched cube, if any
 
 
 @dataclass

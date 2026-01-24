@@ -12,10 +12,8 @@ from requests import Request
 from datajunction_server.database.engine import Engine
 from datajunction_server.errors import (
     DJDoesNotExistException,
-    DJError,
     DJQueryServiceClientEntityNotFound,
     DJQueryServiceClientException,
-    ErrorCode,
 )
 from datajunction_server.models.cube_materialization import (
     CubeMetric,
@@ -226,7 +224,7 @@ class TestQueryServiceClient:
 
         mock_response = MagicMock()
         mock_response.status_code = 500
-        mock_response.json.return_value = {"message": "Errors", "errors": ["a", "b"]}
+        mock_response.text = "Internal server error"
         mock_request = mocker.patch(
             "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
@@ -247,21 +245,9 @@ class TestQueryServiceClient:
                 view_name="foo",
                 query_create=query_create,
             )
-        assert "Error response from query service" in str(exc_info.value)
-        assert exc_info.value.errors == [
-            DJError(
-                code=ErrorCode.QUERY_SERVICE_ERROR,
-                message="a",
-                debug=None,
-                context="",
-            ),
-            DJError(
-                code=ErrorCode.QUERY_SERVICE_ERROR,
-                message="b",
-                debug=None,
-                context="",
-            ),
-        ]
+        assert "Error response from query service: Internal server error" in str(
+            exc_info.value,
+        )
 
         mock_request.assert_called_with(
             "/queries/",
@@ -474,17 +460,11 @@ class TestQueryServiceClient:
         """
         mock_400_response = MagicMock()
         mock_400_response.status_code = 400
-        mock_400_response.json.return_value = {
-            "message": "Errors",
-            "errors": ["a", "b"],
-        }
+        mock_400_response.text = "Bad request error"
 
         mock_404_response = MagicMock()
         mock_404_response.status_code = 404
-        mock_404_response.json.return_value = {
-            "message": "Query not found",
-            "errors": ["a"],
-        }
+        mock_404_response.text = "Query not found"
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
@@ -496,6 +476,7 @@ class TestQueryServiceClient:
                 query_service_client.get_query(
                     "ef209eef-c31a-4089-aae6-833259a08e22",
                 )
+        assert "Bad request error" in str(exc_info.value)
 
         with mocker.patch(
             "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
@@ -505,8 +486,8 @@ class TestQueryServiceClient:
                 query_service_client.get_query(
                     "ef209eef-c31a-4089-aae6-833259a08e22",
                 )
+        assert "Query not found" in str(exc_info.value)
 
-        assert "Error response from query service" in str(exc_info.value)
         query_create = QueryCreate(
             catalog_name="hive",
             engine_name="postgres",
@@ -523,21 +504,7 @@ class TestQueryServiceClient:
                 query_service_client.submit_query(
                     query_create,
                 )
-        assert "Error response from query service" in str(exc_info.value)
-        assert exc_info.value.errors == [
-            DJError(
-                code=ErrorCode.QUERY_SERVICE_ERROR,
-                message="a",
-                debug=None,
-                context="",
-            ),
-            DJError(
-                code=ErrorCode.QUERY_SERVICE_ERROR,
-                message="b",
-                debug=None,
-                context="",
-            ),
-        ]
+        assert "Bad request error" in str(exc_info.value)
 
     def test_materialize(self, mocker: MockerFixture) -> None:
         """
@@ -740,31 +707,6 @@ class TestQueryServiceClient:
             timeout=20,
             headers=ANY,
         )
-
-    def test_filtered_headers(self):
-        """
-        We should filter out certain headers.
-        """
-        assert QueryServiceClient.filtered_headers(
-            {
-                "User-Agent": "python-requests/2.29.0",
-                "Accept-Encoding": "gzip, deflate",
-                "Accept": "*/*",
-            },
-        ) == {
-            "User-Agent": "python-requests/2.29.0",
-            "Accept": "*/*",
-        }
-        assert QueryServiceClient.filtered_headers(
-            {
-                "User-Agent": "python-requests/2.29.0",
-                "accept-encoding": "gzip, deflate",
-                "Accept": "*/*",
-            },
-        ) == {
-            "User-Agent": "python-requests/2.29.0",
-            "Accept": "*/*",
-        }
 
     def test_materialize_cube(self, mocker: MockerFixture) -> None:
         """

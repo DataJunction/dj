@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
     build_metrics_sql,
     build_measures_sql,
+    resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
@@ -284,7 +285,7 @@ async def get_measures_sql_v3(
                     V3ColumnMetadata(
                         name=col.name,
                         type=str(col.type),  # Ensure string even if ColumnType object
-                        semantic_entity=col.semantic_name,
+                        semantic_name=col.semantic_name,
                         semantic_type=col.semantic_type,
                     )
                     for col in gg.columns
@@ -420,7 +421,7 @@ async def get_combined_measures_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=col.type,
-                semantic_entity=col.semantic_entity,
+                semantic_name=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
             for col in combined_result.columns
@@ -452,9 +453,10 @@ async def get_metrics_sql_v3(
         description="Maximum number of rows to return",
     ),
     use_materialized: bool = Query(True),
-    dialect: Dialect = Query(
-        Dialect.SPARK,
-        description="SQL dialect for the generated query.",
+    dialect: Optional[Dialect] = Query(
+        None,
+        description="SQL dialect for the generated query. If not specified, "
+        "auto-resolves based on cube availability (same logic as /data/).",
     ),
     *,
     session: AsyncSession = Depends(get_session),
@@ -486,11 +488,27 @@ async def get_metrics_sql_v3(
         metrics: List of metric names to include
         dimensions: List of dimensions to group by (the grain)
         filters: Optional filters to apply
-        dialect: SQL dialect for the generated query
+        dialect: SQL dialect for the generated query. If not specified, auto-resolves
+            based on cube availability (uses Druid if cube exists, else metric's catalog).
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
+    # Auto-resolve dialect if not explicitly provided
+    resolved_dialect = dialect
+    if resolved_dialect is None:  # pragma: no branch
+        execution_ctx = await resolve_dialect_and_engine_for_metrics(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            use_materialized=use_materialized,
+        )
+        resolved_dialect = execution_ctx.dialect
+        _logger.info(
+            "[/sql/metrics/v3/] Auto-resolved dialect=%s for metrics=%s",
+            resolved_dialect,
+            metrics,
+        )
 
     result = await build_metrics_sql(
         session=session,
@@ -499,7 +517,7 @@ async def get_metrics_sql_v3(
         filters=filters,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=dialect,
+        dialect=resolved_dialect,
         use_materialized=use_materialized,
     )
 
@@ -509,7 +527,7 @@ async def get_metrics_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=str(col.type),  # Ensure string even if ColumnType object
-                semantic_entity=col.semantic_name,
+                semantic_name=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
             for col in result.columns

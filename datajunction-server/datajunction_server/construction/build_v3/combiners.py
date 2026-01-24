@@ -140,7 +140,7 @@ def _single_grain_group_result(grain_group: GrainGroupSQL) -> CombinedGrainGroup
         V3ColumnMetadata(
             name=col.name,
             type=col.type,
-            semantic_entity=col.semantic_name,
+            semantic_name=col.semantic_name,
             semantic_type=col.semantic_type,
         )
         for col in grain_group.columns
@@ -397,7 +397,7 @@ def _build_output_columns(
                 V3ColumnMetadata(
                     name=grain_col,
                     type=col_meta.type,
-                    semantic_entity=col_meta.semantic_name,
+                    semantic_name=col_meta.semantic_name,
                     semantic_type="dimension",
                 ),
             )
@@ -421,7 +421,7 @@ def _build_output_columns(
                 V3ColumnMetadata(
                     name=measure_name,
                     type=col_meta.type,
-                    semantic_entity=col_meta.semantic_name,
+                    semantic_name=col_meta.semantic_name,
                     semantic_type="metric_component",
                 ),
             )
