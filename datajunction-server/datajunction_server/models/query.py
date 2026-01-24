@@ -3,10 +3,11 @@ Models for queries.
 """
 
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 import msgpack
 from pydantic import (
+    AliasChoices,
     AnyHttpUrl,
     Field,
     field_validator,
@@ -70,11 +71,19 @@ class V3ColumnMetadata(BaseModel):
 
     name: str  # SQL alias in output (e.g., "category", "total_revenue")
     type: str  # SQL type (e.g., "string", "number", "int")
-    semantic_entity: str  # Full semantic path (e.g., "v3.product.category")
+    # Internal field name is semantic_name (matches build_v3)
+    # Serializes to 'semantic_entity' for API backwards compatibility
+    # Accepts both 'semantic_name' and 'semantic_entity' on deserialization
+    semantic_name: str = Field(
+        validation_alias=AliasChoices("semantic_name", "semantic_entity"),
+        serialization_alias="semantic_entity",
+    )
     semantic_type: str  # "dimension" or "metric"
 
+    model_config = ConfigDict(populate_by_name=True)
+
     def __hash__(self):
-        return hash((self.name, self.type, self.semantic_entity))  # pragma: no cover
+        return hash((self.name, self.type, self.semantic_name))  # pragma: no cover
 
 
 class StatementResults(BaseModel):
@@ -85,7 +94,7 @@ class StatementResults(BaseModel):
     """
 
     sql: str
-    columns: List[ColumnMetadata]
+    columns: List[Union[ColumnMetadata, V3ColumnMetadata]]
     rows: List[Row]
 
     # this indicates the total number of rows, and is useful for paginated requests

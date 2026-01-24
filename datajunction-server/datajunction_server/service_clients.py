@@ -12,10 +12,8 @@ from urllib3 import Retry
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
     DJDoesNotExistException,
-    DJError,
     DJQueryServiceClientEntityNotFound,
     DJQueryServiceClientException,
-    ErrorCode,
 )
 from datajunction_server.models.cube_materialization import (
     CubeMaterializationV2Input,
@@ -84,8 +82,6 @@ class QueryServiceClient:
     Client for the query service.
     """
 
-    HEADERS_TO_IGNORE = ("accept-encoding",)
-
     def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
         retry_strategy = Retry(
@@ -98,17 +94,6 @@ class QueryServiceClient:
             endpoint=self.uri,
             retry_strategy=retry_strategy,
         )
-
-    @staticmethod
-    def filtered_headers(request_headers: Dict[str, str]):
-        """
-        The request headers with the headers to ignore filtered out.
-        """
-        return {
-            key: value
-            for key, value in request_headers.items()
-            if key.lower() not in QueryServiceClient.HEADERS_TO_IGNORE
-        }
 
     def get_columns_for_table(
         self,
@@ -129,12 +114,7 @@ class QueryServiceClient:
             }
             if engine
             else {},
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
         )
         if response.status_code not in (200, 201):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -165,22 +145,12 @@ class QueryServiceClient:
         """
         response = self.requests_session.post(
             "/queries/",
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             json=query_create.model_dump(),
         )
-        response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data['message']}",
-                errors=[
-                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
-                    for error in response_data["errors"]
-                ],
+                message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
         return f"View '{view_name}' created successfully."
@@ -197,21 +167,13 @@ class QueryServiceClient:
             "/queries/",
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
                 "accept": "application/json",
-            }
-            if request_headers
-            else self.requests_session.headers,
+            },
             json=query_create.model_dump(),
         )
-        response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data}",
-                errors=[
-                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
-                    for error in response_data["errors"]
-                ],
+                message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
         query_info = response.json()
@@ -228,9 +190,7 @@ class QueryServiceClient:
         get_query_endpoint = f"/queries/{query_id}/"
         response = self.requests_session.get(
             get_query_endpoint,
-            headers={**self.requests_session.headers, **request_headers}
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
         )
         if response.status_code == 404:
             _logger.exception(
@@ -270,12 +230,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/materialization/",
             json=materialization_input.model_dump(),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
         )
         if response.status_code not in (200, 201):  # pragma: no cover
             _logger.exception(
@@ -305,12 +260,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/cubes/materialize",
             json=materialization_input.model_dump(),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=20,
         )
         if response.status_code not in (200, 201):  # pragma: no cover
@@ -318,7 +268,7 @@ class QueryServiceClient:
                 "[DJQS] Failed to schedule cube materialization for"
                 " node=%s with `POST /cubes/materialize`: %s",
                 materialization_input.cube,
-                response.json(),
+                response.text,
                 exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
@@ -349,12 +299,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/cubes/materialize/v2",
             json=materialization_input.model_dump(),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=30,
         )
         if response.status_code not in (200, 201):
@@ -395,12 +340,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/preaggs/materialize",
             json=materialization_input.model_dump(mode="json"),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=30,
         )
         if response.status_code not in (200, 201):
@@ -440,12 +380,7 @@ class QueryServiceClient:
         """
         response = self.requests_session.delete(
             f"/preaggs/{output_table}/workflow",
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=20,
         )
         if response.status_code not in (200, 201, 204):
@@ -486,12 +421,7 @@ class QueryServiceClient:
 
         response = self.requests_session.delete(
             url,
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=20,
         )
         if response.status_code not in (200, 201, 204):
@@ -525,12 +455,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/preaggs/backfill",
             json=backfill_input.model_dump(mode="json"),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=30,
         )
         if response.status_code not in (200, 201):
@@ -563,12 +488,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             "/cubes/backfill",
             json=backfill_input.model_dump(mode="json"),
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=30,
         )
         if response.status_code not in (200, 201):
@@ -600,12 +520,7 @@ class QueryServiceClient:
         deactivate_endpoint = f"/materialization/{node_name}/{materialization_name}/"
         response = self.requests_session.delete(
             deactivate_endpoint,
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             json={"node_version": node_version} if node_version else {},
         )
         if response.status_code not in (200, 201):  # pragma: no cover
@@ -644,12 +559,7 @@ class QueryServiceClient:
         response = self.requests_session.get(
             info_endpoint,
             timeout=3,
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
         )
         if response.status_code not in (200, 201):
             _logger.exception(
@@ -684,12 +594,7 @@ class QueryServiceClient:
         response = self.requests_session.post(
             backfill_endpoint,
             json=[partition.model_dump() for partition in partitions],
-            headers={
-                **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
-            }
-            if request_headers
-            else self.requests_session.headers,
+            headers=self.requests_session.headers,
             timeout=20,
         )
         if response.status_code not in (200, 201):

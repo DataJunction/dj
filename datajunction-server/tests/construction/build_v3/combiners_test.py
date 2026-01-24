@@ -411,7 +411,7 @@ class TestBuildCombinerSql:
 
         # Check semantic info is preserved
         date_col = next(c for c in result.columns if c.name == "date_id")
-        assert date_col.semantic_entity == "v3.date_dim.date_id"
+        assert date_col.semantic_name == "v3.date_dim.date_id"
         assert date_col.semantic_type == "dimension"
 
         # Verify SQL is correct
@@ -1481,6 +1481,10 @@ class TestCombinedMeasuresSQLEndpoint:
         assert len(measure_cols) == 1
         # Measures come through as metric_component in the combined output
         assert measure_cols[0]["semantic_type"] in ("metric", "metric_component")
+        assert (
+            measure_cols[0]["semantic_entity"]
+            == "v3.total_revenue:line_total_sum_e1f61696"
+        )
 
     @pytest.mark.asyncio
     async def test_source_tables_populated(self, client_with_build_v3):
@@ -1717,7 +1721,7 @@ class TestReorderPartitionColumnLast:
             V3ColumnMetadata(
                 name=name,
                 type="string",
-                semantic_entity=f"test.{name}",
+                semantic_name=f"test.{name}",
                 semantic_type=sem_type,
             )
             for name, sem_type in columns
@@ -1895,19 +1899,19 @@ class TestReorderPartitionColumnLast:
             V3ColumnMetadata(
                 name="dateint",
                 type="int",
-                semantic_entity="test.dateint",
+                semantic_name="test.dateint",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="country",
                 type="string",
-                semantic_entity="test.country",
+                semantic_name="test.country",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="revenue",
                 type="double",
-                semantic_entity="test.revenue",
+                semantic_name="test.revenue",
                 semantic_type="metric_component",
             ),
         ]
@@ -1949,19 +1953,19 @@ class TestReorderPartitionColumnLast:
             V3ColumnMetadata(
                 name="revenue",
                 type="double",
-                semantic_entity="test.revenue",
+                semantic_name="test.revenue",
                 semantic_type="metric_component",
             ),
             V3ColumnMetadata(
                 name="dateint",
                 type="int",
-                semantic_entity="test.dateint",
+                semantic_name="test.dateint",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="country",
                 type="string",
-                semantic_entity="test.country",
+                semantic_name="test.country",
                 semantic_type="dimension",
             ),
         ]
@@ -2030,19 +2034,19 @@ class TestReorderPartitionColumnLast:
             V3ColumnMetadata(
                 name="dateint",
                 type="int",
-                semantic_entity="test.dateint",
+                semantic_name="test.dateint",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="country",
                 type="string",
-                semantic_entity="test.country",
+                semantic_name="test.country",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="count",  # Name comes from function name
                 type="bigint",
-                semantic_entity="test.count",
+                semantic_name="test.count",
                 semantic_type="metric_component",
             ),
         ]
@@ -2105,13 +2109,13 @@ class TestReorderPartitionColumnLast:
             V3ColumnMetadata(
                 name="dateint",
                 type="int",
-                semantic_entity="test.dateint",
+                semantic_name="test.dateint",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="country",
                 type="string",
-                semantic_entity="test.country",
+                semantic_name="test.country",
                 semantic_type="dimension",
             ),
             # The "42" column won't be in projection names since Number returns None

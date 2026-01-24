@@ -3359,19 +3359,19 @@ class TestCubeMaterializeV2SuccessPaths:
             V3ColumnMetadata(
                 name="state",
                 type="string",
-                semantic_entity="default.hard_hat.state",
+                semantic_name="default.hard_hat.state",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="total_repair_cost",
                 type="double",
-                semantic_entity="default.total_repair_cost",
+                semantic_name="default.total_repair_cost",
                 semantic_type="measure",
             ),
         ]
@@ -3440,13 +3440,13 @@ class TestCubeMaterializeV2SuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
             V3ColumnMetadata(
                 name="num_repair_orders",
                 type="bigint",
-                semantic_entity="default.num_repair_orders",
+                semantic_name="default.num_repair_orders",
                 semantic_type="measure",
             ),
         ]
@@ -3514,7 +3514,7 @@ class TestCubeMaterializeV2SuccessPaths:
             V3ColumnMetadata(
                 name="state",
                 type="string",
-                semantic_entity="default.hard_hat.state",
+                semantic_name="default.hard_hat.state",
                 semantic_type="dimension",
             ),
         ]
@@ -3562,7 +3562,7 @@ class TestCubeMaterializeV2SuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -3628,7 +3628,7 @@ class TestCubeMaterializeV2SuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -3919,7 +3919,7 @@ class TestCubeDeactivateSuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -3995,7 +3995,7 @@ class TestCubeDeactivateSuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -4073,7 +4073,7 @@ class TestCubeBackfillSuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -4158,7 +4158,7 @@ class TestCubeBackfillSuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
@@ -4230,7 +4230,7 @@ class TestCubeBackfillSuccessPaths:
             V3ColumnMetadata(
                 name="date_id",
                 type="int",
-                semantic_entity="default.hard_hat.hire_date",
+                semantic_name="default.hard_hat.hire_date",
                 semantic_type="dimension",
             ),
         ]
