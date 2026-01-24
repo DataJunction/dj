@@ -1166,6 +1166,90 @@ class TestImpactAnalysis:
         assert "changes" in impact_data
         assert "create_count" in impact_data
 
+    def test_push_dryrun_shows_impact(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+        capsys,
+    ):
+        """Test that push --dryrun shows impact analysis."""
+        change_to_project_dir("./")
+
+        # Use push command with --dryrun flag
+        test_args = ["dj", "push", "./deploy0", "--dryrun"]
+
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Check output contains impact analysis elements
+        captured = capsys.readouterr()
+        assert "Impact Analysis" in captured.out
+        assert "Direct Changes" in captured.out
+
+    def test_push_dryrun_json_format(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+        capsys,
+    ):
+        """Test that push --dryrun --format json outputs JSON."""
+        change_to_project_dir("./")
+
+        test_args = ["dj", "push", "./deploy0", "--dryrun", "--format", "json"]
+
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        # Should be valid JSON
+        import json as json_module
+
+        impact_data = json_module.loads(captured.out)
+        assert "namespace" in impact_data
+        assert "changes" in impact_data
+        assert "create_count" in impact_data
+
+    def test_push_dryrun_with_namespace(
+        self,
+        builder_client: DJBuilder,
+        change_to_project_dir,
+        capsys,
+    ):
+        """Test that push --dryrun --namespace passes namespace to dryrun."""
+        change_to_project_dir("./")
+
+        # Use push command with --dryrun and --namespace flags
+        test_args = [
+            "dj",
+            "push",
+            "./deploy0",
+            "--dryrun",
+            "--namespace",
+            "custom.namespace",
+        ]
+
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        # Check output contains impact analysis (namespace is passed through)
+        captured = capsys.readouterr()
+        assert "Impact Analysis" in captured.out
+
     def test_display_impact_analysis_with_changes(self, capsys):
         """Test display_impact_analysis function with various changes."""
         from datajunction.cli import display_impact_analysis
