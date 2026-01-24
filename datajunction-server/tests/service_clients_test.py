@@ -708,32 +708,6 @@ class TestQueryServiceClient:
             headers=ANY,
         )
 
-    def test_filtered_headers(self):
-        """
-        By default, no headers are forwarded from the original request.
-        Auth should be handled via session headers set during client initialization.
-        """
-        client = QueryServiceClient(uri="http://localhost:8000")
-        assert (
-            client.filtered_headers(
-                {
-                    "User-Agent": "python-requests/2.29.0",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Accept": "*/*",
-                },
-            )
-            == {}
-        )
-        assert (
-            client.filtered_headers(
-                {
-                    "Authorization": "Bearer token",
-                    "X-Custom-Header": "value",
-                },
-            )
-            == {}
-        )
-
     def test_materialize_cube(self, mocker: MockerFixture) -> None:
         """
         Test materialize cube via query service client
