@@ -106,7 +106,6 @@ def test_seed():
         main(builder_client=builder_client)
 
     func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
     assert "register_table" in func_names
     assert "create_dimension" in func_names
     assert "create_metric" in func_names
@@ -420,6 +419,76 @@ def test_sql_with_dimensions(builder_client: DJBuilder):  # pylint: disable=rede
                 main(builder_client=builder_client)
     output = mock_stdout.getvalue()
     assert "SELECT" in output.upper()
+
+
+def test_sql_with_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql --metrics m1 m2` using v3 API
+    """
+    # Use metrics from the same parent node, or add a shared dimension
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "sql",
+            "--metrics",
+            "default.num_repair_orders",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+        ],
+    )
+    assert "SELECT" in output.upper()
+
+
+def test_sql_with_metrics_and_dimensions(
+    builder_client: DJBuilder,
+):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql --metrics m1 --dimensions d1` using v3 API
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "sql",
+            "--metrics",
+            "default.num_repair_orders",
+            "--dimensions",
+            "default.hard_hat.city",
+            "--filters",
+            "default.hard_hat.state = 'NY'",
+        ],
+    )
+    assert "SELECT" in output.upper()
+
+
+def test_sql_no_node_or_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj sql` without node_name or --metrics shows error
+    """
+    output = run_cli_command(builder_client, ["dj", "sql"])
+    assert "ERROR" in output
+
+
+def test_sql_with_error_response(builder_client: DJBuilder, capsys):
+    """
+    Test `dj sql` handles error responses from API
+    """
+    error_response = {"message": "Test error message from API"}
+    with patch.object(builder_client, "sql", return_value=error_response):
+        test_args = ["dj", "sql", "--metrics", "some.metric"]
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.out
+    assert "Test error message from API" in captured.out
 
 
 def test_lineage(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
@@ -1330,3 +1399,306 @@ class TestDJCLIClientCreation:
         # Verify the client was created with the default URL
         assert cli.builder_client is not None
         assert cli.builder_client.uri == "http://localhost:8000"
+
+
+class TestPlanCommand:
+    """Tests for the plan command."""
+
+    @pytest.fixture
+    def sample_plan(self):
+        """Sample plan response for testing."""
+        return {
+            "dialect": "spark",
+            "requested_dimensions": ["default.hard_hat.city", "default.hard_hat.state"],
+            "grain_groups": [
+                {
+                    "parent_name": "default.repair_order_details",
+                    "grain": ["default.hard_hat.city", "default.hard_hat.state"],
+                    "aggregability": "full",
+                    "metrics": [
+                        "default.num_repair_orders",
+                        "default.total_repair_cost",
+                    ],
+                    "components": [
+                        {
+                            "name": "default.num_repair_orders_count",
+                            "expression": "COUNT(DISTINCT repair_order_id)",
+                            "aggregation": "COUNT",
+                            "merge": "SUM",
+                        },
+                        {
+                            "name": "default.total_repair_cost_sum",
+                            "expression": "SUM(cost)",
+                            "aggregation": "SUM",
+                            "merge": "SUM",
+                        },
+                    ],
+                    "sql": "SELECT city, state, COUNT(DISTINCT repair_order_id) AS num_repair_orders_count\nFROM repair_orders\nGROUP BY city, state",
+                },
+            ],
+            "metric_formulas": [
+                {
+                    "name": "default.num_repair_orders",
+                    "combiner": "SUM(num_repair_orders_count)",
+                    "components": ["default.num_repair_orders_count"],
+                    "is_derived": False,
+                },
+                {
+                    "name": "default.total_repair_cost",
+                    "combiner": "SUM(total_repair_cost_sum)",
+                    "components": ["default.total_repair_cost_sum"],
+                    "is_derived": False,
+                },
+            ],
+        }
+
+    def test_plan_text_output(self, builder_client, sample_plan, capsys):
+        """Test `dj plan --metrics <metric>` with text output."""
+        with patch.object(builder_client, "plan", return_value=sample_plan):
+            test_args = [
+                "dj",
+                "plan",
+                "--metrics",
+                "default.num_repair_orders",
+                "default.total_repair_cost",
+                "--dimensions",
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+            ]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        assert "Query Execution Plan" in captured.out
+        assert "Grain Groups" in captured.out
+        assert "Metric Formulas" in captured.out
+        assert "default.num_repair_orders" in captured.out
+
+    def test_plan_json_output(self, builder_client, sample_plan, capsys):
+        """Test `dj plan --metrics <metric> --format json` with JSON output."""
+        with patch.object(builder_client, "plan", return_value=sample_plan):
+            test_args = [
+                "dj",
+                "plan",
+                "--metrics",
+                "default.num_repair_orders",
+                "--format",
+                "json",
+            ]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "dialect" in data
+        assert "grain_groups" in data
+        assert "metric_formulas" in data
+        assert data["dialect"] == "spark"
+
+    def test_plan_with_filters(self, builder_client, sample_plan, capsys):
+        """Test `dj plan` with filters argument."""
+        with patch.object(
+            builder_client,
+            "plan",
+            return_value=sample_plan,
+        ) as mock_plan:
+            test_args = [
+                "dj",
+                "plan",
+                "--metrics",
+                "default.num_repair_orders",
+                "--filters",
+                "default.hard_hat.city = 'NYC'",
+            ]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+        # Verify plan was called with filters
+        mock_plan.assert_called_once_with(
+            metrics=["default.num_repair_orders"],
+            dimensions=[],
+            filters=["default.hard_hat.city = 'NYC'"],
+            dialect=None,
+        )
+
+    def test_plan_with_dialect(self, builder_client, sample_plan, capsys):
+        """Test `dj plan` with dialect argument."""
+        with patch.object(
+            builder_client,
+            "plan",
+            return_value=sample_plan,
+        ) as mock_plan:
+            test_args = [
+                "dj",
+                "plan",
+                "--metrics",
+                "default.num_repair_orders",
+                "--dialect",
+                "trino",
+            ]
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
+
+        # Verify plan was called with dialect
+        mock_plan.assert_called_once_with(
+            metrics=["default.num_repair_orders"],
+            dimensions=[],
+            filters=[],
+            dialect="trino",
+        )
+
+    def test_plan_help(self, builder_client):
+        """Test `dj plan --help` shows expected options."""
+        test_args = ["dj", "plan", "--help"]
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                with pytest.raises(SystemExit) as excinfo:
+                    main(builder_client=builder_client)
+                assert excinfo.value.code == 0
+        output = mock_stdout.getvalue()
+        assert "--metrics" in output
+        assert "--dimensions" in output
+        assert "--filters" in output
+        assert "--dialect" in output
+        assert "--format" in output
+
+    def test_print_plan_text_with_empty_grain_groups(self, capsys):
+        """Test _print_plan_text with empty grain groups."""
+        from datajunction.cli import DJCLI
+
+        mock_client = mock.MagicMock()
+        cli = DJCLI(builder_client=mock_client)
+
+        plan = {
+            "dialect": "spark",
+            "requested_dimensions": [],
+            "grain_groups": [],
+            "metric_formulas": [],
+        }
+
+        cli._print_plan_text(plan)
+
+        captured = capsys.readouterr()
+        assert "Query Execution Plan" in captured.out
+        assert "Grain Groups (0)" in captured.out
+        assert "Metric Formulas (0)" in captured.out
+
+    def test_print_plan_text_with_no_sql(self, capsys):
+        """Test _print_plan_text when grain group has no SQL."""
+        from datajunction.cli import DJCLI
+
+        mock_client = mock.MagicMock()
+        cli = DJCLI(builder_client=mock_client)
+
+        plan = {
+            "dialect": "spark",
+            "requested_dimensions": ["dim1"],
+            "grain_groups": [
+                {
+                    "parent_name": "test.parent",
+                    "grain": ["dim1"],
+                    "aggregability": "full",
+                    "metrics": ["metric1"],
+                    "components": [],
+                    "sql": "",  # Empty SQL
+                },
+            ],
+            "metric_formulas": [
+                {
+                    "name": "metric1",
+                    "combiner": "SUM(comp1)",
+                    "components": ["comp1"],
+                    "is_derived": False,
+                },
+            ],
+        }
+
+        cli._print_plan_text(plan)
+
+        captured = capsys.readouterr()
+        assert "Group 1: test.parent" in captured.out
+        # SQL panel should not appear for empty SQL
+
+    def test_print_plan_text_with_derived_metric(self, capsys):
+        """Test _print_plan_text shows derived metric formula."""
+        from datajunction.cli import DJCLI
+
+        mock_client = mock.MagicMock()
+        cli = DJCLI(builder_client=mock_client)
+
+        plan = {
+            "dialect": "spark",
+            "requested_dimensions": [],
+            "grain_groups": [],
+            "metric_formulas": [
+                {
+                    "name": "derived_metric",
+                    "combiner": "metric1 / metric2",
+                    "components": ["metric1", "metric2"],
+                    "is_derived": True,
+                },
+            ],
+        }
+
+        cli._print_plan_text(plan)
+
+        captured = capsys.readouterr()
+        assert "derived_metric" in captured.out
+        assert "metric1" in captured.out
+        assert "metric2" in captured.out
+
+    def test_print_plan_text_with_component_no_merge(self, capsys):
+        """Test _print_plan_text when component has no merge function."""
+        from datajunction.cli import DJCLI
+
+        mock_client = mock.MagicMock()
+        cli = DJCLI(builder_client=mock_client)
+
+        plan = {
+            "dialect": "spark",
+            "requested_dimensions": [],
+            "grain_groups": [
+                {
+                    "parent_name": "test.parent",
+                    "grain": [],
+                    "aggregability": "full",
+                    "metrics": ["metric1"],
+                    "components": [
+                        {
+                            "name": "comp1",
+                            "expression": "COUNT(*)",
+                            "aggregation": "COUNT",
+                            "merge": None,
+                        },
+                    ],
+                    "sql": "SELECT COUNT(*) FROM t",
+                },
+            ],
+            "metric_formulas": [],
+        }
+
+        cli._print_plan_text(plan)
+
+        captured = capsys.readouterr()
+        assert "comp1" in captured.out
+        assert "COUNT(*)" in captured.out

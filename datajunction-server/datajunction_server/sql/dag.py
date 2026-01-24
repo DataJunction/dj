@@ -550,6 +550,7 @@ async def get_dimension_attributes(
     reference_links = []
     await refresh_if_needed(session, node.current, ["columns"])
     for col in node.current.columns:
+        await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
         if col.dimension_id and col.dimension_column:
             await session.refresh(col, ["dimension"])
             if ref_link := await build_reference_link(  # pragma: no cover
@@ -559,7 +560,9 @@ async def get_dimension_attributes(
             ):
                 reference_links.append(ref_link)
     for dimension_node, path, role in dimension_nodes_and_paths:
+        await refresh_if_needed(session, dimension_node.current, ["columns"])
         for col in dimension_node.current.columns:
+            await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
             if col.dimension_id and col.dimension_column:
                 join_path = (
                     [node.name] if dimension_node.name != node.name else []
@@ -1355,7 +1358,6 @@ async def get_metric_parents(
     reference base metrics, but not other derived metrics.
     """
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
-    print("metric_to_parents", metric_to_parents)
     all_parents = []
     for parents in metric_to_parents.values():
         all_parents.extend(parents)
