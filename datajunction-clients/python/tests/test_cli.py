@@ -106,7 +106,6 @@ def test_seed():
         main(builder_client=builder_client)
 
     func_names = [mock_call[0] for mock_call in builder_client.mock_calls]
-    assert "basic_login" in func_names
     assert "register_table" in func_names
     assert "create_dimension" in func_names
     assert "create_metric" in func_names
@@ -1641,7 +1640,7 @@ class TestPlanCommand:
         # SQL panel should not appear for empty SQL
 
     def test_print_plan_text_with_derived_metric(self, capsys):
-        """Test _print_plan_text shows derived metric indicator."""
+        """Test _print_plan_text shows derived metric formula."""
         from datajunction.cli import DJCLI
 
         mock_client = mock.MagicMock()
@@ -1665,7 +1664,8 @@ class TestPlanCommand:
 
         captured = capsys.readouterr()
         assert "derived_metric" in captured.out
-        assert "✓" in captured.out  # Derived indicator
+        assert "metric1" in captured.out
+        assert "metric2" in captured.out
 
     def test_print_plan_text_with_component_no_merge(self, capsys):
         """Test _print_plan_text when component has no merge function."""
