@@ -12,10 +12,8 @@ from urllib3 import Retry
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
     DJDoesNotExistException,
-    DJError,
     DJQueryServiceClientEntityNotFound,
     DJQueryServiceClientException,
-    ErrorCode,
 )
 from datajunction_server.models.cube_materialization import (
     CubeMaterializationV2Input,
@@ -84,8 +82,6 @@ class QueryServiceClient:
     Client for the query service.
     """
 
-    HEADERS_TO_IGNORE = ("accept-encoding",)
-
     def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
         retry_strategy = Retry(
@@ -99,16 +95,16 @@ class QueryServiceClient:
             retry_strategy=retry_strategy,
         )
 
-    @staticmethod
-    def filtered_headers(request_headers: Dict[str, str]):
+    def filtered_headers(
+        self,
+        request_headers: Dict[str, str],  # pylint: disable=unused-argument
+    ) -> Dict[str, str]:
         """
-        The request headers with the headers to ignore filtered out.
+        Filter headers to forward to the query service.
+        By default, forwards no headers from the original request.
+        Subclasses can override to forward specific headers (e.g., auth tokens).
         """
-        return {
-            key: value
-            for key, value in request_headers.items()
-            if key.lower() not in QueryServiceClient.HEADERS_TO_IGNORE
-        }
+        return {}
 
     def get_columns_for_table(
         self,
@@ -131,7 +127,7 @@ class QueryServiceClient:
             else {},
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -167,20 +163,15 @@ class QueryServiceClient:
             "/queries/",
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
             json=query_create.model_dump(),
         )
-        response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data['message']}",
-                errors=[
-                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
-                    for error in response_data["errors"]
-                ],
+                message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
         return f"View '{view_name}' created successfully."
@@ -197,21 +188,16 @@ class QueryServiceClient:
             "/queries/",
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
                 "accept": "application/json",
             }
             if request_headers
             else self.requests_session.headers,
             json=query_create.model_dump(),
         )
-        response_data = response.json()
         if response.status_code not in (200, 201):
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response_data}",
-                errors=[
-                    DJError(code=ErrorCode.QUERY_SERVICE_ERROR, message=error)
-                    for error in response_data["errors"]
-                ],
+                message=f"Error response from query service: {response.text}",
                 http_status_code=response.status_code,
             )
         query_info = response.json()
@@ -228,7 +214,10 @@ class QueryServiceClient:
         get_query_endpoint = f"/queries/{query_id}/"
         response = self.requests_session.get(
             get_query_endpoint,
-            headers={**self.requests_session.headers, **request_headers}
+            headers={
+                **self.requests_session.headers,
+                **self.filtered_headers(request_headers),
+            }
             if request_headers
             else self.requests_session.headers,
         )
@@ -272,7 +261,7 @@ class QueryServiceClient:
             json=materialization_input.model_dump(),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -307,7 +296,7 @@ class QueryServiceClient:
             json=materialization_input.model_dump(),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -318,7 +307,7 @@ class QueryServiceClient:
                 "[DJQS] Failed to schedule cube materialization for"
                 " node=%s with `POST /cubes/materialize`: %s",
                 materialization_input.cube,
-                response.json(),
+                response.text,
                 exc_info=True,
             )
             return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
@@ -351,7 +340,7 @@ class QueryServiceClient:
             json=materialization_input.model_dump(),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -397,7 +386,7 @@ class QueryServiceClient:
             json=materialization_input.model_dump(mode="json"),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -442,7 +431,7 @@ class QueryServiceClient:
             f"/preaggs/{output_table}/workflow",
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -488,7 +477,7 @@ class QueryServiceClient:
             url,
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -527,7 +516,7 @@ class QueryServiceClient:
             json=backfill_input.model_dump(mode="json"),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -565,7 +554,7 @@ class QueryServiceClient:
             json=backfill_input.model_dump(mode="json"),
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -602,7 +591,7 @@ class QueryServiceClient:
             deactivate_endpoint,
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -646,7 +635,7 @@ class QueryServiceClient:
             timeout=3,
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
@@ -686,7 +675,7 @@ class QueryServiceClient:
             json=[partition.model_dump() for partition in partitions],
             headers={
                 **self.requests_session.headers,
-                **QueryServiceClient.filtered_headers(request_headers),
+                **self.filtered_headers(request_headers),
             }
             if request_headers
             else self.requests_session.headers,
