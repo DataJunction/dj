@@ -871,10 +871,10 @@ class DJCLI:
             help="Output format for dry run (default: text)",
         )
 
-        # `dj push <directory>` (alias for deploy without dryrun)
+        # `dj push <directory>` - primary deployment command
         push_parser = subparsers.add_parser(
             "push",
-            help="Push node YAML definitions from a directory (alias for deploy)",
+            help="Push node YAML definitions from a directory to DJ server",
         )
         push_parser.add_argument(
             "directory",
@@ -885,6 +885,18 @@ class DJCLI:
             type=str,
             default=None,
             help="The namespace to push to (optionally overrides the namespace in the YAML files)",
+        )
+        push_parser.add_argument(
+            "--dryrun",
+            action="store_true",
+            help="Perform a dry run (show impact analysis without deploying)",
+        )
+        push_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format for dry run (default: text)",
         )
         # Deployment source tracking flags
         push_parser.add_argument(
@@ -1232,6 +1244,14 @@ class DJCLI:
                 return
             self.push(args.directory)
         elif args.command == "push":
+            # Handle dry run first
+            if args.dryrun:
+                self.dryrun(
+                    args.directory,
+                    namespace=args.namespace,
+                    format=args.format,
+                )
+                return
             # CLI flags override env vars for deployment source tracking
             if args.repo:
                 os.environ["DJ_DEPLOY_REPO"] = args.repo
