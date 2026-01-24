@@ -275,6 +275,7 @@ class DJClient(_internal.DJClient):
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
         async_: bool = True,
+        limit: Optional[int] = None,
     ):
         """
         Retrieves the data for one or more metrics with the provided dimensions and filters.
@@ -286,6 +287,7 @@ class DJClient(_internal.DJClient):
             engine_name=engine_name,
             engine_version=engine_version,
             async_=async_,
+            limit=limit,
         )
 
     def node_data(  # pylint: disable=too-many-arguments,too-many-locals
@@ -296,6 +298,7 @@ class DJClient(_internal.DJClient):
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
         async_: bool = True,
+        limit: Optional[int] = None,
     ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
@@ -307,6 +310,7 @@ class DJClient(_internal.DJClient):
             engine_name=engine_name,
             engine_version=engine_version,
             async_=async_,
+            limit=limit,
         )
 
     def _data(  # pylint: disable=too-many-arguments,too-many-locals
@@ -318,6 +322,7 @@ class DJClient(_internal.DJClient):
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
         async_: bool = True,
+        limit: Optional[int] = None,
     ):
         """
         Fetch data for a node or a set of metrics with dimensions and filters.
@@ -340,6 +345,7 @@ class DJClient(_internal.DJClient):
                 "engine_name": engine_name or self.engine_name,
                 "engine_version": engine_version or self.engine_version,
                 "async_": async_,
+                "limit": limit,
             }
 
             if (node_name and metrics) or not (node_name or metrics):

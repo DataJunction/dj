@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from io import StringIO
 from typing import Callable
@@ -601,6 +602,220 @@ def test_dimensions_json(builder_client: DJBuilder):  # pylint: disable=redefine
     )
     data = json.loads(output)
     assert isinstance(data, list)
+
+
+def test_data_with_metrics(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data --metrics <metric> --dimensions <dim>`
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "data",
+            "--metrics",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+        ],
+    )
+    # Should show table output with data
+    assert "default.hard_hat.city" in output or "city" in output.lower()
+    assert "row" in output.lower()  # Should show row count
+
+
+def test_data_with_node(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data <node-name> --dimensions <dim>`
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "data",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+        ],
+    )
+    # Should show table output with data
+    assert "row" in output.lower()  # Should show row count
+
+
+def test_data_json_format(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data --metrics <metric> --format json`
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "data",
+            "--metrics",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+            "--format",
+            "json",
+        ],
+    )
+    # Strip ANSI escape codes
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r")
+    clean_output = ansi_escape.sub("", output)
+    # Find the JSON array in the output (may have progress messages before it)
+    json_start = clean_output.find("[\n")
+    json_end = clean_output.rfind("]") + 1
+    json_str = clean_output[json_start:json_end]
+    data = json.loads(json_str)
+    assert isinstance(data, list)
+
+
+def test_data_csv_format(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data --metrics <metric> --format csv`
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "data",
+            "--metrics",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+            "--format",
+            "csv",
+        ],
+    )
+    # Should be CSV format with header
+    lines = output.strip().split("\n")
+    assert len(lines) >= 2  # Header + at least one data row
+
+
+def test_data_no_args(builder_client: DJBuilder, capsys):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data` with no arguments shows error
+    """
+    output = run_cli_command(
+        builder_client,
+        ["dj", "data"],
+    )
+    assert "ERROR" in output
+
+
+def test_data_with_error_response(builder_client: DJBuilder, capsys):
+    """
+    Test `dj data` handles error responses from API (covers lines 805-807)
+    """
+    error_response = {"message": "Test error message from data API"}
+    with patch.object(builder_client, "data", return_value=error_response):
+        test_args = ["dj", "data", "--metrics", "some.metric"]
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.out
+    assert "Test error message from data API" in captured.out
+
+
+def test_data_with_limit(builder_client: DJBuilder):  # pylint: disable=redefined-outer-name
+    """
+    Test `dj data` with explicit --limit flag (covers effective_limit usage)
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "data",
+            "--metrics",
+            "default.avg_repair_price",
+            "--dimensions",
+            "default.hard_hat.city",
+            "--limit",
+            "5",
+        ],
+    )
+    # Should show results and row count
+    assert "row" in output.lower()
+
+
+def test_data_shows_limit_message_when_results_equal_limit(
+    builder_client: DJBuilder,
+    capsys,
+):
+    """
+    Test that `dj data` shows limit message when results match the limit (covers lines 828-832)
+    """
+    # Create a mock DataFrame-like object with exactly 5 rows (matching the limit)
+    mock_df = mock.MagicMock()
+    mock_df.columns = ["metric", "dimension"]
+    mock_df.__len__ = mock.MagicMock(return_value=5)
+    mock_df.iterrows = mock.MagicMock(
+        return_value=iter(
+            [
+                (0, mock.MagicMock(values=[1, "a"])),
+                (1, mock.MagicMock(values=[2, "b"])),
+                (2, mock.MagicMock(values=[3, "c"])),
+                (3, mock.MagicMock(values=[4, "d"])),
+                (4, mock.MagicMock(values=[5, "e"])),
+            ],
+        ),
+    )
+
+    with patch.object(builder_client, "data", return_value=mock_df):
+        test_args = [
+            "dj",
+            "data",
+            "--metrics",
+            "some.metric",
+            "--dimensions",
+            "some.dimension",
+            "--limit",
+            "5",
+        ]
+        with patch.dict(
+            os.environ,
+            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+    captured = capsys.readouterr()
+    # Should show the limit message since results == limit
+    assert "limit: 5" in captured.out
+
+
+def test_data_with_default_limit():
+    """
+    Test that `dj data` uses default limit of 1000 when not specified
+    """
+    mock_builder = mock.MagicMock()
+    mock_builder.data = mock.MagicMock(return_value={"message": "test"})
+
+    test_args = [
+        "dj",
+        "data",
+        "--metrics",
+        "some.metric",
+    ]
+    with patch.dict(
+        os.environ,
+        {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+        clear=False,
+    ):
+        with patch.object(sys, "argv", test_args):
+            main(builder_client=mock_builder)
+
+    # Verify data was called with limit=1000 (the default)
+    mock_builder.data.assert_called_once()
+    call_kwargs = mock_builder.data.call_args[1]
+    assert call_kwargs.get("limit") == 1000
 
 
 def test_delete_node(
