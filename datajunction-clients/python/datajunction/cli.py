@@ -1150,7 +1150,7 @@ class DJCLI:
         args = parser.parse_args()
         # Skip login if client was provided (e.g., for testing with pre-authenticated client)
         if not self._client_provided:
-            self.builder_client.basic_login()
+            self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
     def seed(self, type: str = "nodes"):
