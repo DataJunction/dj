@@ -487,7 +487,7 @@ async def materialize_cube(
     preagg_tables = []
     for i, table_ref in enumerate(preagg_table_refs):
         # Extract parent node from the grain groups used in combiner
-        parent_name = combined_result.columns[0].semantic_entity or "unknown"
+        parent_name = combined_result.columns[0].semantic_name or "unknown"
         # Get grain from the combiner result
         grain = combined_result.shared_dimensions
 
@@ -581,7 +581,7 @@ async def materialize_cube(
         ColumnMetadata(
             name=col.name,
             type=col.type,
-            semantic_entity=col.semantic_entity,
+            semantic_entity=col.semantic_name,
             semantic_type=col.semantic_type,
         )
         for col in combined_result.columns

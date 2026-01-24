@@ -3878,9 +3878,24 @@ QUERY_DATA_MAPPINGS = {
             "results": [
                 {
                     "columns": [
-                        {"name": "default_DOT_num_repair_orders", "type": "int"},
-                        {"name": "default_DOT_avg_repair_price", "type": "float"},
-                        {"name": "company_name", "type": "str"},
+                        {
+                            "name": "default_DOT_num_repair_orders",
+                            "type": "int",
+                            "semantic_entity": "default.num_repair_orders",
+                            "semantic_type": "metric",
+                        },
+                        {
+                            "name": "default_DOT_avg_repair_price",
+                            "type": "float",
+                            "semantic_entity": "default.avg_repair_price",
+                            "semantic_type": "metric",
+                        },
+                        {
+                            "name": "company_name",
+                            "type": "str",
+                            "semantic_entity": "default.dispatcher.company_name",
+                            "semantic_type": "dimension",
+                        },
                     ],
                     "rows": [
                         (1.0, "Foo", 100),
