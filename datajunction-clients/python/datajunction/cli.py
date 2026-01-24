@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from rich import box
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -243,6 +243,8 @@ class DJCLI:
 
         If DJ_URL environment variable is set, it will be used as the server URL.
         """
+        # Track if client was passed in (e.g., for testing) - skip login in that case
+        self._client_provided = builder_client is not None
         if builder_client is None:
             # Read DJ_URL from environment, default to localhost:8000
             dj_url = os.environ.get("DJ_URL", "http://localhost:8000")
@@ -560,19 +562,38 @@ class DJCLI:
             aggregability = gg.get("aggregability", "")
             metrics = ", ".join(gg.get("metrics", []))
 
-            # Components table
+            # Components table with SQL syntax highlighting for expressions
             comp_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
             comp_table.add_column("Component")
-            comp_table.add_column("Expression", style="dim")
-            comp_table.add_column("Agg", style="dim")
-            comp_table.add_column("Merge", style="dim")
+            comp_table.add_column("Expression")
+            comp_table.add_column("Agg")
+            comp_table.add_column("Merge")
 
             for comp in gg.get("components", []):
+                expr = comp.get("expression", "")
+                agg = comp.get("aggregation") or "-"
+                merge = comp.get("merge") or "-"
+                # Use SQL syntax highlighting for expressions and aggregations
+                expr_syntax = (
+                    Syntax(expr, "sql", theme="ansi_light", background_color=None)
+                    if expr
+                    else ""
+                )
+                agg_syntax = (
+                    Syntax(agg, "sql", theme="ansi_light", background_color=None)
+                    if agg != "-"
+                    else "-"
+                )
+                merge_syntax = (
+                    Syntax(merge, "sql", theme="ansi_light", background_color=None)
+                    if merge != "-"
+                    else "-"
+                )
                 comp_table.add_row(
                     comp.get("name", ""),
-                    comp.get("expression", ""),
-                    comp.get("aggregation") or "-",
-                    comp.get("merge") or "-",
+                    expr_syntax,
+                    agg_syntax,
+                    merge_syntax,
                 )
 
             # Group info
@@ -582,17 +603,19 @@ class DJCLI:
             info.append("Metrics: ", style="bold")
             info.append(f"{metrics}\n", style="dim")
             info.append("Aggregability: ", style="bold")
-            info.append(f"{aggregability}\n\n", style="dim")
-            info.append("Components:\n", style="bold")
+            info.append(f"{aggregability}", style="dim")
+
+            # Combine info and components table into a single group inside the Panel
+            components_header = Text("\nComponents:", style="bold")
+            panel_content = Group(info, components_header, comp_table)
 
             console.print(
                 Panel(
-                    info,
-                    title=f"[bold]Group {i}: {parent}[/bold]",
+                    panel_content,
+                    title=f"[bold green]Group {i}[/bold green]: {parent}",
                     border_style="",
                 ),
             )
-            console.print(comp_table)
 
             # SQL with syntax highlighting (light theme, no background)
             sql = gg.get("sql", "")
@@ -606,21 +629,36 @@ class DJCLI:
                 )
                 console.print(Panel(syntax, title="[bold]SQL", border_style="dim"))
 
-        # Metric Formulas
+        # Metric Formulas - table with Metric and Formula columns
         console.print(f"\n[bold]Metric Formulas ({len(formulas)})[/bold]")
 
-        formula_table = Table(box=box.ROUNDED, show_header=True, header_style="bold")
-        formula_table.add_column("Metric")
-        formula_table.add_column("Formula", style="dim")
-        formula_table.add_column("Components", style="dim")
-        formula_table.add_column("Derived", justify="center", style="dim")
+        formula_table = Table(
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold",
+            expand=True,
+            show_lines=True,  # Add lines between rows
+        )
+        formula_table.add_column("Metric", no_wrap=True)
+        formula_table.add_column("Formula", overflow="fold")
 
         for mf in formulas:
+            formula = mf.get("combiner", "")
+            # Use SQL syntax highlighting for the formula
+            formula_syntax = (
+                Syntax(
+                    formula,
+                    "sql",
+                    theme="ansi_light",
+                    background_color=None,
+                    word_wrap=True,
+                )
+                if formula
+                else ""
+            )
             formula_table.add_row(
                 mf.get("name", ""),
-                mf.get("combiner", ""),
-                ", ".join(mf.get("components", [])),
-                "✓" if mf.get("is_derived") else "",
+                formula_syntax,
             )
 
         console.print(formula_table)
@@ -1110,7 +1148,9 @@ class DJCLI:
         """
         parser = self.create_parser()
         args = parser.parse_args()
-        self.builder_client.basic_login()
+        # Skip login if client was provided (e.g., for testing with pre-authenticated client)
+        if not self._client_provided:
+            self.builder_client.basic_login()
         self.dispatch_command(args, parser)
 
     def seed(self, type: str = "nodes"):
