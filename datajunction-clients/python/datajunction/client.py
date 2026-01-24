@@ -2,7 +2,7 @@
 """DataJunction main client module."""
 
 import time
-from typing import List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union
 from urllib.parse import urlencode
 
 from alive_progress import alive_bar
@@ -339,14 +339,15 @@ class DJClient(_internal.DJClient):
             job_state = models.QueryState.UNKNOWN
             results = None
             path = "/data/"
-            params = {
+            params: Dict[str, Any] = {
                 "dimensions": dimensions or [],
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
                 "engine_version": engine_version or self.engine_version,
                 "async_": async_,
-                "limit": limit,
             }
+            if limit is not None:
+                params["limit"] = limit
 
             if (node_name and metrics) or not (node_name or metrics):
                 raise DJClientException(

@@ -194,11 +194,125 @@ dj sql default.num_repair_orders \
 - `--engine <name>`: Engine name
 - `--engine-version <version>`: Engine version
 
+### Data Retrieval
+
+#### `dj data`
+
+Fetch actual query results for a node or metrics with optional dimensions and filters.
+
+**Usage:**
+```bash
+# Fetch data for a single metric node
+dj data default.num_repair_orders
+
+# Fetch data for multiple metrics
+dj data --metrics default.num_repair_orders default.avg_repair_price
+
+# Fetch data with dimensions
+dj data --metrics default.avg_repair_price --dimensions default.hard_hat.city
+
+# Fetch data with filters
+dj data --metrics default.avg_repair_price \
+  --dimensions default.hard_hat.city \
+  --filters "default.hard_hat.state = 'CA'"
+
+# Limit the number of rows returned
+dj data --metrics default.avg_repair_price --limit 100
+
+# Output in different formats
+dj data --metrics default.avg_repair_price --format json
+dj data --metrics default.avg_repair_price --format csv
+```
+
+**Options:**
+- `--metrics <metric1> <metric2> ...`: One or more metrics to query
+- `--dimensions <dim1> <dim2> ...`: Dimensions to group by
+- `--filters <filter1> <filter2> ...`: Filter expressions
+- `--limit <number>`: Maximum rows to return (default: 1000)
+- `--format <table|json|csv>`: Output format (default: table)
+- `--engine <name>`: Engine name
+- `--engine-version <version>`: Engine version
+
+**Example output (table format):**
+```
+╭──────────────────────────┬───────────────────╮
+│ default.hard_hat.city    │ avg_repair_price  │
+├──────────────────────────┼───────────────────┤
+│ Jersey City              │ 54751.10          │
+│ Billerica                │ 38277.67          │
+│ Southgate                │ 33625.85          │
+╰──────────────────────────┴───────────────────╯
+
+3 row(s)
+```
+
+{{< alert icon="💡" text="Queries default to a limit of 1000 rows to prevent accidentally running unbounded queries on large tables. Use <code>--limit</code> to adjust this." />}}
+
+### Query Planning
+
+#### `dj plan`
+
+Show the query execution plan for a set of metrics, including how metrics will be computed and which tables/cubes will be used.
+
+**Usage:**
+```bash
+# Show execution plan for metrics
+dj plan --metrics default.num_repair_orders default.avg_repair_price
+
+# Show plan with dimensions
+dj plan --metrics default.avg_repair_price --dimensions default.hard_hat.city
+
+# Show plan with filters
+dj plan --metrics default.avg_repair_price \
+  --filters "default.hard_hat.state = 'CA'"
+
+# Specify target dialect
+dj plan --metrics default.avg_repair_price --dialect spark
+
+# Output as JSON
+dj plan --metrics default.avg_repair_price --format json
+```
+
+**Options:**
+- `--metrics <metric1> <metric2> ...`: Metrics to include in the plan
+- `--dimensions <dim1> <dim2> ...`: Dimensions to group by
+- `--filters <filter1> <filter2> ...`: Filter expressions
+- `--dialect <spark|trino|druid>`: Target SQL dialect
+- `--format <text|json>`: Output format (default: text)
+
+**Example output:**
+```
+============================================================
+Query Execution Plan
+============================================================
+Dialect: spark
+Requested Dimensions: default.hard_hat.city
+
+Grain Groups (1)
+------------------------------------------------------------
+Group 1: default.repair_order_details
+  Grain: [default.hard_hat.city]
+  Aggregability: full
+  Metrics: default.avg_repair_price
+
+  Components:
+    • price_count: COUNT(price)
+    • price_sum: SUM(price)
+
+Metric Formulas (1)
+------------------------------------------------------------
+  • default.avg_repair_price = SUM(price_sum) / SUM(price_count)
+
+============================================================
+```
+
+**Use case:** Use this command to understand how DJ will execute a query before running it. This is helpful for debugging performance issues or understanding which materialized cubes will be used.
+
 ### Deployments
 
 #### `dj push <directory>`
 
-Push node YAML definitions from a local directory to the DJ server.
+Push node YAML definitions from a local directory to the DJ server. Supports dry-run mode for impact analysis before deploying.
 
 **Usage:**
 ```bash
@@ -207,15 +321,53 @@ dj push ./my-nodes
 
 # Override namespace in YAML files
 dj push ./my-nodes --namespace my.custom.namespace
+
+# Dry run to preview changes without applying them
+dj push ./my-nodes --dryrun
+
+# Dry run with JSON output for programmatic use
+dj push ./my-nodes --dryrun --format json
 ```
 
 **Options:**
 - `--namespace <name>`: Override the namespace specified in YAML files
+- `--dryrun`: Preview changes without applying them (shows impact analysis)
+- `--format <text|json>`: Output format for dry run (default: text)
+- `--repo <url>`: Git repository URL for deployment tracking
+- `--branch <name>`: Git branch name for deployment tracking
+- `--commit <sha>`: Git commit SHA for deployment tracking
+- `--ci-system <name>`: CI system name (e.g., 'github_actions', 'jenkins')
+- `--ci-run-url <url>`: URL to the CI run/build
 
 **Example:**
 ```bash
 dj push ./metrics --namespace production.analytics
 ```
+
+**Example dry run output:**
+```
+Analyzing deployment from: ./my-nodes
+
+Impact Analysis
+============================================================
+
+Changes to Apply:
+------------------------------------------------------------
+  CREATE  production.metrics.new_metric (metric)
+  UPDATE  production.metrics.existing_metric (metric)
+
+Downstream Impact:
+------------------------------------------------------------
+  production.metrics.existing_metric
+    ↳ Downstream nodes affected: 3
+      • production.dashboards.sales_cube
+      • production.reports.daily_summary
+      • production.alerts.threshold_metric
+
+============================================================
+```
+
+{{< alert icon="💡" text="Always run <code>dj push --dryrun</code> first to preview changes before deploying to production namespaces." />}}
 
 #### `dj pull <namespace> <directory>`
 
