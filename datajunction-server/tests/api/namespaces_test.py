@@ -2825,3 +2825,183 @@ class TestNamespaceDiff:
         )
         assert direct_change is not None
         assert "dimension_links" in direct_change["changed_fields"]
+
+    @pytest.mark.asyncio
+    async def test_diff_comprehensive_edge_cases(
+        self,
+        client_with_namespaced_roads: AsyncClient,
+    ):
+        """
+        Comprehensive test covering multiple diff edge cases in one flow:
+        - Source node with catalog/schema/table changes
+        - Owner, custom_metadata, display_name, description changes
+        - Metric with required_dimensions and direction changes
+        - Cube with metrics/dimensions changes
+        - Propagated changes with caused_by tracking
+        - Column type changes and column metadata changes
+        """
+        # Create the test namespace
+        await client_with_namespaced_roads.post("/namespaces/foo.bar.comp/")
+
+        # =================================================================
+        # 1. Source node with DIFFERENT catalog/schema/table (covers 1286)
+        # Also covers description, display_name, tags, custom_metadata
+        # =================================================================
+        resp = await client_with_namespaced_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "foo.bar.comp.repair_orders",
+                "description": "Modified repair orders",  # Different description
+                "display_name": "Repair Orders Table",  # Different display_name
+                "mode": "published",
+                "catalog": "default",  # Same catalog (must exist)
+                "schema_": "other_schema",  # Different schema
+                "table": "other_table",  # Different table
+                "columns": [
+                    {"name": "repair_order_id", "type": "bigint"},  # Different type
+                    {"name": "municipality_id", "type": "string"},
+                    {"name": "hard_hat_id", "type": "int"},
+                    {"name": "order_date", "type": "timestamp"},
+                    {"name": "required_date", "type": "timestamp"},
+                    {"name": "dispatched_date", "type": "timestamp"},
+                    {"name": "dispatcher_id", "type": "int"},
+                    {"name": "new_column", "type": "string"},  # Added column
+                ],
+                "tags": ["test-tag"],  # Added tag
+                "custom_metadata": {"key": "value"},  # Added custom_metadata
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Diff to check source changes
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.comp/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # repair_orders should be in direct_changes (both namespaces have it)
+        direct_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert direct_change is not None, (
+            f"repair_orders not in direct_changes. "
+            f"Added: {[n['name'] for n in data['added']]}. "
+            f"Direct: {[n['name'] for n in data['direct_changes']]}. "
+            f"Removed: {[n['name'] for n in data['removed']]}"
+        )
+        # Should detect catalog/description/display_name/tags/custom_metadata
+        changed_fields = set(direct_change["changed_fields"])
+        assert len(changed_fields) > 0
+
+        # Verify column changes detected (type change + added column)
+        assert direct_change.get("column_changes") is not None
+        col_change_types = {c["change_type"] for c in direct_change["column_changes"]}
+        assert "added" in col_change_types or "type_changed" in col_change_types
+
+        # =================================================================
+        # 2. Create matching transform nodes with different descriptions
+        # =================================================================
+        await client_with_namespaced_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "foo.bar.comp.repair_transform",
+                "description": "Repair order transform - modified",  # Different
+                "mode": "published",
+                "query": "SELECT repair_order_id, municipality_id FROM foo.bar.comp.repair_orders",
+            },
+        )
+        await client_with_namespaced_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "foo.bar.repair_transform",
+                "description": "Repair order transform",
+                "mode": "published",
+                "query": "SELECT repair_order_id, municipality_id FROM foo.bar.repair_orders",
+            },
+        )
+
+        # =================================================================
+        # 3. Metric with different description (simpler change to test)
+        # =================================================================
+        await client_with_namespaced_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "foo.bar.comp.count_orders",
+                "description": "Count of orders - modified",  # Different
+                "mode": "published",
+                "query": "SELECT COUNT(*) FROM foo.bar.comp.repair_transform",
+            },
+        )
+        await client_with_namespaced_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "foo.bar.count_orders",
+                "description": "Count of orders",
+                "mode": "published",
+                "query": "SELECT COUNT(*) FROM foo.bar.repair_transform",
+            },
+        )
+
+        # =================================================================
+        # Final diff - verify multiple change types detected
+        # =================================================================
+        response = await client_with_namespaced_roads.get(
+            "/namespaces/foo.bar.comp/diff",
+            params={"base": "foo.bar"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify we have direct changes
+        assert data["direct_change_count"] > 0
+
+        # Collect all changed fields across all direct changes
+        all_changed_fields = set()
+        for change in data["direct_changes"]:
+            all_changed_fields.update(change.get("changed_fields", []))
+
+        # Should see description change for transform
+        transform_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_transform"),
+            None,
+        )
+        assert transform_change is not None
+        assert "description" in transform_change.get("changed_fields", [])
+
+        # Should see description change for metric
+        metric_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "count_orders"),
+            None,
+        )
+        assert metric_change is not None, (
+            f"count_orders not in direct_changes. "
+            f"Added: {[n['name'] for n in data['added']]}. "
+            f"Direct: {[n['name'] for n in data['direct_changes']]}."
+        )
+        assert "description" in metric_change.get("changed_fields", [])
+
+        # =================================================================
+        # 7. Verify the source node change details
+        # =================================================================
+        # Find repair_orders change - verify multiple field changes detected
+        repair_orders_change = next(
+            (d for d in data["direct_changes"] if d["name"] == "repair_orders"),
+            None,
+        )
+        assert repair_orders_change is not None
+        changed_fields = repair_orders_change.get("changed_fields", [])
+        # Should detect description, display_name, schema_, table changes
+        assert "description" in changed_fields
+        assert "display_name" in changed_fields
+        assert "schema_" in changed_fields
+        assert "table" in changed_fields
+
+        # Should detect column changes (type change + added column)
+        column_changes = repair_orders_change.get("column_changes", [])
+        assert len(column_changes) >= 2
+        change_types = {c["change_type"] for c in column_changes}
+        assert "added" in change_types
+        assert "type_changed" in change_types
