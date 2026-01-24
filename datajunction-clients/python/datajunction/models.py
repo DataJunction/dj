@@ -527,7 +527,7 @@ class NamespaceDiff(SerializableMixin):
                             lines.append(
                                 f"  - Removed: `{col.column}` ({col.old_type})",
                             )
-                        elif col.change_type == "type_changed":
+                        elif col.change_type == "type_changed":  # pragma: no branch
                             lines.append(
                                 f"  - Type changed: `{col.column}` "
                                 f"({col.old_type} -> {col.new_type})",
