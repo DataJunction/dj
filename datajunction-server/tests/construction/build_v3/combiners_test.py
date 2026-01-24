@@ -1483,7 +1483,7 @@ class TestCombinedMeasuresSQLEndpoint:
         assert measure_cols[0]["semantic_type"] in ("metric", "metric_component")
         assert (
             measure_cols[0]["semantic_entity"]
-            == "v3.order_details.line_total_sum_e1f61696"
+            == "v3.total_revenue:line_total_sum_e1f61696"
         )
 
     @pytest.mark.asyncio
