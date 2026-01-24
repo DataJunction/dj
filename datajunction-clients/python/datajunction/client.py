@@ -160,32 +160,79 @@ class DJClient(_internal.DJClient):
         metrics: List[str],
         dimensions: Optional[List[str]] = None,
         filters: Optional[List[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        measures: bool = False,
+        orderby: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+        dialect: Optional[str] = None,
         use_materialized: bool = True,
     ):
         """
-        Builds SQL for one or more metrics with the provided group by dimensions and filters.
+        Builds SQL for one or more metrics with the provided dimensions, filters,
+        ordering, and limit.
+
+        Args:
+            metrics: List of metric names to include
+            dimensions: List of dimensions to group by
+            filters: List of filter expressions
+            orderby: List of ORDER BY clauses (e.g., ['metric_name DESC', 'dimension_name'])
+            limit: Maximum number of rows to return
+            dialect: SQL dialect (e.g., 'spark', 'trino', 'druid'). Defaults to engine dialect.
+            use_materialized: Whether to use materialized tables when available
         """
-        endpoint = "/sql/"
-        if measures:
-            endpoint = "/sql/measures/v2"
-        response = self._session.get(
-            endpoint,
-            params={
-                "metrics": metrics,
-                "dimensions": dimensions or [],
-                "filters": filters or [],
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-                "use_materialized": use_materialized,
-            },
-        )
+        params: dict = {
+            "metrics": metrics,
+            "dimensions": dimensions or [],
+            "filters": filters or [],
+            "orderby": orderby or [],
+            "use_materialized": use_materialized,
+        }
+        if limit is not None:
+            params["limit"] = limit
+        effective_dialect = dialect or self.engine_name
+        if effective_dialect:
+            params["dialect"] = effective_dialect  # pragma: no cover
+        response = self._session.get("/sql/metrics/v3/", params=params)
         if response.status_code != 200:
             return response.json()
-        if not measures:
-            return response.json()["sql"]
+        return response.json()["sql"]
+
+    def plan(
+        self,
+        metrics: List[str],
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
+        dialect: Optional[str] = None,
+        use_materialized: bool = True,
+    ):
+        """
+        Returns a query execution plan for the given metrics and dimensions.
+
+        The plan shows:
+        - grain_groups: How metrics are grouped and their intermediate SQL
+        - metric_formulas: How each metric combines its components
+        - requested_dimensions: The dimensions being queried
+
+        This is useful for understanding how DJ decomposes metrics into
+        atomic aggregations and how multiple fact tables are joined together.
+
+        Args:
+            metrics: List of metric names to include
+            dimensions: List of dimensions to group by
+            filters: List of filter expressions
+            dialect: SQL dialect (e.g., 'spark', 'trino'). Defaults to engine dialect.
+            use_materialized: Whether to use materialized tables when available
+        """
+        params: dict = {
+            "metrics": metrics,
+            "dimensions": dimensions or [],
+            "filters": filters or [],
+            "use_materialized": use_materialized,
+        }
+        effective_dialect = dialect or self.engine_name
+        if effective_dialect:
+            params["dialect"] = effective_dialect  # pragma: no cover
+        response = self._session.get("/sql/measures/v3/", params=params)
+        if response.status_code != 200:
+            return response.json()
         return response.json()
 
     #

@@ -8,8 +8,11 @@ from pathlib import Path
 from typing import Optional
 
 from rich import box
-from rich.console import Console
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 
 from datajunction import DJBuilder, Project
 from datajunction.deployment import DeploymentService
@@ -240,6 +243,8 @@ class DJCLI:
 
         If DJ_URL environment variable is set, it will be used as the server URL.
         """
+        # Track if client was passed in (e.g., for testing) - skip login in that case
+        self._client_provided = builder_client is not None
         if builder_client is None:
             # Read DJ_URL from environment, default to localhost:8000
             dj_url = os.environ.get("DJ_URL", "http://localhost:8000")
@@ -439,27 +444,225 @@ class DJCLI:
 
     def get_sql(
         self,
-        node_name: str,
+        node_name: Optional[str] = None,
+        metrics: Optional[list[str]] = None,
         dimensions: Optional[list[str]] = None,
         filters: Optional[list[str]] = None,
+        orderby: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+        dialect: Optional[str] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
     ):
         """
-        Generate SQL for a node.
+        Generate SQL for a node or metrics.
         """
+        console = Console()
         try:
-            sql = self.builder_client.node_sql(
-                node_name=node_name,
-                dimensions=dimensions,
-                filters=filters,
-                engine_name=engine_name,
-                engine_version=engine_version,
-            )
-            print(sql)
+            if metrics:
+                # Use v3 metrics SQL API
+                result = self.builder_client.sql(
+                    metrics=metrics,
+                    dimensions=dimensions,
+                    filters=filters,
+                    orderby=orderby,
+                    limit=limit,
+                    dialect=dialect,
+                )
+            elif node_name:
+                # Use node SQL API
+                result = self.builder_client.node_sql(
+                    node_name=node_name,
+                    dimensions=dimensions,
+                    filters=filters,
+                    engine_name=engine_name,
+                    engine_version=engine_version,
+                )
+            else:
+                console.print(
+                    "[bold red]ERROR:[/bold red] Either node_name or --metrics must be provided",
+                )
+                return
+
+            # Handle error responses (dict) vs SQL string
+            if isinstance(result, dict):
+                message = result.get("message", str(result))
+                console.print(f"[bold red]ERROR:[/bold red] {message}")
+            else:
+                syntax = Syntax(
+                    result.strip(),
+                    "sql",
+                    theme="ansi_light",
+                    line_numbers=False,
+                    background_color=None,
+                )
+                console.print(syntax)
         except Exception as exc:  # pragma: no cover
             logger.error("Error generating SQL: %s", exc)
             raise
+
+    def show_plan(
+        self,
+        metrics: list[str],
+        dimensions: Optional[list[str]] = None,
+        filters: Optional[list[str]] = None,
+        dialect: Optional[str] = None,
+        format: str = "text",
+    ):
+        """
+        Show query execution plan for metrics.
+        """
+        try:
+            plan = self.builder_client.plan(
+                metrics=metrics,
+                dimensions=dimensions,
+                filters=filters,
+                dialect=dialect,
+            )
+            if format == "json":
+                print(json.dumps(plan, indent=2))
+            else:
+                self._print_plan_text(plan)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Error generating plan: %s", exc)
+            raise
+
+    def _print_plan_text(self, plan: dict):
+        """Format and print the query plan using rich formatting."""
+        console = Console()
+
+        # Header info
+        formulas = plan.get("metric_formulas", [])
+        metric_names = [mf.get("name", "") for mf in formulas]
+        dims = plan.get("requested_dimensions", [])
+        dialect = plan.get("dialect", "spark")
+
+        # Summary table
+        summary = Table(show_header=False, box=None, padding=(0, 2))
+        summary.add_column(style="bold")
+        summary.add_column(style="dim")
+        summary.add_row(
+            "Metrics",
+            ", ".join(metric_names) if metric_names else "(none)",
+        )
+        summary.add_row("Dimensions", ", ".join(dims) if dims else "(none)")
+        summary.add_row("Dialect", dialect)
+
+        console.print(
+            Panel(summary, title="[bold]Query Execution Plan[/bold]", border_style=""),
+        )
+
+        # Grain Groups
+        grain_groups = plan.get("grain_groups", [])
+        console.print(f"\n[bold]Grain Groups ({len(grain_groups)})[/bold]")
+
+        for i, gg in enumerate(grain_groups, 1):
+            parent = gg.get("parent_name", "")
+            grain = ", ".join(gg.get("grain", []))
+            aggregability = gg.get("aggregability", "")
+            metrics = ", ".join(gg.get("metrics", []))
+
+            # Components table with SQL syntax highlighting for expressions
+            comp_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+            comp_table.add_column("Component")
+            comp_table.add_column("Expression")
+            comp_table.add_column("Agg")
+            comp_table.add_column("Merge")
+
+            for comp in gg.get("components", []):
+                expr = comp.get("expression", "")
+                agg = comp.get("aggregation") or "-"
+                merge = comp.get("merge") or "-"
+                # Use SQL syntax highlighting for expressions and aggregations
+                expr_syntax = (
+                    Syntax(expr, "sql", theme="ansi_light", background_color=None)
+                    if expr
+                    else ""
+                )
+                agg_syntax = (
+                    Syntax(agg, "sql", theme="ansi_light", background_color=None)
+                    if agg != "-"
+                    else "-"
+                )
+                merge_syntax = (
+                    Syntax(merge, "sql", theme="ansi_light", background_color=None)
+                    if merge != "-"
+                    else "-"
+                )
+                comp_table.add_row(
+                    comp.get("name", ""),
+                    expr_syntax,
+                    agg_syntax,
+                    merge_syntax,
+                )
+
+            # Group info
+            info = Text()
+            info.append("Grain: ", style="bold")
+            info.append(f"{grain}\n", style="dim")
+            info.append("Metrics: ", style="bold")
+            info.append(f"{metrics}\n", style="dim")
+            info.append("Aggregability: ", style="bold")
+            info.append(f"{aggregability}", style="dim")
+
+            # Combine info and components table into a single group inside the Panel
+            components_header = Text("\nComponents:", style="bold")
+            panel_content = Group(info, components_header, comp_table)
+
+            console.print(
+                Panel(
+                    panel_content,
+                    title=f"[bold green]Group {i}[/bold green]: {parent}",
+                    border_style="",
+                ),
+            )
+
+            # SQL with syntax highlighting (light theme, no background)
+            sql = gg.get("sql", "")
+            if sql:
+                syntax = Syntax(
+                    sql.strip(),
+                    "sql",
+                    theme="ansi_light",
+                    line_numbers=False,
+                    background_color=None,
+                )
+                console.print(Panel(syntax, title="[bold]SQL", border_style="dim"))
+
+        # Metric Formulas - table with Metric and Formula columns
+        console.print(f"\n[bold]Metric Formulas ({len(formulas)})[/bold]")
+
+        formula_table = Table(
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold",
+            expand=True,
+            show_lines=True,  # Add lines between rows
+        )
+        formula_table.add_column("Metric", no_wrap=True)
+        formula_table.add_column("Formula", overflow="fold")
+
+        for mf in formulas:
+            formula = mf.get("combiner", "")
+            # Use SQL syntax highlighting for the formula
+            formula_syntax = (
+                Syntax(
+                    formula,
+                    "sql",
+                    theme="ansi_light",
+                    background_color=None,
+                    word_wrap=True,
+                )
+                if formula
+                else ""
+            )
+            formula_table.add_row(
+                mf.get("name", ""),
+                formula_syntax,
+            )
+
+        console.print(formula_table)
+        console.print()
 
     def show_lineage(
         self,
@@ -732,37 +935,108 @@ class DJCLI:
             help="Output format (default: text)",
         )
 
-        # `dj sql <node-name> --dimensions d1,d2 --filters f1,f2`
+        # `dj sql <node-name>` or `dj sql --metrics m1 m2`
         sql_parser = subparsers.add_parser(
             "sql",
-            help="Generate SQL for a node",
+            help="Generate SQL for a node or metrics",
         )
-        sql_parser.add_argument("node_name", help="The name of the node")
+        sql_parser.add_argument(
+            "node_name",
+            nargs="?",
+            default=None,
+            help="The name of the node (for single-node SQL)",
+        )
+        sql_parser.add_argument(
+            "--metrics",
+            nargs=argparse.ONE_OR_MORE,
+            type=str,
+            default=None,
+            help="List of metrics (for multi-metric SQL using v3 API)",
+        )
         sql_parser.add_argument(
             "--dimensions",
             nargs=argparse.ZERO_OR_MORE,
             type=str,
             default=[],
-            help="Comma-separated list of dimensions",
+            help="List of dimensions",
         )
         sql_parser.add_argument(
             "--filters",
             nargs=argparse.ZERO_OR_MORE,
             type=str,
             default=[],
-            help="Comma-separated list of filters",
+            help="List of filters",
+        )
+        sql_parser.add_argument(
+            "--orderby",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of ORDER BY clauses (for metrics SQL)",
+        )
+        sql_parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Limit number of rows (for metrics SQL)",
+        )
+        sql_parser.add_argument(
+            "--dialect",
+            type=str,
+            default=None,
+            help="SQL dialect (e.g., spark, trino)",
         )
         sql_parser.add_argument(
             "--engine",
             type=str,
             default=None,
-            help="Engine name",
+            help="Engine name (for node SQL, deprecated - use --dialect)",
         )
         sql_parser.add_argument(
             "--engine-version",
             type=str,
             default=None,
-            help="Engine version",
+            help="Engine version (for node SQL)",
+        )
+
+        # `dj plan --metrics <metrics> --dimensions <dims> --filters <filters>`
+        plan_parser = subparsers.add_parser(
+            "plan",
+            help="Show query execution plan for metrics",
+        )
+        plan_parser.add_argument(
+            "--metrics",
+            nargs=argparse.ONE_OR_MORE,
+            type=str,
+            required=True,
+            help="List of metric names",
+        )
+        plan_parser.add_argument(
+            "--dimensions",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of dimensions",
+        )
+        plan_parser.add_argument(
+            "--filters",
+            nargs=argparse.ZERO_OR_MORE,
+            type=str,
+            default=[],
+            help="List of filters",
+        )
+        plan_parser.add_argument(
+            "--dialect",
+            type=str,
+            default=None,
+            help="SQL dialect (e.g., spark, trino)",
+        )
+        plan_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
         )
 
         # `dj lineage <node-name> --direction upstream|downstream|both --format json`
@@ -839,11 +1113,23 @@ class DJCLI:
             self.list_objects(args.type, namespace=args.namespace, format=args.format)
         elif args.command == "sql":
             self.get_sql(
-                args.node_name,
+                node_name=args.node_name,
+                metrics=args.metrics,
                 dimensions=args.dimensions,
                 filters=args.filters,
+                orderby=args.orderby,
+                limit=args.limit,
+                dialect=args.dialect,
                 engine_name=args.engine,
                 engine_version=args.engine_version,
+            )
+        elif args.command == "plan":
+            self.show_plan(
+                metrics=args.metrics,
+                dimensions=args.dimensions,
+                filters=args.filters,
+                dialect=args.dialect,
+                format=args.format,
             )
         elif args.command == "lineage":
             self.show_lineage(
@@ -862,7 +1148,9 @@ class DJCLI:
         """
         parser = self.create_parser()
         args = parser.parse_args()
-        self.builder_client.basic_login()
+        # Skip login if client was provided (e.g., for testing with pre-authenticated client)
+        if not self._client_provided:
+            self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
     def seed(self, type: str = "nodes"):
