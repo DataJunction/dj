@@ -115,6 +115,11 @@ djqs.db
 .pdm-python
 .pdm.toml
 
+# environment files
+.env
+!datajunction-ui/.env
+!datajunction-server/.env
+
 # oauth credentials
 client_secret*
 
