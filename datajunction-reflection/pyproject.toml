@@ -2,9 +2,6 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.pdm.build]
-includes = ["datajunction_reflection"]
-
 [project]
 name = "datajunction-reflection"
 dynamic = ["version"]
@@ -42,7 +39,7 @@ path = "datajunction_reflection/__about__.py"
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
 
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 test = [
     "celery[pytest]",
     "codespell>=2.1.0",
@@ -50,10 +47,10 @@ test = [
     "pre-commit>=2.15.0",
     "pyfakefs>=4.5.1",
     "pylint>=2.15.3",
-    "pytest-asyncio==0.15.1",
+    "pytest-asyncio>=0.21.0",
     "pytest-cov>=2.12.1",
     "pytest-freezegun",
-    "pytest-integration==0.2.2",
+    "pytest-integration>=0.2.3",
     "pytest-mock>=3.6.1",
     "pytest>=6.2.5",
     "requests-mock>=1.9.3",

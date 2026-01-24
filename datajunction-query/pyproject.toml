@@ -11,6 +11,7 @@ authors = [
     {name = "DataJunction Authors", email = "roberto@dealmeida.net"},
 ]
 dependencies = [
+    "alembic>=1.7.7",
     "importlib-metadata",
     "accept-types==0.4.1",
     "cachelib>=0.4.0",
@@ -18,7 +19,7 @@ dependencies = [
     "duckdb-engine",
     "fastapi>=0.79.0",
     "msgpack>=1.0.3",
-    "python-dotenv==0.19.2",
+    "python-dotenv>=0.21.0",
     "requests<=2.29.0,>=2.28.2",
     "rich>=10.16.2",
     "toml>=0.10.2",
@@ -46,11 +47,7 @@ classifiers = [
 [tool.hatch.build.targets.wheel]
 packages = ["djqs"]
 
-[tool.pdm]
-[tool.pdm.build]
-includes = ["dj"]
-
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 test = [
     "alembic>=1.7.7",
     "codespell>=2.1.0",
@@ -71,9 +68,6 @@ test = [
     "testcontainers[postgres]>=4.8.1",
     "types-toml",
 ]
-
-[tool.pdm.scripts]
-pytest = { cmd = "pytest", env = { "CONFIGURATION_FILE" = "./tests/config.djqs.yml", "INDEX" = "postgresql://dj:dj@localhost:4321/dj", "DEFAULT_ENGINE" = "duckdb_inmemory", "DEFAULT_ENGINE_VERSION" = "0.7.1" } }
 
 [project.optional-dependencies]
 uvicorn = [
