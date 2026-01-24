@@ -586,7 +586,7 @@ async def plan_preaggregations(
                 name=col.name,
                 type=col.type,
                 semantic_type=col.semantic_type,
-                semantic_entity=col.semantic_name,
+                semantic_name=col.semantic_name,
             )
             for col in grain_group.columns
         ]
@@ -751,7 +751,7 @@ async def materialize_preaggregation(
                 ColumnMetadata(
                     name=col.name,
                     type=col.type,
-                    semantic_entity=col.semantic_entity,
+                    semantic_entity=col.semantic_name,
                     semantic_type=col.semantic_type,
                 ),
             )

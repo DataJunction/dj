@@ -4,7 +4,7 @@ Data related APIs.
 
 import logging
 from dataclasses import asdict
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -16,11 +16,10 @@ from datajunction_server.api.helpers import (
     resolve_engine,
     query_event_stream,
 )
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.engine import Engine
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.build_v3.cube_matcher import find_matching_cube
-from datajunction_server.models.dialect import Dialect
+from datajunction_server.construction.build_v3.cube_matcher import (
+    resolve_dialect_and_engine_for_metrics,
+)
 from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -61,113 +60,6 @@ _logger = logging.getLogger(__name__)
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
-
-
-async def resolve_dialect_for_metrics(
-    session: AsyncSession,
-    metrics: List[str],
-    dimensions: List[str],
-    use_materialized: bool = True,
-) -> Dialect:
-    """
-    Determine the correct dialect BEFORE building SQL.
-
-    If a matching cube with availability exists, use its catalog's engine dialect.
-    Otherwise, fall back to the first metric's catalog's default engine dialect.
-    """
-    # Check if there's a matching cube with availability
-    if use_materialized:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
-        )
-        if cube and cube.availability:
-            avail_catalog_name = cube.availability.catalog
-            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
-            if avail_catalog and avail_catalog.engines:
-                dialect = avail_catalog.engines[0].dialect
-                _logger.info(
-                    "[/data/] Using dialect=%s from cube %s availability catalog=%s",
-                    dialect,
-                    cube.name,
-                    avail_catalog_name,
-                )
-                return Dialect(dialect)
-
-    # Fallback: use first metric's catalog's default engine dialect
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    if node.current.catalog and node.current.catalog.engines:
-        dialect = node.current.catalog.engines[0].dialect
-        _logger.info(
-            "[/data/] Using dialect=%s from metric %s catalog=%s",
-            dialect,
-            metrics[0],
-            node.current.catalog.name,
-        )
-        return Dialect(dialect)
-
-    # Ultimate fallback
-    _logger.warning("[/data/] Could not determine dialect, defaulting to SPARK")
-    return Dialect.SPARK
-
-
-async def resolve_engine_for_metrics(
-    session: AsyncSession,
-    metrics: List[str],
-    generated_sql: GeneratedSQL,
-    engine_name: Optional[str],
-    engine_version: Optional[str],
-) -> Tuple[Engine, str]:
-    """
-    Resolve engine and catalog for a metrics query based on generated SQL.
-
-    If a cube was used (indicated by generated_sql.cube_name), gets engine from
-    the cube's availability catalog. Otherwise falls back to the first metric's catalog.
-
-    Returns (engine, catalog_name).
-    """
-    # If a cube was used, get engine from the cube's availability catalog
-    if generated_sql.cube_name:
-        cube_node = cast(
-            Node,
-            await Node.get_by_name(
-                session,
-                generated_sql.cube_name,
-                raise_if_not_exists=True,
-            ),
-        )
-        if cube_node.current.availability:  # pragma: no branch
-            avail_catalog_name = cube_node.current.availability.catalog
-            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
-            if avail_catalog and avail_catalog.engines:  # pragma: no branch
-                engine = avail_catalog.engines[0]
-                _logger.info(
-                    "Using cube %s availability catalog=%s engine=%s",
-                    generated_sql.cube_name,
-                    avail_catalog_name,
-                    engine.name,
-                )
-                return engine, avail_catalog_name
-
-    # Fallback: resolve engine from the first metric's catalog
-    node = cast(
-        Node,
-        await Node.get_by_name(session, metrics[0], raise_if_not_exists=True),
-    )
-    catalog_name = node.current.catalog.name
-    engine = await resolve_engine(
-        session=session,
-        node=node,
-        engine_name=engine_name,
-        engine_version=engine_version,
-        dialect=generated_sql.dialect,
-    )
-    return engine, catalog_name
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")
@@ -569,15 +461,17 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Determine dialect BEFORE building SQL
-    dialect = await resolve_dialect_for_metrics(
+    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
+    execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
         use_materialized=use_materialized,
+        engine_name=engine_name,
+        engine_version=engine_version,
     )
 
-    # Build SQL with the correct dialect
+    # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -585,39 +479,27 @@ async def get_data_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=dialect,
+        dialect=execution_ctx.dialect,
         use_materialized=use_materialized,
-    )
-
-    # Resolve engine based on what was actually used to generate the SQL
-    engine, catalog_name = await resolve_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        generated_sql=generated_sql,
-        engine_name=engine_name,
-        engine_version=engine_version,
     )
 
     _logger.debug(
         "[/data/] Using engine=%s version=%s dialect=%s catalog=%s cube=%s for metrics=%s",
-        engine.name,
-        engine.version,
-        engine.dialect,
-        catalog_name,
-        generated_sql.cube_name,
+        execution_ctx.engine.name,
+        execution_ctx.engine.version,
+        execution_ctx.dialect,
+        execution_ctx.catalog_name,
+        execution_ctx.cube.name if execution_ctx.cube else None,
         metrics,
     )
 
-    # SQL is already in the correct dialect, no transpilation needed
-    final_sql = generated_sql.sql
-
-    _logger.debug("[/data/] Final SQL:\n%s", final_sql)
+    _logger.debug("[/data/] Final SQL:\n%s", generated_sql.sql)
 
     query_create = QueryCreate(
-        engine_name=engine.name,
-        catalog_name=catalog_name,
-        engine_version=engine.version,
-        submitted_query=final_sql,
+        engine_name=execution_ctx.engine.name,
+        catalog_name=execution_ctx.catalog_name,
+        engine_version=execution_ctx.engine.version,
+        submitted_query=generated_sql.sql,
         async_=async_,
     )
     result = query_service_client.submit_query(
@@ -660,15 +542,17 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Determine dialect BEFORE building SQL
-    dialect = await resolve_dialect_for_metrics(
+    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
+    execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
         use_materialized=use_materialized,
+        engine_name=engine_name,
+        engine_version=engine_version,
     )
 
-    # Build SQL with the correct dialect
+    # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
@@ -676,27 +560,15 @@ async def get_data_stream_for_metrics(
         filters=filters if filters else None,
         orderby=orderby if orderby else None,
         limit=limit,
-        dialect=dialect,
+        dialect=execution_ctx.dialect,
         use_materialized=use_materialized,
     )
 
-    # Resolve engine based on what was actually used to generate the SQL
-    engine, catalog_name = await resolve_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        generated_sql=generated_sql,
-        engine_name=engine_name,
-        engine_version=engine_version,
-    )
-
-    # SQL is already in the correct dialect
-    final_sql = generated_sql.sql
-
     query_create = QueryCreate(
-        engine_name=engine.name,
-        catalog_name=catalog_name,
-        engine_version=engine.version,
-        submitted_query=final_sql,
+        engine_name=execution_ctx.engine.name,
+        catalog_name=execution_ctx.catalog_name,
+        engine_version=execution_ctx.engine.version,
+        submitted_query=generated_sql.sql,
         async_=True,
     )
     # Submits the query, equivalent to calling POST /data/ directly

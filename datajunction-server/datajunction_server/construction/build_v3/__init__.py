@@ -20,6 +20,7 @@ from datajunction_server.construction.build_v3.builder import (
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube,
     find_matching_cube,
+    resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -27,6 +28,7 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedMeasuresSQL,
     GeneratedSQL,
     GrainGroupSQL,
+    ResolvedExecutionContext,
 )
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.combiners import (
@@ -42,6 +44,7 @@ __all__ = [
     # Cube matching (Layer 1)
     "find_matching_cube",
     "build_sql_from_cube",
+    "resolve_dialect_and_engine_for_metrics",
     # Combiners
     "build_combiner_sql",
     "CombinedGrainGroupResult",
@@ -52,6 +55,7 @@ __all__ = [
     "GeneratedMeasuresSQL",
     "GrainGroupSQL",
     "ColumnMetadata",
+    "ResolvedExecutionContext",
     # Alias registry
     "AliasRegistry",
 ]

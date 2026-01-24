@@ -28,7 +28,9 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
     DecomposedMetricInfo,
+    ResolvedExecutionContext,
 )
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.decompose import Aggregability
@@ -146,6 +148,106 @@ async def find_matching_cube(
         )
 
     return best_match
+
+
+async def resolve_dialect_and_engine_for_metrics(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+    use_materialized: bool = True,
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+) -> ResolvedExecutionContext:
+    """
+    Resolve dialect and engine for a metrics query in a single lookup.
+
+    This function consolidates the logic for determining which dialect to use
+    for SQL generation and which engine to execute the query on. It avoids
+    duplicate cube lookups by finding the cube once and deriving both dialect
+    and engine from it.
+
+    Resolution priority:
+    1. If use_materialized=True and a matching cube with availability exists:
+       - Use the cube's availability catalog's engine dialect and engine
+    2. Otherwise, fall back to the first metric's catalog's default engine
+
+    Args:
+        session: Database session
+        metrics: List of metric node names
+        dimensions: List of dimension references
+        use_materialized: Whether to check for cube availability
+        engine_name: Optional explicit engine name override
+        engine_version: Optional explicit engine version override
+
+    Returns:
+        ResolvedExecutionContext with dialect, engine, catalog_name, and optional cube
+    """
+    from datajunction_server.api.helpers import resolve_engine
+
+    cube: Optional[NodeRevision] = None
+
+    # Try to find a matching cube with availability
+    if use_materialized:
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+
+        if cube and cube.availability:
+            avail_catalog_name = cube.availability.catalog
+            avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
+            if avail_catalog and avail_catalog.engines:  # pragma: no branch
+                engine = avail_catalog.engines[0]
+                dialect = Dialect(engine.dialect)
+                logger.info(
+                    "[BuildV3] Resolved dialect=%s engine=%s from cube %s "
+                    "availability catalog=%s",
+                    dialect,
+                    engine.name,
+                    cube.name,
+                    avail_catalog_name,
+                )
+                return ResolvedExecutionContext(
+                    dialect=dialect,
+                    engine=engine,
+                    catalog_name=avail_catalog_name,
+                    cube=cube,
+                )
+
+    # Fallback: use first metric's catalog's default engine
+    node = await Node.get_by_name(session, metrics[0], raise_if_not_exists=True)
+    if not node:  # pragma: no cover
+        raise ValueError(f"Metric not found: {metrics[0]}")
+
+    catalog_name = node.current.catalog.name if node.current.catalog else None
+    if not catalog_name:  # pragma: no cover
+        raise ValueError(f"Metric {metrics[0]} has no catalog")
+
+    # Resolve engine (respects explicit engine_name/version if provided)
+    engine = await resolve_engine(
+        session=session,
+        node=node,
+        engine_name=engine_name,
+        engine_version=engine_version,
+    )
+
+    dialect = Dialect(engine.dialect) if engine.dialect else Dialect.SPARK
+    logger.info(
+        "[BuildV3] Resolved dialect=%s engine=%s from metric %s catalog=%s",
+        dialect,
+        engine.name,
+        metrics[0],
+        catalog_name,
+    )
+
+    return ResolvedExecutionContext(
+        dialect=dialect,
+        engine=engine,
+        catalog_name=catalog_name,
+        cube=None,
+    )
 
 
 def build_sql_from_cube_impl(

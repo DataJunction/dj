@@ -666,7 +666,12 @@ def query_service_client(
         print("transpiled_sql!!", transpiled_sql)
         result = duckdb_conn.sql(transpiled_sql)
         columns = [
-            {"name": col, "type": str(type_).lower()}
+            {
+                "name": col,
+                "type": str(type_).lower(),
+                "semantic_name": col,  # Use column name as semantic name
+                "semantic_type": "dimension",  # Default to dimension
+            }
             for col, type_ in zip(result.columns, result.types)
         ]
         return QueryWithResults(
@@ -2115,7 +2120,12 @@ def module__query_service_client(
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
         result = duckdb_conn.sql(transpiled_sql)
         columns = [
-            {"name": col, "type": str(type_).lower()}
+            {
+                "name": col,
+                "type": str(type_).lower(),
+                "semantic_name": col,  # Use column name as semantic name
+                "semantic_type": "dimension",  # Default to dimension
+            }
             for col, type_ in zip(result.columns, result.types)
         ]
         rows = result.fetchall()
