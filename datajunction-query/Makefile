@@ -1,14 +1,5 @@
-pyenv: .python-version
-
-.python-version: setup.cfg
-	if [ -z "`pyenv virtualenvs | grep djqs`" ]; then\
-	    pyenv virtualenv djqs;\
-	fi
-	if [ ! -f .python-version ]; then\
-	    pyenv local djqs;\
-	fi
-	pdm install
-	touch .python-version
+setup:
+	uv sync --group test
 
 docker-build:
 	docker build .
@@ -26,20 +17,20 @@ docker-run-with-druid:
 docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
 
-test: pyenv
-	pdm run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
+test:
+	uv run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
 
-integration: pyenv
-	pdm run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --with-integration --with-slow-integration
+integration:
+	uv run pytest --cov=djqs -vv tests/ --cov-report term-missing --doctest-modules djqs --with-integration --with-slow-integration
 
 clean:
-	pyenv virtualenv-delete djqs
+	rm -rf .venv
 
 spellcheck:
 	codespell -L froms -S "*.json" djqs docs/*rst tests templates
 
 check:
-	pdm run pre-commit run --all-files
+	uv run pre-commit run --all-files
 
 lint:
 	make check

@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 RUN addgroup --system celery && \
     adduser --system --ingroup celery --home /code celery
 
@@ -7,9 +10,9 @@ WORKDIR /code
 
 COPY . .
 
-RUN pip install --no-cache-dir -e .
+RUN uv sync --no-dev
 
 RUN chown -R celery:celery /code
 USER celery
 
-CMD ["celery", "--app", "datajunction_reflection.celery_app", "beat", "--loglevel=info"]
+CMD ["uv", "run", "celery", "--app", "datajunction_reflection.celery_app", "beat", "--loglevel=info"]

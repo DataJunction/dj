@@ -14,20 +14,6 @@ include = ["alembic/**", "alembic.ini"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.pdm]
-[tool.pdm.build]
-includes = ["dj"]
-
-[[tool.pdm.autoexport]]
-filename = "requirements/docker.txt"
-groups = ["default", "uvicorn", "transpilation"]
-without-hashes = true
-
-[[tool.pdm.autoexport]]
-filename = "requirements/test.txt"
-groups = ["default", "test"]
-without-hashes = true
-
 [project]
 name = "datajunction-server"
 dynamic = ["version"]
@@ -81,6 +67,7 @@ dependencies = [
     "yarl<2.0.0,>=1.8.2",
     "jinja2>=3.1.4",
     "python-multipart>=0.0.20",
+    "pyyaml>=6.0.1",
     "nbformat>=5.10.4",
 
     # GraphQL
@@ -145,7 +132,7 @@ norecursedirs = [
 ignore = ["F811"]
 exclude = ["datajunction_server/sql/parsing/backends/antlr4.py"]
 
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 test = [
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
