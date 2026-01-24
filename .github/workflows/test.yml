@@ -50,8 +50,6 @@ jobs:
 
   build:
     needs: changes
-    env:
-      PDM_DEPS: 'urllib3<2'
     runs-on: ubuntu-latest
 
     strategy:
@@ -62,23 +60,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - uses: pdm-project/setup-pdm@v4
-        name: Setup PDM
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
-          prerelease: true
-          enable-pep582: true
-
-      - uses: pre-commit/action@v3.0.0
-        name: Force check of all pdm.lock files
-        with:
-          extra_args: pdm-lock-check --all-files
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Run Tests
         if: |
@@ -90,15 +80,23 @@ jobs:
           echo "Testing ${{ matrix.library }} ..."
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
 
-          # Install dependencies
-          pdm sync -d; cd $TEST_DIR; pdm install -d -G pandas -G transpilation -G test;
+          cd $TEST_DIR
+
+          # Install dependencies (each package has different extras)
+          if [ "${{ matrix.library }}" = "server" ]; then
+            uv sync --group test --extra transpilation --python ${{ matrix.python-version }}
+          elif [ "${{ matrix.library }}" = "client" ]; then
+            uv sync --group test --extra pandas --python ${{ matrix.python-version }}
+          else
+            uv sync --group test --python ${{ matrix.python-version }}
+          fi
 
           # Run linters
-          pdm run pre-commit run --all-files
+          uv run pre-commit run --all-files
 
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          pdm run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto' || '' }} --dist=loadscope --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
 
   build-javascript:
     runs-on: ubuntu-latest

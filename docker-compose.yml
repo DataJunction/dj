@@ -22,6 +22,7 @@ services:
         RELOAD: "--reload"
     volumes:
       - ./datajunction-server:/code
+    command: /bin/sh -c "uv sync --extra uvicorn --extra transpilation --no-dev && uv run opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     depends_on:
@@ -113,6 +114,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
+    command: /bin/bash -c "uv sync --extra uvicorn --no-dev && uv run uvicorn djqs.api.main:app --host 0.0.0.0 --port 8001 --reload"
     ports:
       - "8001:8001"
     depends_on:
@@ -128,7 +130,7 @@ services:
     volumes:
       - ./datajunction-server:/code
     working_dir: /code/datajunction_server
-    command: /bin/bash -c "alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj" upgrade head"
+    command: /bin/bash -c "uv sync --no-dev && uv run alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj" upgrade head"
     restart: on-failure
     depends_on:
       postgres_metadata:
@@ -163,7 +165,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
-    command: /bin/bash -c "alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs" upgrade head"
+    command: /bin/bash -c "uv sync --no-dev && uv run alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs" upgrade head"
     restart: on-failure
     depends_on:
       postgres_metadata:
@@ -183,7 +185,7 @@ services:
     profiles: ["demo"]
     build:
       context: ./datajunction-reflection
-    command: ["celery", "-A", "datajunction_reflection.worker.app", "worker", "--loglevel", "INFO"]
+    command: /bin/bash -c "uv sync --no-dev && uv run celery -A datajunction_reflection.worker.app worker --loglevel INFO"
     networks:
       - core
       - djrs-network
@@ -198,8 +200,7 @@ services:
     profiles: ["demo"]
     build:
       context: ./datajunction-reflection
-    command:
-      ["celery", "--app", "datajunction_reflection.worker.app", "beat", "--loglevel", "INFO"]
+    command: /bin/bash -c "uv sync --no-dev && uv run celery --app datajunction_reflection.worker.app beat --loglevel INFO"
     networks:
       - djrs-network
     depends_on:

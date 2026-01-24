@@ -1,12 +1,23 @@
 [project]
+name = "datajunction-monorepo"
+version = "0.0.1"
 dependencies = []
 requires-python = ">=3.10,<4.0"
 
-[tool.pdm.dev-dependencies]
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.uv.workspace]
+members = [
+    "datajunction-server",
+    "datajunction-query",
+    "datajunction-clients/python",
+]
+
+[dependency-groups]
 dev = [
     "pre-commit>=3.2.2",
     "pylint>=2.17.3",
-    "-e datajunction-server @ file:///${PROJECT_ROOT}/datajunction-server",
-    "-e datajunction-query @ file:///${PROJECT_ROOT}/datajunction-query",
-    "-e datajunction-reflection @ file:///${PROJECT_ROOT}/datajunction-reflection",
 ]
