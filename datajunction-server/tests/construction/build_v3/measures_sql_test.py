@@ -3060,3 +3060,124 @@ class TestCubeMaterializeEndpoint:
         )
         # Should get 404 or 422 because cube not found
         assert response.status_code in (404, 422)
+
+
+class TestFilterOnlyDimensions:
+    """Tests for filter-only dimensions (dimensions in WHERE but not in GROUP BY)."""
+
+    @pytest.mark.asyncio
+    async def test_filter_on_local_column(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test filtering on a local column (no external dimension join needed).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status = 'completed'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        # Filter should be applied in the SQL
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.status = 'completed'
+            GROUP BY t1.status
+            """,
+        )
+
+        # Output columns should include status (it's in GROUP BY) and the metric component
+        assert data["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "line_total_sum_e1f61696",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
+            },
+        ]
+
+        # Verify grain includes status
+        assert data["grain"] == ["status"]
+
+    @pytest.mark.asyncio
+    async def test_filter_only_dimension_excluded_from_output(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a dimension used only in a filter is not included in output.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        data = get_first_grain_group(response.json())
+
+        # Filter dimension should be JOINed but not in output
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t2.category = 'Electronics'
+            GROUP BY t1.status
+            """,
+        )
+
+        # Output columns should only include status and the metric component
+        # category should NOT be in output
+        assert data["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "line_total_sum_e1f61696",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue:line_total_sum_e1f61696",
+                "semantic_type": "metric_component",
+            },
+        ]
+
+        # Grain should only include status, not category
+        assert data["grain"] == ["status"]

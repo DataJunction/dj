@@ -3296,3 +3296,129 @@ class TestMetricsSQLOrderByLimit:
             GROUP BY order_details_0.status
             """,
         )
+
+
+class TestFilterOnlyDimensions:
+    """Tests for filter-only dimensions (dimensions in WHERE but not in GROUP BY)."""
+
+    @pytest.mark.asyncio
+    async def test_filter_on_local_column(self, client_with_build_v3):
+        """
+        Test filtering on a local column (no external dimension join needed).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status = 'completed'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Filter should be applied in the SQL (both grain group CTE and final SELECT)
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status = 'completed'
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status = 'completed'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        # Output should have 2 columns: status and total_revenue
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_only_dimension_excluded_from_output(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a dimension used only in a filter is not included in output.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Filter dimension should be JOINed but not in output
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                GROUP BY t1.status
+            )
+            SELECT COALESCE(order_details_0.status) AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        # Output should only have 2 columns: status and total_revenue
+        # category should NOT be in output
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]

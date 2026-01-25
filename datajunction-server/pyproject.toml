@@ -77,13 +77,12 @@ dependencies = [
     "pydantic<2.11,>=2.0",
     "pydantic-settings>=2.10.1",
 ]
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.10,<3.12"
 readme = "README.md"
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
