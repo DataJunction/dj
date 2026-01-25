@@ -23,6 +23,10 @@ from datajunction_server.construction.build_v3.cte import (
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
 )
+from datajunction_server.construction.build_v3.filters import (
+    parse_and_resolve_filters,
+    parse_filter,
+)
 from datajunction_server.construction.build_v3.utils import (
     build_join_from_clause,
     get_short_name,
@@ -1818,15 +1822,42 @@ def generate_metrics_sql(
         grain_levels,
     )
 
-    # Note: Filters are applied in the grain group CTEs (measures level), not here.
-    # The grain group CTEs already contain WHERE clauses for all filters.
-    # Re-applying filters here would be redundant and could break for filter-only
-    # dimensions whose columns aren't available in the final projection.
+    # Build WHERE clause from filters
+    # Skip filters that reference filter-only dimensions (not available in final SELECT)
+    where_clause: Optional[ast.Expression] = None
+    if ctx.filters:
+        # Use base_metrics CTE for window function queries, otherwise first grain group CTE
+        filter_cte = (
+            window_metrics_cte_alias if window_metrics_cte_alias else cte_aliases[0]
+        )
+
+        # Filter out filters that reference filter-only dimensions
+        # Those filters are already applied in the grain group CTEs
+        applicable_filters = []
+        for f in ctx.filters:
+            filter_ast = parse_filter(f)
+            # Check if any column ref in this filter is a filter-only dimension
+            refs_filter_only = False
+            for col in filter_ast.find_all(ast.Column):
+                full_name = get_column_full_name(col)
+                if full_name and full_name in ctx.filter_dimensions:
+                    refs_filter_only = True
+                    break
+            if not refs_filter_only:
+                applicable_filters.append(f)
+
+        if applicable_filters:
+            where_clause = parse_and_resolve_filters(
+                applicable_filters,
+                dimension_aliases,
+                cte_alias=filter_cte,
+            )
 
     # Build the final SELECT
     select_ast = ast.Select(
         projection=projection,
         from_=from_clause,
+        where=where_clause,
         group_by=group_by,
     )
 

@@ -361,7 +361,7 @@ class TestDJSQLFilterOnlyDimensions:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # The filter should be applied in the grain group CTE
+        # The filter should be applied in the grain group CTE and final SELECT
         assert_sql_equal(
             result["sql"],
             """
@@ -380,6 +380,7 @@ class TestDJSQLFilterOnlyDimensions:
             SELECT COALESCE(order_details_0.status) AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
+            WHERE order_details_0.status = 'completed'
             GROUP BY order_details_0.status
             """,
         )
