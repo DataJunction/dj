@@ -23,6 +23,7 @@ import requests
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
+from datajunction.__about__ import __version__
 from datajunction._base import SerializableMixin
 from datajunction.exceptions import (
     DJClientException,
@@ -83,6 +84,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
                     f"{platform.system()};"
                     f"{platform.release()} {platform.version()}"
                 ),
+                "X-DJ-Client": f"python-sdk/{__version__}",
             },
         )
 

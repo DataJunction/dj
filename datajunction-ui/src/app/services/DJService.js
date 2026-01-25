@@ -6,6 +6,15 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
   : 'http://localhost:8000';
 
+// Wrapper for fetch that adds X-DJ-Client header
+const djFetch = (url, options = {}) => {
+  const headers = {
+    'X-DJ-Client': 'ui',
+    ...options.headers,
+  };
+  return fetch(url, { ...options, headers });
+};
+
 const DJ_GQL = process.env.REACT_APP_DJ_GQL
   ? process.env.REACT_APP_DJ_GQL
   : process.env.REACT_APP_DJ_URL + '/graphql';
@@ -90,7 +99,7 @@ export const DataJunctionAPI = {
     };
 
     return await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -135,7 +144,7 @@ export const DataJunctionAPI = {
 
     try {
       const result = await (
-        await fetch(DJ_GQL, {
+        await djFetch(DJ_GQL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -191,7 +200,7 @@ export const DataJunctionAPI = {
 
     try {
       const result = await (
-        await fetch(DJ_GQL, {
+        await djFetch(DJ_GQL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -249,7 +258,7 @@ export const DataJunctionAPI = {
 
   whoami: async function () {
     return await (
-      await fetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
+      await djFetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
     ).json();
   },
 
@@ -265,7 +274,7 @@ export const DataJunctionAPI = {
     orderby.forEach(o => params.append('orderby', o));
 
     const url = `${DJ_URL}/system/data/${metric}?${params.toString()}`;
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await djFetch(url, { credentials: 'include' });
 
     if (!res.ok) {
       throw new Error(`Failed to fetch metric data ${metric}: ${res.status}`);
@@ -328,7 +337,7 @@ export const DataJunctionAPI = {
     },
     node_trends: async function () {
       const results = await (
-        await fetch(
+        await djFetch(
           `${DJ_URL}/system/data/system.dj.number_of_nodes?dimensions=system.dj.nodes.created_at_week&dimensions=system.dj.node_type.type&filters=system.dj.nodes.created_at_week>=20240101&orderby=system.dj.nodes.created_at_week`,
           { credentials: 'include' },
         )
@@ -368,7 +377,7 @@ export const DataJunctionAPI = {
 
     dimensions: async function () {
       return await (
-        await fetch(`${DJ_URL}/system/dimensions`, {
+        await djFetch(`${DJ_URL}/system/dimensions`, {
           credentials: 'include',
         })
       ).json();
@@ -376,7 +385,7 @@ export const DataJunctionAPI = {
   },
 
   logout: async function () {
-    return await fetch(`${DJ_URL}/logout/`, {
+    return await djFetch(`${DJ_URL}/logout/`, {
       credentials: 'include',
       method: 'POST',
     });
@@ -384,7 +393,7 @@ export const DataJunctionAPI = {
 
   catalogs: async function () {
     return await (
-      await fetch(`${DJ_URL}/catalogs`, {
+      await djFetch(`${DJ_URL}/catalogs`, {
         credentials: 'include',
       })
     ).json();
@@ -392,7 +401,7 @@ export const DataJunctionAPI = {
 
   engines: async function () {
     return await (
-      await fetch(`${DJ_URL}/engines`, {
+      await djFetch(`${DJ_URL}/engines`, {
         credentials: 'include',
       })
     ).json();
@@ -400,7 +409,7 @@ export const DataJunctionAPI = {
 
   node: async function (name) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/${name}/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/`, {
         credentials: 'include',
       })
     ).json();
@@ -452,7 +461,7 @@ export const DataJunctionAPI = {
     `;
 
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -492,7 +501,7 @@ export const DataJunctionAPI = {
     `;
 
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -530,7 +539,7 @@ export const DataJunctionAPI = {
     `;
 
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -578,7 +587,7 @@ export const DataJunctionAPI = {
     `;
 
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -601,7 +610,7 @@ export const DataJunctionAPI = {
   nodes: async function (prefix) {
     const queryParams = prefix ? `?prefix=${prefix}` : '';
     return await (
-      await fetch(`${DJ_URL}/nodes/${queryParams}`, {
+      await djFetch(`${DJ_URL}/nodes/${queryParams}`, {
         credentials: 'include',
       })
     ).json();
@@ -609,7 +618,7 @@ export const DataJunctionAPI = {
 
   nodesWithType: async function (nodeType) {
     return await (
-      await fetch(`${DJ_URL}/nodes/?node_type=${nodeType}`, {
+      await djFetch(`${DJ_URL}/nodes/?node_type=${nodeType}`, {
         credentials: 'include',
       })
     ).json();
@@ -617,7 +626,7 @@ export const DataJunctionAPI = {
 
   nodeDetails: async () => {
     return await (
-      await fetch(`${DJ_URL}/nodes/details/`, {
+      await djFetch(`${DJ_URL}/nodes/details/`, {
         credentials: 'include',
       })
     ).json();
@@ -630,7 +639,7 @@ export const DataJunctionAPI = {
     description,
     query,
   ) {
-    const response = await fetch(`${DJ_URL}/nodes/validate`, {
+    const response = await djFetch(`${DJ_URL}/nodes/validate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -669,7 +678,7 @@ export const DataJunctionAPI = {
             unit: metric_unit,
           }
         : null;
-    const response = await fetch(`${DJ_URL}/nodes/${nodeType}`, {
+    const response = await djFetch(`${DJ_URL}/nodes/${nodeType}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -714,7 +723,7 @@ export const DataJunctionAPI = {
               significant_digits: significant_digits || null,
             }
           : null;
-      const response = await fetch(`${DJ_URL}/nodes/${name}`, {
+      const response = await djFetch(`${DJ_URL}/nodes/${name}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -747,7 +756,7 @@ export const DataJunctionAPI = {
     dimensions,
     filters,
   ) {
-    const response = await fetch(`${DJ_URL}/nodes/cube`, {
+    const response = await djFetch(`${DJ_URL}/nodes/cube`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -777,7 +786,7 @@ export const DataJunctionAPI = {
     owners,
   ) {
     const url = `${DJ_URL}/nodes/${name}`;
-    const response = await fetch(url, {
+    const response = await djFetch(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -798,7 +807,7 @@ export const DataJunctionAPI = {
 
   refreshLatestMaterialization: async function (name) {
     const url = `${DJ_URL}/nodes/${name}?refresh_materialization=true`;
-    const response = await fetch(url, {
+    const response = await djFetch(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -810,7 +819,7 @@ export const DataJunctionAPI = {
   },
 
   registerTable: async function (catalog, schema, table) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/register/table/${catalog}/${schema}/${table}`,
       {
         method: 'POST',
@@ -825,7 +834,7 @@ export const DataJunctionAPI = {
 
   upstreams: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${name}/upstream/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/upstream/`, {
         credentials: 'include',
       })
     ).json();
@@ -833,7 +842,7 @@ export const DataJunctionAPI = {
 
   downstreams: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${name}/downstream/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/downstream/`, {
         credentials: 'include',
       })
     ).json();
@@ -851,7 +860,7 @@ export const DataJunctionAPI = {
       }
     `;
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -872,7 +881,7 @@ export const DataJunctionAPI = {
       }
     `;
     const results = await (
-      await fetch(DJ_GQL, {
+      await djFetch(DJ_GQL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -884,7 +893,7 @@ export const DataJunctionAPI = {
 
   node_dag: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${name}/dag/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/dag/`, {
         credentials: 'include',
       })
     ).json();
@@ -914,7 +923,7 @@ export const DataJunctionAPI = {
 
     try {
       const results = await (
-        await fetch(DJ_GQL, {
+        await djFetch(DJ_GQL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -942,7 +951,7 @@ export const DataJunctionAPI = {
 
   node_lineage: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${name}/lineage/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/lineage/`, {
         credentials: 'include',
       })
     ).json();
@@ -950,7 +959,7 @@ export const DataJunctionAPI = {
 
   metric: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/metrics/${name}/`, {
+      await djFetch(`${DJ_URL}/metrics/${name}/`, {
         credentials: 'include',
       })
     ).json();
@@ -958,7 +967,7 @@ export const DataJunctionAPI = {
 
   clientCode: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/datajunction-clients/python/new_node/${name}`, {
+      await djFetch(`${DJ_URL}/datajunction-clients/python/new_node/${name}`, {
         credentials: 'include',
       })
     ).json();
@@ -966,7 +975,7 @@ export const DataJunctionAPI = {
 
   cube: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/cubes/${name}/`, {
+      await djFetch(`${DJ_URL}/cubes/${name}/`, {
         credentials: 'include',
       })
     ).json();
@@ -974,7 +983,7 @@ export const DataJunctionAPI = {
 
   metrics: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/metrics/`, {
+      await djFetch(`${DJ_URL}/metrics/`, {
         credentials: 'include',
       })
     ).json();
@@ -983,7 +992,7 @@ export const DataJunctionAPI = {
   commonDimensions: async function (metrics) {
     const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
     return await (
-      await fetch(`${DJ_URL}/metrics/common/dimensions/${metricsQuery}`, {
+      await djFetch(`${DJ_URL}/metrics/common/dimensions/${metricsQuery}`, {
         credentials: 'include',
       })
     ).json();
@@ -991,7 +1000,7 @@ export const DataJunctionAPI = {
 
   history: async function (type, name, offset, limit) {
     return await (
-      await fetch(
+      await djFetch(
         `${DJ_URL}/history?node=${name}&offset=${offset ? offset : 0}&limit=${
           limit ? limit : 100
         }`,
@@ -1004,7 +1013,7 @@ export const DataJunctionAPI = {
 
   revisions: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${name}/revisions/`, {
+      await djFetch(`${DJ_URL}/nodes/${name}/revisions/`, {
         credentials: 'include',
       })
     ).json();
@@ -1012,7 +1021,7 @@ export const DataJunctionAPI = {
 
   namespace: async function (nmspce, editedBy) {
     return await (
-      await fetch(
+      await djFetch(
         `${DJ_URL}/namespaces/${nmspce}?edited_by=${editedBy}&with_edited_by=true`,
         {
           credentials: 'include',
@@ -1023,7 +1032,7 @@ export const DataJunctionAPI = {
 
   namespaces: async function () {
     return await (
-      await fetch(`${DJ_URL}/namespaces/`, {
+      await djFetch(`${DJ_URL}/namespaces/`, {
         credentials: 'include',
       })
     ).json();
@@ -1031,7 +1040,7 @@ export const DataJunctionAPI = {
 
   namespaceSources: async function (namespace) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/${namespace}/sources`, {
+      await djFetch(`${DJ_URL}/namespaces/${namespace}/sources`, {
         credentials: 'include',
       })
     ).json();
@@ -1039,7 +1048,7 @@ export const DataJunctionAPI = {
 
   namespaceSourcesBulk: async function (namespaces) {
     return await (
-      await fetch(`${DJ_URL}/namespaces/sources/bulk`, {
+      await djFetch(`${DJ_URL}/namespaces/sources/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1057,7 +1066,7 @@ export const DataJunctionAPI = {
     }
     params.append('limit', limit);
     return await (
-      await fetch(`${DJ_URL}/deployments?${params.toString()}`, {
+      await djFetch(`${DJ_URL}/deployments?${params.toString()}`, {
         credentials: 'include',
       })
     ).json();
@@ -1073,7 +1082,7 @@ export const DataJunctionAPI = {
     }
 
     return await (
-      await fetch(`${DJ_URL}/sql/${metric_name}?${params}`, {
+      await djFetch(`${DJ_URL}/sql/${metric_name}?${params}`, {
         credentials: 'include',
       })
     ).json();
@@ -1081,7 +1090,7 @@ export const DataJunctionAPI = {
 
   nodesWithDimension: async function (name) {
     return await (
-      await fetch(`${DJ_URL}/dimensions/${name}/nodes/`, {
+      await djFetch(`${DJ_URL}/dimensions/${name}/nodes/`, {
         credentials: 'include',
       })
     ).json();
@@ -1089,7 +1098,7 @@ export const DataJunctionAPI = {
 
   materializations: async function (node) {
     const data = await (
-      await fetch(
+      await djFetch(
         `${DJ_URL}/nodes/${node}/materializations?show_inactive=true&include_all_revisions=true`,
         {
           credentials: 'include',
@@ -1102,7 +1111,7 @@ export const DataJunctionAPI = {
 
   availabilityStates: async function (node) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/${node}/availability/`, {
+      await djFetch(`${DJ_URL}/nodes/${node}/availability/`, {
         credentials: 'include',
       })
     ).json();
@@ -1124,7 +1133,7 @@ export const DataJunctionAPI = {
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     params.append('filters', filters);
     return await (
-      await fetch(`${DJ_URL}/sql/?${params}`, {
+      await djFetch(`${DJ_URL}/sql/?${params}`, {
         credentials: 'include',
       })
     ).json();
@@ -1145,7 +1154,7 @@ export const DataJunctionAPI = {
       params.append('filters', filters);
     }
     return await (
-      await fetch(`${DJ_URL}/sql/measures/v3/?${params}`, {
+      await djFetch(`${DJ_URL}/sql/measures/v3/?${params}`, {
         credentials: 'include',
       })
     ).json();
@@ -1174,7 +1183,7 @@ export const DataJunctionAPI = {
       params.append('dialect', 'spark');
     }
     return await (
-      await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
+      await djFetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
         credentials: 'include',
         params: params,
       })
@@ -1189,7 +1198,7 @@ export const DataJunctionAPI = {
       filters.forEach(f => params.append('filters', f));
     }
     params.append('limit', '10000');
-    const response = await fetch(`${DJ_URL}/data/?${params}`, {
+    const response = await djFetch(`${DJ_URL}/data/?${params}`, {
       credentials: 'include',
     });
     if (!response.ok) {
@@ -1221,7 +1230,7 @@ export const DataJunctionAPI = {
     params.append('async_', 'true');
 
     return await (
-      await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
+      await djFetch(`${DJ_URL}/data/${nodeName}?${params}`, {
         credentials: 'include',
         headers: { 'Cache-Control': 'max-age=86400' },
       })
@@ -1229,7 +1238,7 @@ export const DataJunctionAPI = {
   },
 
   notebookExportCube: async function (cube) {
-    return await fetch(
+    return await djFetch(
       `${DJ_URL}/datajunction-clients/python/notebook/?cube=${cube}`,
       {
         credentials: 'include',
@@ -1239,7 +1248,7 @@ export const DataJunctionAPI = {
 
   notebookExportNamespace: async function (namespace) {
     return await (
-      await fetch(
+      await djFetch(
         `${DJ_URL}/datajunction-clients/python/notebook/?namespace=${namespace}`,
         {
           credentials: 'include',
@@ -1287,7 +1296,7 @@ export const DataJunctionAPI = {
 
   compiledSql: async function (node) {
     return await (
-      await fetch(`${DJ_URL}/sql/${node}/`, {
+      await djFetch(`${DJ_URL}/sql/${node}/`, {
         credentials: 'include',
       })
     ).json();
@@ -1296,7 +1305,7 @@ export const DataJunctionAPI = {
   dag: async function (namespace = 'default') {
     const edges = [];
     const data = await (
-      await fetch(`${DJ_URL}/nodes/`, {
+      await djFetch(`${DJ_URL}/nodes/`, {
         credentials: 'include',
       })
     ).json();
@@ -1373,13 +1382,13 @@ export const DataJunctionAPI = {
   },
   attributes: async function () {
     return await (
-      await fetch(`${DJ_URL}/attributes`, {
+      await djFetch(`${DJ_URL}/attributes`, {
         credentials: 'include',
       })
     ).json();
   },
   setAttributes: async function (nodeName, columnName, attributes) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/attributes`,
       {
         method: 'POST',
@@ -1401,7 +1410,7 @@ export const DataJunctionAPI = {
   },
 
   setColumnDescription: async function (nodeName, columnName, description) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/description?description=${encodeURIComponent(
         description,
       )}`,
@@ -1414,20 +1423,20 @@ export const DataJunctionAPI = {
   },
   dimensions: async function () {
     return await (
-      await fetch(`${DJ_URL}/dimensions`, {
+      await djFetch(`${DJ_URL}/dimensions`, {
         credentials: 'include',
       })
     ).json();
   },
   nodeDimensions: async function (nodeName) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${nodeName}/dimensions`, {
+      await djFetch(`${DJ_URL}/nodes/${nodeName}/dimensions`, {
         credentials: 'include',
       })
     ).json();
   },
   linkDimension: async function (nodeName, columnName, dimensionName) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
       {
         method: 'POST',
@@ -1440,7 +1449,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   unlinkDimension: async function (nodeName, columnName, dimensionName) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
       {
         method: 'DELETE',
@@ -1461,7 +1470,7 @@ export const DataJunctionAPI = {
     joinCardinality = null,
     role = null,
   ) {
-    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
+    const response = await djFetch(`${DJ_URL}/nodes/${nodeName}/link`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1483,7 +1492,7 @@ export const DataJunctionAPI = {
     dimensionNode,
     role = null,
   ) {
-    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
+    const response = await djFetch(`${DJ_URL}/nodes/${nodeName}/link`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -1513,7 +1522,7 @@ export const DataJunctionAPI = {
       url.searchParams.append('role', role);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await djFetch(url.toString(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1524,7 +1533,7 @@ export const DataJunctionAPI = {
   },
 
   removeReferenceDimensionLink: async function (nodeName, nodeColumn) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${nodeColumn}/link`,
       {
         method: 'DELETE',
@@ -1538,7 +1547,7 @@ export const DataJunctionAPI = {
   },
 
   deactivate: async function (nodeName) {
-    const response = await fetch(`${DJ_URL}/nodes/${nodeName}`, {
+    const response = await djFetch(`${DJ_URL}/nodes/${nodeName}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -1548,7 +1557,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   addNamespace: async function (namespace) {
-    const response = await fetch(`${DJ_URL}/namespaces/${namespace}`, {
+    const response = await djFetch(`${DJ_URL}/namespaces/${namespace}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1558,7 +1567,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   listTags: async function () {
-    const response = await fetch(`${DJ_URL}/tags`, {
+    const response = await djFetch(`${DJ_URL}/tags`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1569,13 +1578,13 @@ export const DataJunctionAPI = {
   },
   users: async function () {
     return await (
-      await fetch(`${DJ_URL}/users?with_activity=true`, {
+      await djFetch(`${DJ_URL}/users?with_activity=true`, {
         credentials: 'include',
       })
     ).json();
   },
   getTag: async function (tagName) {
-    const response = await fetch(`${DJ_URL}/tags/${tagName}`, {
+    const response = await djFetch(`${DJ_URL}/tags/${tagName}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1585,7 +1594,7 @@ export const DataJunctionAPI = {
     return await response.json();
   },
   listNodesForTag: async function (tagName) {
-    const response = await fetch(`${DJ_URL}/tags/${tagName}/nodes`, {
+    const response = await djFetch(`${DJ_URL}/tags/${tagName}/nodes`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1598,7 +1607,7 @@ export const DataJunctionAPI = {
     const url = tagNames
       .map(value => `tag_names=${encodeURIComponent(value)}`)
       .join('&');
-    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/tags?${url}`, {
+    const response = await djFetch(`${DJ_URL}/nodes/${nodeName}/tags?${url}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1608,7 +1617,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   addTag: async function (name, displayName, tagType, description) {
-    const response = await fetch(`${DJ_URL}/tags`, {
+    const response = await djFetch(`${DJ_URL}/tags`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1632,7 +1641,7 @@ export const DataJunctionAPI = {
       updates.display_name = displayName;
     }
 
-    const response = await fetch(`${DJ_URL}/tags/${name}`, {
+    const response = await djFetch(`${DJ_URL}/tags/${name}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -1658,7 +1667,7 @@ export const DataJunctionAPI = {
     if (granularity) {
       body.granularity = granularity;
     }
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/partition`,
       {
         method: 'POST',
@@ -1672,7 +1681,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   materialize: async function (nodeName, jobType, strategy, schedule, config) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,
       {
         method: 'POST',
@@ -1697,7 +1706,7 @@ export const DataJunctionAPI = {
     schedule,
     lookbackWindow,
   ) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/materialization`,
       {
         method: 'POST',
@@ -1723,7 +1732,7 @@ export const DataJunctionAPI = {
     lookbackWindow = '1 DAY',
     runBackfill = true,
   ) {
-    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
+    const response = await djFetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1739,7 +1748,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   runBackfill: async function (nodeName, materializationName, partitionValues) {
-    const response = await fetch(
+    const response = await djFetch(
       `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
       {
         method: 'POST',
@@ -1769,7 +1778,7 @@ export const DataJunctionAPI = {
     if (nodeVersion) {
       url += `&node_version=${nodeVersion}`;
     }
-    const response = await fetch(url, {
+    const response = await djFetch(url, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -1779,7 +1788,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   listMetricMetadata: async function () {
-    const response = await fetch(`${DJ_URL}/metrics/metadata`, {
+    const response = await djFetch(`${DJ_URL}/metrics/metadata`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1790,14 +1799,14 @@ export const DataJunctionAPI = {
   },
   materializationInfo: async function () {
     return await (
-      await fetch(`${DJ_URL}/materialization/info`, {
+      await djFetch(`${DJ_URL}/materialization/info`, {
         credentials: 'include',
       })
     ).json();
   },
   revalidate: async function (node) {
     return await (
-      await fetch(`${DJ_URL}/nodes/${node}/validate`, {
+      await djFetch(`${DJ_URL}/nodes/${node}/validate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1810,7 +1819,7 @@ export const DataJunctionAPI = {
   getNotificationPreferences: async function (params = {}) {
     const query = new URLSearchParams(params).toString();
     return await (
-      await fetch(`${DJ_URL}/notifications/${query ? `?${query}` : ''}`, {
+      await djFetch(`${DJ_URL}/notifications/${query ? `?${query}` : ''}`, {
         credentials: 'include',
       })
     ).json();
@@ -1823,7 +1832,7 @@ export const DataJunctionAPI = {
     activity_types,
     alert_types,
   }) {
-    const response = await fetch(`${DJ_URL}/notifications/subscribe`, {
+    const response = await djFetch(`${DJ_URL}/notifications/subscribe`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1849,7 +1858,7 @@ export const DataJunctionAPI = {
     url.searchParams.append('entity_type', entity_type);
     url.searchParams.append('entity_name', entity_name);
 
-    const response = await fetch(url.toString(), {
+    const response = await djFetch(url.toString(), {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -1863,7 +1872,7 @@ export const DataJunctionAPI = {
   // GET /history/ with only_subscribed filter
   getSubscribedHistory: async function (limit = 10) {
     return await (
-      await fetch(`${DJ_URL}/history/?only_subscribed=true&limit=${limit}`, {
+      await djFetch(`${DJ_URL}/history/?only_subscribed=true&limit=${limit}`, {
         credentials: 'include',
       })
     ).json();
@@ -1871,7 +1880,7 @@ export const DataJunctionAPI = {
 
   // POST /notifications/mark-read
   markNotificationsRead: async function () {
-    const response = await fetch(`${DJ_URL}/notifications/mark-read`, {
+    const response = await djFetch(`${DJ_URL}/notifications/mark-read`, {
       method: 'POST',
       credentials: 'include',
     });
@@ -1880,14 +1889,14 @@ export const DataJunctionAPI = {
 
   // Service Account APIs
   listServiceAccounts: async function () {
-    const response = await fetch(`${DJ_URL}/service-accounts`, {
+    const response = await djFetch(`${DJ_URL}/service-accounts`, {
       credentials: 'include',
     });
     return await response.json();
   },
 
   createServiceAccount: async function (name) {
-    const response = await fetch(`${DJ_URL}/service-accounts`, {
+    const response = await djFetch(`${DJ_URL}/service-accounts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1899,7 +1908,7 @@ export const DataJunctionAPI = {
   },
 
   deleteServiceAccount: async function (clientId) {
-    const response = await fetch(`${DJ_URL}/service-accounts/${clientId}`, {
+    const response = await djFetch(`${DJ_URL}/service-accounts/${clientId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -1921,7 +1930,7 @@ export const DataJunctionAPI = {
     if (filters.include_stale) params.append('include_stale', 'true');
 
     return await (
-      await fetch(`${DJ_URL}/preaggs/?${params}`, {
+      await djFetch(`${DJ_URL}/preaggs/?${params}`, {
         credentials: 'include',
       })
     ).json();
@@ -1943,7 +1952,7 @@ export const DataJunctionAPI = {
     if (schedule) body.schedule = schedule;
     if (lookbackWindow) body.lookback_window = lookbackWindow;
 
-    const response = await fetch(`${DJ_URL}/preaggs/plan`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/plan`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -1968,7 +1977,7 @@ export const DataJunctionAPI = {
   // Get a specific pre-aggregation by ID
   getPreagg: async function (preaggId) {
     return await (
-      await fetch(`${DJ_URL}/preaggs/${preaggId}`, {
+      await djFetch(`${DJ_URL}/preaggs/${preaggId}`, {
         credentials: 'include',
       })
     ).json();
@@ -1976,7 +1985,7 @@ export const DataJunctionAPI = {
 
   // Trigger materialization for a pre-aggregation
   materializePreagg: async function (preaggId) {
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/materialize`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/${preaggId}/materialize`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -2008,7 +2017,7 @@ export const DataJunctionAPI = {
     if (schedule) body.schedule = schedule;
     if (lookbackWindow) body.lookback_window = lookbackWindow;
 
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/config`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/${preaggId}/config`, {
       method: 'PATCH',
       credentials: 'include',
       headers: {
@@ -2030,7 +2039,7 @@ export const DataJunctionAPI = {
 
   // Deactivate (pause) a pre-aggregation's workflow
   deactivatePreaggWorkflow: async function (preaggId) {
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/workflow`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/${preaggId}/workflow`, {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -2054,7 +2063,7 @@ export const DataJunctionAPI = {
     };
     if (endDate) body.end_date = endDate;
 
-    const response = await fetch(`${DJ_URL}/preaggs/${preaggId}/backfill`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/${preaggId}/backfill`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -2080,7 +2089,7 @@ export const DataJunctionAPI = {
     params.append('node_name', nodeName);
     if (staleOnly) params.append('stale_only', 'true');
 
-    const response = await fetch(`${DJ_URL}/preaggs/workflows?${params}`, {
+    const response = await djFetch(`${DJ_URL}/preaggs/workflows?${params}`, {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -2101,7 +2110,7 @@ export const DataJunctionAPI = {
 
   // Get cube details including materializations
   getCubeDetails: async function (cubeName) {
-    const response = await fetch(`${DJ_URL}/cubes/${cubeName}`, {
+    const response = await djFetch(`${DJ_URL}/cubes/${cubeName}`, {
       credentials: 'include',
     });
     if (!response.ok) {
@@ -2183,7 +2192,7 @@ export const DataJunctionAPI = {
 
   // Deactivate (pause) a cube's workflow
   deactivateCubeWorkflow: async function (cubeName) {
-    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
+    const response = await djFetch(`${DJ_URL}/cubes/${cubeName}/materialize`, {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -2210,7 +2219,7 @@ export const DataJunctionAPI = {
     };
     if (endDate) body.end_date = endDate;
 
-    const response = await fetch(`${DJ_URL}/cubes/${cubeName}/backfill`, {
+    const response = await djFetch(`${DJ_URL}/cubes/${cubeName}/backfill`, {
       method: 'POST',
       credentials: 'include',
       headers: {
