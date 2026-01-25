@@ -1335,11 +1335,19 @@ class CubeQueryBuilder:
             ctes=parent_ctes + metric_ctes,
             select=ast.Select(
                 projection=[
-                    ast.Column(
-                        name=ast.Name(proj.alias, namespace=initial_cte.alias),  # type: ignore
-                        _type=proj.type,  # type: ignore
-                        semantic_entity=proj.semantic_entity,  # type: ignore
-                        semantic_type=proj.semantic_type,  # type: ignore
+                    ast.Function(
+                        ast.Name("COALESCE"),
+                        args=[
+                            ast.Column(
+                                name=ast.Name(proj.alias, namespace=join_cte.alias),  # type: ignore
+                                _type=proj.type,  # type: ignore
+                                semantic_entity=proj.semantic_entity,  # type: ignore
+                                semantic_type=proj.semantic_type,  # type: ignore
+                            )
+                            for join_cte in metric_ctes
+                        ],
+                    ).set_alias(
+                        proj.alias,  # type: ignore
                     )
                     for proj in initial_cte.select.projection
                 ],
