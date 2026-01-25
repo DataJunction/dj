@@ -351,16 +351,21 @@ def build_select_ast(
                 current_left_alias = dim_aliases[dim_key]
 
     # Add dimension columns to projection
+    # Filter-only dimensions are excluded from projection but included in GROUP BY
     for resolved_dim in resolved_dimensions:
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
 
         # Build column reference with table alias
         col_ref = make_column_ref(resolved_dim.column_name, table_alias)
 
-        # Register and apply clean alias
+        # Register alias (needed for filter resolution even if not in projection)
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
         if clean_alias != resolved_dim.column_name:
             col_ref.alias = ast.Name(clean_alias)
+
+        # Skip filter-only dimensions from projection
+        if resolved_dim.original_ref in ctx.filter_dimensions:
+            continue
 
         projection.append(col_ref)
 
@@ -398,8 +403,11 @@ def build_select_ast(
         projection.append(aliased_expr)
 
     # Build GROUP BY (use same column references as projection, without aliases)
+    # Skip filter-only dimensions as they're only needed for WHERE clause
     group_by: list[ast.Expression] = []
     for resolved_dim in resolved_dimensions:
+        if resolved_dim.original_ref in ctx.filter_dimensions:
+            continue
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
         group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
 
@@ -991,8 +999,12 @@ def build_grain_group_sql(
     # Build column metadata
     columns_metadata = []
 
-    # Add dimension columns
+    # Add dimension columns (skip filter-only dimensions as they're not in projection)
     for resolved_dim in resolved_dimensions:
+        # Skip filter-only dimensions from column metadata
+        if resolved_dim.original_ref in ctx.filter_dimensions:
+            continue
+
         alias = (
             ctx.alias_registry.get_alias(resolved_dim.original_ref)
             or resolved_dim.column_name
@@ -1067,10 +1079,14 @@ def build_grain_group_sql(
     # Build the full grain list (GROUP BY columns or unique row identity)
     # For NONE aggregability, grain is just the native grain (no dimensions)
     # because we're passing through raw rows without grouping
+    # Skip filter-only dimensions as they're not part of the output grain
     full_grain = []
     if grain_group.aggregability != Aggregability.NONE:
         # FULL/LIMITED: dimensions are part of the grain
         for resolved_dim in resolved_dimensions:
+            # Skip filter-only dimensions from grain
+            if resolved_dim.original_ref in ctx.filter_dimensions:
+                continue
             alias = (
                 ctx.alias_registry.get_alias(resolved_dim.original_ref)
                 or resolved_dim.column_name

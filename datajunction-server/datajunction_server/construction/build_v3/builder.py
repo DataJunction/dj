@@ -36,6 +36,7 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
 )
 from datajunction_server.construction.build_v3.utils import (
+    add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
 )
 from datajunction_server.errors import DJInvalidInputException
@@ -171,6 +172,9 @@ async def setup_build_context(
 
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+
+    # Add dimensions referenced in filters (for WHERE clause resolution)
+    add_dimensions_from_filters(ctx)
 
     # Load any missing dimension nodes (and their upstreams, including sources)
     # This is needed for dimensions discovered from metric expressions

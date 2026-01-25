@@ -206,6 +206,66 @@ def add_dimensions_from_metric_expressions(
                     existing_dims.add(full_name)
 
 
+def add_dimensions_from_filters(ctx: "BuildContext") -> None:
+    """
+    Scan filter expressions for dimension references and add them to ctx.dimensions.
+
+    Dimensions referenced in filters but not in the GROUP BY dimensions are needed
+    for filter resolution but should not appear in the output projection. These are
+    tracked in ctx.filter_dimensions.
+
+    Args:
+        ctx: BuildContext with filters and dimensions lists to update
+    """
+    # Import here to avoid circular imports
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+    from datajunction_server.construction.build_v3.filters import parse_filter
+
+    if not ctx.filters:
+        return
+
+    existing_dims = set(ctx.dimensions)
+
+    for filter_str in ctx.filters:
+        try:
+            filter_ast = parse_filter(filter_str)
+        except Exception:  # pragma: no cover
+            logger.warning(f"[BuildV3] Failed to parse filter: {filter_str}")
+            continue
+
+        # Find all column references in the filter
+        for col in filter_ast.find_all(ast.Column):
+            full_name = get_column_full_name(col)
+            if not full_name or SEPARATOR not in full_name:
+                # Simple column name (e.g., "status") - will be resolved from parent node
+                continue
+
+            if full_name in existing_dims:
+                # Already in dimensions, no need to add
+                continue
+
+            # Check if any existing dimension already covers this (node, column)
+            dim_ref = parse_dimension_ref(full_name)
+            is_covered = False
+            for existing_dim in ctx.dimensions:
+                existing_ref = parse_dimension_ref(existing_dim)
+                if (
+                    existing_ref.node_name == dim_ref.node_name
+                    and existing_ref.column_name == dim_ref.column_name
+                ):
+                    is_covered = True
+                    break
+
+            if not is_covered:
+                logger.info(
+                    f"[BuildV3] Auto-adding filter-only dimension {full_name}",
+                )
+                ctx.dimensions.append(full_name)
+                ctx.filter_dimensions.add(full_name)
+                existing_dims.add(full_name)
+
+
 def build_join_from_clause(
     cte_names: list[str],
     table_refs: dict[str, ast.Table],
