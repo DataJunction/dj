@@ -81,6 +81,10 @@ class BuildContext:
     metric_groups: list["MetricGroup"] = field(default_factory=list)
     decomposed_metrics: dict[str, "DecomposedMetricInfo"] = field(default_factory=dict)
 
+    # Dimensions needed only for filters (not included in output projection)
+    # Populated by add_dimensions_from_filters() in setup_build_context
+    filter_dimensions: set[str] = field(default_factory=set)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1
