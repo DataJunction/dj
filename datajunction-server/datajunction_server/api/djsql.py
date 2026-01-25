@@ -2,20 +2,28 @@
 Data related APIs.
 """
 
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
+from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.utils import try_get_dj_node
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     get_access_checker,
 )
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     get_query_service_client,
     get_session,
@@ -24,6 +32,179 @@ from datajunction_server.utils import (
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["DJSQL"])
+
+
+class DJSQLColumn(BaseModel):
+    """Column metadata for DJ SQL response."""
+
+    name: str
+    type: str
+    semantic_name: Optional[str] = None
+    semantic_type: Optional[str] = None  # "dimension", "metric", etc.
+
+
+class TranslatedDJSQL(BaseModel):
+    """Response model for translated DJ SQL."""
+
+    sql: str
+    columns: List[DJSQLColumn]
+    dialect: str
+
+
+def selects_from_metrics(select: ast.SelectExpression) -> bool:
+    """Check if a SELECT sources from the 'metrics' table."""
+    return (
+        select.from_ is not None
+        and len(select.from_.relations) == 1
+        and len(select.from_.relations[0].extensions) == 0
+        and str(select.from_.relations[0].primary).lower() == "metrics"
+    )
+
+
+async def parse_dj_sql(
+    session: AsyncSession,
+    query: str,
+) -> tuple[List[str], List[str], List[str], List[str], Optional[int]]:
+    """
+    Parse a DJ SQL query and extract metrics, dimensions, filters, orderby, limit.
+
+    Args:
+        session: Database session
+        query: DJ SQL query string like:
+            SELECT metric1, metric2, dim1, dim2
+            FROM metrics
+            GROUP BY dim1, dim2
+            WHERE filter1 AND filter2
+            ORDER BY dim1 ASC
+            LIMIT 10
+
+    Returns:
+        Tuple of (metrics, dimensions, filters, orderby, limit)
+    """
+    tree = parse(query)
+    select = tree.select
+
+    if not selects_from_metrics(select):
+        raise DJInvalidInputException(
+            "DJ SQL queries must SELECT FROM metrics. "
+            "Example: SELECT metric1, dim1 FROM metrics GROUP BY dim1",
+        )
+
+    # Validate no unsupported clauses
+    if any((select.having, select.lateral_views, select.set_op)):
+        raise DJInvalidInputException(
+            "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed in DJ SQL queries.",
+        )
+
+    # Extract dimensions from GROUP BY
+    dimensions = [str(exp) for exp in select.group_by]
+
+    # Extract metrics and validate projection
+    metrics = []
+    for col in select.projection:
+        if not isinstance(col, ast.Column):
+            raise DJInvalidInputException(
+                f"Only direct columns are allowed in DJ SQL queries, found: {col}",
+            )
+
+        col_ident = col.identifier(False)
+
+        # Check if it's a metric
+        metric_node = await try_get_dj_node(session, col_ident, {NodeType.METRIC})
+        if metric_node:
+            metrics.append(metric_node.name)
+        elif col_ident in dimensions:
+            # It's a dimension column, that's fine
+            pass
+        else:
+            raise DJInvalidInputException(
+                f"Column '{col_ident}' must be either a metric or in GROUP BY clause.",
+            )
+
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required in the SELECT.")
+
+    # Extract filters from WHERE
+    filters = [str(select.where)] if select.where else []
+
+    # Extract ORDER BY
+    orderby = []
+    if select.organization:
+        orderby = [
+            str(sort) for sort in (select.organization.order + select.organization.sort)
+        ]
+
+    # Extract LIMIT
+    limit = None
+    if select.limit:
+        try:
+            limit = int(str(select.limit))
+        except ValueError as exc:
+            raise DJInvalidInputException(
+                f"LIMIT must be an integer, got: {select.limit}",
+            ) from exc
+
+    return metrics, dimensions, filters, orderby, limit
+
+
+@router.get("/djsql/", response_model=TranslatedDJSQL)
+async def get_sql_for_djsql(
+    query: str = Query(..., description="DJ SQL query"),
+    dialect: str = Query("spark", description="SQL dialect (spark, trino, druid)"),
+    *,
+    session: AsyncSession = Depends(get_session),
+) -> TranslatedDJSQL:
+    """
+    Translate a DJ SQL query to executable SQL using the v3 builder.
+
+    DJ SQL syntax:
+    ```sql
+    SELECT <metric1>, <metric2>, <dim1>, <dim2>
+    FROM metrics
+    GROUP BY <dim1>, <dim2>
+    WHERE <filter1> AND <filter2>
+    ORDER BY <dim1> ASC
+    LIMIT 10
+    ```
+
+    Returns the generated SQL that can be executed against your data warehouse.
+    """
+    # Parse the DJ SQL query
+    metrics, dimensions, filters, orderby, limit = await parse_dj_sql(session, query)
+
+    # Map dialect string to enum
+    dialect_map = {
+        "spark": Dialect.SPARK,
+        "trino": Dialect.TRINO,
+        "druid": Dialect.DRUID,
+    }
+    dialect_enum = dialect_map.get(dialect.lower(), Dialect.SPARK)
+
+    # Build SQL using v3 builder
+    result = await build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=filters,
+        dialect=dialect_enum,
+    )
+
+    # TODO: Apply ORDER BY and LIMIT to the generated SQL if needed
+    # The v3 builder doesn't currently support these directly
+
+    return TranslatedDJSQL(
+        sql=result.sql,
+        columns=[
+            DJSQLColumn(
+                name=col.name,
+                type=col.type,
+                semantic_name=col.semantic_name,
+                semantic_type=col.semantic_type,
+            )
+            for col in result.columns
+        ],
+        dialect=dialect_enum.value,
+    )
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)
