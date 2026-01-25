@@ -56,7 +56,7 @@ class TestMetricsSQLBasic:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -112,7 +112,7 @@ class TestMetricsSQLBasic:
             FROM v3_order_details t1
             GROUP BY  t1.status
             )
-            SELECT  COALESCE(order_details_0.status) AS status,
+            SELECT  order_details_0.status AS status,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                 SUM(order_details_0.quantity_sum_06b64d2e) AS total_quantity
             FROM order_details_0
@@ -177,7 +177,7 @@ class TestMetricsSQLBasic:
             FROM v3_order_details t1
             GROUP BY  t1.status
             )
-            SELECT  COALESCE(order_details_0.status) AS status,
+            SELECT  order_details_0.status AS status,
                 SUM(order_details_0.unit_price_sum_55cff00f) / SUM(order_details_0.unit_price_count_55cff00f) AS avg_unit_price
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -317,7 +317,7 @@ class TestMetricsSQLDerived:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value,
                    SUM(order_details_0.quantity_sum_06b64d2e) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_items_per_order
             FROM order_details_0
@@ -503,7 +503,7 @@ class TestMetricsSQLDerived:
             GROUP BY  t2.category, t1.session_id
             )
 
-            SELECT  COALESCE(page_views_enriched_0.category) AS category,
+            SELECT  page_views_enriched_0.category AS category,
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
             FROM page_views_enriched_0
             GROUP BY  page_views_enriched_0.category
@@ -568,7 +568,7 @@ class TestMetricsSQLDerived:
             ),
             base_metrics AS (
                 SELECT
-                    COALESCE(order_details_0.month_order) AS month_order,
+                    order_details_0.month_order AS month_order,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                 FROM order_details_0
                 GROUP BY order_details_0.month_order
@@ -638,7 +638,7 @@ class TestMetricsSQLDerived:
             ),
             base_metrics AS (
                 SELECT
-                    COALESCE(order_details_0.month) AS month,
+                    order_details_0.month AS month,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                 FROM order_details_0
                 GROUP BY order_details_0.month
@@ -744,9 +744,9 @@ class TestMetricsSQLDerived:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.week) AS week,
-                COALESCE(order_details_0.month) AS month,
+                order_details_0.category AS category,
+                order_details_0.week AS week,
+                order_details_0.month AS month,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.category, order_details_0.week, order_details_0.month
@@ -866,7 +866,7 @@ class TestMetricsSQLDerived:
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             )
-            SELECT COALESCE(order_details_0.category) AS category,
+            SELECT order_details_0.category AS category,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.category = 'Electronics'
@@ -977,7 +977,7 @@ class TestMetricsSQLDerived:
                 WHERE t1.status = 'completed'
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status = 'completed'
@@ -1016,7 +1016,7 @@ class TestMetricsSQLDerived:
                 WHERE t1.status IN ('active', 'completed')
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status IN ('active', 'completed')
@@ -1055,7 +1055,7 @@ class TestMetricsSQLDerived:
                 WHERE t1.status != 'cancelled'
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status != 'cancelled'
@@ -1094,7 +1094,7 @@ class TestMetricsSQLDerived:
                 WHERE t1.status LIKE 'act%'
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status LIKE 'act%'
@@ -1141,8 +1141,8 @@ class TestMetricsSQLDerived:
                 WHERE t1.status = 'active' AND t2.category = 'Electronics'
                 GROUP BY t1.status, t2.category
             )
-            SELECT COALESCE(order_details_0.status) AS status,
-                   COALESCE(order_details_0.category) AS category,
+            SELECT order_details_0.status AS status,
+                   order_details_0.category AS category,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status = 'active' AND order_details_0.category = 'Electronics'
@@ -1283,8 +1283,8 @@ class TestMetricsSQLCrossFact:
             GROUP BY  t1.status, t2.category
             )
 
-            SELECT  COALESCE(order_details_0.status) AS status,
-                COALESCE(order_details_0.category) AS category,
+            SELECT  order_details_0.status AS status,
+                order_details_0.category AS category,
                 MAX(order_details_0.unit_price_max_55cff00f) AS max_unit_price,
                 MIN(order_details_0.unit_price_min_55cff00f) AS min_unit_price,
                 SUM(order_details_0.status_line_total_sum_43004dae) AS completed_order_revenue,
@@ -1410,9 +1410,9 @@ class TestMetricsSQLCrossFact:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.month) AS month,
-                COALESCE(order_details_0.week) AS week,
+                order_details_0.category AS category,
+                order_details_0.month AS month,
+                order_details_0.week AS week,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
@@ -1592,7 +1592,7 @@ class TestNonDecomposableMetrics:
                 t1.line_total
               FROM v3_order_details t1
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    MAX_BY(order_details_0.product_id, order_details_0.line_total) AS top_product_by_revenue
             FROM order_details_0
             GROUP BY  order_details_0.status
@@ -1648,8 +1648,8 @@ class TestNonDecomposableMetrics:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.date_id) AS date_id,
+                order_details_0.category AS category,
+                order_details_0.date_id AS date_id,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY  order_details_0.category, order_details_0.date_id
@@ -1728,8 +1728,8 @@ class TestNonDecomposableMetrics:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.date_id) AS date_id,
+                order_details_0.category AS category,
+                order_details_0.date_id AS date_id,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY  order_details_0.category, order_details_0.date_id
@@ -1812,7 +1812,7 @@ class TestMetricsSQLNestedDerived:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) / 50.0 * 100 AS aov_growth_index
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -1881,8 +1881,8 @@ class TestMetricsSQLNestedDerived:
             ),
             base_metrics AS (
                 SELECT
-                    COALESCE(order_details_0.category) AS category,
-                    COALESCE(order_details_0.week) AS week,
+                    order_details_0.category AS category,
+                    order_details_0.week AS week,
                     COUNT(DISTINCT order_details_0.order_id) AS order_count,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                     SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
@@ -2063,8 +2063,8 @@ class TestMetricsSQLNestedDerived:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.date_id) AS date_id,
+                order_details_0.category AS category,
+                order_details_0.date_id AS date_id,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.category, order_details_0.date_id
@@ -2141,9 +2141,9 @@ class TestMetricsSQLNestedDerived:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.date_id_order) AS date_id_order,
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.week) AS week,
+                order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                order_details_0.week AS week,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week
@@ -2234,10 +2234,10 @@ class TestMetricsSQLNestedDerived:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.date_id_order) AS date_id_order,
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.month) AS month,
-                COALESCE(order_details_0.week) AS week,
+                order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                order_details_0.month AS month,
+                order_details_0.week AS week,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
               GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.month, order_details_0.week
@@ -2356,9 +2356,9 @@ class TestMetricsSQLNestedDerived:
             ),
             base_metrics AS (
               SELECT
-                COALESCE(order_details_0.date_id_order) AS date_id_order,
-                COALESCE(order_details_0.category) AS category,
-                COALESCE(order_details_0.week) AS week,
+                order_details_0.date_id_order AS date_id_order,
+                order_details_0.category AS category,
+                order_details_0.week AS week,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
@@ -3045,7 +3045,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -3084,7 +3084,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -3123,7 +3123,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -3163,7 +3163,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -3208,7 +3208,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                    COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
@@ -3250,7 +3250,7 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -3290,9 +3290,135 @@ class TestMetricsSQLOrderByLimit:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
             """,
         )
+
+
+class TestFilterOnlyDimensions:
+    """Tests for filter-only dimensions (dimensions in WHERE but not in GROUP BY)."""
+
+    @pytest.mark.asyncio
+    async def test_filter_on_local_column(self, client_with_build_v3):
+        """
+        Test filtering on a local column (no external dimension join needed).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.order_details.status = 'completed'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Filter should be applied in the SQL (both grain group CTE and final SELECT)
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.status = 'completed'
+                GROUP BY t1.status
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.status = 'completed'
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        # Output should have 2 columns: status and total_revenue
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_only_dimension_excluded_from_output(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a dimension used only in a filter is not included in output.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.product.category = 'Electronics'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Filter dimension should be JOINed but not in output
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                GROUP BY t1.status
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        # Output should only have 2 columns: status and total_revenue
+        # category should NOT be in output
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]

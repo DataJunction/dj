@@ -312,14 +312,20 @@ def build_dimension_projection(
     columns_metadata: list[ColumnMetadata] = []
 
     for original_dim_ref, dim_col in dim_info:
-        # Build COALESCE(gg0.col, gg1.col, ...) AS col
-        coalesce_args: list[ast.Expression] = [
+        # Build column reference(s) for this dimension
+        col_refs: list[ast.Expression] = [
             make_column_ref(dim_col, alias) for alias in cte_aliases
         ]
-        coalesce_func = ast.Function(ast.Name("COALESCE"), args=coalesce_args)
-        aliased_coalesce = coalesce_func.set_alias(ast.Name(dim_col))
-        aliased_coalesce.set_as(True)  # Include "AS" in output
-        projection.append(aliased_coalesce)
+
+        # Only use COALESCE when there are multiple CTEs (Trino requires >= 2 args)
+        if len(col_refs) == 1:
+            col_expr = col_refs[0]
+        else:
+            col_expr = ast.Function(ast.Name("COALESCE"), args=col_refs)
+
+        aliased_col = col_expr.set_alias(ast.Name(dim_col))
+        aliased_col.set_as(True)  # Include "AS" in output
+        projection.append(aliased_col)
 
         # Get actual type from grain groups, fall back to string if not found
         col_type = dim_types.get(original_dim_ref, "string")
@@ -524,13 +530,17 @@ def build_base_metrics_cte(
     """
     base_metrics_projection: list[Any] = []
 
-    # Add dimension columns (COALESCE across grain groups)
+    # Add dimension columns (COALESCE only when multiple CTEs for Trino compatibility)
     for _, dim_col in dim_info:
-        coalesce_args: list[ast.Expression] = [
+        col_refs: list[ast.Expression] = [
             make_column_ref(dim_col, alias) for alias in cte_aliases
         ]
-        coalesce_func = ast.Function(ast.Name("COALESCE"), args=coalesce_args)
-        aliased = coalesce_func.set_alias(ast.Name(dim_col))
+        # Only use COALESCE when there are multiple CTEs (Trino requires >= 2 args)
+        if len(col_refs) == 1:
+            col_expr = col_refs[0]
+        else:
+            col_expr = ast.Function(ast.Name("COALESCE"), args=col_refs)
+        aliased = col_expr.set_alias(ast.Name(dim_col))
         aliased.set_as(True)
         base_metrics_projection.append(aliased)
 
