@@ -467,6 +467,88 @@ class TestDJSQLFilterOnlyDimensions:
             },
         ]
 
+    @pytest.mark.asyncio
+    async def test_no_dimensions_total_aggregation(self, client_with_build_v3):
+        """
+        Test querying a metric without any dimensions (total aggregation).
+
+        This should return a single row with the metric aggregated across all data.
+        """
+        response = await client_with_build_v3.get(
+            "/djsql/",
+            params={
+                "query": """
+                    SELECT v3.total_revenue
+                    FROM metrics
+                """,
+                "dialect": "spark",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Should generate valid SQL with no GROUP BY (or empty GROUP BY)
+        assert "SELECT" in result["sql"]
+
+        # Verify only 1 output column (the metric)
+        assert result["columns"] == [
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_name": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_on_metric(self, client_with_build_v3):
+        """
+        Test filtering on a metric value.
+
+        Note: Filtering on a metric typically requires a HAVING clause in SQL,
+        but DJ SQL treats it as a post-aggregation filter.
+        """
+        response = await client_with_build_v3.get(
+            "/djsql/",
+            params={
+                "query": """
+                    SELECT v3.total_revenue, v3.order_details.status
+                    FROM metrics
+                    WHERE v3.total_revenue > 100
+                    GROUP BY v3.order_details.status
+                """,
+                "dialect": "spark",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # The metric filter should be applied (either as HAVING or post-filter)
+        # The SQL should still be valid and return results
+        assert "SELECT" in result["sql"]
+        assert (
+            "total_revenue" in result["sql"].lower()
+            or "line_total" in result["sql"].lower()
+        )
+
+        # Verify output columns
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_name": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_name": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
 
 class TestDJSQLDialects:
     """Tests for different SQL dialects."""
