@@ -23,9 +23,6 @@ from datajunction_server.construction.build_v3.cte import (
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
 )
-from datajunction_server.construction.build_v3.filters import (
-    parse_and_resolve_filters,
-)
 from datajunction_server.construction.build_v3.utils import (
     build_join_from_clause,
     get_short_name,
@@ -1488,8 +1485,10 @@ def generate_metrics_sql(
     all_cte_asts, cte_aliases = collect_and_build_ctes(base_grain_groups)
 
     # Build dimension info and projection
+    # Filter out filter-only dimensions (they're needed for WHERE but not output)
+    output_dimensions = [d for d in dimensions if d not in ctx.filter_dimensions]
     dim_types = get_dimension_types(grain_groups)
-    dim_info = parse_dimension_refs(ctx, dimensions)
+    dim_info = parse_dimension_refs(ctx, output_dimensions)
     dimension_aliases = build_dimension_alias_map(dim_info)
     # Build mapping from alias to dimension node for window function PARTITION BY logic
     # Use ALL dimensions from grain groups (not just user-requested dim_info) to ensure
@@ -1819,26 +1818,15 @@ def generate_metrics_sql(
         grain_levels,
     )
 
-    # Build WHERE clause from filters
-    # For metrics SQL, filters reference dimension columns which are now in the CTEs
-    where_clause: Optional[ast.Expression] = None
-    if ctx.filters:
-        # Resolve filters using dimension aliases
-        # Use base_metrics CTE for window function queries, otherwise first grain group CTE
-        filter_cte = (
-            window_metrics_cte_alias if window_metrics_cte_alias else cte_aliases[0]
-        )
-        where_clause = parse_and_resolve_filters(
-            ctx.filters,
-            dimension_aliases,
-            cte_alias=filter_cte,
-        )
+    # Note: Filters are applied in the grain group CTEs (measures level), not here.
+    # The grain group CTEs already contain WHERE clauses for all filters.
+    # Re-applying filters here would be redundant and could break for filter-only
+    # dimensions whose columns aren't available in the final projection.
 
     # Build the final SELECT
     select_ast = ast.Select(
         projection=projection,
         from_=from_clause,
-        where=where_clause,
         group_by=group_by,
     )
 
