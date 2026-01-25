@@ -342,7 +342,7 @@ class Node(Base):
             NodeType.CUBE: CubeSpec,
         }
 
-        await session.refresh(self, ["owners"])
+        await session.refresh(self, ["owners", "tags"])
 
         # Base kwargs common to all node types
         base_kwargs = dict(

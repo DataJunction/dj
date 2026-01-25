@@ -2001,3 +2001,98 @@ class TestPlanCommand:
         captured = capsys.readouterr()
         assert "comp1" in captured.out
         assert "COUNT(*)" in captured.out
+
+
+# =============================================================================
+# Namespace Diff CLI Tests
+# =============================================================================
+
+
+def test_diff_text_format(
+    builder_client,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj diff <compare-namespace> --base <base-namespace>` with text format.
+    """
+    output = run_cli_command(
+        builder_client,
+        ["dj", "diff", "foo.bar", "--base", "default"],
+    )
+    # Should contain the diff header
+    assert "Namespace Diff" in output or "Summary" in output
+
+
+def test_diff_json_format(
+    builder_client,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj diff <compare-namespace> --base <base-namespace> --format json`.
+    """
+    output = run_cli_command(
+        builder_client,
+        ["dj", "diff", "foo.bar", "--base", "default", "--format", "json"],
+    )
+    # Output should be valid JSON
+    import json
+
+    data = json.loads(output)
+    assert "base_namespace" in data
+    assert "compare_namespace" in data
+    assert data["base_namespace"] == "default"
+    assert data["compare_namespace"] == "foo.bar"
+
+
+def test_diff_markdown_format(
+    builder_client,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj diff <compare-namespace> --base <base-namespace> --format markdown`.
+    """
+    output = run_cli_command(
+        builder_client,
+        ["dj", "diff", "foo.bar", "--base", "default", "--format", "markdown"],
+    )
+    # Output should be markdown format
+    assert "## Namespace Diff:" in output
+    assert "### Summary" in output
+    assert "foo.bar" in output
+    assert "default" in output
+
+
+def test_diff_nonexistent_namespace(
+    builder_client,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj diff` with non-existent namespace shows error.
+    """
+    output = run_cli_command(
+        builder_client,
+        ["dj", "diff", "nonexistent.namespace", "--base", "default"],
+    )
+    # Should contain error message
+    assert "ERROR" in output or "error" in output.lower()
+
+
+def test_diff_json_format_error(
+    builder_client,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test `dj diff` with non-existent namespace in json format shows error in JSON.
+    """
+    output = run_cli_command(
+        builder_client,
+        [
+            "dj",
+            "diff",
+            "nonexistent.namespace",
+            "--base",
+            "default",
+            "--format",
+            "json",
+        ],
+    )
+    # Output should be valid JSON with error
+    import json
+
+    data = json.loads(output)
+    assert "error" in data

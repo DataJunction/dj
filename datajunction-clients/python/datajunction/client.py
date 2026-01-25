@@ -31,6 +31,43 @@ class DJClient(_internal.DJClient):
             namespace_list = [n for n in namespace_list if n.startswith(prefix)]
         return namespace_list
 
+    def namespace_diff(
+        self,
+        compare_namespace: str,
+        base_namespace: str,
+    ) -> models.NamespaceDiff:
+        """
+        Compare two namespaces and return a diff showing what changed.
+
+        This is useful for branch-based deployments where you want to see:
+        - Which nodes were directly modified (user-provided fields changed)
+        - Which nodes changed due to propagation (only status/version changed)
+        - Which nodes were added or removed
+
+        Args:
+            compare_namespace: The namespace to compare (e.g., feature branch)
+            base_namespace: The base namespace to compare against (e.g., main)
+
+        Returns:
+            NamespaceDiff object with methods like to_markdown() for formatting
+
+        Example::
+
+            client = DJClient("https://dj.example.com")
+            diff = client.namespace_diff("dj.feature-123", base_namespace="dj.main")
+            print(diff.summary())  # "+2 added, ~3 direct changes, ~5 propagated"
+            print(diff.to_markdown())  # For GitHub PR comments
+        """
+        response = self._session.get(
+            f"/namespaces/{compare_namespace}/diff",
+            params={"base": base_namespace},
+        )
+        if response.status_code != 200:
+            raise DJClientException(
+                f"Failed to get namespace diff: {response.text}",
+            )
+        return models.NamespaceDiff.from_dict(None, response.json())
+
     def list_dimensions(self, namespace: Optional[str] = None) -> List[str]:
         """
         List dimension nodes for a given namespace or all.

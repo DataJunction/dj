@@ -844,6 +844,220 @@ class DJCLI:
             console.print(f"[bold red]ERROR:[/bold red] {exc}")
             raise
 
+    def diff(
+        self,
+        compare_namespace: str,
+        base_namespace: str,
+        format: str = "text",
+    ):
+        """
+        Compare two namespaces and show what changed.
+        """
+        console = Console()
+
+        try:
+            diff_result = self.builder_client.namespace_diff(
+                compare_namespace=compare_namespace,
+                base_namespace=base_namespace,
+            )
+
+            if format == "json":
+                # Output raw JSON
+                response = self.builder_client._session.get(
+                    f"/namespaces/{compare_namespace}/diff",
+                    params={"base": base_namespace},
+                )
+                print(json.dumps(response.json(), indent=2))
+            elif format == "markdown":
+                # Output GitHub-flavored markdown (for CI/CD)
+                print(diff_result.to_markdown())
+            else:
+                # Rich formatted output for terminal
+                self._display_diff_rich(diff_result, console)
+
+        except DJClientException as exc:
+            error_data = exc.args[0] if exc.args else str(exc)
+            message = (
+                error_data.get("message", str(exc))
+                if isinstance(error_data, dict)
+                else str(exc)
+            )
+            if format == "json":
+                print(json.dumps({"error": message}, indent=2))
+            else:
+                console.print(f"[red bold]ERROR:[/red bold] {message}")
+
+    def _display_diff_rich(self, diff_result, console: Console):
+        """Display namespace diff with rich formatting."""
+
+        # Header
+        console.print()
+        console.print(
+            "[bold blue]🔀 Namespace Diff[/bold blue]",
+        )
+        console.print(
+            f"   Compare: [bold green]{diff_result.compare_namespace}[/bold green]",
+        )
+        console.print(
+            f"   Base:    [bold cyan]{diff_result.base_namespace}[/bold cyan]",
+        )
+        console.print("━" * 60)
+        console.print()
+
+        # Summary Table
+        summary_table = Table(
+            title="[bold]📊 Summary[/bold]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        summary_table.add_column("Category", style="bold")
+        summary_table.add_column("Count", justify="right")
+
+        summary_table.add_row(
+            "[green]➕ Added[/green]",
+            str(diff_result.added_count),
+        )
+        summary_table.add_row(
+            "[red]➖ Removed[/red]",
+            str(diff_result.removed_count),
+        )
+        summary_table.add_row(
+            "[yellow]✏️  Direct Changes[/yellow]",
+            str(diff_result.direct_change_count),
+        )
+        summary_table.add_row(
+            "[blue]🔄 Propagated Changes[/blue]",
+            str(diff_result.propagated_change_count),
+        )
+        summary_table.add_row(
+            "[dim]⚪ Unchanged[/dim]",
+            str(diff_result.unchanged_count),
+        )
+
+        console.print(summary_table)
+        console.print()
+
+        # Added nodes
+        if diff_result.added:  # pragma: no branch
+            added_table = Table(
+                title="[bold green]➕ Added Nodes[/bold green]",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold cyan",
+            )
+            added_table.add_column("Node", style="magenta")
+            added_table.add_column("Type", style="dim", width=12)
+
+            for node in diff_result.added:
+                added_table.add_row(node.name, node.node_type)
+
+            console.print(added_table)
+            console.print()
+
+        # Removed nodes
+        if diff_result.removed:  # pragma: no branch
+            removed_table = Table(
+                title="[bold red]➖ Removed Nodes[/bold red]",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold cyan",
+            )
+            removed_table.add_column("Node", style="magenta")
+            removed_table.add_column("Type", style="dim", width=12)
+
+            for node in diff_result.removed:
+                removed_table.add_row(node.name, node.node_type)
+
+            console.print(removed_table)
+            console.print()
+
+        # Direct changes
+        if diff_result.direct_changes:  # pragma: no branch
+            changes_table = Table(
+                title="[bold yellow]✏️  Direct Changes[/bold yellow]",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold cyan",
+            )
+            changes_table.add_column("Node", style="magenta")
+            changes_table.add_column("Type", style="dim", width=12)
+            changes_table.add_column("Changed Fields", style="white")
+
+            for change in diff_result.direct_changes:
+                fields = ", ".join(change.changed_fields or [])
+                changes_table.add_row(change.name, change.node_type, fields)
+
+            console.print(changes_table)
+            console.print()
+
+            # Column changes detail
+            changes_with_columns = [
+                c for c in diff_result.direct_changes if c.column_changes
+            ]
+            if changes_with_columns:  # pragma: no branch
+                col_table = Table(
+                    title="[bold]⚡ Column Changes[/bold]",
+                    box=box.ROUNDED,
+                    show_header=True,
+                    header_style="bold cyan",
+                )
+                col_table.add_column("Node", style="magenta")
+                col_table.add_column("Change", style="bold", width=12)
+                col_table.add_column("Details", style="white")
+
+                for change in changes_with_columns:
+                    for col in change.column_changes or []:
+                        if col.change_type == "added":
+                            col_table.add_row(
+                                change.name,
+                                "[green]Added[/green]",
+                                f"{col.column} ({col.new_type})",
+                            )
+                        elif col.change_type == "removed":
+                            col_table.add_row(
+                                change.name,
+                                "[red]Removed[/red]",
+                                f"{col.column} ({col.old_type})",
+                            )
+                        elif col.change_type == "type_changed":  # pragma: no cover
+                            col_table.add_row(
+                                change.name,
+                                "[yellow]Type Changed[/yellow]",
+                                f"{col.column}: {col.old_type} → {col.new_type}",
+                            )
+
+                console.print(col_table)
+                console.print()
+
+        # Propagated changes
+        if diff_result.propagated_changes:  # pragma: no cover
+            prop_table = Table(
+                title="[bold blue]🔄 Propagated Changes[/bold blue]",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold cyan",
+            )
+            prop_table.add_column("Node", style="magenta")
+            prop_table.add_column("Type", style="dim", width=12)
+            prop_table.add_column("Status Change", style="white")
+            prop_table.add_column("Caused By", style="cyan")
+
+            for change in diff_result.propagated_changes:
+                status = ""
+                if change.base_status and change.compare_status:
+                    status = f"{change.base_status} → {change.compare_status}"
+                caused_by = ", ".join(change.caused_by or [])
+                prop_table.add_row(change.name, change.node_type, status, caused_by)
+
+            console.print(prop_table)
+            console.print()
+
+        # No changes message
+        if not diff_result.has_changes():  # pragma: no cover
+            console.print("[green]✅ No changes detected between namespaces.[/green]")
+            console.print()
+
     def create_parser(self):
         """Creates the CLI arg parser"""
         parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
@@ -1231,6 +1445,29 @@ class DJCLI:
             help="Output format (default: table)",
         )
 
+        # `dj diff <compare-namespace> --base <base-namespace> --format text|json|markdown`
+        diff_parser = subparsers.add_parser(
+            "diff",
+            help="Compare two namespaces and show what changed",
+        )
+        diff_parser.add_argument(
+            "compare_namespace",
+            help="The namespace to compare (e.g., feature branch namespace)",
+        )
+        diff_parser.add_argument(
+            "--base",
+            type=str,
+            required=True,
+            help="The base namespace to compare against (e.g., main branch namespace)",
+        )
+        diff_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json", "markdown"],
+            help="Output format: text (rich terminal), json, or markdown (for CI/CD)",
+        )
+
         return parser
 
     def dispatch_command(self, args, parser):
@@ -1313,6 +1550,12 @@ class DJCLI:
                 engine_name=args.engine,
                 engine_version=args.engine_version,
                 limit=args.limit,
+                format=args.format,
+            )
+        elif args.command == "diff":
+            self.diff(
+                compare_namespace=args.compare_namespace,
+                base_namespace=args.base,
                 format=args.format,
             )
         else:

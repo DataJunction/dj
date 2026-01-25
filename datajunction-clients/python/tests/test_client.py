@@ -534,3 +534,96 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert cube_two.name == "default.cube_two"
         assert cube_two.metrics == ["default.num_repair_orders"]
         assert cube_two.dimensions == ["default.municipality_dim.local_region"]
+
+    #
+    # Namespace Diff
+    #
+    def test_namespace_diff_between_namespaces(self, client):
+        """
+        Test namespace_diff returns correct structure when comparing namespaces.
+
+        The 'default' and 'foo.bar' namespaces have some differences in the fixture,
+        so we verify the diff structure is correct.
+        """
+        diff = client.namespace_diff(
+            compare_namespace="foo.bar",
+            base_namespace="default",
+        )
+        # The namespaces should be set correctly
+        assert diff.base_namespace == "default"
+        assert diff.compare_namespace == "foo.bar"
+        # Verify the diff structure has the expected attributes
+        assert isinstance(diff.added, list)
+        assert isinstance(diff.removed, list)
+        assert isinstance(diff.direct_changes, list)
+        assert isinstance(diff.propagated_changes, list)
+        assert isinstance(diff.added_count, int)
+        assert isinstance(diff.removed_count, int)
+        assert isinstance(diff.direct_change_count, int)
+        assert isinstance(diff.propagated_change_count, int)
+        assert isinstance(diff.unchanged_count, int)
+
+    def test_namespace_diff_has_changes(self, client):
+        """
+        Test has_changes() method on namespace diff result.
+        """
+        diff = client.namespace_diff(
+            compare_namespace="foo.bar",
+            base_namespace="default",
+        )
+        # The diff should have some type of output (may have direct_changes
+        # due to dimension_links with different namespace prefixes)
+        # or unchanged_count should be > 0 if truly identical
+        total = (
+            diff.added_count
+            + diff.removed_count
+            + diff.direct_change_count
+            + diff.propagated_change_count
+            + diff.unchanged_count
+        )
+        assert total > 0
+
+    def test_namespace_diff_summary(self, client):
+        """
+        Test summary() method on namespace diff result.
+        """
+        diff = client.namespace_diff(
+            compare_namespace="foo.bar",
+            base_namespace="default",
+        )
+        summary = diff.summary()
+        # Summary should be a string
+        assert isinstance(summary, str)
+        # It should either say "No changes" or include change counts
+        assert (
+            "changes" in summary.lower()
+            or "added" in summary.lower()
+            or "No changes" in summary
+        )
+
+    def test_namespace_diff_to_markdown(self, client):
+        """
+        Test to_markdown() method on namespace diff result.
+        """
+        diff = client.namespace_diff(
+            compare_namespace="foo.bar",
+            base_namespace="default",
+        )
+        md = diff.to_markdown()
+        # Should contain header with namespace names
+        assert "## Namespace Diff:" in md
+        assert "foo.bar" in md
+        assert "default" in md
+        # Should contain summary section
+        assert "### Summary" in md
+
+    def test_namespace_diff_nonexistent_namespace(self, client):
+        """
+        Test namespace_diff raises exception for non-existent namespace.
+        """
+        with pytest.raises(DJClientException) as exc_info:
+            client.namespace_diff(
+                compare_namespace="nonexistent.namespace",
+                base_namespace="default",
+            )
+        assert "Failed to get namespace diff" in str(exc_info.value)
