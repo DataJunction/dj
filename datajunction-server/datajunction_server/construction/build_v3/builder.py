@@ -317,7 +317,7 @@ async def build_metrics_sql(
     filters: list[str] | None = None,
     orderby: list[str] | None = None,
     limit: int | None = None,
-    dialect: Dialect = Dialect.SPARK,
+    dialect: Dialect | None = None,
     use_materialized: bool = True,
 ) -> GeneratedSQL:
     """
@@ -338,6 +338,10 @@ async def build_metrics_sql(
     Layer 3: Derived Metrics
         Computes derived metrics that reference other metrics.
     """
+    # Default to SPARK dialect if not specified
+    if dialect is None:
+        dialect = Dialect.SPARK
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
         session=session,

@@ -90,7 +90,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -161,7 +161,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    COUNT(DISTINCT order_details_0.order_id) AS order_count
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -234,7 +234,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -313,7 +313,7 @@ class TestMetricsSQLWithPreAggregation:
               GROUP BY  status
             )
             SELECT
-              COALESCE(order_details_0.status) AS status,
+              order_details_0.status AS status,
               SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY  order_details_0.status
@@ -374,7 +374,7 @@ class TestMetricsSQLWithPreAggregation:
                 FROM warehouse.preaggs.v3_order_metrics
                 GROUP BY status, order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -438,7 +438,7 @@ class TestPreAggGrainMatching:
                 FROM warehouse.preaggs.v3_revenue_by_status_customer
                 GROUP BY status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
