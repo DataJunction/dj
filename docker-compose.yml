@@ -22,6 +22,7 @@ services:
         RELOAD: "--reload"
     volumes:
       - ./datajunction-server:/code
+      - /code/.venv  # Isolate container venv from local
     command: /bin/sh -c "uv sync --extra uvicorn --extra transpilation --no-dev && uv run opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
@@ -114,6 +115,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
+      - /code/.venv  # Isolate container venv from local
     command: /bin/bash -c "uv sync --extra uvicorn --no-dev && uv run uvicorn djqs.api.main:app --host 0.0.0.0 --port 8001 --reload"
     ports:
       - "8001:8001"
@@ -129,6 +131,7 @@ services:
       context: ./datajunction-server
     volumes:
       - ./datajunction-server:/code
+      - /code/.venv  # Isolate container venv from local
     working_dir: /code/datajunction_server
     command: /bin/bash -c "uv sync --no-dev && uv run alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj" upgrade head"
     restart: on-failure
@@ -165,6 +168,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
+      - /code/.venv  # Isolate container venv from local
     command: /bin/bash -c "uv sync --no-dev && uv run alembic -x uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/djqs" upgrade head"
     restart: on-failure
     depends_on:
@@ -191,6 +195,7 @@ services:
       - djrs-network
     volumes:
       - ./datajunction-reflection:/code
+      - /code/.venv  # Isolate container venv from local
     depends_on:
       - djrs-redis
       - dj
@@ -209,6 +214,7 @@ services:
     restart: "no"
     volumes:
       - ./datajunction-reflection:/code
+      - /code/.venv  # Isolate container venv from local
 
   jupyter-notebook:
     image: jupyter/scipy-notebook
