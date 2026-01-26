@@ -1428,3 +1428,116 @@ async def test_dimension_link_with_default_value(
     GROUP BY events_0.registration_country
     """
     assert_sql_equal(v3_metrics_sql, expected_v3_metrics_sql)
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_default_value_graphql(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Test that the default_value field is exposed via GraphQL.
+    """
+    # Create dimension link with default_value
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": (
+                "default.events.user_id = default.users.user_id "
+                "AND default.events.event_start_date = default.users.snapshot_date"
+            ),
+            "join_cardinality": "one_to_one",
+            "default_value": "Unknown User",
+        },
+    )
+    assert response.status_code == 201
+
+    # Query via GraphQL for the dimension links including defaultValue
+    query = """
+    {
+        findNodes(names: ["default.events"]) {
+            name
+            current {
+                dimensionLinks {
+                    dimension {
+                        name
+                    }
+                    joinType
+                    joinSql
+                    joinCardinality
+                    role
+                    defaultValue
+                }
+            }
+        }
+    }
+    """
+    response = await dimensions_link_client.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify the response structure
+    assert "data" in data
+    assert "findNodes" in data["data"]
+    assert len(data["data"]["findNodes"]) == 1
+
+    node = data["data"]["findNodes"][0]
+    assert node["name"] == "default.events"
+    assert len(node["current"]["dimensionLinks"]) == 1
+
+    dimension_link = node["current"]["dimensionLinks"][0]
+    assert dimension_link["dimension"]["name"] == "default.users"
+    assert dimension_link["joinType"] == "LEFT"
+    assert dimension_link["joinCardinality"] == "ONE_TO_ONE"
+    assert dimension_link["defaultValue"] == "Unknown User"
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_no_default_value_graphql(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Test that dimension links without default_value return null via GraphQL.
+    """
+    # Create dimension link without default_value
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "inner",
+            "join_on": (
+                "default.events.user_id = default.users.user_id "
+                "AND default.events.event_start_date = default.users.snapshot_date"
+            ),
+            "join_cardinality": "one_to_one",
+            # No default_value
+        },
+    )
+    assert response.status_code == 201
+
+    # Query via GraphQL
+    query = """
+    {
+        findNodes(names: ["default.events"]) {
+            name
+            current {
+                dimensionLinks {
+                    dimension {
+                        name
+                    }
+                    joinType
+                    defaultValue
+                }
+            }
+        }
+    }
+    """
+    response = await dimensions_link_client.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    dimension_link = data["data"]["findNodes"][0]["current"]["dimensionLinks"][0]
+    assert dimension_link["dimension"]["name"] == "default.users"
+    assert dimension_link["joinType"] == "INNER"
+    assert dimension_link["defaultValue"] is None
