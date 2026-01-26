@@ -286,8 +286,37 @@ DJ will distinguish between the two dimension roles with the following syntax:
 * `country.name[registration_country]`
 * `country.name[event_country]`
 
-Or more generally, `<dimension>[<role>]`. The `[role]` part can be safely omitted if there is only a single role 
+Or more generally, `<dimension>[<role>]`. The `[role]` part can be safely omitted if there is only a single role
 defined for that dimension.
+
+#### Default Values for NULL Handling
+
+When using `LEFT` or `RIGHT` join types for dimension links, unmatched rows will produce NULL values for dimension
+columns. You can configure a `default_value` on the dimension link to provide a fallback value in these cases.
+
+When `default_value` is set, DJ will wrap dimension columns in a `COALESCE` function in the generated SQL:
+
+```sql
+-- Without default_value
+SELECT user.name AS user_name
+FROM events
+LEFT JOIN user ON events.user_id = user.id
+
+-- With default_value = "Unknown"
+SELECT COALESCE(user.name, 'Unknown') AS user_name
+FROM events
+LEFT JOIN user ON events.user_id = user.id
+```
+
+This is useful when:
+- You want to ensure dimension columns never return NULL in query results
+- Downstream consumers expect non-null values for grouping or display
+- You want to provide meaningful labels like "Unknown", "N/A", or "Other" for unmatched rows
+
+{{< alert icon="👉" >}}
+The `default_value` option is only applicable when using `LEFT` or `RIGHT` join types, as these are the join types
+that can produce NULL values from unmatched rows.
+{{< /alert >}}
 
 ### Reference Link
 
