@@ -360,14 +360,33 @@ def build_select_ast(
 
         # Register alias (needed for filter resolution even if not in projection)
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
-        if clean_alias != resolved_dim.column_name:
-            col_ref.alias = ast.Name(clean_alias)
+
+        # Check if this dimension has a default_value configured on its link
+        # Use default_value from the last link in the join path (the dimension's direct link)
+        default_value = None
+        if resolved_dim.join_path and resolved_dim.join_path.links:
+            last_link = resolved_dim.join_path.links[-1]
+            default_value = last_link.default_value
+
+        # Apply COALESCE with default_value if configured
+        if default_value is not None:
+            coalesce_func = ast.Function(
+                ast.Name("COALESCE"),
+                args=[col_ref, ast.String(f"'{default_value}'")],
+            )
+            aliased_expr = coalesce_func.set_alias(ast.Name(clean_alias))
+            aliased_expr.set_as(True)
+            col_expr: Any = aliased_expr
+        else:
+            col_expr = col_ref
+            if clean_alias != resolved_dim.column_name:
+                col_expr.alias = ast.Name(clean_alias)
 
         # Skip filter-only dimensions from projection
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
 
-        projection.append(col_ref)
+        projection.append(col_expr)
 
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
     # These are added to the output so the result can be re-aggregated
@@ -398,7 +417,7 @@ def build_select_ast(
         # Clone expression and add alias
         aliased_expr = ast.Alias(
             alias=ast.Name(clean_alias),
-            child=expr,
+            child=expr,  # type: ignore[arg-type]
         )
         projection.append(aliased_expr)
 

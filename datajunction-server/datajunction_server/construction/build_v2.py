@@ -1816,7 +1816,7 @@ def build_requested_dimensions_columns(
     requested_dimensions: list[str],
     link: DimensionLink,
     dimension_node_joins: dict[str, DimensionJoin],
-) -> Tuple[list[ast.Column], list[DJQueryBuildError]]:
+) -> Tuple[list[Union[ast.Column, ast.Alias, ast.Function]], list[DJQueryBuildError]]:
     """
     Builds the requested dimension columns for the final select layer.
     """
@@ -1872,9 +1872,12 @@ def build_dimension_attribute(
     dimension_node_joins: dict[str, DimensionJoin],
     link: DimensionLink,
     alias: Optional[str] = None,
-) -> Optional[ast.Column]:
+) -> Optional[Union[ast.Column, ast.Alias, ast.Function]]:
     """
-    Turn the canonical dimension attribute into a column on the query AST
+    Turn the canonical dimension attribute into a column on the query AST.
+
+    If the dimension link has a default_value configured, wraps the column
+    in COALESCE(column, default_value) to handle NULL results from LEFT JOINs.
     """
     dimension_attr = FullColumnName(full_column_name)
     node_query = (
@@ -1896,9 +1899,8 @@ def build_dimension_attribute(
                 foreign_key_column_name
                 and col.alias_or_name.identifier() == foreign_key_column_name  # type: ignore
             ):
-                return ast.Column(
+                column = ast.Column(
                     name=ast.Name(col.alias_or_name.name),  # type: ignore
-                    alias=ast.Name(alias) if alias else None,
                     _table=(
                         node_query
                         if not dimension_attr.role
@@ -1910,6 +1912,21 @@ def build_dimension_attribute(
                     _type=col.type,  # type: ignore
                     semantic_entity=full_column_name,
                 )
+
+                # Apply COALESCE with default_value if configured
+                if link.default_value is not None:
+                    coalesce_expr = ast.Function(
+                        ast.Name("COALESCE"),
+                        args=[column, ast.String(f"'{link.default_value}'")],
+                    )
+                    if alias:
+                        aliased = coalesce_expr.set_alias(ast.Name(alias))
+                        aliased.set_as(True)
+                        return aliased
+                    return coalesce_expr
+
+                column.alias = ast.Name(alias) if alias else None
+                return column
     return None  # pragma: no cover
 
 
