@@ -1460,6 +1460,7 @@ export const DataJunctionAPI = {
     joinType = null,
     joinCardinality = null,
     role = null,
+    defaultValue = null,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
       method: 'POST',
@@ -1472,6 +1473,7 @@ export const DataJunctionAPI = {
         join_on: joinOn,
         join_cardinality: joinCardinality,
         role: role,
+        default_value: defaultValue,
       }),
       credentials: 'include',
     });
