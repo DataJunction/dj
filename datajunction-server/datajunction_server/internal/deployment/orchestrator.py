@@ -757,6 +757,7 @@ class DeploymentOrchestrator:
                 join_type=join_link.join_type,
                 join_on=join_link.rendered_join_on,
                 role=join_link.role,
+                default_value=join_link.default_value,
             )
             (
                 dimension_link,
@@ -1958,6 +1959,7 @@ class DeploymentOrchestrator:
                     join_type=link.join_type,
                     join_on=link.rendered_join_on,
                     role=link.role,
+                    default_value=link.default_value,
                 ),
                 self.registry.nodes,
             )
