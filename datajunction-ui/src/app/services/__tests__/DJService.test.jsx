@@ -875,6 +875,7 @@ describe('DataJunctionAPI', () => {
         join_on: joinOn,
         join_cardinality: null,
         role: null,
+        default_value: null,
       }),
       method: 'POST',
     });
