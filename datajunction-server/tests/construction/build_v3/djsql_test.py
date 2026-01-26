@@ -46,7 +46,7 @@ class TestDJSQLBasic:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -98,7 +98,7 @@ class TestDJSQLBasic:
                 FROM v3_order_details t1
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                 SUM(order_details_0.quantity_sum_06b64d2e) AS total_quantity
             FROM order_details_0
@@ -148,7 +148,7 @@ class TestDJSQLBasic:
                 FROM v3_order_details t1
                 GROUP BY t1.status, t1.order_id
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS avg_order_value
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -235,7 +235,7 @@ class TestDJSQLWithPreAggregation:
                 FROM warehouse.preaggs.v3_revenue_by_status
                 GROUP BY status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
@@ -317,6 +317,10 @@ class TestDJSQLValidation:
     async def test_column_not_in_group_by(self, client_with_build_v3):
         """
         Test that non-metric columns must be in GROUP BY.
+
+        Since djsql delegates validation to build_metrics_sql, columns not in
+        GROUP BY are treated as metrics. If they're not valid metrics, the
+        builder returns "Metric not found".
         """
         response = await client_with_build_v3.get(
             "/djsql/",
@@ -329,9 +333,9 @@ class TestDJSQLValidation:
             },
         )
 
-        # Should fail - status not in GROUP BY
+        # Should fail - status treated as metric but isn't one
         assert response.status_code == 422  # Validation error
-        assert "group by" in response.json()["message"].lower()
+        assert "metric not found" in response.json()["message"].lower()
 
 
 class TestDJSQLFilterOnlyDimensions:
@@ -377,7 +381,7 @@ class TestDJSQLFilterOnlyDimensions:
                 WHERE t1.status = 'completed'
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             WHERE order_details_0.status = 'completed'
@@ -444,7 +448,7 @@ class TestDJSQLFilterOnlyDimensions:
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status
             )
-            SELECT COALESCE(order_details_0.status) AS status,
+            SELECT order_details_0.status AS status,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
             GROUP BY order_details_0.status
