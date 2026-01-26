@@ -11,7 +11,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -19,7 +18,6 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
