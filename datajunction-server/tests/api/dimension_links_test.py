@@ -11,6 +11,7 @@ from requests import Response
 
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.conftest import post_and_raise_if_error
+from tests.construction.build_v3 import assert_sql_equal
 from tests.examples import COMPLEX_DIMENSION_LINK, SERVICE_SETUP
 
 
@@ -272,6 +273,7 @@ async def test_link_complex_dimension_without_role(
                 "default.events.user_id": "default.users.user_id",
             },
             "role": None,
+            "default_value": None,
         },
     ]
 
@@ -415,6 +417,7 @@ async def test_link_complex_dimension_with_role(
                 "default.events.event_start_date": "default.users.snapshot_date",
                 "default.events.user_id": "default.users.user_id",
             },
+            "default_value": None,
         },
     ]
 
@@ -449,6 +452,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.event_start_date": "default.users.snapshot_date",
                     "default.events.user_id": "default.users.user_id",
                 },
+                "default_value": None,
             },
             {
                 "dimension": {"name": "default.users"},
@@ -464,6 +468,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.event_start_date": None,
                     "default.events.user_id": "default.users.user_id",
                 },
+                "default_value": None,
             },
         ],
         key=lambda x: x["role"],  # type: ignore
@@ -1262,3 +1267,164 @@ async def test_dimension_link_deleted_dimension_node(
         dl["dimension"]["name"] for dl in gql_result[0]["current"]["dimensionLinks"]
     ]
     assert "default.users" not in gql_dim_names  # users link should be removed
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_with_default_value(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Test dimension link with default_value to handle NULL results from LEFT JOINs.
+    When default_value is set, the dimension column should be wrapped with COALESCE.
+    """
+    # Create dimension link with default_value
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": (
+                "default.events.user_id = default.users.user_id "
+                "AND default.events.event_start_date = default.users.snapshot_date"
+            ),
+            "join_cardinality": "one_to_one",
+            "default_value": "Unknown",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json() == {
+        "message": "Dimension node default.users has been successfully "
+        "linked to node default.events.",
+    }
+
+    # Verify the link has default_value set
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["default_value"] == "Unknown"
+    assert link["dimension"]["name"] == "default.users"
+
+    # Verify that updating the link preserves the default_value
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": (
+                "default.events.user_id = default.users.user_id "
+                "AND default.events.event_start_date = default.users.snapshot_date"
+            ),
+            "join_cardinality": "many_to_one",
+            "default_value": "N/A",
+        },
+    )
+    assert response.status_code == 201  # Update
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["default_value"] == "N/A"
+
+    # Verify SQL generation wraps dimension with COALESCE
+    response = await dimensions_link_client.get(
+        "/sql/default.events?dimensions=default.users.registration_country",
+    )
+    query = response.json()["sql"]
+    # The dimension column should be wrapped in COALESCE with the default_value
+    expected_sql = """
+    WITH default_DOT_events AS (
+      SELECT
+        default_DOT_events_table.user_id,
+        default_DOT_events_table.event_start_date,
+        default_DOT_events_table.event_end_date,
+        default_DOT_events_table.elapsed_secs,
+        default_DOT_events_table.user_registration_country
+      FROM examples.events AS default_DOT_events_table
+    ),
+    default_DOT_users AS (
+      SELECT
+        default_DOT_users_table.user_id,
+        default_DOT_users_table.snapshot_date,
+        default_DOT_users_table.registration_country,
+        default_DOT_users_table.residence_country,
+        default_DOT_users_table.account_type
+      FROM examples.users AS default_DOT_users_table
+    )
+    SELECT
+      default_DOT_events.user_id default_DOT_events_DOT_user_id,
+      default_DOT_events.event_start_date default_DOT_events_DOT_event_start_date,
+      default_DOT_events.event_end_date default_DOT_events_DOT_event_end_date,
+      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
+      default_DOT_events.user_registration_country default_DOT_events_DOT_user_registration_country,
+      COALESCE(default_DOT_users.registration_country, 'N/A') AS default_DOT_users_DOT_registration_country
+    FROM default_DOT_events
+    LEFT JOIN default_DOT_users
+      ON default_DOT_events.user_id = default_DOT_users.user_id
+        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+    """
+    assert_sql_equal(query, expected_sql)
+
+    # Test v3 measures SQL generation with default_value
+    response = await dimensions_link_client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["default.elapsed_secs"],
+            "dimensions": ["default.users.registration_country"],
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert len(result["grain_groups"]) == 1
+    v3_measures_sql = result["grain_groups"][0]["sql"]
+    expected_v3_measures_sql = """
+    WITH default_events AS (
+      SELECT user_id, event_start_date, elapsed_secs
+      FROM default.examples.events
+    ),
+    default_users AS (
+      SELECT user_id, snapshot_date, registration_country
+      FROM default.examples.users
+    )
+    SELECT
+      COALESCE(t2.registration_country, 'N/A') AS registration_country,
+      SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+    FROM default_events t1
+    LEFT OUTER JOIN default_users t2
+      ON t1.user_id = t2.user_id AND t1.event_start_date = t2.snapshot_date
+    GROUP BY t2.registration_country
+    """
+    assert_sql_equal(v3_measures_sql, expected_v3_measures_sql)
+
+    # Test v3 metrics SQL generation with default_value
+    response = await dimensions_link_client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["default.elapsed_secs"],
+            "dimensions": ["default.users.registration_country"],
+        },
+    )
+    assert response.status_code == 200
+    v3_metrics_sql = response.json()["sql"]
+    expected_v3_metrics_sql = """
+    WITH default_events AS (
+      SELECT user_id, event_start_date, elapsed_secs
+      FROM default.examples.events
+    ),
+    default_users AS (
+      SELECT user_id, snapshot_date, registration_country
+      FROM default.examples.users
+    ),
+    events_0 AS (
+      SELECT
+        COALESCE(t2.registration_country, 'N/A') AS registration_country,
+        SUM(t1.elapsed_secs) elapsed_secs_sum_88a2603f
+      FROM default_events t1
+      LEFT OUTER JOIN default_users t2
+        ON t1.user_id = t2.user_id AND t1.event_start_date = t2.snapshot_date
+      GROUP BY t2.registration_country
+    )
+    SELECT
+      events_0.registration_country AS registration_country,
+      SUM(events_0.elapsed_secs_sum_88a2603f) AS elapsed_secs
+    FROM events_0
+    GROUP BY events_0.registration_country
+    """
+    assert_sql_equal(v3_metrics_sql, expected_v3_metrics_sql)

@@ -1785,6 +1785,7 @@ class DeploymentOrchestrator:
                         join_cardinality=link.join_cardinality,
                         materialization_conf=link.materialization_conf,
                         role=link.role,
+                        default_value=link.default_value,
                     ),
                 )
         pk_columns = (
@@ -1908,11 +1909,13 @@ class DeploymentOrchestrator:
                 dimension_link.join_sql == link_input.join_on
                 and dimension_link.join_type == join_type
                 and dimension_link.join_cardinality == link_input.join_cardinality
+                and dimension_link.default_value == link_input.default_value
             ):
                 return dimension_link, ActivityType.REFRESH
             dimension_link.join_sql = link_input.join_on
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
+            dimension_link.default_value = link_input.default_value
         else:
             # If there is no existing link, create new dimension link object
             dimension_link = DimensionLink(
@@ -1922,6 +1925,7 @@ class DeploymentOrchestrator:
                 join_type=join_type,
                 join_cardinality=link_input.join_cardinality,
                 role=link_input.role,
+                default_value=link_input.default_value,
             )
             node_revision.dimension_links.append(dimension_link)  # type: ignore
         return dimension_link, activity_type
