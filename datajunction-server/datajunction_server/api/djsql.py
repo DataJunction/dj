@@ -177,11 +177,10 @@ async def get_sql_for_djsql(
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
+        orderby=orderby if orderby else None,
+        limit=limit,
         dialect=dialect_enum,
     )
-
-    # TODO: Apply ORDER BY and LIMIT to the generated SQL if needed
-    # The v3 builder doesn't currently support these directly
 
     return TranslatedDJSQL(
         sql=result.sql,
