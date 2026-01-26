@@ -11,7 +11,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -19,7 +18,6 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -61,15 +59,13 @@ def selects_from_metrics(select: ast.SelectExpression) -> bool:
     )
 
 
-async def parse_dj_sql(
-    session: AsyncSession,
+def parse_dj_sql(
     query: str,
 ) -> tuple[List[str], List[str], List[str], List[str], Optional[int]]:
     """
     Parse a DJ SQL query and extract metrics, dimensions, filters, orderby, limit.
 
     Args:
-        session: Database session
         query: DJ SQL query string like:
             SELECT metric1, metric2, dim1, dim2
             FROM metrics
@@ -80,6 +76,8 @@ async def parse_dj_sql(
 
     Returns:
         Tuple of (metrics, dimensions, filters, orderby, limit)
+
+    Note: Validation of metric/dimension nodes is delegated to build_metrics_sql.
     """
     tree = parse(query)
     select = tree.select
@@ -99,7 +97,8 @@ async def parse_dj_sql(
     # Extract dimensions from GROUP BY
     dimensions = [str(exp) for exp in select.group_by]
 
-    # Extract metrics and validate projection
+    # Extract metrics: projection columns that are not in GROUP BY dimensions
+    # Validation that these are actual metric nodes is delegated to build_metrics_sql
     metrics = []
     for col in select.projection:
         if not isinstance(col, ast.Column):
@@ -108,21 +107,8 @@ async def parse_dj_sql(
             )
 
         col_ident = col.identifier(False)
-
-        # Check if it's a metric
-        metric_node = await try_get_dj_node(session, col_ident, {NodeType.METRIC})
-        if metric_node:
-            metrics.append(metric_node.name)
-        elif col_ident in dimensions:
-            # It's a dimension column, that's fine
-            pass
-        else:
-            raise DJInvalidInputException(
-                f"Column '{col_ident}' must be either a metric or in GROUP BY clause.",
-            )
-
-    if not metrics:
-        raise DJInvalidInputException("At least one metric is required in the SELECT.")
+        if col_ident not in dimensions:
+            metrics.append(col_ident)
 
     # Extract filters from WHERE
     filters = [str(select.where)] if select.where else []
@@ -150,7 +136,10 @@ async def parse_dj_sql(
 @router.get("/djsql/", response_model=TranslatedDJSQL)
 async def get_sql_for_djsql(
     query: str = Query(..., description="DJ SQL query"),
-    dialect: str = Query("spark", description="SQL dialect (spark, trino, druid)"),
+    dialect: Optional[str] = Query(
+        None,
+        description="SQL dialect (spark, trino, druid)",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
 ) -> TranslatedDJSQL:
@@ -169,16 +158,18 @@ async def get_sql_for_djsql(
 
     Returns the generated SQL that can be executed against your data warehouse.
     """
-    # Parse the DJ SQL query
-    metrics, dimensions, filters, orderby, limit = await parse_dj_sql(session, query)
+    # Parse the DJ SQL query (validation delegated to build_metrics_sql)
+    metrics, dimensions, filters, orderby, limit = parse_dj_sql(query)
 
-    # Map dialect string to enum
-    dialect_map = {
-        "spark": Dialect.SPARK,
-        "trino": Dialect.TRINO,
-        "druid": Dialect.DRUID,
-    }
-    dialect_enum = dialect_map.get(dialect.lower(), Dialect.SPARK)
+    # Map dialect string to enum (None means use builder default)
+    dialect_enum: Optional[Dialect] = None
+    if dialect:
+        dialect_map = {
+            "spark": Dialect.SPARK,
+            "trino": Dialect.TRINO,
+            "druid": Dialect.DRUID,
+        }
+        dialect_enum = dialect_map.get(dialect.lower())
 
     # Build SQL using v3 builder
     result = await build_metrics_sql(
@@ -203,7 +194,7 @@ async def get_sql_for_djsql(
             )
             for col in result.columns
         ],
-        dialect=dialect_enum.value,
+        dialect=result.dialect.value,
     )
 
 
