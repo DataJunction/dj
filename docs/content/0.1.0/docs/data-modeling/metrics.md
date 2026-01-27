@@ -305,14 +305,16 @@ DJ doesn't automatically compute the numerator and denominator at different grai
 Native support for ratio metrics at different grains is planned. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
 {{< /alert >}}
 
-**Option 1: Conditional Aggregation**
+**Option 1: Conditional Aggregation with Fixed Filter**
 
-Use a single metric with conditional aggregation:
+Create a metric for a specific category's share:
 ```sql
--- Category share using a parameter for the category filter
-SELECT SUM(CASE WHEN category = ${category_filter} THEN revenue ELSE 0 END) / SUM(revenue)
+-- Electronics share of total revenue (hardcoded category)
+SELECT SUM(CASE WHEN category = 'Electronics' THEN revenue ELSE 0 END) / SUM(revenue)
 FROM default.sales
 ```
+
+This approach requires creating a separate metric for each category you want to track.
 
 **Option 2: Application Layer**
 
@@ -327,9 +329,9 @@ SELECT SUM(revenue) FROM default.sales
 
 Then divide in your application code after querying each metric at its appropriate grain.
 
-**Option 3: Pre-computed Totals**
+**Option 2: Pre-computed Totals**
 
-If you have a transform node that pre-computes totals, you can join against it:
+If you have a transform node that pre-computes totals, you can reference it:
 ```sql
 -- Assuming default.sales_with_totals has both line-level and total columns
 SELECT SUM(revenue) / MAX(total_revenue) FROM default.sales_with_totals
