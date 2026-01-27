@@ -117,6 +117,7 @@ type DimensionLink {
   joinCardinality: JoinCardinality
   role: String
   foreignKeys: JSON!
+  defaultValue: String
 }
 
 type Engine {

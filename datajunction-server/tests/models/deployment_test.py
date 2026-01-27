@@ -250,3 +250,75 @@ def test_eq_columns_failures():
         ),
     ]
     assert not eq_columns(None, b)
+
+
+def test_dimension_join_link_spec_with_default_value():
+    """Test DimensionJoinLinkSpec with default_value for NULL handling in LEFT JOINs."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        role="user",
+        default_value="Unknown",
+    )
+    assert link_spec.dimension_node == "some.dimension.users"
+    assert link_spec.join_type == "left"
+    assert link_spec.default_value == "Unknown"
+    assert link_spec.role == "user"
+
+    # Test equality includes default_value
+    same_link = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        role="user",
+        default_value="Unknown",
+    )
+    assert link_spec == same_link
+
+    # Different default_value should not be equal
+    different_default = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        role="user",
+        default_value="N/A",
+    )
+    assert link_spec != different_default
+
+    # No default_value should not be equal to one with default_value
+    no_default = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        role="user",
+    )
+    assert no_default.default_value is None
+    assert link_spec != no_default
+
+    # Test hash includes default_value (for use in sets/dicts)
+    assert hash(link_spec) == hash(same_link)
+    assert hash(link_spec) != hash(different_default)
+
+
+def test_source_spec_with_dimension_link_default_value():
+    """Test SourceSpec with dimension_links including default_value."""
+    source_spec = SourceSpec(
+        name="events",
+        namespace="test",
+        catalog="public",
+        schema="test_db",
+        table="events",
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="${prefix}users",
+                join_type="left",
+                join_on="events.user_id = users.id",
+                default_value="Unknown User",
+                namespace="test",
+            ),
+        ],
+    )
+    assert len(source_spec.dimension_links) == 1
+    assert source_spec.dimension_links[0].default_value == "Unknown User"
+    assert source_spec.dimension_links[0].rendered_dimension_node == "test.users"

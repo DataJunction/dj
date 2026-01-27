@@ -59,6 +59,7 @@ class JoinLinkInput(BaseModel):
     join_on: Optional[str] = None
     join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
     role: Optional[str] = None
+    default_value: Optional[str] = None
 
 
 class LinkDimensionOutput(BaseModel):
@@ -72,5 +73,6 @@ class LinkDimensionOutput(BaseModel):
     join_cardinality: Optional[JoinCardinality] = None
     role: Optional[str] = None
     foreign_keys: Dict[str, str | None]
+    default_value: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

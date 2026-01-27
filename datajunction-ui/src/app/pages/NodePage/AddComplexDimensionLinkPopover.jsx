@@ -66,6 +66,7 @@ export default function AddComplexDimensionLinkPopover({
         values.joinType || 'left',
         values.joinCardinality || 'many_to_one',
         values.role?.trim() || null,
+        values.defaultValue?.trim() || null,
       );
 
       if (response.status === 200 || response.status === 201) {
@@ -177,6 +178,7 @@ export default function AddComplexDimensionLinkPopover({
                     joinCardinality:
                       existingLink?.join_cardinality || 'many_to_one',
                     role: existingLink?.role || '',
+                    defaultValue: existingLink?.default_value || '',
                   }}
                   onSubmit={handleSubmit}
                   validate={values => {
@@ -335,6 +337,28 @@ export default function AddComplexDimensionLinkPopover({
                           >
                             Optional role if linking the same dimension multiple
                             times
+                          </small>
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label htmlFor="defaultValue">
+                            Default Value (Optional)
+                          </label>
+                          <Field
+                            type="text"
+                            name="defaultValue"
+                            id="defaultValue"
+                            placeholder="e.g., Unknown, N/A"
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                            }}
+                          />
+                          <small
+                            style={{ color: '#6c757d', fontSize: '0.75rem' }}
+                          >
+                            Value to use when LEFT or RIGHT JOIN produces NULL
+                            (wraps dimension column in COALESCE)
                           </small>
                         </div>
 
