@@ -95,6 +95,17 @@
   color: #666;
 }
 
+.preagg-row-hash {
+  background-color: #f3e8ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
 .preagg-row-grain-chips {
   display: flex;
   align-items: center;
@@ -383,6 +394,20 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
+}
+
+/* Hash badge (purple/violet) */
+.preagg-hash-badge {
+  background-color: #f3e8ff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #7c3aed;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: monospace;
+  letter-spacing: 0.05em;
+  user-select: all;
+  cursor: text;
 }
 
 /* Metric badge (red/rose) */
