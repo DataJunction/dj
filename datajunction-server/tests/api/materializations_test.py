@@ -914,10 +914,11 @@ async def test_druid_cube_incremental(
     assert mat.measures_materializations[0].output_table_name.startswith(
         "default_repair_orders_fact",
     )
-    # Check combiner node with flexible version matching
+    # Check combiner node - should be the cube, not the underlying parent node
     combiner_node = mat.combiners[0].node
-    assert combiner_node.name == "default.repair_orders_fact"
-    assert combiner_node.display_name == "Repair Orders Fact"
+    assert combiner_node.name == cube_name
+    assert combiner_node.version == "v1.0"
+    assert combiner_node.display_name == "Repairs Cube  Default Incremental"
     assert mat.combiners[0].query is None
     assert mat.combiners[0].columns == [
         ColumnMetadata(

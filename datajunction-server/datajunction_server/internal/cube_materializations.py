@@ -203,7 +203,7 @@ async def build_cube_materialization(
         measures_materialization = measures_materializations[0]
         combiners = [
             CombineMaterialization(
-                node=measures_materialization.node,
+                node=current_revision,
                 output_table_name=measures_materialization.output_table_name,
                 columns=measures_materialization.columns,
                 grain=measures_materialization.grain,
