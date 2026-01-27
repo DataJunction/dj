@@ -18,6 +18,7 @@ from starlette.requests import Request
 
 
 from datajunction_server.api.helpers import (
+    check_namespace_not_git_only,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
@@ -349,6 +350,8 @@ async def delete_node(
     """
     access_checker.add_request_by_node_name(name, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
 
     await deactivate_node(
         session=session,
@@ -379,6 +382,8 @@ async def hard_delete(
     """
     access_checker.add_request_by_node_name(name, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
 
     impact = await hard_delete_node(
         name=name,
@@ -409,6 +414,8 @@ async def restore_node(
     """
     access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
 
     await activate_node(
         session=session,
@@ -465,6 +472,7 @@ async def create_source(
     namespace = data.namespace or data.name.rsplit(".", 1)[0]
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await check_namespace_not_git_only(session, namespace)
 
     return await create_a_source_node(
         data=data,
@@ -516,6 +524,7 @@ async def create_node(
     namespace = data.namespace or data.name.rsplit(".", 1)[0]
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await check_namespace_not_git_only(session, namespace)
 
     return await create_a_node(
         data=data,
@@ -566,6 +575,7 @@ async def create_cube(
             access_checker.add_request_by_node_name(dim_node_name, ResourceAction.READ)
 
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await check_namespace_not_git_only(session, namespace)
 
     node = await create_a_cube(
         data=data,
@@ -1114,6 +1124,8 @@ async def update_node(
             access_checker.add_request_by_node_name(dim_node_name, ResourceAction.READ)
 
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    namespace = name.rsplit(".", 1)[0]
+    await check_namespace_not_git_only(session, namespace)
 
     request_headers = dict(request.headers)
     await update_any_node(

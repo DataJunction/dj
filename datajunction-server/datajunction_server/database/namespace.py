@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import DateTime, func, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, joinedload, load_only, mapped_column, selectinload
 from sqlalchemy.sql.operators import is_, or_
@@ -33,6 +33,37 @@ class NodeNamespace(Base):
         nullable=True,
         default=None,
     )
+
+    # Git configuration for branch management
+    github_repo_path: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        default=None,
+    )  # e.g., "owner/repo"
+
+    git_branch: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        default=None,
+    )  # e.g., "main" or "feature-x"
+
+    git_path: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        default=None,
+    )  # e.g., "definitions/" - subdirectory within repo
+
+    parent_namespace: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("nodenamespace.namespace"),
+        nullable=True,
+        default=None,
+    )  # Links myproject.feature_x → myproject.main for PR targeting
+
+    git_only: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )  # If True, UI edits are blocked; must edit via git and deploy
 
     @classmethod
     async def get_all_with_node_count(cls, session: AsyncSession):

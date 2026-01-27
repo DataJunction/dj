@@ -5,7 +5,7 @@ import { nightOwl } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import PythonIcon from '../../icons/PythonIcon';
 import LoadingIcon from 'app/icons/LoadingIcon';
 
-export default function ClientCodePopover({ nodeName }) {
+export default function ClientCodePopover({ nodeName, buttonStyle }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [showModal, setShowModal] = useState(false);
   const modalRef = useRef(null);
@@ -44,11 +44,10 @@ export default function ClientCodePopover({ nodeName }) {
   return (
     <>
       <button
-        className="button-3"
         onClick={() => setShowModal(true)}
-        style={{ height: '2.5rem' }}
+        style={buttonStyle}
       >
-        <PythonIcon /> See Python
+        <PythonIcon /> Python
       </button>
 
       {showModal && (
