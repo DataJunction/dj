@@ -93,6 +93,35 @@ def get_measure_expr_hashes(measures: List[PreAggMeasure]) -> Set[str]:
     return {m.expr_hash for m in measures if m.expr_hash}
 
 
+def compute_preagg_hash_from_hashes(
+    node_revision_id: int,
+    grain_columns: List[str],
+    measure_hashes: List[str],
+) -> str:
+    """
+    Compute a unique hash for a pre-aggregation from expression hashes.
+
+    This hash uniquely identifies a pre-aggregation by combining:
+    - node_revision_id: Which node version
+    - grain_columns: What dimensions we're grouping by
+    - measure_hashes: Expression hashes for the measures
+
+    Args:
+        node_revision_id: The ID of the node revision
+        grain_columns: Fully qualified dimension/column references
+        measure_hashes: List of expression hashes
+
+    Returns:
+        MD5 hash string (8 chars) uniquely identifying this pre-agg
+    """
+    content = (
+        f"{node_revision_id}:"
+        f"{json.dumps(sorted(grain_columns))}:"
+        f"{json.dumps(sorted(measure_hashes))}"
+    )
+    return hashlib.md5(content.encode()).hexdigest()[:8]
+
+
 def compute_preagg_hash(
     node_revision_id: int,
     grain_columns: List[str],
@@ -114,13 +143,12 @@ def compute_preagg_hash(
     Returns:
         MD5 hash string (8 chars) uniquely identifying this pre-agg
     """
-    measure_hashes = sorted([m.expr_hash for m in measures if m.expr_hash])
-    content = (
-        f"{node_revision_id}:"
-        f"{json.dumps(sorted(grain_columns))}:"
-        f"{json.dumps(measure_hashes)}"
+    measure_hashes = [m.expr_hash for m in measures if m.expr_hash]
+    return compute_preagg_hash_from_hashes(
+        node_revision_id,
+        grain_columns,
+        measure_hashes,
     )
-    return hashlib.md5(content.encode()).hexdigest()[:8]
 
 
 class PreAggregation(Base):
@@ -204,6 +232,15 @@ class PreAggregation(Base):
         String,
         nullable=False,
         index=True,
+    )
+
+    # Unique pre-agg hash: hash(node_revision_id + grain_columns + measure_expr_hashes)
+    # Uniquely identifies this pre-agg. Used for table/workflow naming.
+    # Note: unique=True creates a unique index, so no separate index needed
+    preagg_hash: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        unique=True,
     )
 
     # === Materialization Config ===
