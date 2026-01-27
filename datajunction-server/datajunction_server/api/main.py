@@ -19,6 +19,7 @@ from starlette.middleware.cors import CORSMiddleware
 from datajunction_server import __version__
 from datajunction_server.api import (
     attributes,
+    branches,
     catalogs,
     client,
     collection,
@@ -28,6 +29,7 @@ from datajunction_server.api import (
     dimensions,
     djsql,
     engines,
+    git_sync,
     groups,
     health,
     hierarchies,
@@ -109,6 +111,8 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(djsql.router)
     app.include_router(nodes.router)
     app.include_router(namespaces.router)
+    app.include_router(branches.router)
+    app.include_router(git_sync.router)
     app.include_router(materializations.router)
     app.include_router(measures.router)
     app.include_router(data.router)

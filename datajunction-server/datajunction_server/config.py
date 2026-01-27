@@ -140,6 +140,16 @@ class Settings(BaseSettings):  # pragma: no cover
     # GitHub OAuth application client secret
     github_oauth_client_secret: Optional[str] = None
 
+    # GitHub base URL (OSS default, override for GHE)
+    github_base_url: str = "https://github.com"
+
+    # GitHub API URL (OSS default, override for GHE)
+    github_api_url: str = "https://api.github.com"
+
+    # GitHub service account token for git operations (PAT with repo scope)
+    # Commits are attributed to users via author metadata
+    github_service_token: Optional[str] = None
+
     # Google OAuth application client ID
     google_oauth_client_id: Optional[str] = None
 

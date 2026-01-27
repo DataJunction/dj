@@ -22,6 +22,7 @@ from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
     DeploymentSpec,
+    NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -575,3 +576,96 @@ async def get_bulk_namespace_sources(
     sources = await get_sources_for_namespaces_bulk(session, request.namespaces)
 
     return BulkNamespaceSourcesResponse(sources=sources)
+
+
+# =============================================================================
+# Git Configuration Endpoints
+# =============================================================================
+
+
+@router.get(
+    "/namespaces/{namespace}/git",
+    response_model=NamespaceGitConfig,
+    name="Get namespace git configuration",
+)
+async def get_namespace_git_config(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceGitConfig:
+    """
+    Get the git configuration for a namespace.
+
+    Returns the GitHub repository path, branch, and other git settings
+    that enable branch management from the UI.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node_namespace = await get_node_namespace(session, namespace)
+
+    return NamespaceGitConfig(
+        github_repo_path=node_namespace.github_repo_path,
+        git_branch=node_namespace.git_branch,
+        git_path=node_namespace.git_path,
+        parent_namespace=node_namespace.parent_namespace,
+    )
+
+
+@router.patch(
+    "/namespaces/{namespace}/git",
+    response_model=NamespaceGitConfig,
+    name="Update namespace git configuration",
+)
+async def update_namespace_git_config(
+    namespace: str,
+    config: NamespaceGitConfig,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceGitConfig:
+    """
+    Update the git configuration for a namespace.
+
+    This enables git-backed branch management for the namespace, allowing users
+    to create branches, sync changes to git, and create pull requests from the UI.
+
+    Fields:
+    - github_repo_path: Repository path (e.g., "owner/repo")
+    - git_branch: Branch name (e.g., "main")
+    - git_path: Subdirectory in repo for node definitions (e.g., "definitions/")
+    - parent_namespace: Parent namespace for branch namespaces (for PR targeting)
+    """
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node_namespace = await get_node_namespace(session, namespace)
+
+    # Update only provided fields (None means no change)
+    if config.github_repo_path is not None:
+        node_namespace.github_repo_path = config.github_repo_path or None
+    if config.git_branch is not None:
+        node_namespace.git_branch = config.git_branch or None
+    if config.git_path is not None:
+        node_namespace.git_path = config.git_path or None
+    if config.parent_namespace is not None:
+        node_namespace.parent_namespace = config.parent_namespace or None
+
+    await session.commit()
+    await session.refresh(node_namespace)
+
+    _logger.info(
+        "Updated git config for namespace %s: repo=%s, branch=%s",
+        namespace,
+        node_namespace.github_repo_path,
+        node_namespace.git_branch,
+    )
+
+    return NamespaceGitConfig(
+        github_repo_path=node_namespace.github_repo_path,
+        git_branch=node_namespace.git_branch,
+        git_path=node_namespace.git_path,
+        parent_namespace=node_namespace.parent_namespace,
+    )
