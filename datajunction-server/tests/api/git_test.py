@@ -115,6 +115,188 @@ class TestNamespaceGitConfig:
         assert response.status_code == HTTPStatus.NOT_FOUND
         assert "does not exist" in response.json()["message"]
 
+    @pytest.mark.asyncio
+    async def test_update_git_config_nonexistent_parent(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting parent_namespace to a non-existent namespace."""
+        await client_with_service_setup.post("/namespaces/orphan_ns")
+
+        response = await client_with_service_setup.patch(
+            "/namespaces/orphan_ns/git",
+            json={
+                "parent_namespace": "nonexistent_parent_xyz",
+            },
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "does not exist" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_self_parent(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting parent_namespace to itself (self-reference)."""
+        await client_with_service_setup.post("/namespaces/self_ref_ns")
+
+        response = await client_with_service_setup.patch(
+            "/namespaces/self_ref_ns/git",
+            json={
+                "parent_namespace": "self_ref_ns",
+            },
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "cannot be its own parent" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_repo_mismatch_with_parent(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting a different repo than parent namespace."""
+        # Create parent with repo A
+        await client_with_service_setup.post("/namespaces/parent_repo_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/parent_repo_ns/git",
+            json={
+                "github_repo_path": "myorg/repo-a",
+                "git_branch": "main",
+            },
+        )
+
+        # Create child and try to use repo B
+        await client_with_service_setup.post("/namespaces/child_repo_ns")
+        response = await client_with_service_setup.patch(
+            "/namespaces/child_repo_ns/git",
+            json={
+                "github_repo_path": "myorg/repo-b",
+                "git_branch": "feature",
+                "parent_namespace": "parent_repo_ns",
+            },
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "mismatch" in response.json()["message"].lower()
+        assert "repo-a" in response.json()["message"]
+        assert "repo-b" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_same_repo_as_parent_ok(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting same repo as parent namespace succeeds."""
+        # Create parent
+        await client_with_service_setup.post("/namespaces/valid_parent_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/valid_parent_ns/git",
+            json={
+                "github_repo_path": "myorg/shared-repo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create child with same repo but different branch
+        await client_with_service_setup.post("/namespaces/valid_child_ns")
+        response = await client_with_service_setup.patch(
+            "/namespaces/valid_child_ns/git",
+            json={
+                "github_repo_path": "myorg/shared-repo",
+                "git_branch": "feature-x",
+                "parent_namespace": "valid_parent_ns",
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_duplicate_location(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting git config that conflicts with another namespace."""
+        # Create first namespace with git config
+        await client_with_service_setup.post("/namespaces/first_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/first_ns/git",
+            json={
+                "github_repo_path": "myorg/shared-repo",
+                "git_branch": "main",
+                "git_path": "definitions",
+            },
+        )
+
+        # Create second namespace and try to use same git location
+        await client_with_service_setup.post("/namespaces/second_ns")
+        response = await client_with_service_setup.patch(
+            "/namespaces/second_ns/git",
+            json={
+                "github_repo_path": "myorg/shared-repo",
+                "git_branch": "main",
+                "git_path": "definitions",
+            },
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "conflict" in response.json()["message"].lower()
+        assert "first_ns" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_same_repo_different_path_ok(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that same repo+branch with different path is allowed."""
+        # Create first namespace
+        await client_with_service_setup.post("/namespaces/path_ns_a")
+        await client_with_service_setup.patch(
+            "/namespaces/path_ns_a/git",
+            json={
+                "github_repo_path": "myorg/monorepo",
+                "git_branch": "main",
+                "git_path": "project-a",
+            },
+        )
+
+        # Create second namespace with same repo but different path
+        await client_with_service_setup.post("/namespaces/path_ns_b")
+        response = await client_with_service_setup.patch(
+            "/namespaces/path_ns_b/git",
+            json={
+                "github_repo_path": "myorg/monorepo",
+                "git_branch": "main",
+                "git_path": "project-b",
+            },
+        )
+        # Should succeed - different paths don't conflict
+        assert response.status_code == HTTPStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_update_git_config_same_repo_different_branch_ok(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that same repo+path with different branch is allowed."""
+        # Create first namespace on main branch
+        await client_with_service_setup.post("/namespaces/branch_ns_main")
+        await client_with_service_setup.patch(
+            "/namespaces/branch_ns_main/git",
+            json={
+                "github_repo_path": "myorg/repo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create second namespace on feature branch (same path)
+        await client_with_service_setup.post("/namespaces/branch_ns_feature")
+        response = await client_with_service_setup.patch(
+            "/namespaces/branch_ns_feature/git",
+            json={
+                "github_repo_path": "myorg/repo",
+                "git_branch": "feature",
+            },
+        )
+        # Should succeed - different branches don't conflict
+        assert response.status_code == HTTPStatus.OK
+
 
 class TestBranchManagement:
     """Tests for branch management endpoints."""
