@@ -192,35 +192,6 @@ The simplest derived metrics combine existing metrics with arithmetic operations
 SELECT default.total_revenue / default.total_orders AS average_order_value
 ```
 
-### Ratio Metrics (Share of Total)
-
-Ratio metrics calculate a proportion where both numerator and denominator come from the **same fact table** but at different grain levels. A common example is "share of total" metrics.
-
-**Example: Category Share of Total Revenue**
-
-First, create the base metrics:
-```sql
--- Total revenue (will be filtered/grouped by dimensions)
-SELECT SUM(revenue) FROM default.sales
-
--- Total revenue across all categories (unfiltered total)
-SELECT SUM(revenue) FROM default.sales
-```
-
-Then create the derived ratio metric:
-```sql
-SELECT default.category_revenue / default.total_revenue AS category_revenue_share
-```
-
-When queried with a `category` dimension, DJ will:
-- Calculate `category_revenue` grouped by category
-- Calculate `total_revenue` as the overall total
-- Divide to get each category's share
-
-{{< alert icon="👉" >}}
-Share of total metrics require careful dimension handling. The denominator metric should not be grouped by the dimension you're analyzing, while the numerator should be.
-{{< /alert >}}
-
 ### Cross-Fact Ratio Metrics
 
 These metrics have numerator and denominator from **different fact tables**. This is useful for metrics like conversion rates or efficiency ratios.
@@ -244,36 +215,40 @@ Cross-fact ratio metrics require that both underlying facts share common dimensi
 
 ### Period-Over-Period Metrics
 
-Period-over-period metrics compare values across time periods, such as week-over-week or year-over-year growth.
+Period-over-period metrics compare values across time periods, such as week-over-week or year-over-year growth. Since DJ metrics cannot contain WHERE clauses, use conditional aggregation or window functions.
 
-**Example: Week-Over-Week Revenue Growth**
+**Example: Week-Over-Week Revenue Growth (using conditional aggregation)**
 
-First, create metrics for current and previous periods:
+Create metrics that filter time periods within the SELECT clause:
 ```sql
--- Current period revenue
-SELECT SUM(revenue) FROM default.sales
+-- Current week revenue
+SELECT SUM(CASE WHEN order_date >= DATE_SUB(CURRENT_DATE, 7) THEN revenue ELSE 0 END)
+FROM default.sales
 
--- Previous week revenue (using date offset)
-SELECT SUM(revenue) FROM default.sales
-WHERE order_date BETWEEN DATE_SUB(CURRENT_DATE, 14) AND DATE_SUB(CURRENT_DATE, 7)
+-- Previous week revenue
+SELECT SUM(CASE WHEN order_date >= DATE_SUB(CURRENT_DATE, 14)
+                AND order_date < DATE_SUB(CURRENT_DATE, 7) THEN revenue ELSE 0 END)
+FROM default.sales
 ```
 
 Then create the growth metric:
 ```sql
 -- Week-over-week growth rate
-SELECT (default.current_week_revenue - default.previous_week_revenue) / default.previous_week_revenue
-AS wow_revenue_growth
+SELECT (default.current_week_revenue - default.previous_week_revenue)
+       / NULLIF(default.previous_week_revenue, 0) AS wow_revenue_growth
 ```
 
-**Example: Year-Over-Year Comparison**
+**Example: Year-Over-Year Using Window Functions**
+
+For YoY comparisons with a date dimension, use LAG:
 ```sql
--- YoY growth
-SELECT (default.current_year_revenue - default.previous_year_revenue) / default.previous_year_revenue
-AS yoy_revenue_growth
+SELECT (revenue - LAG(revenue, 1) OVER (ORDER BY year))
+       / NULLIF(LAG(revenue, 1) OVER (ORDER BY year), 0) AS yoy_revenue_growth
+FROM default.yearly_revenue
 ```
 
 {{< alert icon="👉" >}}
-Period-over-period metrics often use filter parameters or window functions to define the time ranges. The exact implementation depends on your date dimension setup and query patterns.
+Period-over-period metrics require careful handling. Use conditional aggregation (CASE WHEN) to filter time periods within the SELECT clause, or use window functions (LAG, LEAD) when working with time-series data.
 {{< /alert >}}
 
 ### Trailing N-Day Metrics
@@ -316,6 +291,48 @@ SELECT default.trailing_7d_orders / default.trailing_7d_visits AS trailing_7d_co
 -- YoY growth of category share (combines period-over-period + share of total)
 SELECT (default.current_year_category_share - default.previous_year_category_share)
 AS category_share_yoy_change
+```
+
+### Share of Total Metrics (Limited Support)
+
+Share of total metrics calculate a proportion where the numerator is grouped by a dimension while the denominator represents the ungrouped total. This pattern requires special handling because DJ computes all metrics at the same grain.
+
+{{< alert icon="⚠️" >}}
+DJ doesn't automatically compute the numerator and denominator at different grains from the same fact. The workarounds below may be needed.
+{{< /alert >}}
+
+{{< alert icon="👉" >}}
+Native support for ratio metrics at different grains is planned. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
+{{< /alert >}}
+
+**Option 1: Conditional Aggregation**
+
+Use a single metric with conditional aggregation:
+```sql
+-- Category share using a parameter for the category filter
+SELECT SUM(CASE WHEN category = ${category_filter} THEN revenue ELSE 0 END) / SUM(revenue)
+FROM default.sales
+```
+
+**Option 2: Application Layer**
+
+Create separate metrics and compute the ratio at the application layer:
+```sql
+-- Metric 1: Revenue (will be grouped by category when queried)
+SELECT SUM(revenue) FROM default.sales
+
+-- Metric 2: Total revenue (query separately without category dimension)
+SELECT SUM(revenue) FROM default.sales
+```
+
+Then divide in your application code after querying each metric at its appropriate grain.
+
+**Option 3: Pre-computed Totals**
+
+If you have a transform node that pre-computes totals, you can join against it:
+```sql
+-- Assuming default.sales_with_totals has both line-level and total columns
+SELECT SUM(revenue) / MAX(total_revenue) FROM default.sales_with_totals
 ```
 
 ## Conditional Aggregations
