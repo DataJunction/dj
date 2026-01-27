@@ -78,6 +78,10 @@ class DimensionLink(Base):
     # Additional materialization settings that are needed in order to do this join
     materialization_conf: Mapped[Optional[Dict]] = mapped_column(JSON, default={})
 
+    # Optional default value to use when LEFT JOIN produces NULL
+    # (e.g., "Unknown" for a dimension column that may not have a match)
+    default_value: Mapped[Optional[str]] = mapped_column(default=None)
+
     def to_spec(self):
         from datajunction_server.models.deployment import DimensionJoinLinkSpec
 

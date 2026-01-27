@@ -114,6 +114,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     node_column: str | None = None
     join_type: JoinType = JoinType.LEFT
     join_on: str | None = None
+    default_value: str | None = None
 
     @property
     def rendered_dimension_node(self) -> str:
@@ -140,6 +141,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
                 self.join_type,
                 self.rendered_join_on,
                 self.node_column,
+                self.default_value,
             ),
         )
 
@@ -152,6 +154,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             and self.join_type == other.join_type
             and self.rendered_join_on == other.rendered_join_on
             and self.node_column == other.node_column
+            and self.default_value == other.default_value
         )
 
 

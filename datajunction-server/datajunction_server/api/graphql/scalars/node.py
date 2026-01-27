@@ -95,6 +95,7 @@ class DimensionLink:
     join_cardinality: Optional[JoinCardinality]  # type: ignore
     role: Optional[str]
     foreign_keys: JSON
+    default_value: Optional[str]
 
 
 @strawberry.type
