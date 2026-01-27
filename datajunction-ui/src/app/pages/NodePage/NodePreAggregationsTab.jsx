@@ -202,6 +202,15 @@ export default function NodePreAggregationsTab({ node }) {
             {isExpanded ? '\u25BC' : '\u25B6'}
           </span>
 
+          {preagg.preagg_hash && (
+            <code
+              className="preagg-row-hash"
+              title="Pre-aggregation hash - used in table and workflow names"
+            >
+              {preagg.preagg_hash}
+            </code>
+          )}
+
           <div className="preagg-row-grain-chips">
             {(() => {
               const grainCols = preagg.grain_columns || [];
@@ -309,6 +318,19 @@ export default function NodePreAggregationsTab({ node }) {
                               : 'Not set'}
                           </td>
                         </tr>
+                        {preagg.preagg_hash && (
+                          <tr>
+                            <td className="preagg-config-key">Hash</td>
+                            <td className="preagg-config-value">
+                              <code
+                                className="preagg-hash-badge"
+                                title="Unique identifier for this pre-aggregation. Used in table and workflow names."
+                              >
+                                {preagg.preagg_hash}
+                              </code>
+                            </td>
+                          </tr>
+                        )}
                         <tr>
                           <td className="preagg-config-key">Schedule</td>
                           <td className="preagg-config-value">
