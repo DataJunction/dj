@@ -149,6 +149,7 @@ class PreAggregationInfo(BaseModel):
     columns: Optional[List[V3ColumnMetadata]] = None  # Output columns with types
     sql: str  # The generated SQL for materializing this pre-agg
     grain_group_hash: str
+    preagg_hash: str  # Unique hash including measures (used for table/workflow naming)
 
     # Materialization config
     strategy: Optional[MaterializationStrategy] = None

@@ -35,6 +35,7 @@ from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_grain_group_hash,
     compute_expression_hash,
+    compute_preagg_hash,
 )
 from datajunction_server.models.decompose import (
     Aggregability,
@@ -1152,21 +1153,23 @@ class TestBuildCombinerSqlFromPreaggs:
         await session.flush()
 
         # Create a PreAggregation record with matching grain_group_hash
+        measures = [
+            PreAggMeasure(
+                name="line_total_sum",
+                expression="line_total",
+                aggregation="SUM",
+                merge="SUM",
+                rule=AggregationRule(type="full"),
+                expr_hash=compute_expression_hash("line_total"),
+            ),
+        ]
         preagg = PreAggregation(
             node_revision_id=node_revision_id,
             grain_columns=grain_columns,
-            measures=[
-                PreAggMeasure(
-                    name="line_total_sum",
-                    expression="line_total",
-                    aggregation="SUM",
-                    merge="SUM",
-                    rule=AggregationRule(type="full"),
-                    expr_hash=compute_expression_hash("line_total"),
-                ),
-            ],
+            measures=measures,
             sql="SELECT status, SUM(line_total) AS line_total_sum FROM v3.order_details GROUP BY status",
             grain_group_hash=grain_hash,
+            preagg_hash=compute_preagg_hash(node_revision_id, grain_columns, measures),
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -1189,6 +1192,149 @@ class TestBuildCombinerSqlFromPreaggs:
         # If temporal partition was set up, temporal_info should be populated
         # (depends on whether order_date is in grain_columns or linked dimension)
         # The key test is that lines 585-596 are executed
+
+    @pytest.mark.asyncio
+    async def test_build_combiner_sql_from_preaggs_skips_non_matching_preagg(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        Test that when multiple PreAggregation records exist for the same grain,
+        the code skips pre-aggs that don't cover the required measures.
+
+        This tests the branch at line 582->580 where the loop continues to
+        check the next pre-agg when the current one doesn't have all measures.
+        """
+        # Get the order_details node to find its revision ID
+        stmt = (
+            select(Node)
+            .where(Node.name == "v3.order_details")
+            .options(selectinload(Node.current).selectinload(NodeRevision.columns))
+        )
+        result = await session.execute(stmt)
+        order_details_node = result.scalar_one_or_none()
+        assert order_details_node is not None
+        assert order_details_node.current is not None
+
+        node_revision_id = order_details_node.current.id
+
+        # Use the same grain_columns for both pre-aggs
+        grain_columns = ["v3.order_details.status"]
+        grain_hash = compute_grain_group_hash(node_revision_id, grain_columns)
+
+        # Create availability states for both pre-aggs
+        avail1 = AvailabilityState(
+            catalog="default",
+            schema_="v3",
+            table="order_details_preagg_wrong",
+            valid_through_ts=9999999999,
+        )
+        avail2 = AvailabilityState(
+            catalog="default",
+            schema_="v3",
+            table="order_details_preagg_correct",
+            valid_through_ts=9999999999,
+        )
+        session.add_all([avail1, avail2])
+        await session.flush()
+
+        # First pre-agg: has WRONG measures (quantity instead of line_total)
+        # This should be skipped because it doesn't cover the required measures
+        wrong_measures = [
+            PreAggMeasure(
+                name="quantity_sum",
+                expression="quantity",  # Wrong expression
+                aggregation="SUM",
+                merge="SUM",
+                rule=AggregationRule(type="full"),
+                expr_hash=compute_expression_hash("quantity"),
+            ),
+        ]
+        preagg_wrong = PreAggregation(
+            node_revision_id=node_revision_id,
+            grain_columns=grain_columns,
+            measures=wrong_measures,
+            sql="SELECT status, SUM(quantity) AS quantity_sum FROM v3.order_details GROUP BY status",
+            grain_group_hash=grain_hash,
+            preagg_hash=compute_preagg_hash(
+                node_revision_id,
+                grain_columns,
+                wrong_measures,
+            ),
+            availability_id=avail1.id,
+        )
+
+        # Second pre-agg: has CORRECT measures (line_total)
+        # This should be selected because it covers the required measures
+        correct_measures = [
+            PreAggMeasure(
+                name="line_total_sum",
+                expression="line_total",  # Correct expression
+                aggregation="SUM",
+                merge="SUM",
+                rule=AggregationRule(type="full"),
+                expr_hash=compute_expression_hash("line_total"),
+            ),
+        ]
+        preagg_correct = PreAggregation(
+            node_revision_id=node_revision_id,
+            grain_columns=grain_columns,
+            measures=correct_measures,
+            sql="SELECT status, SUM(line_total) AS line_total_sum FROM v3.order_details GROUP BY status",
+            grain_group_hash=grain_hash,
+            preagg_hash=compute_preagg_hash(
+                node_revision_id,
+                grain_columns,
+                correct_measures,
+            ),
+            availability_id=avail2.id,
+        )
+
+        # Add the wrong one first so it's checked first in the loop
+        session.add(preagg_wrong)
+        await session.flush()
+        session.add(preagg_correct)
+        await session.flush()
+
+        # Now call build_combiner_sql_from_preaggs
+        # The metric v3.total_revenue uses line_total, so the first pre-agg
+        # (with quantity) should be skipped, and the second one should be used
+        result, table_refs, temporal_info = await build_combiner_sql_from_preaggs(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.order_details.status"],
+        )
+
+        # Should produce a result
+        assert result is not None
+        assert result.grain_groups_combined >= 1
+
+        # Should have pre-agg table references
+        assert len(table_refs) >= 1
+
+        # The table reference should use the CORRECT pre-agg's hash, not the wrong one
+        # This verifies that the loop skipped the first pre-agg and found the second
+        correct_hash = compute_preagg_hash(
+            node_revision_id,
+            grain_columns,
+            correct_measures,
+        )
+        wrong_hash = compute_preagg_hash(
+            node_revision_id,
+            grain_columns,
+            wrong_measures,
+        )
+
+        # At least one table ref should contain the correct hash
+        table_refs_str = " ".join(table_refs)
+        assert correct_hash[:8] in table_refs_str, (
+            f"Expected correct hash {correct_hash[:8]} in table refs, "
+            f"but got {table_refs}"
+        )
+        assert wrong_hash[:8] not in table_refs_str, (
+            f"Wrong hash {wrong_hash[:8]} should not be in table refs"
+        )
 
 
 class TestCombinedMeasuresSQLEndpoint:

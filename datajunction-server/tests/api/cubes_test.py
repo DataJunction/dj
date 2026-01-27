@@ -3843,7 +3843,7 @@ class TestCubeMaterializeV2SuccessPaths:
                   SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
                   hll_union_agg(customer_id_hll_23002251) customer_id_hll_23002251,
                   week_order
-                FROM default.dj_preaggs.v3_order_details_preagg_3983c442
+                FROM default.dj_preaggs.v3_order_details_preagg_399a3bfd
                 GROUP BY  category, order_id, week_order
                 """,
             )

@@ -26,7 +26,9 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
 )
 from datajunction_server.database.preaggregation import (
     PreAggregation,
+    compute_expression_hash,
     compute_grain_group_hash,
+    compute_preagg_hash_from_hashes,
 )
 
 from datajunction_server.construction.build_v3.cte import (
@@ -469,14 +471,23 @@ def validate_grain_groups_compatible(
 # =============================================================================
 
 
-def _compute_preagg_table_name(parent_name: str, grain_group_hash: str) -> str:
+def _compute_preagg_table_name(parent_name: str, preagg_hash: str) -> str:
     """
     Compute the deterministic pre-agg table name.
 
-    Format: {node_short}_preagg_{hash[:8]}
+    Format: {node_short}_preagg_{preagg_hash}
+
+    The preagg_hash uniquely identifies this pre-agg by incorporating:
+    - node_revision_id
+    - grain_columns
+    - measure_expr_hashes
+
+    This ensures unique table names even for pre-aggs with the same grain
+    but different measures.
     """
     node_short = parent_name.replace(".", "_")
-    return f"{node_short}_preagg_{grain_group_hash[:8]}"
+    # Truncate hash to 8 chars to match preagg_hash column size
+    return f"{node_short}_preagg_{preagg_hash[:8]}"
 
 
 @dataclass
@@ -549,7 +560,7 @@ async def build_combiner_sql_from_preaggs(
 
         node_revision_id = parent_node.current.id
 
-        # Look up the PreAggregation record to get temporal partition info
+        # Look up the PreAggregation record that covers the required measures
         # Use fully qualified dimensions (requested_dimensions) not aliases (gg.grain)
         grain_group_hash = compute_grain_group_hash(
             node_revision_id,
@@ -559,22 +570,45 @@ async def build_combiner_sql_from_preaggs(
             session,
             grain_group_hash,
         )
-        if preaggs:
-            # Use get_temporal_partitions from preagg_matcher (reuse existing logic)
-            for preagg in preaggs:  # pragma: no branch
-                for tp in get_temporal_partitions(preagg):
-                    temporal_partitions_found.append(
-                        TemporalPartitionInfo(
-                            column_name=tp.column_name,
-                            format=tp.format,
-                            granularity=tp.granularity,
-                        ),
-                    )
-                break  # Only need one preagg per grain group for temporal info
 
-        # Use the same grain_group_hash for the pre-agg table name
-        # (must match the hash used when the pre-agg was created)
-        table_name = _compute_preagg_table_name(gg.parent_name, grain_group_hash)
+        # Find a pre-agg that covers the required measures
+        # MetricComponent doesn't have expr_hash, so compute it from expression
+        required_measure_hashes = [
+            compute_expression_hash(m.expression) for m in gg.components if m.expression
+        ]
+        matching_preagg = None
+        for preagg in preaggs:
+            existing_hashes = {m.expr_hash for m in preagg.measures if m.expr_hash}
+            if set(required_measure_hashes) <= existing_hashes:
+                matching_preagg = preagg
+                break
+
+        # If we found a matching pre-agg, get temporal partition info from it
+        if matching_preagg:
+            for tp in get_temporal_partitions(matching_preagg):
+                temporal_partitions_found.append(
+                    TemporalPartitionInfo(
+                        column_name=tp.column_name,
+                        format=tp.format,
+                        granularity=tp.granularity,
+                    ),
+                )
+            preagg_hash = matching_preagg.preagg_hash
+        else:
+            # No PreAggregation record exists - compute the hash from components
+            # This allows the endpoint to generate table names without requiring
+            # pre-agg records to exist (useful for planning/previewing)
+            preagg_hash = compute_preagg_hash_from_hashes(
+                node_revision_id,
+                grain_columns_for_hash,
+                required_measure_hashes,
+            )
+
+        # Use the preagg_hash for the table name (includes measures)
+        table_name = _compute_preagg_table_name(
+            gg.parent_name,
+            preagg_hash,
+        )
 
         # Build full table reference
         full_table_ref = (

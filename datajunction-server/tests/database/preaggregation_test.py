@@ -224,22 +224,34 @@ class TestPreAggregationProperties:
 
     def test_status_pending_when_no_availability(self):
         """Test that status is 'pending' when no availability."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         pre_agg.availability = None
         assert pre_agg.status == "pending"
 
     def test_status_active_when_has_availability(self):
         """Test that status is 'active' when has availability."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         # Mock availability
         mock_availability = MagicMock()
@@ -253,22 +265,34 @@ class TestPreAggregationProperties:
 
     def test_materialized_table_ref_none_when_no_availability(self):
         """Test materialized_table_ref is None when no availability."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         pre_agg.availability = None
         assert pre_agg.materialized_table_ref is None
 
     def test_materialized_table_ref_with_all_parts(self):
         """Test materialized_table_ref with catalog, schema, table."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         mock_availability = MagicMock()
         mock_availability.catalog = "analytics"
@@ -280,11 +304,17 @@ class TestPreAggregationProperties:
 
     def test_materialized_table_ref_without_catalog(self):
         """Test materialized_table_ref without catalog."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         mock_availability = MagicMock()
         mock_availability.catalog = None
@@ -296,22 +326,34 @@ class TestPreAggregationProperties:
 
     def test_max_partition_none_when_no_availability(self):
         """Test max_partition is None when no availability."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         pre_agg.availability = None
         assert pre_agg.max_partition is None
 
     def test_max_partition_from_availability(self):
         """Test max_partition returns availability's max_temporal_partition."""
+        measures = [make_measure("sum_revenue", "revenue")]
         pre_agg = PreAggregation(
             node_revision_id=123,
             grain_columns=["default.date_dim.date_id"],
-            measures=[make_measure("sum_revenue", "revenue")],
+            measures=measures,
             grain_group_hash="abc123",
+            preagg_hash=compute_preagg_hash(
+                123,
+                ["default.date_dim.date_id"],
+                measures,
+            ),
         )
         mock_availability = MagicMock()
         mock_availability.max_temporal_partition = ["2024", "01", "15"]
@@ -414,31 +456,49 @@ class TestPreAggregationDBMethods:
         grain_hash = compute_grain_group_hash(minimal_node_revision.id, grain_columns)
 
         # Create 2 pre-aggs with same grain hash
+        measures1 = [make_measure("sum_a", "a")]
         preagg1 = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measures=[make_measure("sum_a", "a")],
+            measures=measures1,
             columns=[],
             sql="SELECT a FROM t GROUP BY col1",
             grain_group_hash=grain_hash,
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                grain_columns,
+                measures1,
+            ),
         )
+        measures2 = [make_measure("sum_b", "b")]
         preagg2 = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measures=[make_measure("sum_b", "b")],
+            measures=measures2,
             columns=[],
             sql="SELECT b FROM t GROUP BY col1",
             grain_group_hash=grain_hash,
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                grain_columns,
+                measures2,
+            ),
         )
         # Different grain = different hash
         other_hash = compute_grain_group_hash(minimal_node_revision.id, ["other.col"])
+        measures3 = [make_measure("sum_c", "c")]
         preagg3 = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=["other.col"],
-            measures=[make_measure("sum_c", "c")],
+            measures=measures3,
             columns=[],
             sql="SELECT c FROM t GROUP BY other",
             grain_group_hash=other_hash,
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                ["other.col"],
+                measures3,
+            ),
         )
 
         session.add_all([preagg1, preagg2, preagg3])
@@ -467,13 +527,19 @@ class TestPreAggregationDBMethods:
 
     async def test_get_by_id(self, session, minimal_node_revision):
         """Test get_by_id returns pre-agg when found, None when not."""
+        measures = [make_measure("sum_x", "x")]
         preagg = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=["test.col"],
-            measures=[make_measure("sum_x", "x")],
+            measures=measures,
             columns=[],
             sql="SELECT x FROM t",
             grain_group_hash="hash123",
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                ["test.col"],
+                measures,
+            ),
         )
         session.add(preagg)
         await session.flush()
@@ -495,18 +561,24 @@ class TestPreAggregationDBMethods:
         """Test find_matching returns pre-agg with superset of measures."""
         grain_columns = ["test.dim.col"]
 
+        measures = [
+            make_measure("sum_price", "price"),
+            make_measure("count_orders", "1", "COUNT"),
+        ]
         preagg = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measures=[
-                make_measure("sum_price", "price"),
-                make_measure("count_orders", "1", "COUNT"),
-            ],
+            measures=measures,
             columns=[],
             sql="SELECT price, count(1) FROM t GROUP BY col",
             grain_group_hash=compute_grain_group_hash(
                 minimal_node_revision.id,
                 grain_columns,
+            ),
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                grain_columns,
+                measures,
             ),
         )
         session.add(preagg)
@@ -526,15 +598,21 @@ class TestPreAggregationDBMethods:
         """Test find_matching returns None when no candidate has superset."""
         grain_columns = ["test.dim.col"]
 
+        measures = [make_measure("sum_price", "price")]
         preagg = PreAggregation(
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measures=[make_measure("sum_price", "price")],
+            measures=measures,
             columns=[],
             sql="SELECT price FROM t GROUP BY col",
             grain_group_hash=compute_grain_group_hash(
                 minimal_node_revision.id,
                 grain_columns,
+            ),
+            preagg_hash=compute_preagg_hash(
+                minimal_node_revision.id,
+                grain_columns,
+                measures,
             ),
         )
         session.add(preagg)

@@ -37,6 +37,7 @@ from datajunction_server.database.preaggregation import (
     VALID_PREAGG_STRATEGIES,
     compute_grain_group_hash,
     compute_expression_hash,
+    compute_preagg_hash,
 )
 from datajunction_server.errors import (
     DJDoesNotExistException,
@@ -79,14 +80,22 @@ _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["preaggregations"])
 
 
-def _compute_output_table(node_name: str, grain_group_hash: str) -> str:
+def _compute_output_table(node_name: str, preagg_hash: str) -> str:
     """
     Compute the output table name for a pre-aggregation.
 
-    Format: {node_short}_preagg_{hash[:8]}
+    Format: {node_short}_preagg_{preagg_hash}
+
+    The preagg_hash uniquely identifies this pre-agg by incorporating:
+    - node_revision_id
+    - grain_columns
+    - measure_expr_hashes
+
+    This ensures unique table names even for pre-aggs with the same grain
+    but different measures.
     """
     node_short = node_name.replace(".", "_")
-    return f"{node_short}_preagg_{grain_group_hash[:8]}"
+    return f"{node_short}_preagg_{preagg_hash}"
 
 
 async def _get_upstream_source_tables(
@@ -186,6 +195,7 @@ async def _preagg_to_info(
         columns=preagg.columns,
         sql=preagg.sql,
         grain_group_hash=preagg.grain_group_hash,
+        preagg_hash=preagg.preagg_hash,
         strategy=preagg.strategy,
         schedule=preagg.schedule,
         lookback_window=preagg.lookback_window,
@@ -620,6 +630,13 @@ async def plan_preaggregations(
             existing.columns = columns
             created_preaggs.append(existing)
         else:
+            # Compute unique preagg_hash (includes measures for uniqueness)
+            preagg_hash = compute_preagg_hash(
+                node_revision_id,
+                grain_columns,
+                measures,
+            )
+
             # Create new pre-aggregation
             preagg = PreAggregation(
                 node_revision_id=node_revision_id,
@@ -628,6 +645,7 @@ async def plan_preaggregations(
                 columns=columns,
                 sql=sql,
                 grain_group_hash=grain_group_hash,
+                preagg_hash=preagg_hash,
                 strategy=data.strategy,
                 schedule=data.schedule,
                 lookback_window=data.lookback_window,
@@ -733,9 +751,8 @@ async def materialize_preaggregation(
                 ),
             )
 
-    # Build output table name
-    node_short = preagg.node_revision.name.replace(".", "_")
-    output_table = f"{node_short}_preagg_{preagg.grain_group_hash[:8]}"
+    # Build output table name using preagg_hash (includes measures for uniqueness)
+    output_table = _compute_output_table(preagg.node_revision.name, preagg.preagg_hash)
 
     # Get temporal partition info
     temporal_partitions = get_temporal_partitions(preagg)
@@ -995,7 +1012,7 @@ async def delete_preagg_workflow(
     # Compute output_table - the resource identifier that Query Service uses
     output_table = _compute_output_table(
         preagg.node_revision.name,
-        preagg.grain_group_hash,
+        preagg.preagg_hash,
     )
 
     # Call query service to deactivate using the resource identifier (output_table)
@@ -1117,7 +1134,7 @@ async def bulk_deactivate_preagg_workflows(
         # Compute output_table for workflow identification
         output_table = _compute_output_table(
             preagg.node_revision.name,
-            preagg.grain_group_hash,
+            preagg.preagg_hash,
         )
 
         # Extract workflow name from URLs if available
@@ -1228,7 +1245,7 @@ async def run_preagg_backfill(
     # Compute output table (Query Service derives workflow name from this)
     output_table = _compute_output_table(
         preagg.node_revision.name,
-        preagg.grain_group_hash,
+        preagg.preagg_hash,
     )
 
     # Build simplified backfill input
