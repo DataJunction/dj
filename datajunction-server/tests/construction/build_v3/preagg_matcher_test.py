@@ -302,6 +302,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_01",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -345,6 +346,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_02",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -394,6 +396,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_03",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -440,6 +443,7 @@ class TestFindMatchingPreagg:
             ],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_04",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -491,6 +495,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash_coarse",
+            preagg_hash="match_05",
             availability_id=avail1.id,
         )
         # Fine grain (2 columns) - should be preferred
@@ -500,6 +505,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash_fine",
+            preagg_hash="match_06",
             availability_id=avail2.id,
         )
         session.add_all([preagg_coarse, preagg_fine])
@@ -544,6 +550,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_07",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -589,6 +596,7 @@ class TestFindMatchingPreagg:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_08",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -640,6 +648,7 @@ class TestGetPreaggMeasureColumn:
             ],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_09",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -673,6 +682,7 @@ class TestGetPreaggMeasureColumn:
             measures=[make_preagg_measure("sum_x", "x")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_10",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -706,6 +716,7 @@ class TestGetPreaggMeasureColumn:
             measures=[make_preagg_measure("preagg_col_name", "x * y")],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_11",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -740,6 +751,7 @@ class TestGetPreaggMeasureColumn:
             measures=[],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_12",
             availability_id=avail.id,
         )
         session.add(preagg)
@@ -782,6 +794,7 @@ class TestGetPreaggMeasureColumn:
             measures=[measure_no_hash],
             sql="SELECT ...",
             grain_group_hash="hash1",
+            preagg_hash="match_13",
             availability_id=avail.id,
         )
         session.add(preagg)

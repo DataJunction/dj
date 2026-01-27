@@ -2779,7 +2779,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Source tables should be pre-agg table references
         assert len(data["source_tables"]) >= 1
         assert data["source_tables"] == [
-            "default.dj_preaggs.v3_order_details_preagg_b18e32ec",
+            "default.dj_preaggs.v3_order_details_preagg_d344b4e3",
         ]
 
         # Extract the preagg table name for SQL comparison
@@ -2788,7 +2788,7 @@ class TestCombinedMeasuresSQLEndpoint:
             data["sql"],
             """
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
-            FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
+            FROM default.dj_preaggs.v3_order_details_preagg_d344b4e3
             GROUP BY status
             """,
         )
@@ -2820,7 +2820,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Source tables should include the default catalog.schema prefix
         assert len(data["source_tables"]) >= 1
         assert data["source_tables"] == [
-            "default.dj_preaggs.v3_order_details_preagg_b18e32ec",
+            "default.dj_preaggs.v3_order_details_preagg_d344b4e3",
         ]
 
         # Verify the SQL also references this table
@@ -2828,7 +2828,7 @@ class TestCombinedMeasuresSQLEndpoint:
             data["sql"],
             """
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
-            FROM default.dj_preaggs.v3_order_details_preagg_b18e32ec
+            FROM default.dj_preaggs.v3_order_details_preagg_d344b4e3
             GROUP BY status
             """,
         )

@@ -11,7 +11,9 @@ from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.database.preaggregation import (
+    PreAggregation,
+)
 from datajunction_server.database.user import User
 from datajunction_server.models.decompose import (
     MetricComponent,
@@ -141,6 +143,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT x FROM t",
             grain_group_hash="hash123",
+            preagg_hash="load_t01",
             availability_id=availability.id,
         )
         clean_session.add(preagg)
@@ -174,6 +177,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT x FROM t",
             grain_group_hash="hash_no_avail",
+            preagg_hash="load_t02",
             # No availability_id
         )
         clean_session.add(preagg)
@@ -215,6 +219,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT x FROM t",
             grain_group_hash="hash_unavail",
+            preagg_hash="load_t03",
             availability_id=availability.id,
         )
         clean_session.add(preagg)
@@ -263,6 +268,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT a",
             grain_group_hash="hash_multi_1",
+            preagg_hash="load_t04",
             availability_id=availability1.id,
         )
         preagg2 = PreAggregation(
@@ -272,6 +278,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT b",
             grain_group_hash="hash_multi_2",
+            preagg_hash="load_t05",
             availability_id=availability2.id,
         )
         clean_session.add_all([preagg1, preagg2])
@@ -342,6 +349,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT a",
             grain_group_hash="hash_rev1",
+            preagg_hash="load_t06",
             availability_id=avail1.id,
         )
         preagg2 = PreAggregation(
@@ -351,6 +359,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT b",
             grain_group_hash="hash_rev2",
+            preagg_hash="load_t07",
             availability_id=avail2.id,
         )
         clean_session.add_all([preagg1, preagg2])
@@ -444,6 +453,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT a",
             grain_group_hash="hash_wanted",
+            preagg_hash="load_t08",
             availability_id=avail1.id,
         )
         unwanted_preagg = PreAggregation(
@@ -453,6 +463,7 @@ class TestLoadAvailablePreaggs:
             columns=[],
             sql="SELECT b",
             grain_group_hash="hash_unwanted",
+            preagg_hash="load_t09",
             availability_id=avail2.id,
         )
         clean_session.add_all([wanted_preagg, unwanted_preagg])
