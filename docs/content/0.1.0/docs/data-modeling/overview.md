@@ -7,7 +7,7 @@ Data modeling in DJ can be done in several ways:
 * Using the UI
 * Using the [API](../../developers/dj-server-v0.0.1a44)
 * Any [supported clients](../dj-clients/)
-* Using [YAML files](../yaml)
+* Using [YAML files](./yaml)
 
 ## Data Modeling Stages
 
