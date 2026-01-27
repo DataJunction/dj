@@ -50,7 +50,7 @@ from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
 
 import logging
-from typing import Callable, Dict, List, cast
+from typing import Callable, Dict, List, Optional, cast
 
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -837,6 +837,77 @@ def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
 
 
+def _get_node_suffix(full_name: str, namespace_prefix: str) -> Optional[str]:
+    """
+    Extract the suffix of a node name after the namespace prefix.
+
+    E.g., _get_node_suffix("demo.main.reports.revenue", "demo.main") -> "reports.revenue"
+    """
+    prefix_with_dot = namespace_prefix + SEPARATOR
+    if full_name.startswith(prefix_with_dot):
+        return full_name[len(prefix_with_dot) :]
+    return None
+
+
+def _inject_prefix_for_cube_ref(
+    ref_name: str,
+    namespace: str,
+    parent_namespace: Optional[str],
+    namespace_suffixes: set[str],
+) -> str:
+    """
+    Inject ${prefix} for cube metric/dimension references.
+
+    For cube references, we need to check if there's a matching node in the
+    current namespace. A cube might reference nodes from a parent namespace
+    (e.g., main), but if we've copied those nodes to the branch, we should
+    use ${prefix} instead.
+
+    Args:
+        ref_name: Full reference name (e.g., "demo.main.reports.revenue")
+        namespace: Current namespace being exported (e.g., "demo.feature_x")
+        parent_namespace: Parent namespace if this is a branch (e.g., "demo.main")
+        namespace_suffixes: Set of suffixes for nodes in the namespace
+                           (e.g., {"my_metric", "reports.revenue"})
+
+    Returns:
+        Either "${prefix}<suffix>" if node exists in namespace,
+        or the original ref_name if it's external
+    """
+    logger.info(
+        "Cube ref injection: ref_name=%s, namespace=%s, parent_namespace=%s, "
+        "namespace_suffixes=%s",
+        ref_name,
+        namespace,
+        parent_namespace,
+        namespace_suffixes,
+    )
+
+    # First try direct prefix injection (node is in current namespace)
+    injected = inject_prefixes(ref_name, namespace)
+    if injected != ref_name:
+        logger.info("Cube ref: direct injection matched, %s -> %s", ref_name, injected)
+        return injected
+
+    # For branch namespaces, check if the reference is from parent namespace
+    # and has been copied to this branch
+    if parent_namespace:
+        suffix = _get_node_suffix(ref_name, parent_namespace)
+        logger.info(
+            "Cube ref: checking parent namespace, suffix=%s, in_suffixes=%s",
+            suffix,
+            suffix in namespace_suffixes if suffix else False,
+        )
+        if suffix and suffix in namespace_suffixes:
+            result = f"${{prefix}}{suffix}"
+            logger.info("Cube ref: parent match, %s -> %s", ref_name, result)
+            return result
+
+    # External reference - keep as-is
+    logger.info("Cube ref: external reference, keeping as-is: %s", ref_name)
+    return ref_name
+
+
 async def get_node_specs_for_export(
     session: AsyncSession,
     namespace: str,
@@ -848,6 +919,14 @@ async def get_node_specs_for_export(
     - /namespaces/{namespace}/export/spec (JSON API)
     - /namespaces/{namespace}/export/yaml (ZIP download)
     """
+    # Get the namespace object to find parent_namespace (for branch namespaces)
+    namespace_obj = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    parent_namespace = namespace_obj.parent_namespace if namespace_obj else None
+
     nodes = await NodeNamespace.list_all_nodes(
         session,
         namespace,
@@ -855,7 +934,28 @@ async def get_node_specs_for_export(
     )
     node_specs = [await node.to_spec(session) for node in nodes]
 
+    # Build set of node suffixes in this namespace (for cube reference matching)
+    # e.g., for "demo.feature_x.reports.revenue" with namespace "demo.feature_x",
+    # the suffix is "reports.revenue"
+    namespace_suffixes: set[str] = set()
+    for node in nodes:
+        suffix = _get_node_suffix(node.name, namespace)
+        if suffix:
+            namespace_suffixes.add(suffix)
+
+    logger.info(
+        "Export namespace '%s': parent_namespace=%s, namespace_suffixes=%s",
+        namespace,
+        parent_namespace,
+        namespace_suffixes,
+    )
+
     for node_spec in node_specs:
+        logger.info(
+            "Processing node_spec: name=%s, node_type=%s",
+            node_spec.name,
+            node_spec.node_type,
+        )
         node_spec.name = inject_prefixes(node_spec.rendered_name, namespace)
         if node_spec.node_type in (
             NodeType.TRANSFORM,
@@ -879,22 +979,60 @@ async def get_node_specs_for_export(
                     link.dimension = inject_prefixes(link.dimension, namespace)
         if node_spec.node_type == NodeType.CUBE:
             cube_spec = cast(CubeSpec, node_spec)
+            logger.info(
+                "Processing cube '%s': metrics=%s, dimensions=%s",
+                node_spec.name,
+                node_spec.metrics,
+                node_spec.dimensions,
+            )
             cube_spec.metrics = [
-                inject_prefixes(metric, namespace) for metric in node_spec.metrics
+                _inject_prefix_for_cube_ref(
+                    metric,
+                    namespace,
+                    parent_namespace,
+                    namespace_suffixes,
+                )
+                for metric in node_spec.metrics
             ]
             cube_spec.dimensions = [
-                inject_prefixes(dimension, namespace)
-                for dimension in node_spec.dimensions
+                _inject_prefix_for_cube_ref(
+                    dim,
+                    namespace,
+                    parent_namespace,
+                    namespace_suffixes,
+                )
+                for dim in node_spec.dimensions
             ]
+            logger.info(
+                "Cube '%s' after injection: metrics=%s, dimensions=%s",
+                node_spec.name,
+                cube_spec.metrics,
+                cube_spec.dimensions,
+            )
 
     return node_specs
 
 
+class LiteralBlockString(str):
+    """Marker class for strings that should always use literal block style (|-) in YAML."""
+
+    pass
+
+
+def _literal_block_representer(dumper, data):
+    """Representer for LiteralBlockString - always uses |- style."""
+    # Strip trailing whitespace so YAML uses |- (strip chomping)
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data.rstrip(), style="|")
+
+
 def _multiline_str_representer(dumper, data):
     """
-    Custom YAML representer that uses literal block style (|) for multiline strings.
+    Custom YAML representer that uses literal block style (|-) for multiline strings.
+    Strips trailing newlines so YAML uses the strip chomping indicator (-).
     """
     if "\n" in data:
+        # Strip trailing whitespace/newlines so YAML uses |- (strip chomping)
+        data = data.rstrip()
         return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
@@ -909,6 +1047,7 @@ def _get_yaml_dumper():
         pass
 
     MultilineStrDumper.add_representer(str, _multiline_str_representer)
+    MultilineStrDumper.add_representer(LiteralBlockString, _literal_block_representer)
     return MultilineStrDumper
 
 
@@ -963,4 +1102,56 @@ def _node_spec_to_yaml_dict(node_spec) -> dict:
             del data["columns"]
 
     # Remove empty lists/dicts for cleaner YAML
-    return {k: v for k, v in data.items() if v or v == 0 or v is False}
+    data = {k: v for k, v in data.items() if v or v == 0 or v is False}
+
+    # Wrap query fields with LiteralBlockString so they always use |- style
+    # Strip trailing whitespace from each line to ensure block style works
+    if "query" in data and data["query"]:
+        cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
+        data["query"] = LiteralBlockString(cleaned_query)
+
+    # Also wrap join_on in dimension_links
+    if "dimension_links" in data:
+        for link in data["dimension_links"]:
+            if "join_on" in link and link["join_on"]:
+                cleaned_join = "\n".join(
+                    line.rstrip() for line in link["join_on"].split("\n")
+                )
+                link["join_on"] = LiteralBlockString(cleaned_join)
+
+    return data
+
+
+def node_spec_to_yaml(node_spec) -> str:
+    """
+    Convert a NodeSpec to formatted YAML string.
+
+    Uses yamlfix to ensure consistent formatting.
+    """
+    from yamlfix import fix_code
+    from yamlfix.model import YamlfixConfig
+
+    yaml_dict = _node_spec_to_yaml_dict(node_spec)
+    yaml_dumper = _get_yaml_dumper()
+    yaml_content = yaml.dump(
+        yaml_dict,
+        Dumper=yaml_dumper,
+        sort_keys=False,
+        default_flow_style=False,
+        width=200,  # Prevent premature line wrapping; let yamlfix handle it
+    )
+
+    # Configure yamlfix to match pre-commit hook defaults
+    config = YamlfixConfig(
+        explicit_start=False,
+        line_length=120,  # Match typical yamlfix default for repos
+    )
+
+    # Format with yamlfix for consistent style
+    try:
+        yaml_content = fix_code(yaml_content, config=config)
+    except Exception as e:
+        # If yamlfix fails, log and return the original YAML
+        logger.warning("yamlfix failed to format YAML: %s", e)
+
+    return yaml_content

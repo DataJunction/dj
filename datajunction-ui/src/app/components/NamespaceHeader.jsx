@@ -1,21 +1,40 @@
 import { useContext, useEffect, useState, useRef } from 'react';
 import DJClientContext from '../providers/djclient';
+import {
+  GitSettingsModal,
+  CreateBranchModal,
+  SyncToGitModal,
+  CreatePRModal,
+  DeleteBranchModal,
+} from './git';
 
-export default function NamespaceHeader({ namespace, children }) {
+export default function NamespaceHeader({ namespace, children, onGitConfigLoaded }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [sources, setSources] = useState(null);
   const [recentDeployments, setRecentDeployments] = useState([]);
   const [deploymentsDropdownOpen, setDeploymentsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Git config state
+  const [gitConfig, setGitConfig] = useState(null);
+  const [parentGitConfig, setParentGitConfig] = useState(null);
+  const [existingPR, setExistingPR] = useState(null);
+
+  // Modal states
+  const [showGitSettings, setShowGitSettings] = useState(false);
+  const [showCreateBranch, setShowCreateBranch] = useState(false);
+  const [showSyncToGit, setShowSyncToGit] = useState(false);
+  const [showCreatePR, setShowCreatePR] = useState(false);
+  const [showDeleteBranch, setShowDeleteBranch] = useState(false);
+
   useEffect(() => {
-    const fetchSources = async () => {
+    const fetchData = async () => {
       if (namespace) {
+        // Fetch deployment sources
         try {
           const data = await djClient.namespaceSources(namespace);
           setSources(data);
 
-          // Fetch recent deployments for this namespace
           try {
             const deployments = await djClient.listDeployments(namespace, 5);
             setRecentDeployments(deployments || []);
@@ -26,9 +45,45 @@ export default function NamespaceHeader({ namespace, children }) {
         } catch (e) {
           // Silently fail - badge just won't show
         }
+
+        // Fetch git config
+        try {
+          const config = await djClient.getNamespaceGitConfig(namespace);
+          setGitConfig(config);
+          if (onGitConfigLoaded) {
+            onGitConfigLoaded(config);
+          }
+
+          // If this is a branch namespace, fetch parent's git config and check for existing PR
+          if (config?.parent_namespace) {
+            try {
+              const parentConfig = await djClient.getNamespaceGitConfig(
+                config.parent_namespace,
+              );
+              setParentGitConfig(parentConfig);
+            } catch (e) {
+              console.error('Failed to fetch parent git config:', e);
+            }
+
+            // Check for existing PR
+            try {
+              const pr = await djClient.getPullRequest(namespace);
+              setExistingPR(pr);
+            } catch (e) {
+              // No PR or error - that's fine
+              setExistingPR(null);
+            }
+          }
+        } catch (e) {
+          // Git config not available
+          setGitConfig(null);
+          if (onGitConfigLoaded) {
+            onGitConfigLoaded(null);
+          }
+        }
       }
     };
-    fetchSources();
+    fetchData();
   }, [djClient, namespace]);
 
   // Close dropdown when clicking outside
@@ -43,6 +98,65 @@ export default function NamespaceHeader({ namespace, children }) {
   }, []);
 
   const namespaceParts = namespace ? namespace.split('.') : [];
+
+  const hasGitConfig = gitConfig?.github_repo_path && gitConfig?.git_branch;
+  const isBranchNamespace = !!gitConfig?.parent_namespace;
+
+  // Handlers for git operations
+  const handleSaveGitConfig = async config => {
+    const result = await djClient.updateNamespaceGitConfig(namespace, config);
+    if (!result?._error) {
+      setGitConfig(result);
+    }
+    return result;
+  };
+
+  const handleCreateBranch = async branchName => {
+    return await djClient.createBranch(namespace, branchName);
+  };
+
+  const handleSyncToGit = async commitMessage => {
+    return await djClient.syncNamespaceToGit(namespace, commitMessage);
+  };
+
+  const handleCreatePR = async (title, body) => {
+    const result = await djClient.createPullRequest(namespace, title, body);
+    if (result && !result._error) {
+      setExistingPR(result);
+    }
+    return result;
+  };
+
+  const handleDeleteBranch = async deleteGitBranch => {
+    return await djClient.deleteBranch(
+      gitConfig.parent_namespace,
+      namespace,
+      deleteGitBranch,
+    );
+  };
+
+  // Button style helpers
+  const buttonStyle = {
+    height: '28px',
+    padding: '0 10px',
+    fontSize: '12px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
+    color: '#475569',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    whiteSpace: 'nowrap',
+  };
+
+  const primaryButtonStyle = {
+    ...buttonStyle,
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+    color: '#ffffff',
+  };
 
   return (
     <div
@@ -123,7 +237,82 @@ export default function NamespaceHeader({ namespace, children }) {
           </span>
         )}
 
-        {/* Deployment badge + dropdown */}
+        {/* Branch indicator */}
+        {isBranchNamespace && (
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              backgroundColor: '#dbeafe',
+              borderRadius: '12px',
+              fontSize: '11px',
+              color: '#1e40af',
+              marginLeft: '4px',
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="6" y1="3" x2="6" y2="15" />
+              <circle cx="18" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M18 9a9 9 0 0 1-9 9" />
+            </svg>
+            Branch of{' '}
+            <a
+              href={`/namespaces/${gitConfig.parent_namespace}`}
+              style={{ color: '#1e40af', textDecoration: 'underline' }}
+            >
+              {gitConfig.parent_namespace}
+            </a>
+          </span>
+        )}
+
+        {/* Git-only (read-only) indicator */}
+        {gitConfig?.git_only && (
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              backgroundColor: '#fef3c7',
+              borderRadius: '12px',
+              fontSize: '11px',
+              color: '#92400e',
+              marginLeft: '4px',
+            }}
+            title="This namespace is git-only. Changes must be made via git and deployed."
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            Read-only
+          </span>
+        )}
+
+        {/* Deployment badge + dropdown (existing functionality) */}
         {sources && sources.total_deployments > 0 && (
           <div
             style={{ position: 'relative', marginLeft: '8px' }}
@@ -437,12 +626,233 @@ export default function NamespaceHeader({ namespace, children }) {
         )}
       </div>
 
-      {/* Right side actions passed as children */}
-      {children && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {children}
-        </div>
-      )}
+      {/* Right side: git actions + children */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Git controls for non-branch namespaces */}
+        {namespace && !isBranchNamespace && (
+          <>
+            {hasGitConfig ? (
+              <>
+                <button
+                  style={buttonStyle}
+                  onClick={() => setShowGitSettings(true)}
+                  title="Git Settings"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                </button>
+                <button
+                  style={primaryButtonStyle}
+                  onClick={() => setShowCreateBranch(true)}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  New Branch
+                </button>
+              </>
+            ) : (
+              <button
+                style={buttonStyle}
+                onClick={() => setShowGitSettings(true)}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                Configure Git
+              </button>
+            )}
+          </>
+        )}
+
+        {/* Git controls for branch namespaces */}
+        {isBranchNamespace && hasGitConfig && (
+          <>
+            <button
+              style={buttonStyle}
+              onClick={() => setShowSyncToGit(true)}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9" />
+              </svg>
+              Sync to Git
+            </button>
+            {existingPR ? (
+              <a
+                href={existingPR.pr_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  ...primaryButtonStyle,
+                  textDecoration: 'none',
+                  backgroundColor: '#16a34a',
+                  borderColor: '#16a34a',
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="18" cy="18" r="3" />
+                  <circle cx="6" cy="6" r="3" />
+                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                  <line x1="6" y1="9" x2="6" y2="21" />
+                </svg>
+                View PR #{existingPR.pr_number}
+              </a>
+            ) : (
+              <button
+                style={primaryButtonStyle}
+                onClick={() => setShowCreatePR(true)}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="18" cy="18" r="3" />
+                  <circle cx="6" cy="6" r="3" />
+                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                  <line x1="6" y1="9" x2="6" y2="21" />
+                </svg>
+                Create PR
+              </button>
+            )}
+            <button
+              style={{
+                ...buttonStyle,
+                color: '#dc2626',
+                borderColor: '#fecaca',
+              }}
+              onClick={() => setShowDeleteBranch(true)}
+              title="Delete Branch"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
+            </button>
+          </>
+        )}
+
+        {/* Additional actions passed as children */}
+        {children}
+      </div>
+
+      {/* Modals */}
+      <GitSettingsModal
+        isOpen={showGitSettings}
+        onClose={() => setShowGitSettings(false)}
+        onSave={handleSaveGitConfig}
+        currentConfig={gitConfig}
+        namespace={namespace}
+      />
+
+      <CreateBranchModal
+        isOpen={showCreateBranch}
+        onClose={() => setShowCreateBranch(false)}
+        onCreate={handleCreateBranch}
+        namespace={namespace}
+        gitBranch={gitConfig?.git_branch}
+      />
+
+      <SyncToGitModal
+        isOpen={showSyncToGit}
+        onClose={() => setShowSyncToGit(false)}
+        onSync={handleSyncToGit}
+        namespace={namespace}
+        gitBranch={gitConfig?.git_branch}
+        repoPath={gitConfig?.github_repo_path}
+      />
+
+      <CreatePRModal
+        isOpen={showCreatePR}
+        onClose={() => setShowCreatePR(false)}
+        onCreate={handleCreatePR}
+        namespace={namespace}
+        gitBranch={gitConfig?.git_branch}
+        parentBranch={parentGitConfig?.git_branch}
+        repoPath={gitConfig?.github_repo_path}
+      />
+
+      <DeleteBranchModal
+        isOpen={showDeleteBranch}
+        onClose={() => setShowDeleteBranch(false)}
+        onDelete={handleDeleteBranch}
+        namespace={namespace}
+        gitBranch={gitConfig?.git_branch}
+        parentNamespace={gitConfig?.parent_namespace}
+      />
     </div>
   );
 }

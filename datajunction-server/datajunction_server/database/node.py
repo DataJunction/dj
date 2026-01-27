@@ -1076,6 +1076,7 @@ class NodeRevision(
     frozen_measures: Mapped[List["FrozenMeasure"]] = relationship(
         secondary="node_revision_frozen_measures",
         back_populates="used_by_node_revisions",
+        passive_deletes=True,
     )
     derived_expression: Mapped[Optional[str]]
 

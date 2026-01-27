@@ -6,9 +6,8 @@ import { Form, Formik } from 'formik';
 import { useContext } from 'react';
 import { displayMessageAfterSubmit } from '../../utils/form';
 
-export default function NodeListActions({ nodeName }) {
-  const [editButton, setEditButton] = React.useState(<EditIcon />);
-  const [deleteButton, setDeleteButton] = React.useState(<DeleteIcon />);
+export default function NodeListActions({ nodeName, iconSize = 20 }) {
+  const [deleted, setDeleted] = React.useState(false);
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const deleteNode = async (values, { setStatus }) => {
@@ -22,8 +21,7 @@ export default function NodeListActions({ nodeName }) {
       setStatus({
         success: <>Successfully deleted node {values.nodeName}</>,
       });
-      setEditButton(''); // hide the Edit button
-      setDeleteButton(''); // hide the Delete button
+      setDeleted(true);
     } else {
       setStatus({
         failure: `${json.message}`,
@@ -35,10 +33,14 @@ export default function NodeListActions({ nodeName }) {
     nodeName: nodeName,
   };
 
+  if (deleted) {
+    return null;
+  }
+
   return (
     <div>
       <a href={`/nodes/${nodeName}/edit`} style={{ marginLeft: '0.5rem' }}>
-        {editButton}
+        <EditIcon size={iconSize} />
       </a>
       <Formik initialValues={initialValues} onSubmit={deleteNode}>
         {function Render({ status, setFieldValue }) {
@@ -56,7 +58,7 @@ export default function NodeListActions({ nodeName }) {
                       cursor: 'pointer',
                     }}
                   >
-                    {deleteButton}
+                    <DeleteIcon size={iconSize} />
                   </button>
                 </>
               }

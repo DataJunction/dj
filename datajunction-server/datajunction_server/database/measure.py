@@ -123,6 +123,7 @@ class FrozenMeasure(Base):
         secondary="node_revision_frozen_measures",
         back_populates="frozen_measures",
         lazy="selectin",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:
