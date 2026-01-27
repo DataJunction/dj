@@ -7,7 +7,7 @@ import itertools
 import logging
 from typing import Dict, List, Tuple, Union, cast
 
-from sqlalchemy import and_, func, join, literal, or_, select, distinct
+from sqlalchemy import and_, func, join, literal, or_, select
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
@@ -226,34 +226,38 @@ async def get_downstream_nodes_bfs(
         if max_depth != -1 and current_level[0][1] >= max_depth:
             break
 
-        # Fetch children for next level
-        next_level = []
-        for node in nodes_at_level:
-            children_rows = await session.execute(
-                select(distinct(Node.id))
+        # Fetch children for next level - batched query instead of per-node queries
+        parent_ids = [node.id for node in nodes_at_level]
+        if parent_ids:
+            children_query = (
+                select(NodeRelationship.parent_id, Node.id)
                 .select_from(NodeRelationship)
                 .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
                 .join(Node, Node.id == NodeRevision.node_id)
-                .where(NodeRelationship.parent_id == node.id)
-                .where(
-                    Node.deactivated_at.is_(None) if not include_deactivated else True,
-                ),
+                .where(NodeRelationship.parent_id.in_(parent_ids))
             )
-            children = [
-                (c[0], depth + 1)
-                for c in children_rows.fetchall()
-                if c[0] not in visited
-            ]
-            if children:
-                logger.info(
-                    "Processing downstreams for %s: extending from %s with %d children",
-                    start_node.name,
-                    node.name,
-                    len(children),
-                )
-                next_level.extend(children)
+            if not include_deactivated:
+                children_query = children_query.where(Node.deactivated_at.is_(None))
 
-        current_level = next_level
+            children_rows = await session.execute(children_query)
+            all_children = children_rows.fetchall()
+
+            # Group children by parent and build next level
+            next_level = [
+                (child_id, depth + 1)
+                for _, child_id in all_children
+                if child_id not in visited
+            ]
+            if next_level:
+                logger.info(
+                    "Processing downstreams for %s: found %d children at depth %d",
+                    start_node.name,
+                    len(next_level),
+                    depth + 1,
+                )
+            current_level = next_level
+        else:
+            current_level = []
 
     return results
 
