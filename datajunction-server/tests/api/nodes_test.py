@@ -527,6 +527,7 @@ class TestNodeCRUD:
                 "join_sql": "default.hard_hats.title = default.title.title",
                 "join_type": "left",
                 "role": None,
+                "default_value": None,
             },
         ]
 
@@ -1905,6 +1906,7 @@ class TestNodeCRUD:
                 "default.repair_order.repair_order_id",
                 "join_type": "inner",
                 "role": None,
+                "default_value": None,
             },
             {
                 "dimension": {"name": "default.dispatcher"},
@@ -1916,6 +1918,7 @@ class TestNodeCRUD:
                 "default.dispatcher.dispatcher_id",
                 "join_type": "inner",
                 "role": None,
+                "default_value": None,
             },
         ]
 
@@ -6016,6 +6019,7 @@ class TestCopyNode:
                 "default.dispatcher.dispatcher_id",
                 "join_type": "inner",
                 "role": None,
+                "default_value": None,
             },
             {
                 "dimension": {"name": "default.hard_hat"},
@@ -6026,6 +6030,7 @@ class TestCopyNode:
                 "join_sql": "default.contractor.hard_hat_id = default.hard_hat.hard_hat_id",
                 "join_type": "inner",
                 "role": None,
+                "default_value": None,
             },
             {
                 "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6039,6 +6044,7 @@ class TestCopyNode:
                 "default.hard_hat_to_delete.hard_hat_id",
                 "join_type": "left",
                 "role": None,
+                "default_value": None,
             },
             {
                 "dimension": {"name": "default.municipality_dim"},
@@ -6052,6 +6058,7 @@ class TestCopyNode:
                 "default.municipality_dim.municipality_id",
                 "join_type": "inner",
                 "role": None,
+                "default_value": None,
             },
         ]
 
@@ -6079,6 +6086,7 @@ class TestCopyNode:
                     "default.dispatcher.dispatcher_id",
                     "join_type": "inner",
                     "role": None,
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.repair_order"},
@@ -6092,6 +6100,7 @@ class TestCopyNode:
                     "= default.repair_order.repair_order_id",
                     "join_type": "inner",
                     "role": None,
+                    "default_value": None,
                 },
             ],
             "default.repair_order_details": [
@@ -6107,6 +6116,7 @@ class TestCopyNode:
                             "default.repair_order.repair_order_id"
                         ),
                     },
+                    "default_value": None,
                 },
             ],
             "default.repair_type": [
@@ -6122,6 +6132,7 @@ class TestCopyNode:
                             "default.contractor.contractor_id"
                         ),
                     },
+                    "default_value": None,
                 },
             ],
             "default.repair_orders_fact": [
@@ -6137,6 +6148,7 @@ class TestCopyNode:
                             "default.dispatcher.dispatcher_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
@@ -6150,6 +6162,7 @@ class TestCopyNode:
                             "default.hard_hat.hard_hat_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6163,6 +6176,7 @@ class TestCopyNode:
                             "default.hard_hat_to_delete.hard_hat_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
@@ -6176,6 +6190,7 @@ class TestCopyNode:
                             "default.municipality_dim.municipality_id"
                         ),
                     },
+                    "default_value": None,
                 },
             ],
             "default.hard_hat": [
@@ -6188,6 +6203,7 @@ class TestCopyNode:
                     "foreign_keys": {
                         "default.hard_hat_copy.state": "default.us_state.state_short",
                     },
+                    "default_value": None,
                 },
             ],
             "default.repair_order": [
@@ -6203,6 +6219,7 @@ class TestCopyNode:
                             "default.dispatcher.dispatcher_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
@@ -6216,6 +6233,7 @@ class TestCopyNode:
                             "default.hard_hat.hard_hat_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6229,6 +6247,7 @@ class TestCopyNode:
                             "default.hard_hat_to_delete.hard_hat_id"
                         ),
                     },
+                    "default_value": None,
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
@@ -6242,6 +6261,7 @@ class TestCopyNode:
                             "default.municipality_dim.municipality_id"
                         ),
                     },
+                    "default_value": None,
                 },
             ],
         }

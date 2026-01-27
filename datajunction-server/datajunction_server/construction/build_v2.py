@@ -1923,7 +1923,7 @@ def build_dimension_attribute(
                         aliased = coalesce_expr.set_alias(ast.Name(alias))
                         aliased.set_as(True)
                         return aliased
-                    return coalesce_expr
+                    return coalesce_expr  # pragma: no cover
 
                 column.alias = ast.Name(alias) if alias else None
                 return column
