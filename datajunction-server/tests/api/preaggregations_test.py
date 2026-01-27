@@ -361,6 +361,100 @@ class TestListPreaggregations:
             assert item["grain_group_hash"] == preagg1.grain_group_hash
 
     @pytest.mark.asyncio
+    async def test_preagg_hash_unique_for_different_measures(self, client_with_preaggs):
+        """
+        Test that preagg_hash is unique for pre-aggs with same grain but different measures.
+
+        preagg1: total_revenue + total_quantity by status
+        preagg3: max_unit_price by status
+
+        Both have the same grain (status dimension), so grain_group_hash is the same.
+        But they have different measures, so preagg_hash should be different.
+        This ensures unique table/workflow names for each pre-agg.
+        """
+        preagg1 = client_with_preaggs["preagg1"]
+        preagg3 = client_with_preaggs["preagg3"]
+
+        # Verify they have the same grain_group_hash (same grain)
+        assert preagg1.grain_group_hash == preagg3.grain_group_hash
+
+        # Verify they have different preagg_hash (different measures)
+        assert preagg1.preagg_hash != preagg3.preagg_hash
+
+        # Verify the output table names would be different
+        from datajunction_server.api.preaggregations import _compute_output_table
+
+        table1 = _compute_output_table(preagg1.node_revision.name, preagg1.preagg_hash)
+        table3 = _compute_output_table(preagg3.node_revision.name, preagg3.preagg_hash)
+
+        assert table1 != table3
+        assert preagg1.preagg_hash in table1
+        assert preagg3.preagg_hash in table3
+
+    @pytest.mark.asyncio
+    async def test_preagg_hash_unique_for_overlapping_measures(
+        self,
+        client_with_build_v3: AsyncClient,
+    ):
+        """
+        Test that preagg_hash is unique even when metrics overlap.
+
+        Creates:
+        - preagg_a: metric A, metric B at grain X, Y
+        - preagg_b: metric A, metric B, metric C at grain X, Y
+
+        Both have the same grain, and preagg_b is a superset of preagg_a's measures.
+        They should still have different preagg_hash and different table names.
+        """
+        client = client_with_build_v3
+
+        # Create first preagg: total_revenue + total_quantity by status + category
+        response1 = await client.post(
+            "/preaggs/plan",
+            json={
+                "metrics": ["v3.total_revenue", "v3.total_quantity"],
+                "dimensions": ["v3.order_details.status", "v3.product.category"],
+                "strategy": "full",
+            },
+        )
+        assert response1.status_code == 201, response1.text
+        preagg_a = response1.json()["preaggs"][0]
+
+        # Create second preagg: total_revenue + total_quantity + avg_unit_price
+        # at the same grain (status + category)
+        response2 = await client.post(
+            "/preaggs/plan",
+            json={
+                "metrics": [
+                    "v3.total_revenue",
+                    "v3.total_quantity",
+                    "v3.avg_unit_price",
+                ],
+                "dimensions": ["v3.order_details.status", "v3.product.category"],
+                "strategy": "full",
+            },
+        )
+        assert response2.status_code == 201, response2.text
+        preagg_b = response2.json()["preaggs"][0]
+
+        # Verify they have the same grain_group_hash (same grain)
+        assert preagg_a["grain_group_hash"] == preagg_b["grain_group_hash"]
+
+        # Verify they have different preagg_hash (different measures)
+        assert preagg_a["preagg_hash"] != preagg_b["preagg_hash"]
+
+        # Verify different IDs (they are separate pre-aggs, not reused)
+        assert preagg_a["id"] != preagg_b["id"]
+
+        # Verify the output table names would be different
+        from datajunction_server.api.preaggregations import _compute_output_table
+
+        table_a = _compute_output_table(preagg_a["node_name"], preagg_a["preagg_hash"])
+        table_b = _compute_output_table(preagg_b["node_name"], preagg_b["preagg_hash"])
+
+        assert table_a != table_b
+
+    @pytest.mark.asyncio
     async def test_list_preaggs_by_status_pending(self, client_with_preaggs):
         """Test filtering by status='pending' (no availability)."""
         client = client_with_preaggs["client"]
