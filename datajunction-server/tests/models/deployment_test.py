@@ -311,10 +311,11 @@ def test_source_spec_with_dimension_link_default_value():
         table="events",
         dimension_links=[
             DimensionJoinLinkSpec(
-                dimension_node="users",
+                dimension_node="${prefix}users",
                 join_type="left",
                 join_on="events.user_id = users.id",
                 default_value="Unknown User",
+                namespace="test",
             ),
         ],
     )
