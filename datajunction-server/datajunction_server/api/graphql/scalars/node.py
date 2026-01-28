@@ -259,6 +259,16 @@ class NodeRevision:
         )
 
     @strawberry.field
+    def is_derived_metric(self, root: "DBNodeRevision") -> bool:
+        """
+        Returns True if this metric references other metrics (making it a derived metric).
+        A derived metric is a metric whose parent(s) include other metric nodes.
+        """
+        if root.type != NodeType_.METRIC:
+            return False
+        return root.is_derived_metric
+
+    @strawberry.field
     async def extracted_measures(
         self,
         root: "DBNodeRevision",
