@@ -48,9 +48,10 @@ export default function NodeInfoTab({ node }) {
       const metric = await djClient.getMetric(node.name);
       // For derived metrics, don't show upstream_node
       const parents = metric.current.parents || [];
-      const upstreamNode = !metric.current.isDerivedMetric && parents.length === 1
-        ? parents[0]?.name
-        : null;
+      const upstreamNode =
+        !metric.current.isDerivedMetric && parents.length === 1
+          ? parents[0]?.name
+          : null;
       setMetricInfo({
         metric_metadata: metric.current.metricMetadata,
         required_dimensions: metric.current.requiredDimensions,
