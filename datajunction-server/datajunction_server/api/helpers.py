@@ -106,7 +106,9 @@ async def check_namespace_not_git_only(
     Used to prevent direct node mutations (create/update/delete) on git-managed namespaces.
     """
     node_namespace = await get_node_namespace(
-        session, namespace, raise_if_not_exists=False,
+        session,
+        namespace,
+        raise_if_not_exists=False,
     )
     if node_namespace and node_namespace.git_only:
         raise DJInvalidInputException(
