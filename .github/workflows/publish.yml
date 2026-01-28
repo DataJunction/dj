@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Fetch all history for proper release notes generation
-          fetch-tags: true  # Ensure all tags are fetched
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
 
       - name: Get version from branch name
         id: version
@@ -121,8 +123,13 @@ jobs:
           CURRENT_TAG="v${{ steps.version.outputs.VERSION }}"
           echo "Current tag: $CURRENT_TAG"
 
-          # Find the previous version tag (latest existing tag)
-          PREV_TAG=$(git tag -l 'v*' | sort -V | tail -1)
+          # List all version tags sorted
+          echo "All tags:"
+          git tag -l 'v*' | sort -V
+
+          # Find the previous version tag (the one before current version)
+          # Filter out current tag and get the latest remaining one
+          PREV_TAG=$(git tag -l 'v*' | sort -V | grep -v "^${CURRENT_TAG}$" | tail -1)
           echo "Previous tag: $PREV_TAG"
 
           # Generate changelog
