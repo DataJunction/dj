@@ -1105,14 +1105,19 @@ def _node_spec_to_yaml_dict(node_spec) -> dict:
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
 
     # Wrap query fields with LiteralBlockString so they always use |- style
+    # Strip trailing whitespace from each line to ensure block style works
     if "query" in data and data["query"]:
-        data["query"] = LiteralBlockString(data["query"])
+        cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
+        data["query"] = LiteralBlockString(cleaned_query)
 
     # Also wrap join_on in dimension_links
     if "dimension_links" in data:
         for link in data["dimension_links"]:
             if "join_on" in link and link["join_on"]:
-                link["join_on"] = LiteralBlockString(link["join_on"])
+                cleaned_join = "\n".join(
+                    line.rstrip() for line in link["join_on"].split("\n")
+                )
+                link["join_on"] = LiteralBlockString(cleaned_join)
 
     return data
 
@@ -1133,18 +1138,20 @@ def node_spec_to_yaml(node_spec) -> str:
         Dumper=yaml_dumper,
         sort_keys=False,
         default_flow_style=False,
+        width=200,  # Prevent premature line wrapping; let yamlfix handle it
     )
 
-    # Configure yamlfix: no document start header (---)
+    # Configure yamlfix to match pre-commit hook defaults
     config = YamlfixConfig(
         explicit_start=False,
+        line_length=120,  # Match typical yamlfix default for repos
     )
 
     # Format with yamlfix for consistent style
     try:
         yaml_content = fix_code(yaml_content, config=config)
-    except Exception:
-        # If yamlfix fails, return the original YAML
-        pass
+    except Exception as e:
+        # If yamlfix fails, log and return the original YAML
+        logger.warning("yamlfix failed to format YAML: %s", e)
 
     return yaml_content

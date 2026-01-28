@@ -601,3 +601,21 @@ class GitHubService:
                 return None
             self._handle_error(resp, "get repository")
             return resp.json()
+
+    async def verify_commit(self, repo_path: str, commit_sha: str) -> bool:
+        """Verify that a commit exists in the repository.
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            commit_sha: The commit SHA to verify
+
+        Returns:
+            True if the commit exists, False otherwise
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/commits/{commit_sha}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            return resp.status_code == 200

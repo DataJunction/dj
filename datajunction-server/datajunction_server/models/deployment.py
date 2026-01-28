@@ -605,6 +605,7 @@ class NamespaceGitConfig(BaseModel):
     git_branch: str | None = None  # e.g., "main" or "feature-x"
     git_path: str | None = None  # e.g., "definitions/" - subdirectory within repo
     parent_namespace: str | None = None  # Links branch namespaces to parent
+    git_only: bool | None = None  # If True, UI edits blocked; must edit via git
 
 
 class DeploymentSpec(BaseModel):

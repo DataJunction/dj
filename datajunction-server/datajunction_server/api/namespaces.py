@@ -603,6 +603,7 @@ async def get_namespace_git_config(
         git_branch=node_namespace.git_branch,
         git_path=node_namespace.git_path,
         parent_namespace=node_namespace.parent_namespace,
+        git_only=node_namespace.git_only,
     )
 
 
@@ -630,6 +631,7 @@ async def update_namespace_git_config(
     - git_branch: Branch name (e.g., "main")
     - git_path: Subdirectory in repo for node definitions (e.g., "definitions/")
     - parent_namespace: Parent namespace for branch namespaces (for PR targeting)
+    - git_only: If True, UI edits are blocked; must edit via git deployments
     """
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -719,6 +721,8 @@ async def update_namespace_git_config(
         node_namespace.git_path = config.git_path or None
     if config.parent_namespace is not None:
         node_namespace.parent_namespace = config.parent_namespace or None
+    if config.git_only is not None:
+        node_namespace.git_only = config.git_only
 
     await session.commit()
     await session.refresh(node_namespace)
@@ -735,4 +739,5 @@ async def update_namespace_git_config(
         git_branch=node_namespace.git_branch,
         git_path=node_namespace.git_path,
         parent_namespace=node_namespace.parent_namespace,
+        git_only=node_namespace.git_only,
     )

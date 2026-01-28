@@ -337,6 +337,58 @@ async def sync_namespace_to_git(
         ) from e
 
 
+@router.get(
+    "/namespaces/{namespace}/pull-request",
+    response_model=Optional[PRResult],
+    name="Get existing pull request",
+)
+async def get_pull_request(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> Optional[PRResult]:
+    """
+    Check if a pull request exists for this branch namespace.
+
+    Returns the PR info if one exists, or null if no PR exists.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    namespace_obj = await get_node_namespace(session, namespace)
+
+    if not namespace_obj.parent_namespace:
+        return None  # Not a branch namespace, no PR possible
+
+    if not namespace_obj.github_repo_path or not namespace_obj.git_branch:
+        return None  # No git configured
+
+    parent_ns = await get_node_namespace(session, namespace_obj.parent_namespace)
+    if not parent_ns.git_branch:
+        return None  # Parent has no git branch
+
+    try:
+        github = GitHubService()
+        existing_pr = await github.get_pull_request(
+            repo_path=namespace_obj.github_repo_path,
+            head=namespace_obj.git_branch,
+            base=parent_ns.git_branch,
+        )
+
+        if existing_pr:
+            return PRResult(
+                pr_number=existing_pr["number"],
+                pr_url=existing_pr["html_url"],
+                head_branch=namespace_obj.git_branch,
+                base_branch=parent_ns.git_branch,
+            )
+        return None
+
+    except GitHubServiceError:
+        return None  # If GitHub API fails, just return no PR
+
+
 @router.post(
     "/namespaces/{namespace}/pull-request",
     response_model=PRResult,

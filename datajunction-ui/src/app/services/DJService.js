@@ -2383,6 +2383,22 @@ export const DataJunctionAPI = {
     return result;
   },
 
+  // Get existing pull request for a branch namespace (if any)
+  getPullRequest: async function (namespace) {
+    const response = await fetch(
+      `${DJ_URL}/namespaces/${namespace}/pull-request`,
+      {
+        method: 'GET',
+        credentials: 'include',
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const result = await response.json();
+    return result; // null if no PR exists
+  },
+
   // Create a pull request from a branch namespace
   createPullRequest: async function (namespace, title, body = null) {
     const payload = { title };
