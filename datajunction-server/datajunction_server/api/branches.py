@@ -12,7 +12,7 @@ from typing import List
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
@@ -30,6 +30,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.utils import get_current_user, get_session
 
@@ -50,6 +51,7 @@ class BranchInfo(BaseModel):
     git_branch: str  # e.g., "feature-x"
     parent_namespace: str  # e.g., "myproject.main"
     github_repo_path: str  # e.g., "owner/repo"
+    nodes_copied: int = 0  # Number of nodes copied from parent namespace
 
 
 @router.post(
@@ -165,11 +167,26 @@ async def create_branch(
         branch_name,
     )
 
+    # Copy all nodes from parent namespace to new branch namespace
+    copied_nodes = await copy_nodes_to_namespace(
+        session=session,
+        source_namespace=namespace,
+        target_namespace=new_namespace,
+        current_user=current_user,
+    )
+    _logger.info(
+        "Copied %d nodes from '%s' to branch namespace '%s'",
+        len(copied_nodes),
+        namespace,
+        new_namespace,
+    )
+
     return BranchInfo(
         namespace=new_namespace,
         git_branch=branch_name,
         parent_namespace=namespace,
         github_repo_path=parent_ns.github_repo_path,
+        nodes_copied=len(copied_nodes),
     )
 
 
@@ -218,7 +235,7 @@ async def list_branches(
 async def delete_branch(
     namespace: str,
     branch_namespace: str,
-    delete_git_branch: bool = False,
+    delete_git_branch: bool = True,
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -227,13 +244,15 @@ async def delete_branch(
     """
     Delete a branch namespace.
 
+    This will:
+    1. Delete all nodes in the branch namespace
+    2. Delete the namespace record
+    3. Delete the git branch (unless delete_git_branch=False)
+
     Args:
         namespace: Parent namespace
         branch_namespace: The branch namespace to delete
-        delete_git_branch: If True, also delete the git branch in GitHub
-
-    Note: This only deletes the namespace record, not the nodes within it.
-    Use the namespace deactivate/delete endpoints to remove nodes.
+        delete_git_branch: If True (default), also delete the git branch in GitHub
     """
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     access_checker.add_namespace(branch_namespace, ResourceAction.WRITE)
@@ -251,7 +270,8 @@ async def delete_branch(
             message=f"Namespace '{branch_namespace}' is not a branch of '{namespace}'.",
         )
 
-    # Optionally delete the git branch
+    # Delete the git branch
+    git_branch_deleted = False
     if delete_git_branch and branch_ns.github_repo_path and branch_ns.git_branch:
         try:
             github = GitHubService()
@@ -259,6 +279,7 @@ async def delete_branch(
                 repo_path=branch_ns.github_repo_path,
                 branch=branch_ns.git_branch,
             )
+            git_branch_deleted = True
             _logger.info(
                 "Deleted git branch '%s' in repo '%s'",
                 branch_ns.git_branch,
@@ -268,22 +289,52 @@ async def delete_branch(
             _logger.warning("Failed to delete git branch: %s", e)
             # Don't fail the request - the branch might already be deleted
 
-    # Clear git config but don't delete the namespace
-    # (namespace deletion should be done via the regular delete endpoint)
-    branch_ns.parent_namespace = None
-    branch_ns.git_branch = None
+    # Delete all nodes in the branch namespace
+    from datajunction_server.database.node import Node
+
+    nodes_query = select(Node).where(
+        or_(
+            Node.namespace == branch_namespace,
+            Node.namespace.like(f"{branch_namespace}.%"),
+        ),
+    )
+    result = await session.execute(nodes_query)
+    nodes_to_delete = result.scalars().all()
+    nodes_deleted = len(nodes_to_delete)
+
+    for node in nodes_to_delete:
+        await session.delete(node)
+
+    # Delete the namespace record
+    await session.delete(branch_ns)
+
+    # Also delete any child namespaces
+    child_ns_query = select(NodeNamespace).where(
+        or_(
+            NodeNamespace.namespace == branch_namespace,
+            NodeNamespace.namespace.like(f"{branch_namespace}.%"),
+        ),
+    )
+    child_result = await session.execute(child_ns_query)
+    for child_ns in child_result.scalars().all():
+        if child_ns.namespace != branch_namespace:  # Already deleted above
+            await session.delete(child_ns)
+
     await session.commit()
 
     _logger.info(
-        "Unlinked branch namespace '%s' from parent '%s'",
+        "Deleted branch namespace '%s' (parent: '%s', nodes: %d, git_branch: %s)",
         branch_namespace,
         namespace,
+        nodes_deleted,
+        git_branch_deleted,
     )
 
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
-            "message": f"Branch namespace '{branch_namespace}' unlinked from '{namespace}'",
-            "git_branch_deleted": delete_git_branch,
+            "message": f"Branch namespace '{branch_namespace}' deleted",
+            "nodes_deleted": nodes_deleted,
+            "git_branch_deleted": git_branch_deleted,
         },
     )

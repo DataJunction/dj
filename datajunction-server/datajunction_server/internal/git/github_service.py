@@ -1,7 +1,9 @@
 """GitHub API service for git operations."""
 
 import base64
+import logging
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -9,6 +11,8 @@ from dotenv import load_dotenv
 
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJException
+
+_logger = logging.getLogger(__name__)
 
 
 class GitHubServiceError(DJException):
@@ -27,8 +31,12 @@ class GitHubServiceError(DJException):
 class GitHubService:
     """GitHub API client for branch/file/PR operations.
 
-    Uses a service account token from settings. Commits are
-    attributed to the actual user via author metadata.
+    Supports two authentication methods:
+    1. Simple PAT auth (OSS default): Set GITHUB_SERVICE_TOKEN
+    2. GitHub App auth (enterprise): Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
+       and GITHUB_APP_INSTALLATION_ID
+
+    Commits are attributed to the actual user via author metadata.
     """
 
     def __init__(self):
@@ -36,17 +44,103 @@ class GitHubService:
         dotenv_file = os.environ.get("DOTENV_FILE", ".env")
         load_dotenv(dotenv_file)
         self.settings = Settings()
-        if not self.settings.github_service_token:
-            raise GitHubServiceError(
-                message="GitHub service token not configured. Set GITHUB_SERVICE_TOKEN.",
-                http_status_code=503,
-            )
-        self.token = self.settings.github_service_token
         self.base_url = self.settings.github_api_url.rstrip("/")
+
+        # Determine auth method and get token
+        self.token = self._get_token()
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github.v3+json",
         }
+
+    def _get_token(self) -> str:
+        """Get GitHub token using configured auth method.
+
+        Checks for GitHub App auth first, falls back to PAT.
+        """
+        # Check for GitHub App auth (all three required)
+        if (
+            self.settings.github_app_id
+            and self.settings.github_app_private_key
+            and self.settings.github_app_installation_id
+        ):
+            return self._get_installation_token()
+
+        # Fall back to simple PAT auth
+        if self.settings.github_service_token:
+            return self.settings.github_service_token
+
+        raise GitHubServiceError(
+            message=(
+                "GitHub authentication not configured. "
+                "Set GITHUB_SERVICE_TOKEN for PAT auth, or set "
+                "GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and "
+                "GITHUB_APP_INSTALLATION_ID for GitHub App auth."
+            ),
+            http_status_code=503,
+        )
+
+    def _get_installation_token(self) -> str:
+        """Generate an installation access token using GitHub App credentials.
+
+        Uses the App's private key to create a JWT, then exchanges it for
+        an installation token scoped to the configured installation.
+        """
+        try:
+            import jwt
+        except ImportError as e:
+            raise GitHubServiceError(
+                message="PyJWT is required for GitHub App auth. Install with: pip install pyjwt",
+                http_status_code=503,
+            ) from e
+
+        # Generate JWT signed with the app's private key
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,  # Issued 60 seconds ago to account for clock drift
+            "exp": now + 600,  # Expires in 10 minutes (max allowed)
+            "iss": self.settings.github_app_id,
+        }
+
+        try:
+            app_jwt = jwt.encode(
+                payload,
+                self.settings.github_app_private_key,
+                algorithm="RS256",
+            )
+        except Exception as e:
+            raise GitHubServiceError(
+                message=f"Failed to generate GitHub App JWT: {e}",
+                http_status_code=503,
+            ) from e
+
+        # Exchange JWT for installation token
+        installation_id = self.settings.github_app_installation_id
+        url = f"{self.base_url}/app/installations/{installation_id}/access_tokens"
+
+        # Use synchronous request since we're in __init__
+        with httpx.Client() as client:
+            resp = client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {app_jwt}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                timeout=30.0,
+            )
+
+        if not resp.is_success:
+            try:
+                error_msg = resp.json().get("message", resp.text)
+            except Exception:
+                error_msg = resp.text
+            raise GitHubServiceError(
+                message=f"Failed to get GitHub App installation token: {error_msg}",
+                http_status_code=503,
+                github_status=resp.status_code,
+            )
+
+        return resp.json()["token"]
 
     def _handle_error(self, resp: httpx.Response, operation: str) -> None:
         """Handle GitHub API errors with meaningful messages."""
@@ -168,6 +262,26 @@ class GitHubService:
             self._handle_error(resp, f"get file {path}")
             return resp.json()
 
+    def _add_co_author(
+        self,
+        message: str,
+        co_author_name: Optional[str],
+        co_author_email: Optional[str],
+    ) -> str:
+        """Add Co-authored-by trailer to commit message if co-author info provided.
+
+        Args:
+            message: Original commit message
+            co_author_name: Name of the co-author
+            co_author_email: Email of the co-author
+
+        Returns:
+            Message with Co-authored-by trailer appended
+        """
+        if co_author_name and co_author_email:
+            return f"{message}\n\nCo-authored-by: {co_author_name} <{co_author_email}>"
+        return message
+
     async def commit_file(
         self,
         repo_path: str,
@@ -176,13 +290,13 @@ class GitHubService:
         message: str,
         branch: str,
         sha: Optional[str] = None,
-        author_name: Optional[str] = None,
-        author_email: Optional[str] = None,
+        co_author_name: Optional[str] = None,
+        co_author_email: Optional[str] = None,
     ) -> dict:
         """Create or update a file in the repository.
 
-        Author attribution allows commits made by service account to
-        show the actual user who made the change.
+        Commits are made by the authenticated bot/app. User attribution is
+        added via Co-authored-by trailer in the commit message.
 
         Args:
             repo_path: Repository path (e.g., "owner/repo")
@@ -191,29 +305,22 @@ class GitHubService:
             message: Commit message
             branch: Target branch
             sha: Current file SHA (required for updates, omit for new files)
-            author_name: Name to attribute the commit to
-            author_email: Email to attribute the commit to
+            co_author_name: Name of user to add as co-author
+            co_author_email: Email of user to add as co-author
 
         Returns:
             Commit result from GitHub API
         """
+        final_message = self._add_co_author(message, co_author_name, co_author_email)
+
         async with httpx.AsyncClient() as client:
             payload: dict = {
-                "message": message,
+                "message": final_message,
                 "content": base64.b64encode(content.encode()).decode(),
                 "branch": branch,
             }
             if sha:
                 payload["sha"] = sha
-            if author_name and author_email:
-                payload["author"] = {
-                    "name": author_name,
-                    "email": author_email,
-                }
-                payload["committer"] = {
-                    "name": author_name,
-                    "email": author_email,
-                }
 
             resp = await client.put(
                 f"{self.base_url}/repos/{repo_path}/contents/{path}",
@@ -231,10 +338,13 @@ class GitHubService:
         message: str,
         branch: str,
         sha: str,
-        author_name: Optional[str] = None,
-        author_email: Optional[str] = None,
+        co_author_name: Optional[str] = None,
+        co_author_email: Optional[str] = None,
     ) -> dict:
         """Delete a file from the repository.
+
+        Commits are made by the authenticated bot/app. User attribution is
+        added via Co-authored-by trailer in the commit message.
 
         Args:
             repo_path: Repository path (e.g., "owner/repo")
@@ -242,27 +352,20 @@ class GitHubService:
             message: Commit message
             branch: Target branch
             sha: Current file SHA (required)
-            author_name: Name to attribute the commit to
-            author_email: Email to attribute the commit to
+            co_author_name: Name of user to add as co-author
+            co_author_email: Email of user to add as co-author
 
         Returns:
             Commit result from GitHub API
         """
+        final_message = self._add_co_author(message, co_author_name, co_author_email)
+
         async with httpx.AsyncClient() as client:
             payload: dict = {
-                "message": message,
+                "message": final_message,
                 "sha": sha,
                 "branch": branch,
             }
-            if author_name and author_email:
-                payload["author"] = {
-                    "name": author_name,
-                    "email": author_email,
-                }
-                payload["committer"] = {
-                    "name": author_name,
-                    "email": author_email,
-                }
 
             resp = await client.request(
                 "DELETE",
@@ -273,6 +376,128 @@ class GitHubService:
             )
             self._handle_error(resp, f"delete file {path}")
             return resp.json()
+
+    async def commit_files(
+        self,
+        repo_path: str,
+        files: list[dict],
+        message: str,
+        branch: str,
+        co_author_name: Optional[str] = None,
+        co_author_email: Optional[str] = None,
+    ) -> dict:
+        """Commit multiple files in a single commit using Git Data API.
+
+        This is more efficient than commit_file() when updating multiple files,
+        as it creates only one commit instead of one per file.
+
+        Commits are made by the authenticated bot/app. User attribution is
+        added via Co-authored-by trailer in the commit message.
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            files: List of file dicts with 'path' and 'content' keys
+                   e.g., [{"path": "foo.yaml", "content": "..."}, ...]
+            message: Commit message
+            branch: Target branch
+            co_author_name: Name of user to add as co-author
+            co_author_email: Email of user to add as co-author
+
+        Returns:
+            Commit result with 'sha' and 'html_url'
+        """
+        if not files:
+            raise GitHubServiceError(
+                message="No files to commit",
+                http_status_code=400,
+            )
+
+        _logger.info(
+            "Batch committing %d files to %s branch '%s': %s",
+            len(files),
+            repo_path,
+            branch,
+            [f["path"] for f in files],
+        )
+
+        async with httpx.AsyncClient() as client:
+            # 1. Get the current branch ref to find the latest commit
+            ref_resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/git/ref/heads/{branch}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            self._handle_error(ref_resp, f"get ref heads/{branch}")
+            current_commit_sha = ref_resp.json()["object"]["sha"]
+
+            # 2. Get the tree SHA from the current commit
+            commit_resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/git/commits/{current_commit_sha}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            self._handle_error(commit_resp, "get current commit")
+            base_tree_sha = commit_resp.json()["tree"]["sha"]
+
+            # 3. Build tree entries with inline content (no separate blob creation needed)
+            tree_entries = [
+                {
+                    "path": file_info["path"],
+                    "mode": "100644",  # Regular file
+                    "type": "blob",
+                    "content": file_info["content"],  # Inline content
+                }
+                for file_info in files
+            ]
+
+            # 4. Create a new tree with all the files
+            tree_resp = await client.post(
+                f"{self.base_url}/repos/{repo_path}/git/trees",
+                headers=self.headers,
+                json={
+                    "base_tree": base_tree_sha,
+                    "tree": tree_entries,
+                },
+                timeout=60.0,  # Longer timeout for large trees
+            )
+            self._handle_error(tree_resp, "create tree")
+            new_tree_sha = tree_resp.json()["sha"]
+
+            # 5. Create the commit
+            final_message = self._add_co_author(
+                message,
+                co_author_name,
+                co_author_email,
+            )
+            commit_payload: dict = {
+                "message": final_message,
+                "tree": new_tree_sha,
+                "parents": [current_commit_sha],
+            }
+
+            new_commit_resp = await client.post(
+                f"{self.base_url}/repos/{repo_path}/git/commits",
+                headers=self.headers,
+                json=commit_payload,
+                timeout=30.0,
+            )
+            self._handle_error(new_commit_resp, "create commit")
+            new_commit = new_commit_resp.json()
+
+            # 6. Update the branch ref to point to new commit
+            update_ref_resp = await client.patch(
+                f"{self.base_url}/repos/{repo_path}/git/refs/heads/{branch}",
+                headers=self.headers,
+                json={"sha": new_commit["sha"]},
+                timeout=30.0,
+            )
+            self._handle_error(update_ref_resp, f"update ref heads/{branch}")
+
+            return {
+                "sha": new_commit["sha"],
+                "html_url": new_commit["html_url"],
+                "files_committed": len(files),
+            }
 
     async def create_pull_request(
         self,

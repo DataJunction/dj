@@ -2,6 +2,7 @@
 Configuration for the datajunction server.
 """
 
+# :w
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
@@ -140,16 +141,6 @@ class Settings(BaseSettings):  # pragma: no cover
     # GitHub OAuth application client secret
     github_oauth_client_secret: Optional[str] = None
 
-    # GitHub base URL (OSS default, override for GHE)
-    github_base_url: str = "https://github.com"
-
-    # GitHub API URL (OSS default, override for GHE)
-    github_api_url: str = "https://api.github.com"
-
-    # GitHub service account token for git operations (PAT with repo scope)
-    # Commits are attributed to users via author metadata
-    github_service_token: Optional[str] = None
-
     # Google OAuth application client ID
     google_oauth_client_id: Optional[str] = None
 
@@ -199,6 +190,20 @@ class Settings(BaseSettings):  # pragma: no cover
     # Used when generating combined SQL that references pre-agg tables
     preagg_catalog: str = "default"
     preagg_schema: str = "dj_preaggs"
+
+    # GitHub API configuration for git-backed branch management
+    # API URL (defaults to github.com, override for GitHub Enterprise)
+    github_api_url: str = "https://api.github.com"
+
+    # Option 1: Simple PAT auth (recommended for OSS)
+    # Set GITHUB_SERVICE_TOKEN to a Personal Access Token or fine-grained token
+    github_service_token: Optional[str] = None
+
+    # Option 2: GitHub App auth (for internal/enterprise deployments)
+    # Set all three to use GitHub App authentication instead of a PAT
+    github_app_id: Optional[str] = None
+    github_app_private_key: Optional[str] = None  # PEM-encoded private key
+    github_app_installation_id: Optional[str] = None
 
     @property
     def celery(self) -> Celery:

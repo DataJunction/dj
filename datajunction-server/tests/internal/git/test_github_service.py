@@ -13,10 +13,14 @@ from datajunction_server.internal.git.github_service import (
 
 @pytest.fixture
 def mock_settings():
-    """Mock settings with GitHub config."""
+    """Mock settings with GitHub PAT config."""
     settings = MagicMock()
     settings.github_service_token = "test-token"
     settings.github_api_url = "https://api.github.com"
+    # GitHub App settings not configured (PAT mode)
+    settings.github_app_id = None
+    settings.github_app_private_key = None
+    settings.github_app_installation_id = None
     return settings
 
 
@@ -36,11 +40,14 @@ def github_service(mock_settings):
 class TestGitHubServiceInit:
     """Tests for GitHubService initialization."""
 
-    def test_init_without_token(self):
-        """Should raise error when token not configured."""
+    def test_init_without_any_auth(self):
+        """Should raise error when no auth configured."""
         mock_settings = MagicMock()
         mock_settings.github_service_token = None
         mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = None
+        mock_settings.github_app_private_key = None
+        mock_settings.github_app_installation_id = None
 
         with patch(
             "datajunction_server.internal.git.github_service.Settings",
@@ -52,15 +59,135 @@ class TestGitHubServiceInit:
                 with pytest.raises(GitHubServiceError) as exc_info:
                     GitHubService()
 
-                assert "GitHub service token not configured" in str(exc_info.value)
+                assert "GitHub authentication not configured" in str(exc_info.value)
                 assert exc_info.value.http_status_code == 503
 
-    def test_init_with_token(self, github_service):
-        """Should initialize correctly with token."""
+    def test_init_with_pat_token(self, github_service):
+        """Should initialize correctly with PAT token."""
         assert github_service.token == "test-token"
         assert github_service.base_url == "https://api.github.com"
         assert "Authorization" in github_service.headers
         assert github_service.headers["Authorization"] == "Bearer test-token"
+
+    def test_init_with_github_app(self):
+        """Should initialize with GitHub App credentials."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = None  # No PAT
+        mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = (
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        )
+        mock_settings.github_app_installation_id = "67890"
+
+        # Mock the installation token response
+        mock_token_response = MagicMock()
+        mock_token_response.is_success = True
+        mock_token_response.json.return_value = {"token": "installation-token-abc"}
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                with patch("httpx.Client") as mock_client:
+                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
+                    with patch("jwt.encode", return_value="mock-jwt"):
+                        service = GitHubService()
+
+                        assert service.token == "installation-token-abc"
+                        assert (
+                            service.headers["Authorization"]
+                            == "Bearer installation-token-abc"
+                        )
+
+    def test_init_github_app_prefers_over_pat(self):
+        """Should prefer GitHub App auth when both are configured."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = "pat-token"  # PAT also configured
+        mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = (
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        )
+        mock_settings.github_app_installation_id = "67890"
+
+        mock_token_response = MagicMock()
+        mock_token_response.is_success = True
+        mock_token_response.json.return_value = {"token": "installation-token"}
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                with patch("httpx.Client") as mock_client:
+                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
+                    with patch("jwt.encode", return_value="mock-jwt"):
+                        service = GitHubService()
+
+                        # Should use App token, not PAT
+                        assert service.token == "installation-token"
+
+    def test_init_github_app_partial_config_falls_back_to_pat(self):
+        """Should fall back to PAT when GitHub App config is incomplete."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = "pat-token"
+        mock_settings.github_api_url = "https://api.github.com"
+        # Only app_id set, missing private_key and installation_id
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = None
+        mock_settings.github_app_installation_id = None
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                service = GitHubService()
+
+                # Should fall back to PAT
+                assert service.token == "pat-token"
+
+    def test_init_github_app_token_fetch_failure(self):
+        """Should raise error when GitHub App token fetch fails."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = None
+        mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = (
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        )
+        mock_settings.github_app_installation_id = "67890"
+
+        mock_token_response = MagicMock()
+        mock_token_response.is_success = False
+        mock_token_response.status_code = 401
+        mock_token_response.json.return_value = {"message": "Bad credentials"}
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                with patch("httpx.Client") as mock_client:
+                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
+                    with patch("jwt.encode", return_value="mock-jwt"):
+                        with pytest.raises(GitHubServiceError) as exc_info:
+                            GitHubService()
+
+                        assert "Failed to get GitHub App installation token" in str(
+                            exc_info.value,
+                        )
+                        assert exc_info.value.github_status == 401
 
 
 class TestListBranches:
@@ -308,8 +435,8 @@ class TestCommitFile:
             assert payload["sha"] == "existing-sha"
 
     @pytest.mark.asyncio
-    async def test_commit_file_with_author(self, github_service):
-        """Should include author metadata in commit."""
+    async def test_commit_file_with_co_author(self, github_service):
+        """Should include Co-authored-by trailer in commit message."""
         mock_response = MagicMock()
         mock_response.is_success = True
         mock_response.json.return_value = {"commit": {"sha": "abc"}}
@@ -324,15 +451,17 @@ class TestCommitFile:
                 content="content",
                 message="Update",
                 branch="main",
-                author_name="Test User",
-                author_email="test@example.com",
+                co_author_name="Test User",
+                co_author_email="test@example.com",
             )
 
             call_args = mock_instance.put.call_args
             payload = call_args.kwargs["json"]
-            assert payload["author"]["name"] == "Test User"
-            assert payload["author"]["email"] == "test@example.com"
-            assert payload["committer"]["name"] == "Test User"
+            # Should have Co-authored-by trailer in message
+            assert "Co-authored-by: Test User <test@example.com>" in payload["message"]
+            # Should NOT have author/committer fields (let GitHub use the bot)
+            assert "author" not in payload
+            assert "committer" not in payload
 
 
 class TestDeleteFile:

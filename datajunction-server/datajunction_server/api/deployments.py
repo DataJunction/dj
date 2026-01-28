@@ -93,6 +93,9 @@ class InProcessExecutor(DeploymentExecutor):
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
+            if deployment is None:
+                # Deployment record doesn't exist (e.g., internal deployment)
+                return
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]

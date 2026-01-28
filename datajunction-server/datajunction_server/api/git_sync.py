@@ -7,7 +7,6 @@ Enables syncing node definitions to git and creating pull requests.
 import logging
 from typing import List, Optional
 
-import yaml
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,9 +24,9 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.namespaces import (
-    _get_yaml_dumper,
-    _node_spec_to_yaml_dict,
     get_node_specs_for_export,
+    inject_prefixes,
+    node_spec_to_yaml,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.utils import get_current_user, get_session, get_settings
@@ -79,32 +78,6 @@ class PRResult(BaseModel):
     base_branch: str
 
 
-def _get_node_file_path(node_name: str, namespace: str, git_path: Optional[str]) -> str:
-    """
-    Get the file path for a node in the git repository.
-
-    Converts node name to file path:
-    - namespace.sub.node_name -> sub/node_name.yaml (relative to namespace root)
-    - With git_path: definitions/sub/node_name.yaml
-    """
-    # Remove namespace prefix from node name
-    if node_name.startswith(namespace + "."):
-        relative_name = node_name[len(namespace) + 1 :]
-    else:
-        relative_name = node_name
-
-    # Convert dots to directory separators
-    parts = relative_name.split(".")
-    file_path = "/".join(parts) + ".yaml"
-
-    # Prepend git_path if configured
-    if git_path:
-        git_path = git_path.strip("/")
-        file_path = f"{git_path}/{file_path}"
-
-    return file_path
-
-
 @router.post(
     "/nodes/{node_name}/sync-to-git",
     response_model=SyncResult,
@@ -125,7 +98,8 @@ async def sync_node_to_git(
     2. Serializes node to YAML (reuses existing export logic)
     3. Commits to git branch via GitHub API
 
-    The commit is attributed to the current user via author metadata.
+    Commits are made by the bot/service account, with the current user
+    attributed via Co-authored-by trailer.
     """
     # Get the node
     node = await Node.get_by_name(session, node_name, options=Node.cube_load_options())
@@ -150,23 +124,30 @@ async def sync_node_to_git(
             message=f"Namespace '{node.namespace}' does not have a git branch configured.",
         )
 
-    # Convert node to spec and then to YAML
+    # Convert node to spec with ${prefix} injection (same format as export)
     node_spec = await node.to_spec(session)
-    yaml_dict = _node_spec_to_yaml_dict(node_spec)
-    yaml_dumper = _get_yaml_dumper()
-    yaml_content = yaml.dump(
-        yaml_dict,
-        Dumper=yaml_dumper,
-        sort_keys=False,
-        default_flow_style=False,
-    )
 
-    # Determine file path
-    file_path = _get_node_file_path(
-        node_name,
-        node.namespace,
-        namespace_obj.git_path,
-    )
+    # Inject ${prefix} into name and query (like export does)
+    node_spec.name = inject_prefixes(node_spec.name, node.namespace)
+    if hasattr(node_spec, "query") and node_spec.query:
+        node_spec.query = inject_prefixes(node_spec.query, node.namespace)
+
+    yaml_content = node_spec_to_yaml(node_spec)
+
+    # File path uses short name (strip namespace prefix)
+    # e.g., "demo.main.orders" with namespace "demo.main" -> "orders.yaml"
+    if node_name.startswith(node.namespace + "."):
+        short_name = node_name[len(node.namespace) + 1 :]
+    else:
+        short_name = node_name
+
+    parts = short_name.split(".")
+    file_path = "/".join(parts) + ".yaml"
+    if namespace_obj.git_path:
+        git_path = namespace_obj.git_path.strip("/")
+        file_path = f"{git_path}/{file_path}"
+
+    _logger.info("Syncing node to git: %s -> %s", node_name, file_path)
 
     # Commit message
     commit_message = request.commit_message or f"Update {node_name}"
@@ -189,8 +170,9 @@ async def sync_node_to_git(
             message=commit_message,
             branch=namespace_obj.git_branch,
             sha=existing_file["sha"] if existing_file else None,
-            author_name=current_user.username,
-            author_email=current_user.email or f"{current_user.username}@users.noreply",
+            co_author_name=current_user.username,
+            co_author_email=current_user.email
+            or f"{current_user.username}@users.noreply",
         )
 
         commit_sha = result["commit"]["sha"]
@@ -237,6 +219,9 @@ async def sync_namespace_to_git(
 
     This exports all nodes as YAML files and commits them to the configured
     git branch. Each node becomes a separate file.
+
+    Commits are made by the bot/service account, with the current user
+    attributed via Co-authored-by trailer.
     """
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -253,7 +238,7 @@ async def sync_namespace_to_git(
             message=f"Namespace '{namespace}' does not have a git branch configured.",
         )
 
-    # Get all node specs
+    # Get all node specs with ${prefix} injection (same as export)
     node_specs = await get_node_specs_for_export(session, namespace)
 
     if not node_specs:
@@ -262,78 +247,86 @@ async def sync_namespace_to_git(
         )
 
     # Prepare YAML content for each node
-    yaml_dumper = _get_yaml_dumper()
+    files_to_commit: List[dict] = []
     results: List[SyncResult] = []
-    last_commit_sha = ""
-    last_commit_url = ""
+
+    for node_spec in node_specs:
+        # The spec name has ${prefix} injected (e.g., "${prefix}orders")
+        # Strip ${prefix} to get the short name for file path
+        spec_name = node_spec.name
+        if spec_name.startswith("${prefix}"):
+            short_name = spec_name[len("${prefix}") :]
+        else:
+            short_name = spec_name
+
+        # Convert to YAML using the export format (with ${prefix})
+        yaml_content = node_spec_to_yaml(node_spec)
+
+        # File path uses short name (no namespace prefix, no ${prefix})
+        # e.g., "orders" -> "nodes/orders.yaml" (with git_path="nodes")
+        parts = short_name.split(".")
+        file_path = "/".join(parts) + ".yaml"
+        if namespace_obj.git_path:
+            git_path = namespace_obj.git_path.strip("/")
+            file_path = f"{git_path}/{file_path}"
+
+        files_to_commit.append(
+            {
+                "path": file_path,
+                "content": yaml_content,
+                "node_name": spec_name,
+            },
+        )
+        _logger.info(
+            "Preparing file for git sync: %s (spec name: %s)",
+            file_path,
+            spec_name,
+        )
 
     try:
         github = GitHubService()
+        commit_message = request.commit_message or f"Sync {namespace}"
 
-        for node_spec in node_specs:
-            # Get the original node name (before ${prefix} injection)
-            node_name = node_spec.rendered_name
+        # Batch commit all files in a single commit
+        commit_result = await github.commit_files(
+            repo_path=namespace_obj.github_repo_path,
+            files=[
+                {"path": f["path"], "content": f["content"]} for f in files_to_commit
+            ],
+            message=commit_message,
+            branch=namespace_obj.git_branch,
+            co_author_name=current_user.username,
+            co_author_email=current_user.email
+            or f"{current_user.username}@users.noreply",
+        )
 
-            yaml_dict = _node_spec_to_yaml_dict(node_spec)
-            yaml_content = yaml.dump(
-                yaml_dict,
-                Dumper=yaml_dumper,
-                sort_keys=False,
-                default_flow_style=False,
-            )
+        commit_sha = commit_result["sha"]
+        commit_url = commit_result["html_url"]
 
-            file_path = _get_node_file_path(
-                node_name,
-                namespace,
-                namespace_obj.git_path,
-            )
-
-            commit_message = request.commit_message or f"Sync {namespace}"
-
-            # Check if file exists
-            existing_file = await github.get_file(
-                repo_path=namespace_obj.github_repo_path,
-                path=file_path,
-                branch=namespace_obj.git_branch,
-            )
-
-            result = await github.commit_file(
-                repo_path=namespace_obj.github_repo_path,
-                path=file_path,
-                content=yaml_content,
-                message=f"{commit_message}: {node_name}",
-                branch=namespace_obj.git_branch,
-                sha=existing_file["sha"] if existing_file else None,
-                author_name=current_user.username,
-                author_email=current_user.email
-                or f"{current_user.username}@users.noreply",
-            )
-
-            last_commit_sha = result["commit"]["sha"]
-            last_commit_url = result["commit"]["html_url"]
-
+        # Build results for each file
+        for file_info in files_to_commit:
             results.append(
                 SyncResult(
-                    node_name=node_name,
-                    file_path=file_path,
-                    commit_sha=last_commit_sha,
-                    commit_url=last_commit_url,
-                    created=existing_file is None,
+                    node_name=file_info["node_name"],
+                    file_path=file_info["path"],
+                    commit_sha=commit_sha,
+                    commit_url=commit_url,
+                    created=True,  # We don't track individual file status in batch mode
                 ),
             )
 
         _logger.info(
-            "Synced namespace '%s' to git: %d files (last sha: %s)",
+            "Synced namespace '%s' to git: %d files in single commit (sha: %s)",
             namespace,
             len(results),
-            last_commit_sha[:8] if last_commit_sha else "none",
+            commit_sha[:8] if commit_sha else "none",
         )
 
         return SyncNamespaceResult(
             namespace=namespace,
             files_synced=len(results),
-            commit_sha=last_commit_sha,
-            commit_url=last_commit_url,
+            commit_sha=commit_sha,
+            commit_url=commit_url,
             results=results,
         )
 

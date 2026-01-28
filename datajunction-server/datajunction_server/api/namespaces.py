@@ -44,7 +44,7 @@ from datajunction_server.internal.namespaces import (
     get_sources_for_namespaces_bulk,
     get_node_specs_for_export,
     _get_yaml_dumper,
-    _node_spec_to_yaml_dict,
+    node_spec_to_yaml,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -500,17 +500,9 @@ async def export_namespace_yaml(
             parts = node_name.split(".")
             file_path = "/".join(parts) + ".yaml"
 
-            # Convert to YAML-friendly dict
-            node_dict = _node_spec_to_yaml_dict(node_spec)
-
             zf.writestr(
                 file_path,
-                yaml.dump(
-                    node_dict,
-                    Dumper=yaml_dumper,
-                    sort_keys=False,
-                    default_flow_style=False,
-                ),
+                node_spec_to_yaml(node_spec),
             )
 
     zip_buffer.seek(0)
