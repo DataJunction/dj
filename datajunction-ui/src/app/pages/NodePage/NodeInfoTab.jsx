@@ -46,9 +46,11 @@ export default function NodeInfoTab({ node }) {
   useEffect(() => {
     const fetchData = async () => {
       const metric = await djClient.getMetric(node.name);
-      // For derived metrics (multiple parents), upstream_node is null
+      // For derived metrics, don't show upstream_node
       const parents = metric.current.parents || [];
-      const upstreamNode = parents.length === 1 ? parents[0]?.name : null;
+      const upstreamNode = !metric.current.isDerivedMetric && parents.length === 1
+        ? parents[0]?.name
+        : null;
       setMetricInfo({
         metric_metadata: metric.current.metricMetadata,
         required_dimensions: metric.current.requiredDimensions,
@@ -334,7 +336,11 @@ export default function NodeInfoTab({ node }) {
                 key={`rd-${idx}`}
                 className="rounded-pill badge bg-secondary-soft PrimaryKey"
               >
-                <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
+                {metricInfo?.upstream_node ? (
+                  <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
+                ) : (
+                  dim.name
+                )}
               </span>
             ))}
       </p>
