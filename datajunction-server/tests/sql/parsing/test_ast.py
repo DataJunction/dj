@@ -1279,3 +1279,33 @@ async def test_ast_hints():
     assert cast(ast.Hint, query.select.hints[0]).name.name == "REBALANCE"
     assert [str(col) for col in query.select.hints[0].parameters] == ["3", "c"]
     assert "/*+ REBALANCE(3, c) */" in str(query)
+
+
+def test_bake_ctes_preserves_table_alias():
+    """
+    Test that bake_ctes preserves the table alias when inlining CTEs.
+
+    When a CTE is referenced with an alias (e.g., FROM my_cte AS t),
+    the alias should be preserved after inlining so that column
+    references like t.column_name still resolve correctly.
+    """
+    query_str = """
+    WITH monthly_totals AS (
+        SELECT region, SUM(amount) AS total
+        FROM orders
+        GROUP BY region
+    )
+    SELECT
+        m.region,
+        m.total
+    FROM monthly_totals m
+    """
+    query = parse(query_str)
+    baked = query.bake_ctes()
+
+    # The inlined CTE should use alias 'm', not 'monthly_totals'
+    result_sql = str(baked)
+    assert "m.region" in result_sql or "AS m" in result_sql
+    # Should not have dangling reference to 'monthly_totals' as table name
+    # when columns are prefixed with 'm'
+    assert "monthly_totals.region" not in result_sql

@@ -3176,6 +3176,8 @@ class Query(TableExpression, UnNamed):
                 lambda node: isinstance(node, Table)
                 and node.identifier(False) == cte.alias_or_name.identifier(False),
             ):
+                if tbl.alias:
+                    cte.set_alias(tbl.alias)
                 tbl.swap(cte)
         self.ctes = []
         return self
