@@ -1309,3 +1309,39 @@ def test_bake_ctes_preserves_table_alias():
     # Should not have dangling reference to 'monthly_totals' as table name
     # when columns are prefixed with 'm'
     assert "monthly_totals.region" not in result_sql
+
+
+def test_bake_ctes_multiple_references_different_aliases():
+    """
+    Test that bake_ctes handles multiple references to the same CTE
+    with different aliases, including CTE-referencing-CTE patterns.
+
+    Each reference should get its own copy with the correct alias.
+    """
+    query_str = """
+    WITH base_data AS (
+        SELECT id, category, value FROM source_table
+    ),
+    aggregated AS (
+        SELECT category, SUM(value) AS total
+        FROM base_data
+        GROUP BY category
+    )
+    SELECT
+        b.id,
+        b.category,
+        b.value,
+        a.total
+    FROM base_data b
+    JOIN aggregated a ON b.category = a.category
+    """
+    query = parse(query_str)
+    baked = query.bake_ctes()
+
+    result_sql = str(baked)
+    # Main query should have aliases 'b' and 'a'
+    assert "b.id" in result_sql or "AS b" in result_sql
+    assert "a.total" in result_sql or "AS a" in result_sql
+    # Should not have CTE names as table references in column prefixes
+    assert "base_data.id" not in result_sql
+    assert "aggregated.total" not in result_sql

@@ -3176,9 +3176,12 @@ class Query(TableExpression, UnNamed):
                 lambda node: isinstance(node, Table)
                 and node.identifier(False) == cte.alias_or_name.identifier(False),
             ):
+                # Deepcopy the CTE for each reference so multiple references
+                # to the same CTE get independent copies with correct aliases
+                cte_copy = deepcopy(cte)
                 if tbl.alias:
-                    cte.set_alias(tbl.alias)
-                tbl.swap(cte)
+                    cte_copy.set_alias(tbl.alias)
+                tbl.swap(cte_copy)
         self.ctes = []
         return self
 
