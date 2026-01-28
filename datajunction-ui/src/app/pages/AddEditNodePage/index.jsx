@@ -240,7 +240,9 @@ export function AddEditNodePage({ extensions = {} }) {
       // Check if this is a derived metric (any parent is a metric)
       const isDerivedMetric = node.current.isDerivedMetric;
       // For regular metrics, get the first non-metric parent as upstream node
-      const nonMetricParent = node.current.parents.find(p => p.type !== 'METRIC');
+      const nonMetricParent = node.current.parents.find(
+        p => p.type !== 'METRIC',
+      );
 
       if (isDerivedMetric) {
         // Derived metric: no upstream node, expression is the full query projection
