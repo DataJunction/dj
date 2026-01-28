@@ -3172,16 +3172,23 @@ class Query(TableExpression, UnNamed):
         """
 
         for cte in self.ctes:
-            for tbl in self.filter(
-                lambda node: isinstance(node, Table)
-                and node.identifier(False) == cte.alias_or_name.identifier(False),
-            ):
-                # Deepcopy the CTE for each reference so multiple references
-                # to the same CTE get independent copies with correct aliases
-                cte_copy = deepcopy(cte)
+            tables = list(
+                self.filter(
+                    lambda node: isinstance(node, Table)
+                    and node.identifier(False) == cte.alias_or_name.identifier(False),
+                ),
+            )
+            for i, tbl in enumerate(tables):
+                # Use the original CTE for the first reference to preserve
+                # compiled state. Only deepcopy for subsequent references
+                # that need independent copies with different aliases.
+                if i == 0:
+                    cte_to_swap = cte
+                else:
+                    cte_to_swap = deepcopy(cte)
                 if tbl.alias:
-                    cte_copy.set_alias(tbl.alias)
-                tbl.swap(cte_copy)
+                    cte_to_swap.set_alias(tbl.alias)
+                tbl.swap(cte_to_swap)
         self.ctes = []
         return self
 
