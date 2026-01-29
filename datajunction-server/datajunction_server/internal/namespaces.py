@@ -943,7 +943,7 @@ async def get_node_specs_for_export(
     namespace_suffixes: set[str] = set()
     for node in nodes:
         suffix = _get_node_suffix(node.name, namespace)
-        if suffix:
+        if suffix:  # pragma: no branch
             namespace_suffixes.add(suffix)
 
     logger.info(

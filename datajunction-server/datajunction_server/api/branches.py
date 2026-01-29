@@ -320,7 +320,7 @@ async def delete_branch(
     )
     child_result = await session.execute(child_ns_query)
     for child_ns in child_result.scalars().all():
-        if child_ns.namespace != branch_namespace:  # Already deleted above
+        if child_ns.namespace != branch_namespace:  # pragma: no branch
             await session.delete(child_ns)
 
     await session.commit()

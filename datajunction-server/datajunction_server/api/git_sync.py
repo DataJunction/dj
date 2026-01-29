@@ -482,5 +482,5 @@ async def create_pull_request(
     except GitHubServiceError as e:
         _logger.error("Failed to create pull request: %s", e)
         raise DJInvalidInputException(
-            message=f"Failed to create pull request: {e.message}",
+            message=str(e),
         ) from e

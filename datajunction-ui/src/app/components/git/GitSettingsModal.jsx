@@ -22,13 +22,14 @@ export function GitSettingsModal({
     if (currentConfig) {
       setRepoPath(currentConfig.github_repo_path || '');
       setBranch(currentConfig.git_branch || '');
-      setPath(currentConfig.git_path || '');
+      setPath(currentConfig.git_path || 'nodes/');
       // If git is already configured (has repo path), use the existing git_only value
       // Otherwise, default to read-only (true) for new git configurations
       const hasExistingGitConfig = !!currentConfig.github_repo_path;
       setGitOnly(hasExistingGitConfig ? currentConfig.git_only : true);
     } else {
-      // New configuration - default to read-only
+      // New configuration - default to read-only and nodes/ path
+      setPath('nodes/');
       setGitOnly(true);
     }
     setSuccess(false);
@@ -54,11 +55,8 @@ export function GitSettingsModal({
         setError(result.message);
       } else {
         setSuccess(true);
-        // Keep modal open briefly to show success, then close
-        setTimeout(() => {
-          onClose();
-          setSuccess(false);
-        }, 1500);
+        // Keep modal open so user can see success message
+        // User can close manually via Close button or X
       }
     } catch (err) {
       setError(err.message || 'Failed to save git settings');
@@ -69,6 +67,7 @@ export function GitSettingsModal({
 
   const handleClose = () => {
     setError(null);
+    setSuccess(false);
     onClose();
   };
 
@@ -148,14 +147,15 @@ export function GitSettingsModal({
             </div>
 
             <div className="form-group">
-              <label htmlFor="git-path">Path (optional)</label>
+              <label htmlFor="git-path">Path</label>
               <input
                 id="git-path"
                 type="text"
-                placeholder="definitions/"
+                placeholder="nodes/"
                 value={path}
                 onChange={e => setPath(e.target.value)}
                 disabled={saving}
+                required
               />
               <span className="form-hint">
                 Subdirectory within the repo for node YAML files
@@ -262,11 +262,26 @@ export function GitSettingsModal({
               onClick={handleClose}
               disabled={saving}
             >
-              Cancel
+              {success ? 'Close' : 'Cancel'}
             </button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
+            {!success && (
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={saving}
+                style={
+                  saving
+                    ? {
+                        opacity: 0.7,
+                        cursor: 'wait',
+                        backgroundColor: '#9ca3af',
+                      }
+                    : {}
+                }
+              >
+                {saving ? 'Saving...' : 'Save Settings'}
+              </button>
+            )}
           </div>
         </form>
       </div>

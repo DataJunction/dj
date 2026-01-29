@@ -143,6 +143,11 @@ class GitHubService:
         try:
             error_data = resp.json()
             message = error_data.get("message", resp.text)
+            if "errors" in error_data:
+                detailed_errors = "; ".join(
+                    err.get("message", str(err)) for err in error_data["errors"]
+                )
+                message += f"\n- {detailed_errors}"
         except Exception:
             message = resp.text
 
@@ -543,12 +548,16 @@ class GitHubService:
         Returns:
             PR object if found, None otherwise
         """
+        # GitHub API requires head in format "owner:branch" for filtering
+        owner = repo_path.split("/")[0]
+        head_filter = f"{owner}:{head}"
+
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/repos/{repo_path}/pulls",
                 headers=self.headers,
                 params={
-                    "head": head,
+                    "head": head_filter,
                     "base": base,
                     "state": "open",
                 },
