@@ -5,6 +5,39 @@ title: "Column Types"
 
 DJ's type system is based on **Apache Spark SQL types**. This ensures compatibility with Spark-based query engines and provides a familiar type system for users working with big data platforms.
 
+## Specifying Types
+
+How you specify types depends on the node type:
+
+**Source nodes**: You manually specify column types as strings when defining the source, since DJ cannot infer types from an external table without connecting to it.
+
+```yaml
+# Example: Specifying column types for a source node
+columns:
+  - name: user_id
+    type: bigint
+  - name: username
+    type: string
+  - name: metadata
+    type: map<string, string>
+  - name: tags
+    type: array<string>
+```
+
+**Transform, dimension, and metric nodes**: DJ automatically parses your SQL query and infers column types based on the expressions and upstream node types. You don't need to specify types manually.
+
+```yaml
+# Example: Transform node - types are inferred from the query
+query: |
+  SELECT
+    user_id,                                -- inferred as bigint from source
+    UPPER(username) AS username,            -- inferred as string
+    CAST(created_at AS date) AS order_date  -- inferred as date from CAST
+  FROM source.events
+```
+
+Using `CAST` is a common way to explicitly control column types in your transforms.
+
 ## Primitive Types
 
 ### Numeric Types
