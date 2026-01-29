@@ -17,6 +17,7 @@ from datajunction_server.internal.access.authorization import (
     AccessChecker,
 )
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
     get_attribute_type,
@@ -886,7 +887,7 @@ async def copy_nodes_to_namespace(
     source_namespace: str,
     target_namespace: str,
     current_user: User,
-) -> List[str]:
+) -> List[DeploymentResult]:
     """
     Copies all nodes from source namespace to target namespace.
 
@@ -904,7 +905,7 @@ async def copy_nodes_to_namespace(
         current_user: User performing the operation
 
     Returns:
-        List of new node names that were created
+        List of deployment results for each node
     """
     import uuid
 
@@ -944,18 +945,13 @@ async def copy_nodes_to_namespace(
         context=context,
     )
 
-    # Collect created node names
-    created_node_names = [
-        result.name for result in results if result.status in ("created", "updated")
-    ]
-
     _logger.info(
-        "Deployed %d nodes to '%s'",
-        len(created_node_names),
+        "Deployed %d changes to '%s'",
+        len(results),
         target_namespace,
     )
 
-    return created_node_names
+    return results
 
 
 async def update_any_node(

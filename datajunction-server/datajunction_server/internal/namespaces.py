@@ -13,6 +13,9 @@ from sqlalchemy import or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from yamlfix import fix_code
+from yamlfix.model import YamlfixConfig
+
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.models.deployment import (
     DeploymentSourceType,
@@ -1128,9 +1131,6 @@ def node_spec_to_yaml(node_spec) -> str:
 
     Uses yamlfix to ensure consistent formatting.
     """
-    from yamlfix import fix_code
-    from yamlfix.model import YamlfixConfig
-
     yaml_dict = _node_spec_to_yaml_dict(node_spec)
     yaml_dumper = _get_yaml_dumper()
     yaml_content = yaml.dump(

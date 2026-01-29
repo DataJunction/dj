@@ -728,10 +728,11 @@ async def update_namespace_git_config(
     await session.refresh(node_namespace)
 
     _logger.info(
-        "Updated git config for namespace %s: repo=%s, branch=%s",
+        "Updated git config for namespace %s: repo=%s, branch=%s, git_only=%s",
         namespace,
         node_namespace.github_repo_path,
         node_namespace.git_branch,
+        node_namespace.git_only,
     )
 
     return NamespaceGitConfig(

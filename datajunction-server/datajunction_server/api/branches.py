@@ -32,6 +32,7 @@ from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.utils import get_current_user, get_session
 
 _logger = logging.getLogger(__name__)
@@ -51,12 +52,18 @@ class BranchInfo(BaseModel):
     git_branch: str  # e.g., "feature-x"
     parent_namespace: str  # e.g., "myproject.main"
     github_repo_path: str  # e.g., "owner/repo"
-    nodes_copied: int = 0  # Number of nodes copied from parent namespace
+
+
+class CreateBranchResult(BaseModel):
+    """Result of creating a branch."""
+
+    branch: BranchInfo
+    deployment_results: List[DeploymentResult]
 
 
 @router.post(
     "/namespaces/{namespace}/branches",
-    response_model=BranchInfo,
+    response_model=CreateBranchResult,
     status_code=HTTPStatus.CREATED,
     name="Create a branch namespace",
 )
@@ -67,7 +74,7 @@ async def create_branch(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> BranchInfo:
+) -> CreateBranchResult:
     """
     Create a new branch namespace from a parent namespace.
 
@@ -168,25 +175,21 @@ async def create_branch(
     )
 
     # Copy all nodes from parent namespace to new branch namespace
-    copied_nodes = await copy_nodes_to_namespace(
+    deployment_results = await copy_nodes_to_namespace(
         session=session,
         source_namespace=namespace,
         target_namespace=new_namespace,
         current_user=current_user,
     )
-    _logger.info(
-        "Copied %d nodes from '%s' to branch namespace '%s'",
-        len(copied_nodes),
-        namespace,
-        new_namespace,
-    )
 
-    return BranchInfo(
-        namespace=new_namespace,
-        git_branch=branch_name,
-        parent_namespace=namespace,
-        github_repo_path=parent_ns.github_repo_path,
-        nodes_copied=len(copied_nodes),
+    return CreateBranchResult(
+        branch=BranchInfo(
+            namespace=new_namespace,
+            git_branch=branch_name,
+            parent_namespace=namespace,
+            github_repo_path=parent_ns.github_repo_path,
+        ),
+        deployment_results=deployment_results,
     )
 
 

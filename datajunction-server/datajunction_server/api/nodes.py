@@ -469,10 +469,10 @@ async def create_source(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
-    namespace = data.namespace or data.name.rsplit(".", 1)[0]
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    assert data.namespace is not None  # Set by validator from name
+    access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
-    await check_namespace_not_git_only(session, namespace)
+    await check_namespace_not_git_only(session, data.namespace)
 
     return await create_a_source_node(
         data=data,
@@ -521,10 +521,10 @@ async def create_node(
     """
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
 
-    namespace = data.namespace or data.name.rsplit(".", 1)[0]
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    assert data.namespace is not None  # Set by validator from name
+    access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
-    await check_namespace_not_git_only(session, namespace)
+    await check_namespace_not_git_only(session, data.namespace)
 
     return await create_a_node(
         data=data,
@@ -561,8 +561,8 @@ async def create_cube(
     Create a cube node.
     """
     # Check WRITE access on the namespace for creating the cube
-    namespace = data.namespace or data.name.rsplit(".", 1)[0]
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    assert data.namespace is not None  # Set by validator from name
+    access_checker.add_namespace(data.namespace, ResourceAction.WRITE)
 
     # Check READ access on all metrics and dimensions being included in the cube
     if data.metrics:
@@ -575,7 +575,7 @@ async def create_cube(
             access_checker.add_request_by_node_name(dim_node_name, ResourceAction.READ)
 
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
-    await check_namespace_not_git_only(session, namespace)
+    await check_namespace_not_git_only(session, data.namespace)
 
     node = await create_a_cube(
         data=data,

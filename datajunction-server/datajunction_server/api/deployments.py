@@ -15,6 +15,10 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.git.github_service import (
+    GitHubServiceError,
+    GitHubService,
+)
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.models.deployment import (
     DeploymentResult,
@@ -62,9 +66,6 @@ async def _verify_git_deployment(
 
     Raises DJInvalidInputException if requirements not met.
     """
-    from datajunction_server.internal.git import GitHubService
-    from datajunction_server.internal.git.github_service import GitHubServiceError
-
     # Check source type
     if not deployment_spec.source:
         raise DJInvalidInputException(

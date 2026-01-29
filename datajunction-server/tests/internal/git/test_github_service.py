@@ -645,3 +645,286 @@ class TestErrorHandling:
                 await github_service.list_branches("owner/repo")
 
             assert "Internal Server Error" in str(exc_info.value)
+
+
+class TestJWTEncodingError:
+    """Tests for JWT encoding error handling."""
+
+    def test_jwt_encode_failure(self):
+        """Should raise error when JWT encoding fails."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = None
+        mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = "invalid-key"  # Invalid key
+        mock_settings.github_app_installation_id = "67890"
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                with patch(
+                    "datajunction_server.internal.git.github_service.jwt.encode",
+                    side_effect=ValueError("Invalid key format"),
+                ):
+                    with pytest.raises(GitHubServiceError) as exc_info:
+                        GitHubService()
+
+                    assert "Failed to generate GitHub App JWT" in str(exc_info.value)
+                    assert exc_info.value.http_status_code == 503
+
+
+class TestTokenExchangeErrorParsing:
+    """Tests for token exchange error response parsing."""
+
+    def test_token_exchange_non_json_error(self):
+        """Should handle non-JSON error response during token exchange."""
+        mock_settings = MagicMock()
+        mock_settings.github_service_token = None
+        mock_settings.github_api_url = "https://api.github.com"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_private_key = (
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        )
+        mock_settings.github_app_installation_id = "67890"
+
+        mock_token_response = MagicMock()
+        mock_token_response.is_success = False
+        mock_token_response.status_code = 500
+        mock_token_response.json.side_effect = Exception("Not JSON")
+        mock_token_response.text = "Internal Server Error"
+
+        with patch(
+            "datajunction_server.internal.git.github_service.Settings",
+            return_value=mock_settings,
+        ):
+            with patch(
+                "datajunction_server.internal.git.github_service.load_dotenv",
+            ):
+                with patch("httpx.Client") as mock_client:
+                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
+                    with patch(
+                        "datajunction_server.internal.git.github_service.jwt.encode",
+                        return_value="mock-jwt",
+                    ):
+                        with pytest.raises(GitHubServiceError) as exc_info:
+                            GitHubService()
+
+                        assert "Failed to get GitHub App installation token" in str(
+                            exc_info.value,
+                        )
+                        assert "Internal Server Error" in str(exc_info.value)
+
+
+class TestCommitFiles:
+    """Tests for commit_files batch commit method."""
+
+    @pytest.mark.asyncio
+    async def test_commit_files_success(self, github_service):
+        """Should batch commit multiple files in a single commit."""
+        # Mock responses for the multi-step process
+        ref_response = MagicMock()
+        ref_response.is_success = True
+        ref_response.json.return_value = {"object": {"sha": "current-commit-sha"}}
+
+        commit_response = MagicMock()
+        commit_response.is_success = True
+        commit_response.json.return_value = {"tree": {"sha": "base-tree-sha"}}
+
+        tree_response = MagicMock()
+        tree_response.is_success = True
+        tree_response.json.return_value = {"sha": "new-tree-sha"}
+
+        new_commit_response = MagicMock()
+        new_commit_response.is_success = True
+        new_commit_response.json.return_value = {
+            "sha": "new-commit-sha",
+            "html_url": "https://github.com/owner/repo/commit/new-commit-sha",
+        }
+
+        update_ref_response = MagicMock()
+        update_ref_response.is_success = True
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = mock_client.return_value.__aenter__.return_value
+            # get calls: ref, commit
+            mock_instance.get = AsyncMock(
+                side_effect=[ref_response, commit_response],
+            )
+            # post calls: tree, commit
+            mock_instance.post = AsyncMock(
+                side_effect=[tree_response, new_commit_response],
+            )
+            # patch call: update ref
+            mock_instance.patch = AsyncMock(return_value=update_ref_response)
+
+            result = await github_service.commit_files(
+                repo_path="owner/repo",
+                files=[
+                    {"path": "file1.yaml", "content": "content1"},
+                    {"path": "file2.yaml", "content": "content2"},
+                ],
+                message="Batch commit",
+                branch="main",
+            )
+
+            assert result["sha"] == "new-commit-sha"
+            assert result["files_committed"] == 2
+
+    @pytest.mark.asyncio
+    async def test_commit_files_empty_list(self, github_service):
+        """Should raise error when no files provided."""
+        with pytest.raises(GitHubServiceError) as exc_info:
+            await github_service.commit_files(
+                repo_path="owner/repo",
+                files=[],
+                message="Empty commit",
+                branch="main",
+            )
+
+        assert "No files to commit" in str(exc_info.value)
+        assert exc_info.value.http_status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_commit_files_with_co_author(self, github_service):
+        """Should include co-author in batch commit message."""
+        ref_response = MagicMock()
+        ref_response.is_success = True
+        ref_response.json.return_value = {"object": {"sha": "sha1"}}
+
+        commit_response = MagicMock()
+        commit_response.is_success = True
+        commit_response.json.return_value = {"tree": {"sha": "sha2"}}
+
+        tree_response = MagicMock()
+        tree_response.is_success = True
+        tree_response.json.return_value = {"sha": "sha3"}
+
+        new_commit_response = MagicMock()
+        new_commit_response.is_success = True
+        new_commit_response.json.return_value = {
+            "sha": "sha4",
+            "html_url": "https://...",
+        }
+
+        update_ref_response = MagicMock()
+        update_ref_response.is_success = True
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = mock_client.return_value.__aenter__.return_value
+            mock_instance.get = AsyncMock(
+                side_effect=[ref_response, commit_response],
+            )
+            mock_instance.post = AsyncMock(
+                side_effect=[tree_response, new_commit_response],
+            )
+            mock_instance.patch = AsyncMock(return_value=update_ref_response)
+
+            await github_service.commit_files(
+                repo_path="owner/repo",
+                files=[{"path": "file.yaml", "content": "content"}],
+                message="Update",
+                branch="main",
+                co_author_name="Test User",
+                co_author_email="test@example.com",
+            )
+
+            # Check the commit message includes co-author
+            commit_call = mock_instance.post.call_args_list[1]  # Second post is commit
+            payload = commit_call.kwargs["json"]
+            assert "Co-authored-by: Test User <test@example.com>" in payload["message"]
+
+
+class TestGetRepo:
+    """Tests for get_repo method."""
+
+    @pytest.mark.asyncio
+    async def test_get_repo_exists(self, github_service):
+        """Should return repo info when accessible."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "id": 12345,
+            "name": "repo",
+            "full_name": "owner/repo",
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.get_repo("owner/repo")
+
+            assert result["full_name"] == "owner/repo"
+
+    @pytest.mark.asyncio
+    async def test_get_repo_not_found(self, github_service):
+        """Should return None when repo not accessible."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.get_repo("owner/nonexistent")
+
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_repo_error(self, github_service):
+        """Should raise error on other failures."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.is_success = False
+        mock_response.json.return_value = {"message": "Rate limited"}
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            with pytest.raises(GitHubServiceError) as exc_info:
+                await github_service.get_repo("owner/repo")
+
+            assert "get repository failed" in str(exc_info.value)
+
+
+class TestVerifyCommit:
+    """Tests for verify_commit method."""
+
+    @pytest.mark.asyncio
+    async def test_verify_commit_exists(self, github_service):
+        """Should return True when commit exists."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.verify_commit("owner/repo", "abc123")
+
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_verify_commit_not_found(self, github_service):
+        """Should return False when commit doesn't exist."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.verify_commit("owner/repo", "nonexistent")
+
+            assert result is False
