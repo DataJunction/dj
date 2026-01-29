@@ -2234,4 +2234,199 @@ export const DataJunctionAPI = {
     }
     return result;
   },
+
+  // ============================================================
+  // Git Branch Management APIs
+  // ============================================================
+
+  // Get git configuration for a namespace
+  getNamespaceGitConfig: async function (namespace) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/git`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.message || 'Failed to get git config');
+    }
+    return await response.json();
+  },
+
+  // Update git configuration for a namespace
+  updateNamespaceGitConfig: async function (namespace, config) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/git`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to update git config',
+      };
+    }
+    return result;
+  },
+
+  // List branch namespaces for a parent namespace
+  listBranches: async function (namespace) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/branches`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.message || 'Failed to list branches');
+    }
+    return await response.json();
+  },
+
+  // Create a new branch namespace
+  createBranch: async function (namespace, branchName) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/branches`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ branch_name: branchName }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to create branch',
+      };
+    }
+    return result;
+  },
+
+  // Delete a branch namespace
+  deleteBranch: async function (
+    parentNamespace,
+    branchNamespace,
+    deleteGitBranch = false,
+  ) {
+    const url = `${DJ_URL}/namespaces/${parentNamespace}/branches/${branchNamespace}?delete_git_branch=${deleteGitBranch}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to delete branch',
+      };
+    }
+    return result;
+  },
+
+  // Sync a single node to git
+  syncNodeToGit: async function (nodeName, commitMessage = null) {
+    const body = {};
+    if (commitMessage) body.commit_message = commitMessage;
+
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/sync-to-git`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to sync node to git',
+      };
+    }
+    return result;
+  },
+
+  // Sync all nodes in a namespace to git
+  syncNamespaceToGit: async function (namespace, commitMessage = null) {
+    const body = {};
+    if (commitMessage) body.commit_message = commitMessage;
+
+    const response = await fetch(
+      `${DJ_URL}/namespaces/${namespace}/sync-to-git`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to sync namespace to git',
+      };
+    }
+    return result;
+  },
+
+  // Get existing pull request for a branch namespace (if any)
+  getPullRequest: async function (namespace) {
+    const response = await fetch(
+      `${DJ_URL}/namespaces/${namespace}/pull-request`,
+      {
+        method: 'GET',
+        credentials: 'include',
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const result = await response.json();
+    return result; // null if no PR exists
+  },
+
+  // Create a pull request from a branch namespace
+  createPullRequest: async function (namespace, title, body = null) {
+    const payload = { title };
+    if (body) payload.body = body;
+
+    const response = await fetch(
+      `${DJ_URL}/namespaces/${namespace}/pull-request`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to create pull request',
+      };
+    }
+    return result;
+  },
 };

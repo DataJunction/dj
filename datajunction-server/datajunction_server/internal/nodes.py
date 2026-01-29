@@ -17,6 +17,7 @@ from datajunction_server.internal.access.authorization import (
     AccessChecker,
 )
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
     get_attribute_type,
@@ -879,6 +880,78 @@ async def copy_to_new_node(
     )
     await session.refresh(new_node, ["current"])  # type: ignore
     return node  # type: ignore
+
+
+async def copy_nodes_to_namespace(
+    session: AsyncSession,
+    source_namespace: str,
+    target_namespace: str,
+    current_user: User,
+) -> List[DeploymentResult]:
+    """
+    Copies all nodes from source namespace to target namespace.
+
+    Uses the deployment infrastructure to properly handle all node types,
+    including cubes with their metrics/dimensions references.
+
+    This works by:
+    1. Exporting node specs from source namespace (with ${prefix} injection)
+    2. Deploying those specs to the target namespace
+
+    Args:
+        session: Database session
+        source_namespace: Namespace to copy from (e.g., "sales.main")
+        target_namespace: Namespace to copy to (e.g., "sales.feature_x")
+        current_user: User performing the operation
+
+    Returns:
+        List of deployment results for each node
+    """
+    import uuid
+
+    from datajunction_server.internal.deployment.deployment import deploy
+    from datajunction_server.internal.deployment.utils import DeploymentContext
+    from datajunction_server.internal.namespaces import get_node_specs_for_export
+    from datajunction_server.models.deployment import DeploymentSpec
+
+    # Get all node specs from source namespace with ${prefix} injection
+    node_specs = await get_node_specs_for_export(session, source_namespace)
+
+    if not node_specs:
+        return []
+
+    _logger.info(
+        "Copying %d nodes from '%s' to '%s' via deployment",
+        len(node_specs),
+        source_namespace,
+        target_namespace,
+    )
+
+    # Create deployment spec for target namespace
+    deployment_spec = DeploymentSpec(
+        namespace=target_namespace,
+        nodes=node_specs,
+    )
+
+    # Create minimal deployment context (only current_user is used by orchestrator)
+    context = DeploymentContext(current_user=current_user)
+
+    # Deploy nodes to target namespace
+    deployment_id = str(uuid.uuid4())
+    results = await deploy(
+        session=session,
+        deployment_id=deployment_id,
+        deployment=deployment_spec,
+        context=context,
+    )
+
+    _logger.info(
+        "Deployed %d changes to '%s'",
+        len(results),
+        target_namespace,
+    )
+
+    return results
 
 
 async def update_any_node(

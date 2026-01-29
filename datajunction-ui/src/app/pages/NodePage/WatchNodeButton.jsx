@@ -6,7 +6,7 @@ import CollapsedIcon from '../../icons/CollapsedIcon';
 
 const EVENT_TYPES = ['delete', 'update'];
 
-export default function WatchButton({ node }) {
+export default function WatchButton({ node, buttonStyle }) {
   // All hooks must be called before any early returns
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [selectedEvents, setSelectedEvents] = useState([]);
@@ -129,17 +129,13 @@ export default function WatchButton({ node }) {
       }}
     >
       <button
-        className="button-3"
         onClick={handleWatchClick}
         disabled={loading}
         style={{
+          ...buttonStyle,
           borderTopRightRadius: 0,
           borderBottomRightRadius: 0,
-          marginRight: 0,
-          height: '2.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
+          borderRight: 'none',
         }}
       >
         <EyeIcon />
@@ -149,9 +145,9 @@ export default function WatchButton({ node }) {
             style={{
               backgroundColor: '#e2e6ed',
               color: '#333',
-              padding: '2px 6px',
+              padding: '2px 5px',
               borderRadius: '999px',
-              fontSize: '0.75rem',
+              fontSize: '10px',
               fontWeight: 500,
               lineHeight: 1,
             }}
@@ -162,14 +158,13 @@ export default function WatchButton({ node }) {
       </button>
 
       <button
-        className="button-3"
         onClick={() => setDropdownOpen(prev => !prev)}
         disabled={loading}
         style={{
+          ...buttonStyle,
           borderTopLeftRadius: 0,
           borderBottomLeftRadius: 0,
-          marginLeft: 0,
-          height: '2.5rem',
+          padding: '0 6px',
         }}
         aria-label="Toggle dropdown"
       >
