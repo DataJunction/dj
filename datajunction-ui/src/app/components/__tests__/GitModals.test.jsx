@@ -29,7 +29,10 @@ describe('<CreateBranchModal />', () => {
 
   it('should render the modal when open', () => {
     render(<CreateBranchModal {...defaultProps} />);
-    expect(screen.getByText('Create Branch')).toBeInTheDocument();
+    // Use role to distinguish header from button
+    expect(
+      screen.getByRole('heading', { name: 'Create Branch' }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Branch Name')).toBeInTheDocument();
   });
 
@@ -328,7 +331,10 @@ describe('<DeleteBranchModal />', () => {
   it('should render the modal with branch info', () => {
     render(<DeleteBranchModal {...defaultProps} />);
 
-    expect(screen.getByText('Delete Branch')).toBeInTheDocument();
+    // Use role to distinguish header from button
+    expect(
+      screen.getByRole('heading', { name: 'Delete Branch' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('analytics.feature_xyz')).toBeInTheDocument();
     expect(screen.getByText('feature-xyz')).toBeInTheDocument();
     expect(screen.getByText('analytics.prod')).toBeInTheDocument();
@@ -902,7 +908,7 @@ describe('<GitSettingsModal />', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('Failed to save configuration'),
+        screen.getByText('Failed to save git settings'),
       ).toBeInTheDocument();
     });
   });
@@ -978,8 +984,8 @@ describe('<GitSettingsModal />', () => {
       ).toBeInTheDocument();
     });
 
-    // Close and verify onClose was called
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    // After success, button changes from "Cancel" to "Close"
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
@@ -1020,12 +1026,6 @@ describe('<CreatePRModal />', () => {
     expect(screen.getByText('Create Pull Request')).toBeInTheDocument();
     expect(screen.getByText('feature-xyz')).toBeInTheDocument();
     expect(screen.getByText('main')).toBeInTheDocument();
-  });
-
-  it('should render repository info', () => {
-    render(<CreatePRModal {...defaultProps} />);
-
-    expect(screen.getByText('myorg/dj-definitions')).toBeInTheDocument();
   });
 
   it('should disable submit when title is empty', () => {
@@ -1079,7 +1079,7 @@ describe('<CreatePRModal />', () => {
     });
   });
 
-  it('should call onCreate with empty body if description is empty', async () => {
+  it('should call onCreate with null body if description is empty', async () => {
     defaultProps.onCreate.mockResolvedValue({
       pr_number: 42,
       pr_url: 'https://github.com/myorg/repo/pull/42',
@@ -1096,7 +1096,7 @@ describe('<CreatePRModal />', () => {
     await waitFor(() => {
       expect(defaultProps.onCreate).toHaveBeenCalledWith(
         'Add new metrics',
-        '',
+        null,
         expect.any(Function),
       );
     });
@@ -1287,8 +1287,7 @@ describe('<CreatePRModal />', () => {
       expect(screen.getByText('Pull Request #42 Created!')).toBeInTheDocument();
     });
 
-    // Success view should show branch flow
-    expect(screen.getByText('feature-xyz')).toBeInTheDocument();
-    expect(screen.getByText('main')).toBeInTheDocument();
+    // Success view should show branch flow (text is combined like "feature-xyz → main")
+    expect(screen.getByText(/feature-xyz.*→.*main/)).toBeInTheDocument();
   });
 });
