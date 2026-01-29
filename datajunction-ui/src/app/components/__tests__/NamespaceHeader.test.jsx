@@ -582,14 +582,21 @@ describe('<NamespaceHeader />', () => {
         },
       }),
       listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
-        github_repo_path: 'test/repo',
-        git_branch: 'feature',
-        git_path: 'nodes/',
-        git_only: false,
-        parent_namespace: 'test.main',
-      }),
-      getNamespacePR: jest.fn().mockResolvedValue(null),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
     };
 
     render(
@@ -869,7 +876,7 @@ describe('<NamespaceHeader />', () => {
         git_only: false,
         parent_namespace: 'test.main',
       }),
-      getNamespacePR: jest.fn().mockResolvedValue({
+      getPullRequest: jest.fn().mockResolvedValue({
         pr_number: 42,
         pr_url: 'https://github.com/test/repo/pull/42',
       }),
@@ -885,6 +892,351 @@ describe('<NamespaceHeader />', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/View PR #42/)).toBeInTheDocument();
+    });
+  });
+
+  it('should call createPullRequest when creating a PR', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
+      syncNamespaceToGit: jest.fn().mockResolvedValue({
+        files_synced: 3,
+        commit_sha: 'abc123',
+        commit_url: 'https://github.com/test/repo/commit/abc123',
+      }),
+      createPullRequest: jest.fn().mockResolvedValue({
+        pr_number: 99,
+        pr_url: 'https://github.com/test/repo/pull/99',
+        head_branch: 'feature',
+        base_branch: 'main',
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create PR')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Create PR'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Title/)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/Title/), {
+      target: { value: 'My PR Title' },
+    });
+    fireEvent.change(screen.getByLabelText(/Description/), {
+      target: { value: 'PR description' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(mockDjClient.syncNamespaceToGit).toHaveBeenCalledWith(
+        'test.feature',
+        'My PR Title',
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockDjClient.createPullRequest).toHaveBeenCalledWith(
+        'test.feature',
+        'My PR Title',
+        'PR description',
+      );
+    });
+  });
+
+  it('should call deleteBranch when deleting a branch', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
+      deleteBranch: jest.fn().mockResolvedValue({ success: true }),
+    };
+
+    // Mock window.location
+    delete window.location;
+    window.location = { href: '' };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Branch')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Delete Branch'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Branch' }));
+
+    await waitFor(() => {
+      expect(mockDjClient.deleteBranch).toHaveBeenCalledWith(
+        'test.main',
+        'test.feature',
+        true,
+      );
+    });
+  });
+
+  it('should fetch parent git config for branch namespace', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockDjClient.getNamespaceGitConfig).toHaveBeenCalledWith(
+        'test.feature',
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockDjClient.getNamespaceGitConfig).toHaveBeenCalledWith(
+        'test.main',
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockDjClient.getPullRequest).toHaveBeenCalledWith('test.feature');
+    });
+  });
+
+  it('should handle error fetching parent git config gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockRejectedValueOnce(new Error('Parent not found')),
+      getPullRequest: jest.fn().mockResolvedValue(null),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to fetch parent git config:',
+        expect.any(Error),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
+  it('should handle error fetching PR gracefully', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockRejectedValue(new Error('API Error')),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    // Should render without crashing and show Create PR button
+    await waitFor(() => {
+      expect(screen.getByText('Create PR')).toBeInTheDocument();
+    });
+  });
+
+  it('should call onGitConfigLoaded callback when config is fetched', async () => {
+    const onGitConfigLoaded = jest.fn();
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 0,
+        primary_source: null,
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader
+            namespace="test.namespace"
+            onGitConfigLoaded={onGitConfigLoaded}
+          />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(onGitConfigLoaded).toHaveBeenCalledWith({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+      });
+    });
+  });
+
+  it('should call onGitConfigLoaded with null when git config fetch fails', async () => {
+    const onGitConfigLoaded = jest.fn();
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 0,
+        primary_source: null,
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockRejectedValue(new Error('Config not found')),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader
+            namespace="test.namespace"
+            onGitConfigLoaded={onGitConfigLoaded}
+          />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(onGitConfigLoaded).toHaveBeenCalledWith(null);
     });
   });
 });

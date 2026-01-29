@@ -45,8 +45,30 @@ describe('<CreateBranchModal />', () => {
     expect(screen.getByText(/analytics\.feature_xyz/)).toBeInTheDocument();
   });
 
+  it('should handle branch name with slashes', async () => {
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature/new-thing');
+
+    // Slashes should be converted to underscores in namespace preview
+    expect(
+      screen.getByText(/analytics\.feature_new_thing/),
+    ).toBeInTheDocument();
+  });
+
   it('should disable submit button when branch name is empty', () => {
     render(<CreateBranchModal {...defaultProps} />);
+
+    const submitButton = screen.getByRole('button', { name: 'Create Branch' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('should disable submit button when branch name is whitespace only', async () => {
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, '   ');
 
     const submitButton = screen.getByRole('button', { name: 'Create Branch' });
     expect(submitButton).toBeDisabled();
@@ -104,6 +126,34 @@ describe('<CreateBranchModal />', () => {
     expect(screen.getByText('Nodes copied:')).toBeInTheDocument();
   });
 
+  it('should show success view without nodes copied section when no deployment results', async () => {
+    defaultProps.onCreate.mockResolvedValue({
+      branch: {
+        namespace: 'analytics.feature_xyz',
+        git_branch: 'feature-xyz',
+        parent_namespace: 'analytics.prod',
+      },
+      deployment_results: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <CreateBranchModal {...defaultProps} />
+      </MemoryRouter>,
+    );
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature-xyz');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Create Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Branch Created!')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Nodes copied:')).not.toBeInTheDocument();
+  });
+
   it('should show error when creation fails', async () => {
     defaultProps.onCreate.mockResolvedValue({
       _error: true,
@@ -123,6 +173,38 @@ describe('<CreateBranchModal />', () => {
     });
   });
 
+  it('should show error when onCreate throws exception', async () => {
+    defaultProps.onCreate.mockRejectedValue(new Error('Network error'));
+
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature-xyz');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Create Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Network error')).toBeInTheDocument();
+    });
+  });
+
+  it('should show default error when onCreate throws without message', async () => {
+    defaultProps.onCreate.mockRejectedValue({});
+
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature-xyz');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Create Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to create branch')).toBeInTheDocument();
+    });
+  });
+
   it('should call onClose when Cancel is clicked', async () => {
     render(<CreateBranchModal {...defaultProps} />);
 
@@ -136,6 +218,89 @@ describe('<CreateBranchModal />', () => {
     const overlay = document.querySelector('.modal-overlay');
     fireEvent.click(overlay);
     expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking close button', async () => {
+    render(<CreateBranchModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTitle('Close'));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should not propagate click from modal content to overlay', async () => {
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const modalContent = document.querySelector('.modal-content');
+    fireEvent.click(modalContent);
+    expect(defaultProps.onClose).not.toHaveBeenCalled();
+  });
+
+  it('should reset state when closed from success view', async () => {
+    defaultProps.onCreate.mockResolvedValue({
+      branch: {
+        namespace: 'analytics.feature_xyz',
+        git_branch: 'feature-xyz',
+        parent_namespace: 'analytics.prod',
+      },
+      deployment_results: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <CreateBranchModal {...defaultProps} />
+      </MemoryRouter>,
+    );
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature-xyz');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Create Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Branch Created!')).toBeInTheDocument();
+    });
+
+    // Click Close button in success view
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should show Creating... button text while creating', async () => {
+    let resolveCreate;
+    defaultProps.onCreate.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    render(<CreateBranchModal {...defaultProps} />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature-xyz');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Create Branch' }),
+    );
+
+    expect(screen.getByText('Creating...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Creating...' })).toBeDisabled();
+
+    // Resolve to complete the test
+    resolveCreate({
+      branch: { namespace: 'test', git_branch: 'test', parent_namespace: 'p' },
+      deployment_results: [],
+    });
+  });
+
+  it('should handle single-part namespace', async () => {
+    render(<CreateBranchModal {...defaultProps} namespace="analytics" />);
+
+    const input = screen.getByLabelText('Branch Name');
+    await userEvent.type(input, 'feature');
+
+    // For single-part namespace, result should be "analytics.feature"
+    expect(screen.getByText(/analytics\.feature/)).toBeInTheDocument();
   });
 });
 
@@ -198,6 +363,23 @@ describe('<DeleteBranchModal />', () => {
     });
   });
 
+  it('should call onDelete with false when checkbox is unchecked', async () => {
+    defaultProps.onDelete.mockResolvedValue({ success: true });
+
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    // Uncheck the checkbox
+    await userEvent.click(screen.getByRole('checkbox'));
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(defaultProps.onDelete).toHaveBeenCalledWith(false);
+    });
+  });
+
   it('should redirect after successful deletion', async () => {
     defaultProps.onDelete.mockResolvedValue({ success: true });
 
@@ -231,11 +413,76 @@ describe('<DeleteBranchModal />', () => {
     });
   });
 
+  it('should show error when onDelete throws exception', async () => {
+    defaultProps.onDelete.mockRejectedValue(new Error('Network failure'));
+
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Network failure')).toBeInTheDocument();
+    });
+  });
+
+  it('should show default error when onDelete throws without message', async () => {
+    defaultProps.onDelete.mockRejectedValue({});
+
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete Branch' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to delete branch')).toBeInTheDocument();
+    });
+  });
+
   it('should call onClose when Cancel is clicked', async () => {
     render(<DeleteBranchModal {...defaultProps} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking overlay', async () => {
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    const overlay = document.querySelector('.modal-overlay');
+    fireEvent.click(overlay);
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking close button', async () => {
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTitle('Close'));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should show Deleting... button text while deleting', async () => {
+    let resolveDelete;
+    defaultProps.onDelete.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveDelete = resolve;
+        }),
+    );
+
+    render(<DeleteBranchModal {...defaultProps} />);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete Branch' }),
+    );
+
+    expect(screen.getByText('Deleting...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deleting...' })).toBeDisabled();
+
+    // Resolve to complete the test
+    resolveDelete({ success: true });
   });
 });
 
@@ -264,6 +511,8 @@ describe('<SyncToGitModal />', () => {
     expect(screen.getByText('Sync to Git')).toBeInTheDocument();
     expect(screen.getByText('myorg/dj-definitions')).toBeInTheDocument();
     expect(screen.getByText('main')).toBeInTheDocument();
+    expect(screen.getByText(/Sync all nodes in/)).toBeInTheDocument();
+    expect(screen.getByText('analytics.prod')).toBeInTheDocument();
   });
 
   it('should allow entering commit message', async () => {
@@ -301,6 +550,24 @@ describe('<SyncToGitModal />', () => {
     });
 
     render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(defaultProps.onSync).toHaveBeenCalledWith(null);
+    });
+  });
+
+  it('should call onSync with null for whitespace-only commit message', async () => {
+    defaultProps.onSync.mockResolvedValue({
+      files_synced: 3,
+      commit_sha: 'abc123',
+      commit_url: 'https://github.com/myorg/repo/commit/abc123',
+    });
+
+    render(<SyncToGitModal {...defaultProps} />);
+
+    const input = screen.getByLabelText(/Commit Message/);
+    await userEvent.type(input, '   ');
     await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
 
     await waitFor(() => {
@@ -357,11 +624,109 @@ describe('<SyncToGitModal />', () => {
     });
   });
 
+  it('should show error when onSync throws exception', async () => {
+    defaultProps.onSync.mockRejectedValue(new Error('GitHub API error'));
+
+    render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('GitHub API error')).toBeInTheDocument();
+    });
+  });
+
+  it('should show default error when onSync throws without message', async () => {
+    defaultProps.onSync.mockRejectedValue({});
+
+    render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to sync to git')).toBeInTheDocument();
+    });
+  });
+
   it('should call onClose when Cancel is clicked', async () => {
     render(<SyncToGitModal {...defaultProps} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking overlay', async () => {
+    render(<SyncToGitModal {...defaultProps} />);
+
+    const overlay = document.querySelector('.modal-overlay');
+    fireEvent.click(overlay);
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking close button', async () => {
+    render(<SyncToGitModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTitle('Close'));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should reset state when closed from success view', async () => {
+    defaultProps.onSync.mockResolvedValue({
+      files_synced: 5,
+      commit_sha: 'abc123',
+      commit_url: 'https://github.com/myorg/repo/commit/abc123',
+    });
+
+    render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Synced 5 files!')).toBeInTheDocument();
+    });
+
+    // Click Close button in success view
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should show Syncing... button text while syncing', async () => {
+    let resolveSync;
+    defaultProps.onSync.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSync = resolve;
+        }),
+    );
+
+    render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    expect(screen.getByText('Syncing...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Syncing...' })).toBeDisabled();
+
+    // Resolve to complete the test
+    resolveSync({
+      files_synced: 1,
+      commit_sha: 'abc',
+      commit_url: 'https://github.com/test',
+    });
+  });
+
+  it('should display branch info in success view', async () => {
+    defaultProps.onSync.mockResolvedValue({
+      files_synced: 5,
+      commit_sha: 'abc123',
+      commit_url: 'https://github.com/myorg/repo/commit/abc123',
+    });
+
+    render(<SyncToGitModal {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Synced 5 files!')).toBeInTheDocument();
+    });
+
+    // Branch info should be shown
+    expect(screen.getByText('Branch:')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
   });
 });
 
@@ -407,9 +772,29 @@ describe('<GitSettingsModal />', () => {
     expect(screen.getByLabelText('Path')).toHaveValue('definitions/');
   });
 
+  it('should pre-fill git_only checkbox from config', () => {
+    const config = {
+      github_repo_path: 'myorg/repo',
+      git_branch: 'main',
+      git_path: 'definitions/',
+      git_only: false,
+    };
+
+    render(<GitSettingsModal {...defaultProps} currentConfig={config} />);
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).not.toBeChecked();
+  });
+
   it('should default path to nodes/ for new config', () => {
     render(<GitSettingsModal {...defaultProps} />);
     expect(screen.getByLabelText('Path')).toHaveValue('nodes/');
+  });
+
+  it('should default git_only to true for new config', () => {
+    render(<GitSettingsModal {...defaultProps} />);
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toBeChecked();
   });
 
   it('should call onSave when form is submitted', async () => {
@@ -429,6 +814,28 @@ describe('<GitSettingsModal />', () => {
         git_branch: 'main',
         git_path: 'nodes/',
         git_only: true,
+      });
+    });
+  });
+
+  it('should call onSave with git_only false when unchecked', async () => {
+    defaultProps.onSave.mockResolvedValue({ success: true });
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText('Repository'), 'myorg/repo');
+    await userEvent.type(screen.getByLabelText('Branch'), 'main');
+    await userEvent.click(screen.getByRole('checkbox')); // Uncheck git_only
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save Settings' }),
+    );
+
+    await waitFor(() => {
+      expect(defaultProps.onSave).toHaveBeenCalledWith({
+        github_repo_path: 'myorg/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
       });
     });
   });
@@ -468,6 +875,38 @@ describe('<GitSettingsModal />', () => {
     });
   });
 
+  it('should show error when onSave throws exception', async () => {
+    defaultProps.onSave.mockRejectedValue(new Error('Network error'));
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText('Repository'), 'myorg/repo');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save Settings' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Network error')).toBeInTheDocument();
+    });
+  });
+
+  it('should show default error when onSave throws without message', async () => {
+    defaultProps.onSave.mockRejectedValue({});
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText('Repository'), 'myorg/repo');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save Settings' }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Failed to save configuration'),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('should toggle git-only checkbox', async () => {
     render(<GitSettingsModal {...defaultProps} />);
 
@@ -483,6 +922,75 @@ describe('<GitSettingsModal />', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking overlay', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
+
+    const overlay = document.querySelector('.modal-overlay');
+    fireEvent.click(overlay);
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking close button', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTitle('Close'));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should show Saving... button text while saving', async () => {
+    let resolveSave;
+    defaultProps.onSave.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText('Repository'), 'myorg/repo');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save Settings' }),
+    );
+
+    expect(screen.getByText('Saving...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled();
+
+    // Resolve to complete the test
+    resolveSave({ success: true });
+  });
+
+  it('should clear error and success when closed', async () => {
+    defaultProps.onSave.mockResolvedValue({ success: true });
+
+    render(<GitSettingsModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText('Repository'), 'myorg/repo');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save Settings' }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Git configuration saved successfully!'),
+      ).toBeInTheDocument();
+    });
+
+    // Close and verify onClose was called
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should update path field', async () => {
+    render(<GitSettingsModal {...defaultProps} />);
+
+    const pathInput = screen.getByLabelText('Path');
+    await userEvent.clear(pathInput);
+    await userEvent.type(pathInput, 'definitions/');
+
+    expect(pathInput).toHaveValue('definitions/');
   });
 });
 
@@ -514,8 +1022,23 @@ describe('<CreatePRModal />', () => {
     expect(screen.getByText('main')).toBeInTheDocument();
   });
 
+  it('should render repository info', () => {
+    render(<CreatePRModal {...defaultProps} />);
+
+    expect(screen.getByText('myorg/dj-definitions')).toBeInTheDocument();
+  });
+
   it('should disable submit when title is empty', () => {
     render(<CreatePRModal {...defaultProps} />);
+
+    const submitButton = screen.getByRole('button', { name: 'Create PR' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('should disable submit when title is whitespace only', async () => {
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), '   ');
 
     const submitButton = screen.getByRole('button', { name: 'Create PR' });
     expect(submitButton).toBeDisabled();
@@ -552,6 +1075,29 @@ describe('<CreatePRModal />', () => {
         'Add new metrics',
         'This PR adds...',
         expect.any(Function), // progress callback
+      );
+    });
+  });
+
+  it('should call onCreate with empty body if description is empty', async () => {
+    defaultProps.onCreate.mockResolvedValue({
+      pr_number: 42,
+      pr_url: 'https://github.com/myorg/repo/pull/42',
+      head_branch: 'feature-xyz',
+      base_branch: 'main',
+    });
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Add new metrics');
+    // Don't fill in description
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(defaultProps.onCreate).toHaveBeenCalledWith(
+        'Add new metrics',
+        '',
+        expect.any(Function),
       );
     });
   });
@@ -595,6 +1141,34 @@ describe('<CreatePRModal />', () => {
     });
   });
 
+  it('should show error when onCreate throws exception', async () => {
+    defaultProps.onCreate.mockRejectedValue(new Error('GitHub API error'));
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Add new metrics');
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('GitHub API error')).toBeInTheDocument();
+    });
+  });
+
+  it('should show default error when onCreate throws without message', async () => {
+    defaultProps.onCreate.mockRejectedValue({});
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Add new metrics');
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Failed to create pull request'),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('should show progress states', async () => {
     let resolvePromise;
     defaultProps.onCreate.mockImplementation((title, body, onProgress) => {
@@ -624,10 +1198,97 @@ describe('<CreatePRModal />', () => {
     });
   });
 
+  it('should show Creating PR... progress state', async () => {
+    let resolvePromise;
+    defaultProps.onCreate.mockImplementation((title, body, onProgress) => {
+      return new Promise(resolve => {
+        resolvePromise = resolve;
+        // Skip syncing, go straight to creating
+        onProgress('creating');
+      });
+    });
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Test');
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Creating PR...')).toBeInTheDocument();
+    });
+
+    // Resolve the promise to prevent test timeout
+    resolvePromise({
+      pr_number: 1,
+      pr_url: 'https://github.com/test',
+      head_branch: 'test',
+      base_branch: 'main',
+    });
+  });
+
   it('should call onClose when Cancel is clicked', async () => {
     render(<CreatePRModal {...defaultProps} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking overlay', async () => {
+    render(<CreatePRModal {...defaultProps} />);
+
+    const overlay = document.querySelector('.modal-overlay');
+    fireEvent.click(overlay);
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should call onClose when clicking close button', async () => {
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTitle('Close'));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should reset state when closed from success view', async () => {
+    defaultProps.onCreate.mockResolvedValue({
+      pr_number: 42,
+      pr_url: 'https://github.com/myorg/repo/pull/42',
+      head_branch: 'feature-xyz',
+      base_branch: 'main',
+    });
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Add new metrics');
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Pull Request #42 Created!')).toBeInTheDocument();
+    });
+
+    // Click Close button in success view
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it('should display branch flow info in success view', async () => {
+    defaultProps.onCreate.mockResolvedValue({
+      pr_number: 42,
+      pr_url: 'https://github.com/myorg/repo/pull/42',
+      head_branch: 'feature-xyz',
+      base_branch: 'main',
+    });
+
+    render(<CreatePRModal {...defaultProps} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Add new metrics');
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Pull Request #42 Created!')).toBeInTheDocument();
+    });
+
+    // Success view should show branch flow
+    expect(screen.getByText('feature-xyz')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
   });
 });

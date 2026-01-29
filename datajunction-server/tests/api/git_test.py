@@ -2064,3 +2064,106 @@ class TestCopyNodesToNamespace:
         assert response.json()["name"] == "copy_test.feature_copy.transform_node"
         # The query should reference the branch namespace
         assert "copy_test.feature_copy.source_table" in response.json()["query"]
+
+
+class TestGitHubServiceErrorHandling:
+    """Tests for GitHub service error handling edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_github_error_with_detailed_errors_array(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test handling GitHub errors that include a detailed errors array."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(return_value=None)
+            # Simulate a GitHub error with detailed errors array
+            mock_github.commit_file = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Validation Failed\n- Resource not accessible",
+                    http_status_code=502,
+                    github_status=422,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            # Error message should include the detailed error
+            assert "Validation Failed" in response.json()["message"]
+
+
+class TestGitSyncEdgeCases:
+    """Tests for git sync edge cases like non-prefixed node names."""
+
+    @pytest.mark.asyncio
+    async def test_sync_node_without_namespace_prefix(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test syncing a node whose name doesn't start with namespace prefix."""
+        # Create a namespace
+        await client_with_service_setup.post("/namespaces/edge_test")
+        await client_with_service_setup.patch(
+            "/namespaces/edge_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create a source node that has a short name matching namespace
+        # (edge case where node_name doesn't start with "namespace.")
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "edge_test.test_node",
+                "description": "Test node",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "test_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+        assert response.status_code <= HTTPStatus.CREATED
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(return_value=None)
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "abc123",
+                        "html_url": "https://github.com/myorg/myrepo/commit/abc123",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/nodes/edge_test.test_node/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            # File path should be just the short name
+            assert response.json()["file_path"] == "test_node.yaml"
