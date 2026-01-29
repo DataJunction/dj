@@ -1574,8 +1574,10 @@ class TestPullRequest:
             )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-            assert "Failed to create pull request" in response.json()["message"]
-            assert "head and base must be different" in response.json()["message"]
+            assert (
+                response.json()["message"]
+                == "Validation failed: head and base must be different"
+            )
 
 
 class TestGetPullRequest:
