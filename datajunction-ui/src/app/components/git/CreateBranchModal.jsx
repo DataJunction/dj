@@ -104,18 +104,23 @@ export function CreateBranchModal({
               <div style={{ marginBottom: '8px' }}>
                 <strong>Namespace:</strong>{' '}
                 <a
-                  href={`/namespaces/${result.namespace}`}
+                  href={`/namespaces/${result.branch.namespace}`}
                   style={{ color: '#3b82f6' }}
                 >
-                  {result.namespace}
+                  {result.branch.namespace}
                 </a>
               </div>
               <div style={{ marginBottom: '8px' }}>
-                <strong>Git Branch:</strong> {result.git_branch}
+                <strong>Git Branch:</strong> {result.branch.git_branch}
               </div>
               <div>
-                <strong>Parent:</strong> {result.parent_namespace}
+                <strong>Parent:</strong> {result.branch.parent_namespace}
               </div>
+              {result.deployment_results?.length > 0 && (
+                <div style={{ marginTop: '12px' }}>
+                  <strong>Nodes copied:</strong> {result.deployment_results.length}
+                </div>
+              )}
             </div>
 
             <div className="modal-actions">
@@ -123,7 +128,7 @@ export function CreateBranchModal({
                 Close
               </button>
               <a
-                href={`/namespaces/${result.namespace}`}
+                href={`/namespaces/${result.branch.namespace}`}
                 className="btn-primary"
                 style={{ textDecoration: 'none' }}
               >
