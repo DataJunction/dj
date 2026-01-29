@@ -130,7 +130,7 @@ def topological_levels(
 @dataclass
 class DeploymentContext:
     current_user: User
-    request: Request
-    query_service_client: QueryServiceClient
-    background_tasks: BackgroundTasks
-    cache: Cache
+    request: Request | None = None
+    query_service_client: QueryServiceClient | None = None
+    background_tasks: BackgroundTasks | None = None
+    cache: Cache | None = None

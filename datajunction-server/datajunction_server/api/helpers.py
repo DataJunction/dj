@@ -97,6 +97,26 @@ async def get_node_namespace(
     return node_namespace
 
 
+async def check_namespace_not_git_only(
+    session: AsyncSession,
+    namespace: str,
+) -> None:
+    """
+    Check that a namespace is not git_only. If it is, raise an error.
+    Used to prevent direct node mutations (create/update/delete) on git-managed namespaces.
+    """
+    node_namespace = await get_node_namespace(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if node_namespace and node_namespace.git_only:
+        raise DJInvalidInputException(
+            message=f"Namespace '{namespace}' is git-only. "
+            "Node changes must be deployed from git via the /deployments API.",
+        )
+
+
 async def get_node_by_name(
     session: AsyncSession,
     name: Optional[str],

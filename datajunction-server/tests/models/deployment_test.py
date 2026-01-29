@@ -2,6 +2,7 @@ from datajunction_server.models.node import NodeMode, NodeType
 from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionJoinLinkSpec,
+    NamespaceGitConfig,
     SourceSpec,
     MetricSpec,
     DimensionReferenceLinkSpec,
@@ -93,6 +94,12 @@ def test_reference_link_spec():
 
 def test_deployment_spec():
     spec = DeploymentSpec(
+        git_config=NamespaceGitConfig(
+            github_repo_path="some/repo",
+            git_branch="main",
+            git_path="nodes",
+            git_only=True,
+        ),
         namespace="test_deployment",
         nodes=[
             SourceSpec(
@@ -113,6 +120,13 @@ def test_deployment_spec():
     assert spec.nodes[0].tags == ["tag1"]
     assert spec.namespace == "test_deployment"
     assert spec.model_dump() == {
+        "git_config": {
+            "git_branch": "main",
+            "git_only": True,
+            "git_path": "nodes",
+            "github_repo_path": "some/repo",
+            "parent_namespace": None,
+        },
         "namespace": "test_deployment",
         "nodes": [
             {

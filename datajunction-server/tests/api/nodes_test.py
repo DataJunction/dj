@@ -1385,6 +1385,11 @@ class TestNodeCRUD:
         response = await client_with_roads.delete(f"/nodes/{node_name}/hard/")
         assert response.status_code in (200, 201)
 
+        # Expire all cached objects in the session to avoid stale references
+        # This is needed because the HTTP delete uses a different session which
+        # cascade deletes related objects that may be cached in this session
+        session.expire_all()
+
         # Check that all revisions (and their relations) for the node have been deleted
         nodes = (
             (await session.execute(select(Node).where(Node.name == node_name)))

@@ -187,6 +187,28 @@ form {
 
   .QueryInput {
     width: 75%;
+    max-width: 75%;
+    overflow: hidden;
+
+    // Constrain CodeMirror editor
+    .cm-editor {
+      max-width: 100% !important;
+      width: 100% !important;
+    }
+    .cm-scroller {
+      max-width: 100% !important;
+    }
+    // Replicate EditorView.lineWrapping behavior via CSS
+    .cm-content {
+      max-width: 100% !important;
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      overflow-wrap: anywhere !important;
+    }
+    .cm-line {
+      word-break: break-word !important;
+      overflow-wrap: anywhere !important;
+    }
   }
   .MetricQueryInput {
     height: 200px;

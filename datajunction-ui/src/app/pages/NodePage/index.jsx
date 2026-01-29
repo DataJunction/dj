@@ -32,6 +32,8 @@ export function NodePage() {
   });
 
   const [node, setNode] = useState(null);
+  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
+  const [gitConfig, setGitConfig] = useState(undefined);
 
   const onClickTab = id => () => {
     // Preview tab redirects to Query Planner instead of showing content
@@ -156,20 +158,44 @@ export function NodePage() {
       tabToDisplay = <NodeInfoTab node={node} />;
   }
 
+  const isGitOnly = gitConfig?.git_only;
+
+  const buttonStyle = {
+    height: '28px',
+    padding: '0 10px',
+    fontSize: '12px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
+    color: '#475569',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    whiteSpace: 'nowrap',
+  };
+
+  // Don't show buttons until git config has loaded (undefined = not loaded yet)
+  const gitConfigLoaded = gitConfig !== undefined;
+
   const NodeButtons = () => {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <button
-          className="button-3"
-          onClick={() => navigate(`/nodes/${node?.name}/edit`)}
-        >
-          <EditIcon /> Edit
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {gitConfigLoaded && !isGitOnly && (
+          <button
+            style={buttonStyle}
+            onClick={() => navigate(`/nodes/${node?.name}/edit`)}
+          >
+            <EditIcon /> Edit
+          </button>
+        )}
 
-        <WatchButton node={node} />
+        <WatchButton node={node} buttonStyle={buttonStyle} />
 
-        <ClientCodePopover nodeName={name} />
-        {node?.type === 'cube' && <NotebookDownload node={node} />}
+        <ClientCodePopover nodeName={name} buttonStyle={buttonStyle} />
+        {node?.type === 'cube' && (
+          <NotebookDownload node={node} buttonStyle={buttonStyle} />
+        )}
       </div>
     );
   };
@@ -177,7 +203,10 @@ export function NodePage() {
   // @ts-ignore
   return (
     <div className="node__header">
-      <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
+      <NamespaceHeader
+        namespace={name.split('.').slice(0, -1).join('.')}
+        onGitConfigLoaded={setGitConfig}
+      />
       <div className="card">
         {node === undefined ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>

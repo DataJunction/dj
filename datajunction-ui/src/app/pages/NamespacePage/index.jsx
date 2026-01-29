@@ -169,6 +169,8 @@ export function NamespacePage() {
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
   const [namespaceSources, setNamespaceSources] = useState({});
+  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
+  const [gitConfig, setGitConfig] = useState(undefined);
 
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
@@ -182,6 +184,10 @@ export function NamespacePage() {
 
   const [hasNextPage, setHasNextPage] = useState(true);
   const [hasPrevPage, setHasPrevPage] = useState(true);
+
+  // Only show edit/add controls once git config has loaded and namespace is not git-only
+  const gitConfigLoaded = gitConfig !== undefined;
+  const showEditControls = gitConfigLoaded && !gitConfig?.git_only;
 
   const requestSort = key => {
     let direction = ASC;
@@ -409,9 +415,11 @@ export function NamespacePage() {
               {new Date(node.current.updatedAt).toLocaleString('en-us')}
             </span>
           </td>
-          <td>
-            <NodeListActions nodeName={node?.name} />
-          </td>
+          {showEditControls && (
+            <td>
+              <NodeListActions nodeName={node?.name} />
+            </td>
+          )}
         </tr>
       ))
     ) : (
@@ -804,7 +812,10 @@ export function NamespacePage() {
                 : null}
             </div>
             <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
-              <NamespaceHeader namespace={namespace}>
+              <NamespaceHeader
+                namespace={namespace}
+                onGitConfigLoaded={setGitConfig}
+              >
                 <a
                   href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
                   download
@@ -847,7 +858,7 @@ export function NamespacePage() {
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
                 </a>
-                <AddNodeDropdown namespace={namespace} />
+                {showEditControls && <AddNodeDropdown namespace={namespace} />}
               </NamespaceHeader>
               <table className="card-table table" style={{ marginBottom: 0 }}>
                 <thead>
@@ -884,22 +895,24 @@ export function NamespacePage() {
                         </th>
                       );
                     })}
-                    <th
-                      style={{
-                        fontFamily:
-                          "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        color: '#64748b',
-                        padding: '12px 16px',
-                        borderBottom: '1px solid #e2e8f0',
-                        backgroundColor: 'transparent',
-                      }}
-                    >
-                      Actions
-                    </th>
+                    {showEditControls && (
+                      <th
+                        style={{
+                          fontFamily:
+                            "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          color: '#64748b',
+                          padding: '12px 16px',
+                          borderBottom: '1px solid #e2e8f0',
+                          backgroundColor: 'transparent',
+                        }}
+                      >
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="nodes-table-body">{nodesList}</tbody>

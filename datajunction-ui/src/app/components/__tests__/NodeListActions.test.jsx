@@ -47,9 +47,11 @@ describe('<NodeListActions />', () => {
         'default.hard_hat',
       );
     });
-    expect(
-      screen.getByText('Successfully deleted node default.hard_hat'),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText('Successfully deleted node default.hard_hat'),
+      ).toBeInTheDocument();
+    });
   }, 60000);
 
   it('skips a node deletion during confirm', async () => {

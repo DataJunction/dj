@@ -2,7 +2,7 @@ import DJClientContext from '../../providers/djclient';
 import JupyterExportIcon from '../../icons/JupyterExportIcon';
 import { useContext } from 'react';
 
-export default function NotebookDownload({ node }) {
+export default function NotebookDownload({ node, buttonStyle }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
   const downloadFile = async () => {
@@ -23,14 +23,8 @@ export default function NotebookDownload({ node }) {
   };
 
   return (
-    <>
-      <button
-        className="button-3"
-        onClick={downloadFile}
-        style={{ height: '2.5rem' }}
-      >
-        <JupyterExportIcon /> Export as Notebook
-      </button>
-    </>
+    <button onClick={downloadFile} style={buttonStyle}>
+      <JupyterExportIcon /> Notebook
+    </button>
   );
 }

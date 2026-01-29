@@ -11,17 +11,19 @@ from typing import Callable, Dict, List, Optional
 import yaml
 from fastapi import Depends, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
     DeploymentSpec,
+    NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
@@ -42,7 +44,7 @@ from datajunction_server.internal.namespaces import (
     get_sources_for_namespaces_bulk,
     get_node_specs_for_export,
     _get_yaml_dumper,
-    _node_spec_to_yaml_dict,
+    node_spec_to_yaml,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -498,17 +500,9 @@ async def export_namespace_yaml(
             parts = node_name.split(".")
             file_path = "/".join(parts) + ".yaml"
 
-            # Convert to YAML-friendly dict
-            node_dict = _node_spec_to_yaml_dict(node_spec)
-
             zf.writestr(
                 file_path,
-                yaml.dump(
-                    node_dict,
-                    Dumper=yaml_dumper,
-                    sort_keys=False,
-                    default_flow_style=False,
-                ),
+                node_spec_to_yaml(node_spec),
             )
 
     zip_buffer.seek(0)
@@ -575,3 +569,176 @@ async def get_bulk_namespace_sources(
     sources = await get_sources_for_namespaces_bulk(session, request.namespaces)
 
     return BulkNamespaceSourcesResponse(sources=sources)
+
+
+# =============================================================================
+# Git Configuration Endpoints
+# =============================================================================
+
+
+@router.get(
+    "/namespaces/{namespace}/git",
+    response_model=NamespaceGitConfig,
+    name="Get namespace git configuration",
+)
+async def get_namespace_git_config(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceGitConfig:
+    """
+    Get the git configuration for a namespace.
+
+    Returns the GitHub repository path, branch, and other git settings
+    that enable branch management from the UI.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node_namespace = await get_node_namespace(session, namespace)
+
+    return NamespaceGitConfig(
+        github_repo_path=node_namespace.github_repo_path,
+        git_branch=node_namespace.git_branch,
+        git_path=node_namespace.git_path,
+        parent_namespace=node_namespace.parent_namespace,
+        git_only=node_namespace.git_only,
+    )
+
+
+@router.patch(
+    "/namespaces/{namespace}/git",
+    response_model=NamespaceGitConfig,
+    name="Update namespace git configuration",
+)
+async def update_namespace_git_config(
+    namespace: str,
+    config: NamespaceGitConfig,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceGitConfig:
+    """
+    Update the git configuration for a namespace.
+
+    This enables git-backed branch management for the namespace, allowing users
+    to create branches, sync changes to git, and create pull requests from the UI.
+
+    Fields:
+    - github_repo_path: Repository path (e.g., "owner/repo")
+    - git_branch: Branch name (e.g., "main")
+    - git_path: Subdirectory in repo for node definitions (e.g., "definitions/")
+    - parent_namespace: Parent namespace for branch namespaces (for PR targeting)
+    - git_only: If True, UI edits are blocked; must edit via git deployments
+    """
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node_namespace = await get_node_namespace(session, namespace)
+
+    # Compute the effective values after update
+    new_repo = (
+        config.github_repo_path
+        if config.github_repo_path is not None
+        else node_namespace.github_repo_path
+    )
+    new_branch = (
+        config.git_branch
+        if config.git_branch is not None
+        else node_namespace.git_branch
+    )
+    new_path = (
+        config.git_path if config.git_path is not None else node_namespace.git_path
+    )
+    new_parent = (
+        config.parent_namespace
+        if config.parent_namespace is not None
+        else node_namespace.parent_namespace
+    )
+
+    # Validate parent_namespace if provided
+    if new_parent:
+        # Check for self-reference
+        if new_parent == namespace:
+            raise DJInvalidInputException(
+                message="A namespace cannot be its own parent.",
+            )
+
+        # Check parent exists
+        parent_ns_obj = await NodeNamespace.get(
+            session,
+            new_parent,
+            raise_if_not_exists=False,
+        )
+        if not parent_ns_obj:
+            raise DJInvalidInputException(
+                message=f"Parent namespace '{new_parent}' does not exist.",
+            )
+
+        # Check repo matches parent (required for PR creation to work)
+        if new_repo and parent_ns_obj.github_repo_path:
+            if new_repo != parent_ns_obj.github_repo_path:
+                raise DJInvalidInputException(
+                    message=f"Repository mismatch: this namespace uses '{new_repo}' "
+                    f"but parent '{new_parent}' uses '{parent_ns_obj.github_repo_path}'. "
+                    "Branch namespaces must use the same repository as their parent "
+                    "for pull requests to work.",
+                )
+
+    # Check for duplicate repo+branch+path (excluding this namespace)
+    if new_repo and new_branch:
+        stmt = select(NodeNamespace).where(
+            NodeNamespace.github_repo_path == new_repo,
+            NodeNamespace.git_branch == new_branch,
+            NodeNamespace.namespace != namespace,
+        )
+        # Also match on git_path (treating None and "" as equivalent)
+        if new_path:
+            stmt = stmt.where(NodeNamespace.git_path == new_path)
+        else:
+            stmt = stmt.where(
+                or_(NodeNamespace.git_path.is_(None), NodeNamespace.git_path == ""),
+            )
+
+        result = await session.execute(stmt)
+        conflict = result.scalar_one_or_none()
+        if conflict:
+            raise DJInvalidInputException(
+                message=f"Git location conflict: namespace '{conflict.namespace}' "
+                f"already uses repo '{new_repo}', branch '{new_branch}', "
+                f"path '{new_path or '(root)'}'. Each namespace must have a unique "
+                "git location to avoid overwriting files.",
+            )
+
+    # Update only provided fields (None means no change)
+    if config.github_repo_path is not None:
+        node_namespace.github_repo_path = config.github_repo_path or None
+    if config.git_branch is not None:
+        node_namespace.git_branch = config.git_branch or None
+    if config.git_path is not None:
+        node_namespace.git_path = config.git_path or None
+    if config.parent_namespace is not None:
+        node_namespace.parent_namespace = config.parent_namespace or None
+    if config.git_only is not None:
+        node_namespace.git_only = config.git_only
+
+    await session.commit()
+    await session.refresh(node_namespace)
+
+    _logger.info(
+        "Updated git config for namespace %s: repo=%s, branch=%s, git_only=%s",
+        namespace,
+        node_namespace.github_repo_path,
+        node_namespace.git_branch,
+        node_namespace.git_only,
+    )
+
+    return NamespaceGitConfig(
+        github_repo_path=node_namespace.github_repo_path,
+        git_branch=node_namespace.git_branch,
+        git_path=node_namespace.git_path,
+        parent_namespace=node_namespace.parent_namespace,
+        git_only=node_namespace.git_only,
+    )
