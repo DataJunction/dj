@@ -237,9 +237,12 @@ export function AddEditNodePage({ extensions = {} }) {
     };
 
     if (node.type === 'METRIC') {
-      // Check if this is a derived metric (parent is another metric)
-      const firstParent = node.current.parents[0];
-      const isDerivedMetric = firstParent?.type === 'METRIC';
+      // Check if this is a derived metric (any parent is a metric)
+      const isDerivedMetric = node.current.isDerivedMetric;
+      // For regular metrics, get the first non-metric parent as upstream node
+      const nonMetricParent = node.current.parents.find(
+        p => p.type !== 'METRIC',
+      );
 
       if (isDerivedMetric) {
         // Derived metric: no upstream node, expression is the full query projection
@@ -263,7 +266,7 @@ export function AddEditNodePage({ extensions = {} }) {
           aggregate_expression: derivedExpression,
         };
       } else {
-        // Regular metric: has upstream node
+        // Regular metric: has upstream node (first non-metric parent)
         return {
           ...baseData,
           metric_direction:
@@ -273,7 +276,7 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
-          upstream_node: firstParent?.name || '',
+          upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,
         };
       }

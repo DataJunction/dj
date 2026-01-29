@@ -68,6 +68,7 @@ dependencies = [
     "jinja2>=3.1.4",
     "python-multipart>=0.0.20",
     "pyyaml>=6.0.1",
+    "yamlfix>=1.16.0",
     "nbformat>=5.10.4",
 
     # GraphQL
@@ -76,6 +77,12 @@ dependencies = [
     # Data validation
     "pydantic<2.11,>=2.0",
     "pydantic-settings>=2.10.1",
+
+    # HTTP client for GitHub API
+    "httpx>=0.27.0",
+
+    # JWT for GitHub App authentication
+    "pyjwt[crypto]>=2.8.0",
 ]
 requires-python = ">=3.10,<3.12"
 readme = "README.md"
@@ -103,6 +110,7 @@ snowflake = [
 all = [
     "snowflake-connector-python>=3.0.0",
 ]
+
 
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'

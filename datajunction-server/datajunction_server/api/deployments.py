@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datajunction_server.database.user import User
 from datajunction_server.database.deployment import Deployment
-from datajunction_server.errors import DJDoesNotExistException
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
@@ -47,6 +48,74 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["deployments"])
+
+
+async def _verify_git_deployment(
+    deployment_spec: DeploymentSpec,
+    namespace_obj: NodeNamespace,
+) -> None:
+    """
+    Verify that a deployment to a git_only namespace meets requirements:
+    1. Must have source.type = git
+    2. Must include commit_sha
+    3. Commit must exist in the configured repository
+
+    Raises DJInvalidInputException if requirements not met.
+    """
+    from datajunction_server.internal.git import GitHubService
+    from datajunction_server.internal.git.github_service import GitHubServiceError
+
+    # Check source type
+    if not deployment_spec.source:
+        raise DJInvalidInputException(
+            message=f"Namespace '{deployment_spec.namespace}' is git-only. "
+            "Deployments must include a git source with commit_sha.",
+        )
+
+    if deployment_spec.source.type != DeploymentSourceType.GIT:
+        raise DJInvalidInputException(
+            message=f"Namespace '{deployment_spec.namespace}' is git-only. "
+            "Deployments must have source.type='git', not "
+            f"'{deployment_spec.source.type}'.",
+        )
+
+    # Check commit_sha is provided
+    if not deployment_spec.source.commit_sha:
+        raise DJInvalidInputException(
+            message=f"Namespace '{deployment_spec.namespace}' is git-only. "
+            "Deployments must include source.commit_sha.",
+        )
+
+    # Verify commit exists in the configured repository
+    if not namespace_obj.github_repo_path:
+        raise DJInvalidInputException(
+            message=f"Namespace '{deployment_spec.namespace}' is git-only but has no "
+            "github_repo_path configured. Cannot verify commit.",
+        )
+
+    try:
+        github = GitHubService()
+        commit_exists = await github.verify_commit(
+            repo_path=namespace_obj.github_repo_path,
+            commit_sha=deployment_spec.source.commit_sha,
+        )
+        if not commit_exists:
+            raise DJInvalidInputException(
+                message=f"Commit '{deployment_spec.source.commit_sha}' not found in "
+                f"repository '{namespace_obj.github_repo_path}'. "
+                "Deployments to git-only namespaces must reference valid commits.",
+            )
+    except GitHubServiceError as e:
+        raise DJInvalidInputException(
+            message=f"Failed to verify commit: {e.message}",
+        ) from e
+
+    logger.info(
+        "Verified git deployment to %s: commit %s exists in %s",
+        deployment_spec.namespace,
+        deployment_spec.source.commit_sha[:8],
+        namespace_obj.github_repo_path,
+    )
 
 
 class DeploymentExecutor(ABC):
@@ -93,6 +162,9 @@ class InProcessExecutor(DeploymentExecutor):
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
+            if deployment is None:
+                # Deployment record doesn't exist (e.g., internal deployment)
+                return
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
@@ -182,6 +254,15 @@ async def create_deployment(
         ),
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Check git_only enforcement
+    namespace_obj = await NodeNamespace.get(
+        session,
+        deployment_spec.namespace,
+        raise_if_not_exists=False,
+    )
+    if namespace_obj and namespace_obj.git_only:
+        await _verify_git_deployment(deployment_spec, namespace_obj)
 
     deployment_id = await executor.submit(
         spec=deployment_spec,

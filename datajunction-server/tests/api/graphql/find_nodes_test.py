@@ -2394,3 +2394,95 @@ async def test_find_nodes_filter_has_materialization(
     for node in data["data"]["findNodes"]:
         materializations = node["current"]["materializations"]
         assert materializations is not None and len(materializations) > 0
+
+
+@pytest.mark.asyncio
+async def test_is_derived_metric_field(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test the isDerivedMetric field on NodeRevision.
+    - For non-metric nodes, should return False
+    - For regular metrics (parent is transform/source), should return False
+    - For derived metrics (parent is another metric), should return True
+    """
+    # Test a non-metric node (transform) - should be False
+    query = """
+    {
+        findNodes(names: ["default.repair_orders_fact"]) {
+            name
+            type
+            current {
+                isDerivedMetric
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["findNodes"][0]["type"] == "TRANSFORM"
+    assert data["data"]["findNodes"][0]["current"]["isDerivedMetric"] is False
+
+    # Test a regular metric (parent is transform) - should be False
+    query = """
+    {
+        findNodes(names: ["default.num_repair_orders"]) {
+            name
+            type
+            current {
+                isDerivedMetric
+                parents {
+                    name
+                    type
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    node = data["data"]["findNodes"][0]
+    assert node["type"] == "METRIC"
+    # This metric's parent should be a transform, not a metric
+    parent_types = [p["type"] for p in node["current"]["parents"]]
+    assert "metric" not in parent_types
+    assert node["current"]["isDerivedMetric"] is False
+
+    # Create a derived metric that references another metric
+    await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": "default.derived_test_metric",
+            "description": "A derived metric for testing",
+            "query": "SELECT default.num_repair_orders + 1",
+            "mode": "published",
+        },
+    )
+
+    # Test the derived metric - should be True
+    query = """
+    {
+        findNodes(names: ["default.derived_test_metric"]) {
+            name
+            type
+            current {
+                isDerivedMetric
+                parents {
+                    name
+                    type
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    node = data["data"]["findNodes"][0]
+    assert node["type"] == "METRIC"
+    # This metric's parent should be another metric
+    parent_types = [p["type"] for p in node["current"]["parents"]]
+    assert "metric" in parent_types
+    assert node["current"]["isDerivedMetric"] is True

@@ -595,6 +595,19 @@ class BulkNamespaceSourcesResponse(BaseModel):
     sources: dict[str, NamespaceSourcesResponse] = Field(default_factory=dict)
 
 
+class NamespaceGitConfig(BaseModel):
+    """
+    Git configuration for a namespace, enabling git-backed branch management.
+    When set, users can create branches and sync changes to GitHub from the UI.
+    """
+
+    github_repo_path: str | None = None  # e.g., "owner/repo"
+    git_branch: str | None = None  # e.g., "main" or "feature-x"
+    git_path: str | None = None  # e.g., "definitions/" - subdirectory within repo
+    parent_namespace: str | None = None  # Links branch namespaces to parent
+    git_only: bool | None = None  # If True, UI edits blocked; must edit via git
+
+
 class DeploymentSpec(BaseModel):
     """
     Specification of a full deployment (namespace, nodes, tags, and add'l metadata).
@@ -605,6 +618,7 @@ class DeploymentSpec(BaseModel):
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
     source: DeploymentSource | None = None  # CI/CD provenance tracking
+    git_config: NamespaceGitConfig | None = None  # Git branch management config
 
     @model_validator(mode="after")
     def set_namespaces(self):
