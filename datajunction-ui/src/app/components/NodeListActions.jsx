@@ -21,7 +21,8 @@ export default function NodeListActions({ nodeName, iconSize = 20 }) {
       setStatus({
         success: <>Successfully deleted node {values.nodeName}</>,
       });
-      setDeleted(true);
+      // Delay hiding component so success message is visible briefly
+      setTimeout(() => setDeleted(true), 1500);
     } else {
       setStatus({
         failure: `${json.message}`,

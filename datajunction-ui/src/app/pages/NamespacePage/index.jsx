@@ -169,7 +169,8 @@ export function NamespacePage() {
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
   const [namespaceSources, setNamespaceSources] = useState({});
-  const [gitConfig, setGitConfig] = useState(null);
+  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
+  const [gitConfig, setGitConfig] = useState(undefined);
 
   const [sortConfig, setSortConfig] = useState({
     key: 'updatedAt',
@@ -183,6 +184,10 @@ export function NamespacePage() {
 
   const [hasNextPage, setHasNextPage] = useState(true);
   const [hasPrevPage, setHasPrevPage] = useState(true);
+
+  // Only show edit/add controls once git config has loaded and namespace is not git-only
+  const gitConfigLoaded = gitConfig !== undefined;
+  const showEditControls = gitConfigLoaded && !gitConfig?.git_only;
 
   const requestSort = key => {
     let direction = ASC;
@@ -410,7 +415,7 @@ export function NamespacePage() {
               {new Date(node.current.updatedAt).toLocaleString('en-us')}
             </span>
           </td>
-          {!gitConfig?.git_only && (
+          {showEditControls && (
             <td>
               <NodeListActions nodeName={node?.name} />
             </td>
@@ -853,7 +858,7 @@ export function NamespacePage() {
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
                 </a>
-                {!gitConfig?.git_only && (
+                {showEditControls && (
                   <AddNodeDropdown namespace={namespace} />
                 )}
               </NamespaceHeader>
@@ -892,7 +897,7 @@ export function NamespacePage() {
                         </th>
                       );
                     })}
-                    {!gitConfig?.git_only && (
+                    {showEditControls && (
                       <th
                         style={{
                           fontFamily:
