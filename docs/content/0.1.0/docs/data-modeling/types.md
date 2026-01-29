@@ -9,7 +9,7 @@ DJ's type system is based on **Apache Spark SQL types**. This ensures compatibil
 
 How you specify types depends on the node type:
 
-**Source nodes**: You manually specify column types as strings when defining the source, since DJ cannot infer types from an external table without connecting to it.
+**Source nodes**: You can manually specify column types as strings, or DJ can automatically infer types by connecting to the external table via [table reflection](../../dj-concepts/table-reflection).
 
 ```yaml
 # Example: Specifying column types for a source node
@@ -42,15 +42,15 @@ Using `CAST` is a common way to explicitly control column types in your transfor
 
 ### Numeric Types
 
-| Type | Aliases | Description | Range |
-|------|---------|-------------|-------|
-| `tinyint` | | 8-bit signed integer | -128 to 127 |
-| `smallint` | | 16-bit signed integer | -32,768 to 32,767 |
-| `int` | `integer` | 32-bit signed integer | -2,147,483,648 to 2,147,483,647 |
-| `bigint` | `long` | 64-bit signed integer | -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807 |
-| `float` | | 32-bit IEEE 754 floating point | |
-| `double` | | 64-bit IEEE 754 floating point | |
-| `decimal(p, s)` | | Fixed-precision decimal | Precision up to 38, scale up to 38 |
+| Type | Aliases | Description |
+|------|---------|-------------|
+| `tinyint` | | 8-bit signed integer |
+| `smallint` | | 16-bit signed integer |
+| `int` | `integer` | 32-bit signed integer |
+| `bigint` | `long` | 64-bit signed integer |
+| `float` | | 32-bit floating point |
+| `double` | | 64-bit floating point |
+| `decimal(p, s)` | | Fixed-precision decimal (precision and scale up to 38) |
 
 **Example:**
 ```sql
