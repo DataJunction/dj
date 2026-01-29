@@ -3062,3 +3062,67 @@ class TestDeploymentHistoryTracking:
         # Verify link details are tracked
         assert "dimension_node" in link_create_events[0]["details"]
         assert "deployment_id" in link_create_events[0]["details"]
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDeploymentColumnOrdering:
+    """Tests for column ordering in deployments"""
+
+    @pytest.mark.asyncio
+    async def test_deployment_preserves_column_order(self, client):
+        """
+        Test that column order is preserved for both source specs and
+        inferred columns from transform queries.
+        """
+        namespace = "column_order_test"
+
+        # Create a source with columns in non-alphabetical order
+        source_spec = SourceSpec(
+            name="test_source",
+            description="Test source",
+            catalog="default",
+            schema="test_schema",
+            table="test_table",
+            columns=[
+                ColumnSpec(name="z_column", type="string"),
+                ColumnSpec(name="a_column", type="int"),
+                ColumnSpec(name="m_column", type="timestamp"),
+                ColumnSpec(name="b_column", type="float"),
+            ],
+        )
+
+        # Create a transform that reorders the columns
+        transform_spec = TransformSpec(
+            name="test_transform",
+            description="Test transform for column ordering",
+            query="""
+                SELECT
+                    m_column,
+                    b_column,
+                    z_column,
+                    a_column
+                FROM ${prefix}test_source
+            """,
+        )
+
+        # Deploy both nodes
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[source_spec, transform_spec],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Verify source column order is preserved
+        response = await client.get(f"/nodes/{namespace}.test_source/")
+        assert response.status_code == 200
+        source_columns = [col["name"] for col in response.json()["columns"]]
+        assert source_columns == ["z_column", "a_column", "m_column", "b_column"]
+
+        # Verify transform column order matches the SELECT projection
+        response = await client.get(f"/nodes/{namespace}.test_transform/")
+        assert response.status_code == 200
+        transform_columns = [col["name"] for col in response.json()["columns"]]
+        assert transform_columns == ["m_column", "b_column", "z_column", "a_column"]
