@@ -427,6 +427,7 @@ export const DataJunctionAPI = {
             primaryKey
             query
             parents { name type }
+            isDerivedMetric
             metricMetadata {
               direction
               unit { name }
@@ -513,7 +514,8 @@ export const DataJunctionAPI = {
         findNodes (names: [$name]) {
           name
           current {
-            parents { name }
+            parents { name type }
+            isDerivedMetric
             metricMetadata {
               direction
               unit { name }
