@@ -14,7 +14,7 @@ export function CreatePRModal({
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [progress, setProgress] = useState(null); // null | 'syncing' | 'creating'
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -23,10 +23,10 @@ export function CreatePRModal({
     if (!title.trim()) return;
 
     setError(null);
-    setCreating(true);
+    setProgress('syncing');
 
     try {
-      const res = await onCreate(title.trim(), body.trim() || null);
+      const res = await onCreate(title.trim(), body.trim() || null, setProgress);
       if (res?._error) {
         setError(res.message);
       } else {
@@ -35,8 +35,14 @@ export function CreatePRModal({
     } catch (err) {
       setError(err.message || 'Failed to create pull request');
     } finally {
-      setCreating(false);
+      setProgress(null);
     }
+  };
+
+  const getProgressText = () => {
+    if (progress === 'syncing') return 'Syncing to git...';
+    if (progress === 'creating') return 'Creating PR...';
+    return 'Create PR';
   };
 
   const handleClose = () => {
@@ -44,8 +50,11 @@ export function CreatePRModal({
     setBody('');
     setError(null);
     setResult(null);
+    setProgress(null);
     onClose();
   };
+
+  const isWorking = progress !== null;
 
   if (!isOpen) return null;
 
@@ -203,7 +212,7 @@ export function CreatePRModal({
                   placeholder="Add new metrics for revenue tracking"
                   value={title}
                   onChange={e => setTitle(e.target.value)}
-                  disabled={creating}
+                  disabled={isWorking}
                   autoFocus
                 />
               </div>
@@ -215,7 +224,7 @@ export function CreatePRModal({
                   placeholder="Describe the changes in this pull request..."
                   value={body}
                   onChange={e => setBody(e.target.value)}
-                  disabled={creating}
+                  disabled={isWorking}
                   rows={4}
                   style={{
                     width: '100%',
@@ -235,16 +244,16 @@ export function CreatePRModal({
                 type="button"
                 className="btn-secondary"
                 onClick={handleClose}
-                disabled={creating}
+                disabled={isWorking}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 className="btn-primary"
-                disabled={creating || !title.trim()}
+                disabled={isWorking || !title.trim()}
               >
-                {creating ? 'Creating...' : 'Create PR'}
+                {getProgressText()}
               </button>
             </div>
           </form>

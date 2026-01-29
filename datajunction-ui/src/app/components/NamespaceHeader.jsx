@@ -123,7 +123,16 @@ export default function NamespaceHeader({
     return await djClient.syncNamespaceToGit(namespace, commitMessage);
   };
 
-  const handleCreatePR = async (title, body) => {
+  const handleCreatePR = async (title, body, onProgress) => {
+    // First sync changes to git using PR title as commit message
+    if (onProgress) onProgress('syncing');
+    const syncResult = await djClient.syncNamespaceToGit(namespace, title);
+    if (syncResult?._error) {
+      return syncResult;
+    }
+
+    // Then create the PR
+    if (onProgress) onProgress('creating');
     const result = await djClient.createPullRequest(namespace, title, body);
     if (result && !result._error) {
       setExistingPR(result);
