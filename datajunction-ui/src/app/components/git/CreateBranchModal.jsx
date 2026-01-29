@@ -118,7 +118,8 @@ export function CreateBranchModal({
               </div>
               {result.deployment_results?.length > 0 && (
                 <div style={{ marginTop: '12px' }}>
-                  <strong>Nodes copied:</strong> {result.deployment_results.length}
+                  <strong>Nodes copied:</strong>{' '}
+                  {result.deployment_results.length}
                 </div>
               )}
             </div>

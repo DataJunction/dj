@@ -26,7 +26,11 @@ export function CreatePRModal({
     setProgress('syncing');
 
     try {
-      const res = await onCreate(title.trim(), body.trim() || null, setProgress);
+      const res = await onCreate(
+        title.trim(),
+        body.trim() || null,
+        setProgress,
+      );
       if (res?._error) {
         setError(res.message);
       } else {

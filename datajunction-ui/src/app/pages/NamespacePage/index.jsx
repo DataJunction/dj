@@ -858,9 +858,7 @@ export function NamespacePage() {
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
                 </a>
-                {showEditControls && (
-                  <AddNodeDropdown namespace={namespace} />
-                )}
+                {showEditControls && <AddNodeDropdown namespace={namespace} />}
               </NamespaceHeader>
               <table className="card-table table" style={{ marginBottom: 0 }}>
                 <thead>
