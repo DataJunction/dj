@@ -189,7 +189,9 @@ export function NodePage() {
         <WatchButton node={node} buttonStyle={buttonStyle} />
 
         <ClientCodePopover nodeName={name} buttonStyle={buttonStyle} />
-        {node?.type === 'cube' && <NotebookDownload node={node} buttonStyle={buttonStyle} />}
+        {node?.type === 'cube' && (
+          <NotebookDownload node={node} buttonStyle={buttonStyle} />
+        )}
       </div>
     );
   };

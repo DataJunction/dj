@@ -43,10 +43,7 @@ export default function ClientCodePopover({ nodeName, buttonStyle }) {
 
   return (
     <>
-      <button
-        onClick={() => setShowModal(true)}
-        style={buttonStyle}
-      >
+      <button onClick={() => setShowModal(true)} style={buttonStyle}>
         <PythonIcon /> Python
       </button>
 

@@ -807,7 +807,10 @@ export function NamespacePage() {
                 : null}
             </div>
             <div style={{ flex: 1, minWidth: 0, marginLeft: '1.5rem' }}>
-              <NamespaceHeader namespace={namespace} onGitConfigLoaded={setGitConfig}>
+              <NamespaceHeader
+                namespace={namespace}
+                onGitConfigLoaded={setGitConfig}
+              >
                 <a
                   href={`${getDJUrl()}/namespaces/${namespace}/export/yaml`}
                   download
@@ -850,7 +853,9 @@ export function NamespacePage() {
                     <line x1="12" y1="15" x2="12" y2="3"></line>
                   </svg>
                 </a>
-                {!gitConfig?.git_only && <AddNodeDropdown namespace={namespace} />}
+                {!gitConfig?.git_only && (
+                  <AddNodeDropdown namespace={namespace} />
+                )}
               </NamespaceHeader>
               <table className="card-table table" style={{ marginBottom: 0 }}>
                 <thead>

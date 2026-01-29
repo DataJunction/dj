@@ -8,7 +8,11 @@ import {
   DeleteBranchModal,
 } from './git';
 
-export default function NamespaceHeader({ namespace, children, onGitConfigLoaded }) {
+export default function NamespaceHeader({
+  namespace,
+  children,
+  onGitConfigLoaded,
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [sources, setSources] = useState(null);
   const [recentDeployments, setRecentDeployments] = useState([]);
@@ -704,10 +708,7 @@ export default function NamespaceHeader({ namespace, children, onGitConfigLoaded
         {/* Git controls for branch namespaces */}
         {isBranchNamespace && hasGitConfig && (
           <>
-            <button
-              style={buttonStyle}
-              onClick={() => setShowSyncToGit(true)}
-            >
+            <button style={buttonStyle} onClick={() => setShowSyncToGit(true)}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="14"
