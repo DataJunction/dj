@@ -23,10 +23,7 @@ export default function NotebookDownload({ node, buttonStyle }) {
   };
 
   return (
-    <button
-      onClick={downloadFile}
-      style={buttonStyle}
-    >
+    <button onClick={downloadFile} style={buttonStyle}>
       <JupyterExportIcon /> Notebook
     </button>
   );

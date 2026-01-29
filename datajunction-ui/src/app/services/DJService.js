@@ -2363,14 +2363,17 @@ export const DataJunctionAPI = {
     const body = {};
     if (commitMessage) body.commit_message = commitMessage;
 
-    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/sync-to-git`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${DJ_URL}/namespaces/${namespace}/sync-to-git`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+    );
     const result = await response.json();
     if (!response.ok) {
       return {
