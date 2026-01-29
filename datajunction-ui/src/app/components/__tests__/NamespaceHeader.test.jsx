@@ -565,10 +565,10 @@ describe('<NamespaceHeader />', () => {
       </MemoryRouter>,
     );
 
+    // For non-branch namespaces, button is labeled "New Branch"
     await waitFor(() => {
-      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+      expect(screen.getByText('New Branch')).toBeInTheDocument();
     });
-    expect(screen.getByText('Sync to Git')).toBeInTheDocument();
   });
 
   it('should show Create PR and Delete Branch for branch namespaces', async () => {
@@ -610,7 +610,8 @@ describe('<NamespaceHeader />', () => {
     await waitFor(() => {
       expect(screen.getByText('Create PR')).toBeInTheDocument();
     });
-    expect(screen.getByText('Delete Branch')).toBeInTheDocument();
+    // Delete Branch button only has an icon with title attribute
+    expect(screen.getByTitle('Delete Branch')).toBeInTheDocument();
   });
 
   it('should open Create Branch modal when button is clicked', async () => {
@@ -641,10 +642,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+      expect(screen.getByText('New Branch')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Create Branch'));
+    fireEvent.click(screen.getByText('New Branch'));
 
     await waitFor(() => {
       expect(screen.getByLabelText('Branch Name')).toBeInTheDocument();
@@ -652,28 +653,38 @@ describe('<NamespaceHeader />', () => {
   });
 
   it('should open Sync to Git modal when button is clicked', async () => {
+    // Sync to Git only shows for branch namespaces
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
           repository: 'test/repo',
-          branch: 'main',
+          branch: 'feature',
         },
       }),
       listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
-        github_repo_path: 'test/repo',
-        git_branch: 'main',
-        git_path: 'nodes/',
-        git_only: false,
-      }),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
     };
 
     render(
       <MemoryRouter>
         <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-          <NamespaceHeader namespace="test.namespace" />
+          <NamespaceHeader namespace="test.feature" />
         </DJClientContext.Provider>
       </MemoryRouter>,
     );
@@ -779,10 +790,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+      expect(screen.getByText('New Branch')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Create Branch'));
+    fireEvent.click(screen.getByText('New Branch'));
 
     await waitFor(() => {
       expect(screen.getByLabelText('Branch Name')).toBeInTheDocument();
@@ -792,6 +803,7 @@ describe('<NamespaceHeader />', () => {
       target: { value: 'feature-xyz' },
     });
 
+    // The button inside the modal is labeled "Create Branch"
     fireEvent.click(screen.getByRole('button', { name: 'Create Branch' }));
 
     await waitFor(() => {
@@ -803,22 +815,32 @@ describe('<NamespaceHeader />', () => {
   });
 
   it('should call syncNamespaceToGit when syncing', async () => {
+    // Sync to Git only shows for branch namespaces
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 1,
         primary_source: {
           type: 'git',
           repository: 'test/repo',
-          branch: 'main',
+          branch: 'feature',
         },
       }),
       listDeployments: jest.fn().mockResolvedValue([]),
-      getNamespaceGitConfig: jest.fn().mockResolvedValue({
-        github_repo_path: 'test/repo',
-        git_branch: 'main',
-        git_path: 'nodes/',
-        git_only: false,
-      }),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
       syncNamespaceToGit: jest.fn().mockResolvedValue({
         files_synced: 5,
         commit_sha: 'abc123',
@@ -829,7 +851,7 @@ describe('<NamespaceHeader />', () => {
     render(
       <MemoryRouter>
         <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
-          <NamespaceHeader namespace="test.namespace" />
+          <NamespaceHeader namespace="test.feature" />
         </DJClientContext.Provider>
       </MemoryRouter>,
     );
@@ -852,7 +874,7 @@ describe('<NamespaceHeader />', () => {
 
     await waitFor(() => {
       expect(mockDjClient.syncNamespaceToGit).toHaveBeenCalledWith(
-        'test.namespace',
+        'test.feature',
         'Test commit',
       );
     });
@@ -959,7 +981,12 @@ describe('<NamespaceHeader />', () => {
       target: { value: 'PR description' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+    // There are two "Create PR" buttons - one in header, one in modal
+    // Get all and click the last one (modal's submit button)
+    const createPRButtons = screen.getAllByRole('button', {
+      name: 'Create PR',
+    });
+    fireEvent.click(createPRButtons[createPRButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockDjClient.syncNamespaceToGit).toHaveBeenCalledWith(
@@ -1019,16 +1046,22 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Delete Branch')).toBeInTheDocument();
+      // Delete Branch button in header only has icon with title attribute
+      expect(screen.getByTitle('Delete Branch')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Delete Branch'));
+    fireEvent.click(screen.getByTitle('Delete Branch'));
 
     await waitFor(() => {
       expect(screen.getByRole('checkbox')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Branch' }));
+    // There are two buttons with "Delete Branch" - header icon and modal button
+    // Get all and click the last one (modal's submit button)
+    const deleteBranchButtons = screen.getAllByRole('button', {
+      name: 'Delete Branch',
+    });
+    fireEvent.click(deleteBranchButtons[deleteBranchButtons.length - 1]);
 
     await waitFor(() => {
       expect(mockDjClient.deleteBranch).toHaveBeenCalledWith(

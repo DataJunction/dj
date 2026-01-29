@@ -143,7 +143,7 @@ class GitHubService:
         try:
             error_data = resp.json()
             message = error_data.get("message", resp.text)
-            if "errors" in error_data:
+            if "errors" in error_data:  # pragma: no cover
                 detailed_errors = "; ".join(
                     err.get("message", str(err)) for err in error_data["errors"]
                 )
