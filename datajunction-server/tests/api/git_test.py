@@ -387,10 +387,11 @@ class TestBranchManagement:
             assert response.status_code == HTTPStatus.CREATED
 
             data = response.json()
-            assert data["namespace"] == "sales.feature_x"
-            assert data["git_branch"] == "feature-x"
-            assert data["parent_namespace"] == "sales.main"
-            assert data["github_repo_path"] == "myorg/myrepo"
+            assert data["branch"]["namespace"] == "sales.feature_x"
+            assert data["branch"]["git_branch"] == "feature-x"
+            assert data["branch"]["parent_namespace"] == "sales.main"
+            assert data["branch"]["github_repo_path"] == "myorg/myrepo"
+            assert data["deployment_results"] == []
 
             # Verify GitHub service was called
             mock_github.create_branch.assert_called_once_with(
@@ -734,9 +735,11 @@ class TestBranchManagement:
             assert response.status_code == HTTPStatus.CREATED
             data = response.json()
             # For single-part namespace "singlepart", branch becomes "singlepart.feature_branch"
-            assert data["namespace"] == "singlepart.feature_branch"
-            assert data["git_branch"] == "feature-branch"
-            assert data["parent_namespace"] == "singlepart"
+            assert data["branch"]["namespace"] == "singlepart.feature_branch"
+            assert data["branch"]["git_branch"] == "feature-branch"
+            assert data["branch"]["parent_namespace"] == "singlepart"
+            assert data["branch"]["github_repo_path"] == "myorg/myrepo"
+            assert data["deployment_results"] == []
 
     @pytest.mark.asyncio
     async def test_delete_branch_skip_git_deletion(
@@ -1041,6 +1044,112 @@ class TestGitSync:
         assert "does not exist" in response.json()["message"]
 
     @pytest.mark.asyncio
+    async def test_sync_node_no_git_branch(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test syncing a node when namespace has repo but no git_branch."""
+        # Configure git with repo but no branch
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                # No git_branch
+            },
+        )
+
+        response = await client_with_roads.post(
+            "/nodes/default.repair_orders/sync-to-git",
+            json={},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            response.json()["message"]
+            == "Namespace 'default' does not have a git branch configured."
+        )
+
+    @pytest.mark.asyncio
+    async def test_sync_node_with_query(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test syncing a transform node (which has a query) to git."""
+        # Configure git for the namespace
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(return_value=None)
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "abc123def456",
+                        "html_url": "https://github.com/myorg/myrepo/commit/abc123",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            # Sync a transform node (has query) - uses repair_orders_fact from roads example
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders_fact/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["node_name"] == "default.repair_orders_fact"
+
+    @pytest.mark.asyncio
+    async def test_sync_node_github_error(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test handling GitHubServiceError when syncing a node."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(return_value=None)
+            mock_github.commit_file = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Rate limit exceeded",
+                    http_status_code=500,
+                    github_status=403,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert (
+                "Failed to sync to git: Rate limit exceeded"
+                in response.json()["message"]
+            )
+
+    @pytest.mark.asyncio
     async def test_sync_namespace_success(
         self,
         client_with_roads: AsyncClient,
@@ -1105,6 +1214,89 @@ class TestGitSync:
             response.json()["message"]
             == "Namespace 'empty_sync_ns' has no nodes to sync."
         )
+
+    @pytest.mark.asyncio
+    async def test_sync_namespace_no_git_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test syncing namespace when no git config is set."""
+        await client_with_service_setup.post("/namespaces/no_git_ns")
+
+        response = await client_with_service_setup.post(
+            "/namespaces/no_git_ns/sync-to-git",
+            json={},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            response.json()["message"]
+            == "Namespace 'no_git_ns' does not have git configured."
+        )
+
+    @pytest.mark.asyncio
+    async def test_sync_namespace_no_git_branch(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test syncing namespace when repo is set but branch is not."""
+        await client_with_service_setup.post("/namespaces/no_branch_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/no_branch_ns/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                # No git_branch
+            },
+        )
+
+        response = await client_with_service_setup.post(
+            "/namespaces/no_branch_ns/sync-to-git",
+            json={},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            response.json()["message"]
+            == "Namespace 'no_branch_ns' does not have a git branch configured."
+        )
+
+    @pytest.mark.asyncio
+    async def test_sync_namespace_github_error(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test handling GitHubServiceError when syncing namespace."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.commit_files = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Repository not found",
+                    http_status_code=500,
+                    github_status=404,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_roads.post(
+                "/namespaces/default/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert (
+                "Failed to sync to git: Repository not found"
+                in response.json()["message"]
+            )
 
 
 class TestPullRequest:
@@ -1291,6 +1483,99 @@ class TestPullRequest:
         assert response.json()["message"] == (
             "Parent namespace 'pr_nobranch.main' does not have a git branch configured."
         )
+
+    @pytest.mark.asyncio
+    async def test_create_pr_no_git_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test creating PR when branch namespace has no git configured."""
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/pr_noconfig.main")
+        await client_with_service_setup.patch(
+            "/namespaces/pr_noconfig.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create branch namespace with parent but NO git config (no repo/branch)
+        await client_with_service_setup.post("/namespaces/pr_noconfig.feature")
+        await client_with_service_setup.patch(
+            "/namespaces/pr_noconfig.feature/git",
+            json={
+                "parent_namespace": "pr_noconfig.main",
+                # No github_repo_path or git_branch
+            },
+        )
+
+        response = await client_with_service_setup.post(
+            "/namespaces/pr_noconfig.feature/pull-request",
+            json={"title": "My PR"},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            response.json()["message"]
+            == "Namespace 'pr_noconfig.feature' does not have git configured."
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_pr_github_error(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test handling GitHubServiceError when creating PR."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/pr_error.main")
+        await client_with_service_setup.patch(
+            "/namespaces/pr_error.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create branch namespace
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={"ref": "refs/heads/error-pr", "object": {"sha": "abc"}},
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/pr_error.main/branches",
+                json={"branch_name": "error-pr"},
+            )
+
+        # Create PR with GitHub error
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_pull_request = AsyncMock(return_value=None)
+            mock_github.create_pull_request = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Validation failed: head and base must be different",
+                    http_status_code=500,
+                    github_status=422,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/pr_error.error_pr/pull-request",
+                json={"title": "My PR"},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert "Failed to create pull request" in response.json()["message"]
+            assert "head and base must be different" in response.json()["message"]
 
 
 class TestGetPullRequest:

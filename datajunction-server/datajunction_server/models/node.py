@@ -591,8 +591,7 @@ class ImmutableNodeFields(BaseModel):
 
     @model_validator(mode="after")
     def set_namespace_from_name(self):
-        if self.namespace is None:
-            self.namespace = self.name.rsplit(".", 1)[0]
+        self.namespace = self.name.rsplit(".", 1)[0]
         return self
 
 

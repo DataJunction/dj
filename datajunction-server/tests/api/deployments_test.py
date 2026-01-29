@@ -1,6 +1,10 @@
 import asyncio
 import json
 from unittest import mock
+import uuid
+from contextlib import asynccontextmanager
+from unittest.mock import patch
+
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentSpec,
@@ -13,6 +17,7 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DimensionJoinLinkSpec,
 )
+from datajunction_server.api.deployments import InProcessExecutor
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node
 from datajunction_server.database.tag import Tag
@@ -3513,11 +3518,6 @@ class TestDeploymentStatusUpdate:
     @pytest.mark.asyncio
     async def test_update_status_nonexistent_deployment(self, session):
         """Test that update_status handles non-existent deployment gracefully."""
-        import uuid
-        from contextlib import asynccontextmanager
-        from unittest.mock import patch
-
-        from datajunction_server.api.deployments import InProcessExecutor
 
         @asynccontextmanager
         async def mock_session_context():
