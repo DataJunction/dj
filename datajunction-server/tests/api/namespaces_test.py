@@ -1613,3 +1613,118 @@ class TestYamlHelpers:
 
         # columns key should be removed entirely
         assert "columns" not in result
+
+    def test_get_node_suffix_no_match(self):
+        """Test _get_node_suffix returns None when name doesn't match prefix."""
+        from datajunction_server.internal.namespaces import _get_node_suffix
+
+        # Name doesn't start with namespace prefix
+        result = _get_node_suffix("other.namespace.node", "demo.main")
+        assert result is None
+
+        # Name is shorter than prefix
+        result = _get_node_suffix("demo", "demo.main")
+        assert result is None
+
+    def test_get_node_suffix_match(self):
+        """Test _get_node_suffix extracts suffix correctly."""
+        from datajunction_server.internal.namespaces import _get_node_suffix
+
+        result = _get_node_suffix("demo.main.reports.revenue", "demo.main")
+        assert result == "reports.revenue"
+
+        result = _get_node_suffix("demo.main.my_node", "demo.main")
+        assert result == "my_node"
+
+    def test_inject_prefix_for_cube_ref_external(self):
+        """Test _inject_prefix_for_cube_ref keeps external references as-is."""
+        from datajunction_server.internal.namespaces import _inject_prefix_for_cube_ref
+
+        # External reference (different namespace, no parent)
+        result = _inject_prefix_for_cube_ref(
+            ref_name="other.namespace.metric",
+            namespace="demo.main",
+            parent_namespace=None,
+            namespace_suffixes={"my_metric"},
+        )
+        assert result == "other.namespace.metric"
+
+    def test_inject_prefix_for_cube_ref_parent_namespace(self):
+        """Test _inject_prefix_for_cube_ref handles parent namespace references."""
+        from datajunction_server.internal.namespaces import _inject_prefix_for_cube_ref
+
+        # Reference from parent namespace that exists in current namespace
+        result = _inject_prefix_for_cube_ref(
+            ref_name="demo.main.reports.revenue",
+            namespace="demo.feature_x",
+            parent_namespace="demo.main",
+            namespace_suffixes={"reports.revenue", "my_metric"},
+        )
+        assert result == "${prefix}reports.revenue"
+
+    def test_inject_prefix_for_cube_ref_parent_not_copied(self):
+        """Test _inject_prefix_for_cube_ref when parent ref not in current namespace."""
+        from datajunction_server.internal.namespaces import _inject_prefix_for_cube_ref
+
+        # Reference from parent namespace that does NOT exist in current namespace
+        result = _inject_prefix_for_cube_ref(
+            ref_name="demo.main.other_metric",
+            namespace="demo.feature_x",
+            parent_namespace="demo.main",
+            namespace_suffixes={"my_metric"},  # other_metric not in suffixes
+        )
+        # Should keep as-is since it's not copied to branch
+        assert result == "demo.main.other_metric"
+
+    def test_node_spec_to_yaml_dict_empty_join_on(self):
+        """Test _node_spec_to_yaml_dict handles empty join_on in dimension_links."""
+        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
+        from datajunction_server.models.deployment import (
+            SourceSpec,
+            ColumnSpec,
+            DimensionJoinLinkSpec,
+        )
+
+        spec = SourceSpec(
+            name="test.source",
+            catalog="default",
+            schema="test",
+            table="test_table",
+            columns=[ColumnSpec(name="id", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.dimension",
+                    join_type="left",
+                    join_on="",  # Empty join_on
+                ),
+            ],
+        )
+
+        result = _node_spec_to_yaml_dict(spec)
+
+        # Should not crash; join_on should remain empty or be handled
+        assert "dimension_links" in result
+
+    def test_node_spec_to_yaml_yamlfix_failure(self):
+        """Test node_spec_to_yaml handles yamlfix failures gracefully."""
+        from unittest.mock import patch
+
+        from datajunction_server.internal.namespaces import node_spec_to_yaml
+        from datajunction_server.models.deployment import TransformSpec
+
+        spec = TransformSpec(
+            name="test.node",
+            query="SELECT 1",
+        )
+
+        # Mock yamlfix to raise an exception
+        with patch(
+            "datajunction_server.internal.namespaces.fix_code",
+            side_effect=Exception("yamlfix crashed"),
+        ):
+            # Should not raise, should return the unformatted YAML
+            result = node_spec_to_yaml(spec)
+
+            # Should still return valid YAML (just not yamlfix-formatted)
+            assert "name:" in result
+            assert "query:" in result

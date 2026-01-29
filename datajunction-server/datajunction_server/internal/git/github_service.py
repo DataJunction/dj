@@ -7,6 +7,7 @@ import time
 from typing import Optional
 
 import httpx
+import jwt
 from dotenv import load_dotenv
 
 from datajunction_server.config import Settings
@@ -86,14 +87,6 @@ class GitHubService:
         Uses the App's private key to create a JWT, then exchanges it for
         an installation token scoped to the configured installation.
         """
-        try:
-            import jwt
-        except ImportError as e:
-            raise GitHubServiceError(
-                message="PyJWT is required for GitHub App auth. Install with: pip install pyjwt",
-                http_status_code=503,
-            ) from e
-
         # Generate JWT signed with the app's private key
         now = int(time.time())
         payload = {

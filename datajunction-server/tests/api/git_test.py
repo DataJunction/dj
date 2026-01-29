@@ -667,6 +667,252 @@ class TestBranchManagement:
             == "Namespace 'other_ns' is not a branch of 'parent_a.main'."
         )
 
+    @pytest.mark.asyncio
+    async def test_create_branch_empty_name(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test creating a branch with empty or whitespace-only name."""
+        await client_with_service_setup.post("/namespaces/empty_name.main")
+        await client_with_service_setup.patch(
+            "/namespaces/empty_name.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Test with empty string
+        response = await client_with_service_setup.post(
+            "/namespaces/empty_name.main/branches",
+            json={"branch_name": ""},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()["message"] == "Branch name cannot be empty."
+
+        # Test with whitespace only
+        response = await client_with_service_setup.post(
+            "/namespaces/empty_name.main/branches",
+            json={"branch_name": "   "},
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()["message"] == "Branch name cannot be empty."
+
+    @pytest.mark.asyncio
+    async def test_create_branch_single_part_namespace(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test creating a branch from a single-part namespace (no dot)."""
+        # Create a namespace without a dot in the name
+        await client_with_service_setup.post("/namespaces/singlepart")
+        await client_with_service_setup.patch(
+            "/namespaces/singlepart/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/feature-branch",
+                    "object": {"sha": "abc123"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/singlepart/branches",
+                json={"branch_name": "feature-branch"},
+            )
+
+            assert response.status_code == HTTPStatus.CREATED
+            data = response.json()
+            # For single-part namespace "singlepart", branch becomes "singlepart.feature_branch"
+            assert data["namespace"] == "singlepart.feature_branch"
+            assert data["git_branch"] == "feature-branch"
+            assert data["parent_namespace"] == "singlepart"
+
+    @pytest.mark.asyncio
+    async def test_delete_branch_skip_git_deletion(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test deleting a branch namespace without deleting the git branch."""
+        # Create parent and branch
+        await client_with_service_setup.post("/namespaces/skip_git.main")
+        await client_with_service_setup.patch(
+            "/namespaces/skip_git.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/keep-branch",
+                    "object": {"sha": "abc"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/skip_git.main/branches",
+                json={"branch_name": "keep-branch"},
+            )
+
+        # Delete the branch with delete_git_branch=false
+        response = await client_with_service_setup.delete(
+            "/namespaces/skip_git.main/branches/skip_git.keep_branch"
+            "?delete_git_branch=false",
+        )
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+        assert data["message"] == "Branch namespace 'skip_git.keep_branch' deleted"
+        # Git branch should NOT have been deleted
+        assert data["git_branch_deleted"] is False
+
+    @pytest.mark.asyncio
+    async def test_delete_branch_with_nodes(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test deleting a branch namespace that contains nodes."""
+        # Create parent namespace and branch
+        await client_with_service_setup.post("/namespaces/with_nodes.main")
+        await client_with_service_setup.patch(
+            "/namespaces/with_nodes.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={"ref": "refs/heads/has-nodes", "object": {"sha": "abc"}},
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/with_nodes.main/branches",
+                json={"branch_name": "has-nodes"},
+            )
+
+        # Create some nodes in the branch namespace
+        await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "with_nodes.has_nodes.test_source",
+                "description": "Test source in branch",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "test_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+        await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "with_nodes.has_nodes.test_transform",
+                "description": "Test transform in branch",
+                "query": "SELECT id FROM with_nodes.has_nodes.test_source",
+            },
+        )
+
+        # Delete the branch (without git deletion to simplify)
+        response = await client_with_service_setup.delete(
+            "/namespaces/with_nodes.main/branches/with_nodes.has_nodes"
+            "?delete_git_branch=false",
+        )
+        assert response.status_code == HTTPStatus.OK
+        data = response.json()
+        assert data["nodes_deleted"] == 2
+
+        # Verify nodes are gone
+        response = await client_with_service_setup.get(
+            "/nodes/with_nodes.has_nodes.test_source/",
+        )
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_delete_branch_with_child_namespaces(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test deleting a branch namespace that has nested child namespaces."""
+        # Create parent namespace and branch
+        await client_with_service_setup.post("/namespaces/nested.main")
+        await client_with_service_setup.patch(
+            "/namespaces/nested.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/parent-branch",
+                    "object": {"sha": "abc"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/nested.main/branches",
+                json={"branch_name": "parent-branch"},
+            )
+
+        # Create nested child namespaces under the branch
+        await client_with_service_setup.post(
+            "/namespaces/nested.parent_branch.child1",
+        )
+        await client_with_service_setup.post(
+            "/namespaces/nested.parent_branch.child2",
+        )
+
+        # Verify child namespaces exist
+        response = await client_with_service_setup.get(
+            "/namespaces/nested.parent_branch.child1/",
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        # Delete the branch (without git deletion to simplify)
+        response = await client_with_service_setup.delete(
+            "/namespaces/nested.main/branches/nested.parent_branch"
+            "?delete_git_branch=false",
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        # Verify nested child namespaces are also deleted
+        response = await client_with_service_setup.get(
+            "/namespaces/nested.parent_branch.child1/",
+        )
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+        response = await client_with_service_setup.get(
+            "/namespaces/nested.parent_branch.child2/",
+        )
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
 
 class TestGitSync:
     """Tests for git sync endpoints."""
@@ -1045,3 +1291,489 @@ class TestPullRequest:
         assert response.json()["message"] == (
             "Parent namespace 'pr_nobranch.main' does not have a git branch configured."
         )
+
+
+class TestGetPullRequest:
+    """Tests for GET /namespaces/{namespace}/pull-request endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_pr_non_branch_namespace(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR for a non-branch namespace (no parent_namespace)."""
+        await client_with_service_setup.post("/namespaces/get_pr_no_parent")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_no_parent/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        response = await client_with_service_setup.get(
+            "/namespaces/get_pr_no_parent/pull-request",
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json() is None
+
+    @pytest.mark.asyncio
+    async def test_get_pr_no_git_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR for branch namespace without git config."""
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/get_pr_parent.main")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_parent.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create child namespace with parent_namespace but no github_repo_path
+        await client_with_service_setup.post("/namespaces/get_pr_parent.child")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_parent.child/git",
+            json={
+                "parent_namespace": "get_pr_parent.main",
+                # No github_repo_path or git_branch
+            },
+        )
+
+        response = await client_with_service_setup.get(
+            "/namespaces/get_pr_parent.child/pull-request",
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json() is None
+
+    @pytest.mark.asyncio
+    async def test_get_pr_parent_no_git_branch(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR when parent namespace has no git_branch."""
+        # Create parent without git_branch
+        await client_with_service_setup.post("/namespaces/get_pr_noparent.main")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_noparent.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                # No git_branch
+            },
+        )
+
+        # Create child with parent_namespace
+        await client_with_service_setup.post("/namespaces/get_pr_noparent.feature")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_noparent.feature/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "feature",
+                "parent_namespace": "get_pr_noparent.main",
+            },
+        )
+
+        response = await client_with_service_setup.get(
+            "/namespaces/get_pr_noparent.feature/pull-request",
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json() is None
+
+    @pytest.mark.asyncio
+    async def test_get_pr_exists(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR when one exists."""
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/get_pr_exists.main")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_exists.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create branch namespace
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={"ref": "refs/heads/has-pr", "object": {"sha": "abc"}},
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/get_pr_exists.main/branches",
+                json={"branch_name": "has-pr"},
+            )
+
+        # Mock get_pull_request to return existing PR
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_pull_request = AsyncMock(
+                return_value={
+                    "number": 123,
+                    "html_url": "https://github.com/myorg/myrepo/pull/123",
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.get(
+                "/namespaces/get_pr_exists.has_pr/pull-request",
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["pr_number"] == 123
+            assert data["pr_url"] == "https://github.com/myorg/myrepo/pull/123"
+            assert data["head_branch"] == "has-pr"
+            assert data["base_branch"] == "main"
+
+            mock_github.get_pull_request.assert_called_once_with(
+                repo_path="myorg/myrepo",
+                head="has-pr",
+                base="main",
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_pr_not_exists(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR when none exists."""
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/get_pr_none.main")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_none.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create branch namespace
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={"ref": "refs/heads/no-pr", "object": {"sha": "abc"}},
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/get_pr_none.main/branches",
+                json={"branch_name": "no-pr"},
+            )
+
+        # Mock get_pull_request to return None
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_pull_request = AsyncMock(return_value=None)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.get(
+                "/namespaces/get_pr_none.no_pr/pull-request",
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.json() is None
+
+    @pytest.mark.asyncio
+    async def test_get_pr_github_error(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test getting PR when GitHub API fails."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        # Create parent namespace
+        await client_with_service_setup.post("/namespaces/get_pr_error.main")
+        await client_with_service_setup.patch(
+            "/namespaces/get_pr_error.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create branch namespace
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/error-branch",
+                    "object": {"sha": "abc"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/get_pr_error.main/branches",
+                json={"branch_name": "error-branch"},
+            )
+
+        # Mock get_pull_request to raise GitHubServiceError
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_pull_request = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "API rate limit exceeded",
+                    http_status_code=500,
+                    github_status=403,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.get(
+                "/namespaces/get_pr_error.error_branch/pull-request",
+            )
+
+            # Should return None on error, not raise
+            assert response.status_code == HTTPStatus.OK
+            assert response.json() is None
+
+
+class TestGitOnlyNamespaceProtection:
+    """Tests for git_only namespace protection against direct node mutations."""
+
+    @pytest.mark.asyncio
+    async def test_create_node_in_git_only_namespace_rejected(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that creating a node in a git_only namespace is rejected."""
+        namespace = "git_only_protected"
+
+        # Create namespace and set git_only=True
+        await client_with_service_setup.post(f"/namespaces/{namespace}")
+        response = await client_with_service_setup.patch(
+            f"/namespaces/{namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+                "git_only": True,
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        print("response", response.json())
+
+        # Try to create a source node directly
+        print("Creating node in ", namespace, " namespace...")
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": f"{namespace}.test_source",
+                "description": "Test source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "test_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "git-only" in response.json()["message"]
+        assert "must be deployed from git" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_update_git_only_field(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test updating git_only field via PATCH endpoint."""
+        namespace = "update_git_only"
+
+        # Create namespace
+        await client_with_service_setup.post(f"/namespaces/{namespace}")
+
+        # Set git_only=True
+        response = await client_with_service_setup.patch(
+            f"/namespaces/{namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+                "git_only": True,
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["git_only"] is True
+
+        # Update git_only back to False
+        response = await client_with_service_setup.patch(
+            f"/namespaces/{namespace}/git",
+            json={
+                "git_only": False,
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["git_only"] is False
+
+    @pytest.mark.asyncio
+    async def test_set_parent_without_repo_skips_mismatch_check(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting parent_namespace when parent has no github_repo_path."""
+        # Create parent namespace WITHOUT github_repo_path
+        await client_with_service_setup.post("/namespaces/parent_no_repo")
+        # Don't set github_repo_path on parent
+
+        # Create child namespace
+        await client_with_service_setup.post("/namespaces/child_with_parent")
+
+        # Set parent_namespace - should succeed since there's no repo to mismatch
+        response = await client_with_service_setup.patch(
+            "/namespaces/child_with_parent/git",
+            json={
+                "parent_namespace": "parent_no_repo",
+                # No github_repo_path set on child either
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["parent_namespace"] == "parent_no_repo"
+
+    @pytest.mark.asyncio
+    async def test_set_parent_child_has_no_repo(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test setting parent_namespace when child has no github_repo_path."""
+        # Create parent with github_repo_path
+        await client_with_service_setup.post("/namespaces/parent_has_repo")
+        await client_with_service_setup.patch(
+            "/namespaces/parent_has_repo/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create child namespace
+        await client_with_service_setup.post("/namespaces/child_no_repo")
+
+        # Set parent_namespace without setting repo - should succeed
+        # (repo mismatch check skipped because child has no repo)
+        response = await client_with_service_setup.patch(
+            "/namespaces/child_no_repo/git",
+            json={
+                "parent_namespace": "parent_has_repo",
+                # No github_repo_path set
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["parent_namespace"] == "parent_has_repo"
+
+
+class TestCopyNodesToNamespace:
+    """Tests for copy_nodes_to_namespace function (used during branch creation)."""
+
+    @pytest.mark.asyncio
+    async def test_branch_creation_copies_nodes(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that creating a branch copies nodes from parent namespace."""
+        # Create parent namespace with git config
+        await client_with_service_setup.post("/namespaces/copy_test.main")
+        await client_with_service_setup.patch(
+            "/namespaces/copy_test.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create some nodes in the parent namespace
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "copy_test.main.source_table",
+                "description": "Source table to copy",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "source_table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "value", "type": "string"},
+                ],
+            },
+        )
+        assert response.status_code <= HTTPStatus.CREATED
+
+        response = await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "copy_test.main.transform_node",
+                "description": "Transform to copy",
+                "query": "SELECT id, value FROM copy_test.main.source_table",
+            },
+        )
+        assert response.status_code <= HTTPStatus.CREATED
+
+        # Create a branch - this should trigger copy_nodes_to_namespace
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/feature-copy",
+                    "object": {"sha": "abc123"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/copy_test.main/branches",
+                json={"branch_name": "feature-copy"},
+            )
+
+            assert response.status_code == HTTPStatus.CREATED
+            data = response.json()
+            assert data["branch"]["namespace"] == "copy_test.feature_copy"
+            assert data["deployment_results"] == [
+                {
+                    "deploy_type": "node",
+                    "message": "Created source (v1.0)",
+                    "name": "copy_test.feature_copy.source_table",
+                    "operation": "create",
+                    "status": "success",
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created transform (v1.0)",
+                    "name": "copy_test.feature_copy.transform_node",
+                    "operation": "create",
+                    "status": "success",
+                },
+            ]
+
+        # Verify nodes exist in the branch namespace
+        response = await client_with_service_setup.get(
+            "/nodes/copy_test.feature_copy.source_table/",
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["name"] == "copy_test.feature_copy.source_table"
+
+        response = await client_with_service_setup.get(
+            "/nodes/copy_test.feature_copy.transform_node/",
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["name"] == "copy_test.feature_copy.transform_node"
+        # The query should reference the branch namespace
+        assert "copy_test.feature_copy.source_table" in response.json()["query"]

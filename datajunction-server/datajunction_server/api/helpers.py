@@ -110,6 +110,12 @@ async def check_namespace_not_git_only(
         namespace,
         raise_if_not_exists=False,
     )
+    print(
+        "check_namespace_not_git_only",
+        node_namespace.namespace,
+        namespace,
+        node_namespace.git_only,
+    )
     if node_namespace and node_namespace.git_only:
         raise DJInvalidInputException(
             message=f"Namespace '{namespace}' is git-only. "
