@@ -508,4 +508,383 @@ describe('<NamespaceHeader />', () => {
       expect(screen.getByText(/Local\/adhoc deployments/)).toBeInTheDocument();
     });
   });
+
+  it('should show Configure Git button and open modal', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 0,
+        primary_source: null,
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Configure Git')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Configure Git'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Git Configuration')).toBeInTheDocument();
+    });
+  });
+
+  it('should show git action buttons when git is configured', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'main',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Sync to Git')).toBeInTheDocument();
+  });
+
+  it('should show Create PR and Delete Branch for branch namespaces', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'feature',
+        git_path: 'nodes/',
+        git_only: false,
+        parent_namespace: 'test.main',
+      }),
+      getNamespacePR: jest.fn().mockResolvedValue(null),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create PR')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Delete Branch')).toBeInTheDocument();
+  });
+
+  it('should open Create Branch modal when button is clicked', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'main',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Create Branch'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Branch Name')).toBeInTheDocument();
+    });
+  });
+
+  it('should open Sync to Git modal when button is clicked', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'main',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sync to Git')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Sync to Git'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sync all nodes in/)).toBeInTheDocument();
+    });
+  });
+
+  it('should call updateNamespaceGitConfig when saving git settings', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 0,
+        primary_source: null,
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
+      updateNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'myorg/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: true,
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Configure Git')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Configure Git'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Repository')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Repository'), {
+      target: { value: 'myorg/repo' },
+    });
+    fireEvent.change(screen.getByLabelText('Branch'), {
+      target: { value: 'main' },
+    });
+
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      expect(mockDjClient.updateNamespaceGitConfig).toHaveBeenCalledWith(
+        'test.namespace',
+        expect.objectContaining({
+          github_repo_path: 'myorg/repo',
+          git_branch: 'main',
+        }),
+      );
+    });
+  });
+
+  it('should call createBranch when creating a branch', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'main',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+      createBranch: jest.fn().mockResolvedValue({
+        branch: {
+          namespace: 'test.feature_xyz',
+          git_branch: 'feature-xyz',
+          parent_namespace: 'test.namespace',
+        },
+        deployment_results: [],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Branch')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Create Branch'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Branch Name')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Branch Name'), {
+      target: { value: 'feature-xyz' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Branch' }));
+
+    await waitFor(() => {
+      expect(mockDjClient.createBranch).toHaveBeenCalledWith(
+        'test.namespace',
+        'feature-xyz',
+      );
+    });
+  });
+
+  it('should call syncNamespaceToGit when syncing', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'main',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+      syncNamespaceToGit: jest.fn().mockResolvedValue({
+        files_synced: 5,
+        commit_sha: 'abc123',
+        commit_url: 'https://github.com/test/repo/commit/abc123',
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sync to Git')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Sync to Git'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Commit Message/)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/Commit Message/), {
+      target: { value: 'Test commit' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sync Now' }));
+
+    await waitFor(() => {
+      expect(mockDjClient.syncNamespaceToGit).toHaveBeenCalledWith(
+        'test.namespace',
+        'Test commit',
+      );
+    });
+  });
+
+  it('should show View PR button when PR exists', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'feature',
+        git_path: 'nodes/',
+        git_only: false,
+        parent_namespace: 'test.main',
+      }),
+      getNamespacePR: jest.fn().mockResolvedValue({
+        pr_number: 42,
+        pr_url: 'https://github.com/test/repo/pull/42',
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/View PR #42/)).toBeInTheDocument();
+    });
+  });
 });
