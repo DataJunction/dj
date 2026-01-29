@@ -120,16 +120,36 @@ jobs:
       - name: Generate release notes
         id: release_notes
         run: |
-          CURRENT_TAG="v${{ steps.version.outputs.VERSION }}"
+          CURRENT_VERSION="${{ steps.version.outputs.VERSION }}"
+          CURRENT_TAG="v${CURRENT_VERSION}"
+          echo "Current version: $CURRENT_VERSION"
           echo "Current tag: $CURRENT_TAG"
 
-          # List all version tags sorted
+          # List all version tags (both v* and version-* formats)
           echo "All tags:"
-          git tag -l 'v*' | sort -V
+          git tag -l 'v*' -l 'version-*'
 
-          # Find the previous version tag (the one before current version)
-          # Filter out current tag and get the latest remaining one
-          PREV_TAG=$(git tag -l 'v*' | sort -V | grep -v "^${CURRENT_TAG}$" | tail -1)
+          # Find the previous version by:
+          # 1. List all tags matching v* or version-*
+          # 2. Extract just the version number
+          # 3. Sort by version
+          # 4. Filter out current version
+          # 5. Get the latest
+          PREV_VERSION=$(git tag -l 'v*' -l 'version-*' | \
+            sed -E 's/^(v|version-)//' | \
+            sort -V | \
+            grep -v "^${CURRENT_VERSION}$" | \
+            tail -1)
+          echo "Previous version: $PREV_VERSION"
+
+          # Find the actual tag name for the previous version (could be v* or version-*)
+          if git rev-parse "v${PREV_VERSION}" >/dev/null 2>&1; then
+            PREV_TAG="v${PREV_VERSION}"
+          elif git rev-parse "version-${PREV_VERSION}" >/dev/null 2>&1; then
+            PREV_TAG="version-${PREV_VERSION}"
+          else
+            PREV_TAG=""
+          fi
           echo "Previous tag: $PREV_TAG"
 
           # Generate changelog
