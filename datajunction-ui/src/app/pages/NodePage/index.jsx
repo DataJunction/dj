@@ -32,7 +32,8 @@ export function NodePage() {
   });
 
   const [node, setNode] = useState(null);
-  const [gitConfig, setGitConfig] = useState(null);
+  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
+  const [gitConfig, setGitConfig] = useState(undefined);
 
   const onClickTab = id => () => {
     // Preview tab redirects to Query Planner instead of showing content
@@ -174,10 +175,13 @@ export function NodePage() {
     whiteSpace: 'nowrap',
   };
 
+  // Don't show buttons until git config has loaded (undefined = not loaded yet)
+  const gitConfigLoaded = gitConfig !== undefined;
+
   const NodeButtons = () => {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {!isGitOnly && (
+        {gitConfigLoaded && !isGitOnly && (
           <button
             style={buttonStyle}
             onClick={() => navigate(`/nodes/${node?.name}/edit`)}
