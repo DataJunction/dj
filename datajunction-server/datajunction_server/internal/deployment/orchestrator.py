@@ -1800,8 +1800,8 @@ class DeploymentOrchestrator:
         ):
             new_revision.query = result.spec.rendered_query
             new_revision.columns = [
-                self._create_column_from_spec(col, pk_columns)
-                for col in result.inferred_columns
+                self._create_column_from_spec(col, pk_columns, order=idx)
+                for idx, col in enumerate(result.inferred_columns)
             ]
 
         if result.spec.node_type == NodeType.SOURCE:
@@ -1814,8 +1814,8 @@ class DeploymentOrchestrator:
             new_revision.schema_ = schema
             new_revision.table = table
             new_revision.columns = [
-                self._create_column_from_spec(col, pk_columns)
-                for col in result.spec.columns
+                self._create_column_from_spec(col, pk_columns, order=idx)
+                for idx, col in enumerate(result.spec.columns)
             ]
 
         if result.spec.node_type == NodeType.METRIC:
@@ -1853,12 +1853,14 @@ class DeploymentOrchestrator:
         self,
         col: ColumnSpec,
         pk_columns: list[str],
+        order: int = 0,
     ) -> Column:
         return Column(
             name=col.name,
             type=col.type,
             display_name=col.display_name,
             description=col.description,
+            order=order,
             attributes=[
                 ColumnAttribute(
                     attribute_type=self.registry.attributes.get(attr),
