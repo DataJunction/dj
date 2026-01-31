@@ -1728,3 +1728,107 @@ class TestYamlHelpers:
             # Should still return valid YAML (just not yamlfix-formatted)
             assert "name:" in result
             assert "query:" in result
+
+
+@pytest.mark.asyncio
+async def test_delete_namespace_git_config_success(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test successfully deleting git configuration from a namespace."""
+    namespace = "test.git.delete"
+
+    # First create the namespace
+    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
+
+    # Configure git settings
+    git_config = {
+        "github_repo_path": "owner/repo",
+        "git_branch": "main",
+        "git_path": "nodes/",
+        "git_only": True,
+    }
+    patch_response = await module__client_with_all_examples.patch(
+        f"/namespaces/{namespace}/git",
+        json=git_config,
+    )
+    assert patch_response.status_code == 200
+
+    # Verify git config exists
+    get_response = await module__client_with_all_examples.get(
+        f"/namespaces/{namespace}/git",
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["github_repo_path"] == "owner/repo"
+
+    # Delete git configuration
+    delete_response = await module__client_with_all_examples.delete(
+        f"/namespaces/{namespace}/git",
+    )
+    assert delete_response.status_code == 204
+
+    # Verify git config is cleared
+    verify_response = await module__client_with_all_examples.get(
+        f"/namespaces/{namespace}/git",
+    )
+    assert verify_response.status_code == 200
+    result = verify_response.json()
+    assert result["github_repo_path"] is None
+    assert result["git_branch"] is None
+    assert result["git_path"] is None
+    assert result["parent_namespace"] is None
+    assert result["git_only"] is False
+
+    # Delete git configuration (should succeed even though nothing is configured)
+    delete_response = await module__client_with_all_examples.delete(
+        f"/namespaces/{namespace}/git",
+    )
+    assert delete_response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_delete_namespace_git_config_namespace_not_found(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test deleting git config from non-existent namespace returns 404."""
+    delete_response = await module__client_with_all_examples.delete(
+        "/namespaces/nonexistent.namespace.test/git",
+    )
+    assert delete_response.status_code == 404
+    assert delete_response.json()["message"] == (
+        "node namespace `nonexistent.namespace.test` does not exist."
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_namespace_git_config_preserves_namespace(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test that deleting git config doesn't delete the namespace itself."""
+    namespace = "test.git.delete.preserve"
+
+    # Create namespace with git config
+    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
+    git_config = {
+        "github_repo_path": "owner/repo",
+        "git_branch": "feature",
+        "git_path": "nodes/",
+        "git_only": False,
+    }
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{namespace}/git",
+        json=git_config,
+    )
+
+    # Delete git configuration
+    delete_response = await module__client_with_all_examples.delete(
+        f"/namespaces/{namespace}/git",
+    )
+    assert delete_response.status_code == 204
+
+    # Verify namespace still exists by listing nodes in it
+    list_response = await module__client_with_all_examples.get(
+        f"/namespaces/{namespace}/",
+    )
+    assert list_response.status_code == 200
+    # Should return empty list of nodes, not 404
+    assert isinstance(list_response.json(), list)
