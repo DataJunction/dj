@@ -54,10 +54,10 @@ class NodeNamespace(Base):
     )  # e.g., "definitions/" - subdirectory within repo
 
     parent_namespace: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("nodenamespace.namespace"),
+        ForeignKey("nodenamespace.namespace", ondelete="RESTRICT"),
         nullable=True,
         default=None,
-    )  # Links myproject.feature_x → myproject.main for PR targeting
+    )  # Links myproject.feature_x -> myproject.main for PR targeting
 
     git_only: Mapped[bool] = mapped_column(
         Boolean,
