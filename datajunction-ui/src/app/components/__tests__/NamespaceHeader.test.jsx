@@ -1272,4 +1272,129 @@ describe('<NamespaceHeader />', () => {
       expect(onGitConfigLoaded).toHaveBeenCalledWith(null);
     });
   });
+
+  it('should call deleteNamespaceGitConfig when removing git settings', async () => {
+    // Mock window.confirm for this test
+    global.confirm = jest.fn(() => true);
+
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 0,
+        primary_source: null,
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest.fn().mockResolvedValue({
+        github_repo_path: 'test/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+      }),
+      deleteNamespaceGitConfig: jest.fn().mockResolvedValue({ success: true }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.namespace" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Git Settings')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Git Settings'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Git Configuration')).toBeInTheDocument();
+    });
+
+    // Click reset button in the modal (button text is "Reset")
+    const removeButton = screen.getByText('Reset');
+    fireEvent.click(removeButton);
+
+    await waitFor(() => {
+      expect(mockDjClient.deleteNamespaceGitConfig).toHaveBeenCalledWith(
+        'test.namespace',
+      );
+    });
+
+    // Clean up mock
+    jest.restoreAllMocks();
+  });
+
+  it('should handle sync error in handleCreatePR', async () => {
+    const mockDjClient = {
+      namespaceSources: jest.fn().mockResolvedValue({
+        total_deployments: 1,
+        primary_source: {
+          type: 'git',
+          repository: 'test/repo',
+          branch: 'feature',
+        },
+      }),
+      listDeployments: jest.fn().mockResolvedValue([]),
+      getNamespaceGitConfig: jest
+        .fn()
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'feature',
+          git_path: 'nodes/',
+          git_only: false,
+          parent_namespace: 'test.main',
+        })
+        .mockResolvedValueOnce({
+          github_repo_path: 'test/repo',
+          git_branch: 'main',
+          git_path: 'nodes/',
+        }),
+      getPullRequest: jest.fn().mockResolvedValue(null),
+      syncNamespaceToGit: jest.fn().mockResolvedValue({
+        _error: true,
+        message: 'Sync failed: merge conflict',
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+          <NamespaceHeader namespace="test.feature" />
+        </DJClientContext.Provider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create PR')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Create PR'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Title/)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/Title/), {
+      target: { value: 'My PR Title' },
+    });
+
+    const createPRButtons = screen.getAllByRole('button', {
+      name: 'Create PR',
+    });
+    fireEvent.click(createPRButtons[createPRButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockDjClient.syncNamespaceToGit).toHaveBeenCalledWith(
+        'test.feature',
+        'My PR Title',
+      );
+    });
+
+    // Should show error message from sync failure
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Sync failed: merge conflict/),
+      ).toBeInTheDocument();
+    });
+  });
 });
