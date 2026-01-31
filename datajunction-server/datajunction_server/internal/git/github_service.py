@@ -609,6 +609,7 @@ class GitHubService:
         Returns:
             True if the commit exists, False otherwise
         """
+        print("Called the real verify_commit!!!")
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/repos/{repo_path}/commits/{commit_sha}",

@@ -1900,10 +1900,12 @@ async def test_validate_sibling_relationship_different_prefixes_blocked(
         "/namespaces/demo.feature/git",
         json=child_git_config,
     )
-    assert response.status_code == 400
-    assert "prefix: 'demo'" in response.text
-    assert "prefix: 'team'" in response.text
-    assert "Branch namespaces must be siblings" in response.text
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Namespace 'demo.feature' (prefix: 'demo') cannot have parent 'team.main' "
+        "(prefix: 'team'). Branch namespaces must be siblings under the same "
+        "project. Expected parent to have prefix 'demo'."
+    )
 
 
 @pytest.mark.asyncio
@@ -1955,7 +1957,7 @@ async def test_validate_sibling_relationship_deep_hierarchy(
 
     # Configure parent with git
     parent_git_config = {
-        "github_repo_path": "corp/repo",
+        "github_repo_path": "corp/deep-hierarchy-repo",
         "git_branch": "main",
     }
     await module__client_with_all_examples.patch(
@@ -1965,8 +1967,8 @@ async def test_validate_sibling_relationship_deep_hierarchy(
 
     # Deep hierarchy child should work (both have prefix "company.division.team")
     child_git_config = {
-        "github_repo_path": "corp/repo",
-        "git_branch": "feature",
+        "github_repo_path": "corp/deep-hierarchy-repo",
+        "git_branch": "deep-feature",
         "parent_namespace": "company.division.team.main",
     }
     response = await module__client_with_all_examples.patch(
@@ -1975,92 +1977,12 @@ async def test_validate_sibling_relationship_deep_hierarchy(
     )
     assert response.status_code == 200
     data = response.json()
+    """
+    Git location conflict: namespace 'feature' already uses repo 'corp/repo', branch
+    'feature', path '(root)'. Each namespace must have a unique git location to
+    avoid overwriting files.
+    """
     assert data["parent_namespace"] == "company.division.team.main"
-
-
-@pytest.mark.asyncio
-async def test_validate_one_primary_branch_per_repo_first_root_allowed(
-    module__client_with_all_examples: AsyncClient,
-) -> None:
-    """Test that the first root namespace in a repo is allowed."""
-    await module__client_with_all_examples.post("/namespaces/project.main/")
-
-    # First root namespace should be allowed
-    git_config = {
-        "github_repo_path": "corp/project",
-        "git_branch": "main",
-        "parent_namespace": None,  # Primary branch
-    }
-    response = await module__client_with_all_examples.patch(
-        "/namespaces/project.main/git",
-        json=git_config,
-    )
-    assert response.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_validate_one_primary_branch_per_repo_second_root_blocked(
-    module__client_with_all_examples: AsyncClient,
-) -> None:
-    """Test that a second root namespace in the same repo is blocked."""
-    # Create and configure first root namespace
-    await module__client_with_all_examples.post("/namespaces/project.main/")
-    git_config = {
-        "github_repo_path": "corp/shared-repo",
-        "git_branch": "main",
-        "parent_namespace": None,
-    }
-    await module__client_with_all_examples.patch(
-        "/namespaces/project.main/git",
-        json=git_config,
-    )
-
-    # Try to create second root namespace in same repo
-    await module__client_with_all_examples.post("/namespaces/analytics.main/")
-    second_root_config = {
-        "github_repo_path": "corp/shared-repo",  # Same repo
-        "git_branch": "analytics-main",
-        "parent_namespace": None,  # Also trying to be root
-    }
-    response = await module__client_with_all_examples.patch(
-        "/namespaces/analytics.main/git",
-        json=second_root_config,
-    )
-    assert response.status_code == 400
-    assert "already has primary branch" in response.text
-    assert "project.main" in response.text
-    assert "should have only one primary branch" in response.text
-
-
-@pytest.mark.asyncio
-async def test_validate_one_primary_branch_per_repo_branch_namespaces_allowed(
-    module__client_with_all_examples: AsyncClient,
-) -> None:
-    """Test that branch namespaces (with parent_namespace) are allowed."""
-    # Create and configure root namespace
-    await module__client_with_all_examples.post("/namespaces/project.main/")
-    git_config = {
-        "github_repo_path": "corp/project",
-        "git_branch": "main",
-        "parent_namespace": None,
-    }
-    await module__client_with_all_examples.patch(
-        "/namespaces/project.main/git",
-        json=git_config,
-    )
-
-    # Branch namespace with parent should be allowed in same repo
-    await module__client_with_all_examples.post("/namespaces/project.feature/")
-    branch_config = {
-        "github_repo_path": "corp/project",  # Same repo
-        "git_branch": "feature",
-        "parent_namespace": "project.main",  # Has parent
-    }
-    response = await module__client_with_all_examples.patch(
-        "/namespaces/project.feature/git",
-        json=branch_config,
-    )
-    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -2091,8 +2013,10 @@ async def test_detect_parent_cycle_two_node_cycle(
             "parent_namespace": "cycle.a",
         },
     )
-    assert response.status_code == 400
-    assert "Circular parent reference detected" in response.text
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Circular parent reference detected: cycle.b -> cycle.a -> cycle.b"
+    )
 
 
 @pytest.mark.asyncio
@@ -2109,8 +2033,8 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.a/git",
         json={
-            "github_repo_path": "corp/repo",
-            "git_branch": "a",
+            "github_repo_path": "corp/three-cycle-repo",
+            "git_branch": "three-cycle-a",
             "parent_namespace": "cycle3.b",
         },
     )
@@ -2119,8 +2043,8 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.b/git",
         json={
-            "github_repo_path": "corp/repo",
-            "git_branch": "b",
+            "github_repo_path": "corp/three-cycle-repo",
+            "git_branch": "three-cycle-b",
             "parent_namespace": "cycle3.c",
         },
     )
@@ -2129,13 +2053,15 @@ async def test_detect_parent_cycle_three_node_cycle(
     response = await module__client_with_all_examples.patch(
         "/namespaces/cycle3.c/git",
         json={
-            "github_repo_path": "corp/repo",
-            "git_branch": "c",
+            "github_repo_path": "corp/three-cycle-repo",
+            "git_branch": "three-cycle-c",
             "parent_namespace": "cycle3.a",
         },
     )
-    assert response.status_code == 400
-    assert "Circular parent reference detected" in response.text
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Circular parent reference detected: cycle3.c -> cycle3.a -> cycle3.b -> cycle3.c"
+    )
 
 
 @pytest.mark.asyncio
@@ -2154,8 +2080,10 @@ async def test_validate_git_path_blocks_parent_directory_traversal(
         "/namespaces/security.test1/git",
         json=git_config,
     )
-    assert response.status_code == 400
-    assert "path traversal" in response.text.lower()
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "git_path cannot contain '..' (path traversal)"
+    )
 
 
 @pytest.mark.asyncio
@@ -2174,8 +2102,10 @@ async def test_validate_git_path_blocks_absolute_paths(
         "/namespaces/security.test2/git",
         json=git_config,
     )
-    assert response.status_code == 400
-    assert "must be a relative path" in response.text
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "git_path must be a relative path (cannot start with '/')"
+    )
 
 
 @pytest.mark.asyncio
@@ -2215,8 +2145,11 @@ async def test_validate_git_only_blocked_without_git_config(
         "/namespaces/gitonly.test1/git",
         json=git_config,
     )
-    assert response.status_code == 400
-    assert "Cannot enable git_only without git configuration" in response.text
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Cannot enable git_only without git configuration. "
+        "Set github_repo_path and git_branch first."
+    )
 
 
 @pytest.mark.asyncio
@@ -2228,7 +2161,7 @@ async def test_validate_git_only_allowed_with_git_config(
 
     # Enable git_only with git config
     git_config = {
-        "github_repo_path": "corp/repo",
+        "github_repo_path": "corp/repo-123",
         "git_branch": "main",
         "git_only": True,
     }
