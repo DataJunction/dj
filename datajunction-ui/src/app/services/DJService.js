@@ -2275,6 +2275,26 @@ export const DataJunctionAPI = {
     return result;
   },
 
+  // Delete git configuration for a namespace
+  deleteNamespaceGitConfig: async function (namespace) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/git`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    // DELETE returns 204 No Content on success, so no JSON body
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || 'Failed to delete git config',
+      };
+    }
+    // Success - return empty object since 204 has no body
+    return {};
+  },
+
   // List branch namespaces for a parent namespace
   listBranches: async function (namespace) {
     const response = await fetch(`${DJ_URL}/namespaces/${namespace}/branches`, {

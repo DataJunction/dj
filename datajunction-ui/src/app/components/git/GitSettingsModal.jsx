@@ -7,6 +7,7 @@ export function GitSettingsModal({
   isOpen,
   onClose,
   onSave,
+  onRemove,
   currentConfig,
   namespace,
 }) {
@@ -15,8 +16,10 @@ export function GitSettingsModal({
   const [path, setPath] = useState('');
   const [gitOnly, setGitOnly] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [wasRemoved, setWasRemoved] = useState(false);
 
   useEffect(() => {
     if (currentConfig) {
@@ -32,14 +35,17 @@ export function GitSettingsModal({
       setPath('nodes/');
       setGitOnly(true);
     }
-    setSuccess(false);
+    // Don't reset success here - it gets reset when modal closes
+    // Otherwise the success banner disappears when currentConfig updates after save
     setError(null);
+    setWasRemoved(false);
   }, [currentConfig]);
 
   const handleSubmit = async e => {
     e.preventDefault();
     setError(null);
     setSuccess(false);
+    setWasRemoved(false);
     setSaving(true);
 
     try {
@@ -65,9 +71,50 @@ export function GitSettingsModal({
     }
   };
 
+  const handleRemove = async () => {
+    if (
+      !window.confirm(
+        'Remove git configuration? This will disconnect this namespace from git but will not delete any files.',
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    setSuccess(false);
+    setWasRemoved(false);
+    setRemoving(true);
+
+    try {
+      const config = {
+        github_repo_path: null,
+        git_branch: null,
+        git_path: null,
+        git_only: false,
+      };
+
+      const result = await onRemove(config);
+      if (result?._error) {
+        setError(result.message);
+      } else {
+        setSuccess(true);
+        setWasRemoved(true);
+        // Close modal after successful removal
+        setTimeout(() => {
+          onClose();
+        }, 1500);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to remove git settings');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   const handleClose = () => {
     setError(null);
     setSuccess(false);
+    setWasRemoved(false);
     onClose();
   };
 
@@ -250,38 +297,74 @@ export function GitSettingsModal({
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                   <polyline points="22 4 12 14.01 9 11.01" />
                 </svg>
-                Git configuration saved successfully!
+                {wasRemoved
+                  ? 'Git configuration removed successfully!'
+                  : 'Git configuration saved successfully!'}
               </div>
             )}
           </div>
 
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleClose}
-              disabled={saving}
-            >
-              {success ? 'Close' : 'Cancel'}
-            </button>
-            {!success && (
+          <div
+            className="modal-actions"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            {/* Left side: Remove button (only show if git is configured) */}
+            <div>
+              {currentConfig?.github_repo_path && !success && (
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={saving || removing}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    border: '1px solid #fca5a5',
+                    borderRadius: '6px',
+                    backgroundColor: removing ? '#fee2e2' : '#ffffff',
+                    color: removing ? '#991b1b' : '#dc2626',
+                    cursor: saving || removing ? 'not-allowed' : 'pointer',
+                    opacity: saving || removing ? 0.6 : 1,
+                  }}
+                >
+                  {removing ? 'Removing...' : 'Reset'}
+                </button>
+              )}
+            </div>
+
+            {/* Right side: Save/Cancel buttons */}
+            <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                type="submit"
-                className="btn-primary"
-                disabled={saving}
-                style={
-                  saving
-                    ? {
-                        opacity: 0.7,
-                        cursor: 'wait',
-                        backgroundColor: '#9ca3af',
-                      }
-                    : {}
-                }
+                type="button"
+                className="btn-secondary"
+                onClick={handleClose}
+                disabled={saving || removing}
               >
-                {saving ? 'Saving...' : 'Save Settings'}
+                {success ? 'Close' : 'Cancel'}
               </button>
-            )}
+              {!success && (
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={saving || removing}
+                  style={
+                    saving
+                      ? {
+                          opacity: 0.7,
+                          cursor: 'wait',
+                          backgroundColor: '#9ca3af',
+                        }
+                      : {}
+                  }
+                >
+                  {saving ? 'Saving...' : 'Save Settings'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>
