@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import Callable, Dict, List, Optional
 
 import yaml
-from fastapi import Depends, Query, BackgroundTasks, Request
+from fastapi import Depends, Query, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -742,3 +742,31 @@ async def update_namespace_git_config(
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,
     )
+
+
+@router.delete(
+    "/namespaces/{namespace}/git",
+    name="Remove namespace git configuration",
+    status_code=HTTPStatus.NO_CONTENT,
+)
+async def delete_namespace_git_config(
+    namespace: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+):
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node_namespace = await get_node_namespace(session, namespace)
+    node_namespace.git_branch = None
+    node_namespace.github_repo_path = None
+    node_namespace.git_path = None
+    node_namespace.parent_namespace = None
+    node_namespace.git_only = False
+
+    session.add(node_namespace)
+    await session.commit()
+    await session.refresh(node_namespace)
+
+    return Response(status_code=HTTPStatus.NO_CONTENT)

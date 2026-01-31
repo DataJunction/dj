@@ -42,8 +42,8 @@ describe('<NamespaceHeader />', () => {
       );
     });
 
-    // Should render Git Managed badge for git source
-    expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+    // Should render Deployed from Git badge for git source
+    expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
   });
 
   it('should render git source badge when source type is git without branch', async () => {
@@ -73,8 +73,8 @@ describe('<NamespaceHeader />', () => {
       );
     });
 
-    // Should render Git Managed badge for git source even without branch
-    expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+    // Should render Deployed from Git badge for git source even without branch
+    expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
   });
 
   it('should render local source badge when source type is local', async () => {
@@ -131,7 +131,7 @@ describe('<NamespaceHeader />', () => {
     });
 
     // Should not render any source badge
-    expect(screen.queryByText(/Git Managed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Deployed from Git/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Local Deploy/)).not.toBeInTheDocument();
   });
 
@@ -158,7 +158,7 @@ describe('<NamespaceHeader />', () => {
     // Should still render breadcrumb without badge
     expect(screen.getByText('test')).toBeInTheDocument();
     expect(screen.getByText('namespace')).toBeInTheDocument();
-    expect(screen.queryByText(/Git Managed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Deployed from Git/)).not.toBeInTheDocument();
   });
 
   it('should open dropdown when clicking the git managed button', async () => {
@@ -195,11 +195,11 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+      expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
     });
 
     // Click the dropdown button
-    fireEvent.click(screen.getByText(/Git Managed/));
+    fireEvent.click(screen.getByText(/Deployed from Git/));
 
     // Should show repository link in dropdown
     await waitFor(() => {
@@ -297,10 +297,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+      expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText(/Git Managed/));
+    fireEvent.click(screen.getByText(/Deployed from Git/));
 
     // Should show branch names in deployment list
     await waitFor(() => {
@@ -375,11 +375,11 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+      expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
     });
 
     // Open dropdown
-    fireEvent.click(screen.getByText(/Git Managed/));
+    fireEvent.click(screen.getByText(/Deployed from Git/));
 
     await waitFor(() => {
       expect(screen.getByText(/github.com\/test\/repo/)).toBeInTheDocument();
@@ -418,14 +418,14 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+      expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
     });
 
     // Initially shows down arrow
     expect(screen.getByText('▼')).toBeInTheDocument();
 
     // Click to open
-    fireEvent.click(screen.getByText(/Git Managed/));
+    fireEvent.click(screen.getByText(/Deployed from Git/));
 
     // Should show up arrow when open
     await waitFor(() => {
@@ -455,10 +455,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Git Managed/)).toBeInTheDocument();
+      expect(screen.getByText(/Deployed from Git/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText(/Git Managed/));
+    fireEvent.click(screen.getByText(/Deployed from Git/));
 
     await waitFor(() => {
       // Find link by its text content (repository URL)
@@ -509,7 +509,7 @@ describe('<NamespaceHeader />', () => {
     });
   });
 
-  it('should show Configure Git button and open modal', async () => {
+  it('should show Git Settings button and open modal', async () => {
     const mockDjClient = {
       namespaceSources: jest.fn().mockResolvedValue({
         total_deployments: 0,
@@ -528,10 +528,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Configure Git')).toBeInTheDocument();
+      expect(screen.getByText('Git Settings')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Configure Git'));
+    fireEvent.click(screen.getByText('Git Settings'));
 
     await waitFor(() => {
       expect(screen.getByText('Git Configuration')).toBeInTheDocument();
@@ -725,10 +725,10 @@ describe('<NamespaceHeader />', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Configure Git')).toBeInTheDocument();
+      expect(screen.getByText('Git Settings')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Configure Git'));
+    fireEvent.click(screen.getByText('Git Settings'));
 
     await waitFor(() => {
       expect(screen.getByLabelText('Repository')).toBeInTheDocument();
