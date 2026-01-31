@@ -57,7 +57,7 @@ class NodeNamespace(Base):
         ForeignKey("nodenamespace.namespace"),
         nullable=True,
         default=None,
-    )  # Links myproject.feature_x → myproject.main for PR targeting
+    )  # Links myproject.feature_x -> myproject.main for PR targeting
 
     git_only: Mapped[bool] = mapped_column(
         Boolean,
