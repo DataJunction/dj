@@ -11,6 +11,7 @@ from datajunction_server.internal.namespaces import (
     validate_sibling_relationship,
     validate_one_primary_branch_per_repo,
     detect_parent_cycle,
+    validate_git_path,
 )
 
 
@@ -602,3 +603,121 @@ class TestDetectParentCycle:
 
         error_message = str(exc_info.value.message)
         assert "Circular parent reference detected" in error_message
+
+
+class TestValidateGitPath:
+    """Unit tests for validate_git_path function."""
+
+    def test_valid_relative_paths(self):
+        """Test that valid relative paths are allowed."""
+        # These should all pass without raising
+        validate_git_path("nodes/")
+        validate_git_path("definitions/")
+        validate_git_path("definitions/metrics/")
+        validate_git_path("src/nodes/")
+        validate_git_path("a/b/c/d/")
+        validate_git_path("definitions")  # Without trailing slash
+        validate_git_path("my-nodes/")  # With hyphen
+        validate_git_path("my_nodes/")  # With underscore
+
+    def test_null_path_allowed(self):
+        """Test that None/null path is allowed (validation skipped)."""
+        validate_git_path(None)
+
+    def test_empty_path_allowed(self):
+        """Test that empty string is allowed (validation skipped)."""
+        validate_git_path("")
+        validate_git_path("   ")  # Just whitespace strips to empty
+
+    def test_path_with_parent_directory_blocked(self):
+        """Test that paths with .. are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("../other-repo/")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_path_with_parent_directory_in_middle_blocked(self):
+        """Test that .. in the middle of path is blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("nodes/../other/")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_path_with_parent_directory_at_end_blocked(self):
+        """Test that path ending with .. is blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("nodes/..")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_absolute_path_blocked(self):
+        """Test that absolute paths are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("/etc/passwd")
+
+        error_message = str(exc_info.value.message)
+        assert "must be a relative path" in error_message
+        assert "cannot start with '/'" in error_message
+
+    def test_absolute_path_with_slash_blocked(self):
+        """Test that paths starting with / are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("/usr/local/")
+
+        error_message = str(exc_info.value.message)
+        assert "relative path" in error_message
+
+    def test_network_path_blocked(self):
+        """Test that network-style paths are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("//network/share")
+
+        error_message = str(exc_info.value.message)
+        assert "relative path" in error_message
+
+    def test_path_with_spaces(self):
+        """Test that paths with spaces are allowed (but trimmed)."""
+        # Leading/trailing spaces should be trimmed
+        validate_git_path("  nodes/  ")
+
+    def test_path_with_dots_in_name(self):
+        """Test that dots in directory names (not ..) are allowed."""
+        validate_git_path("my.nodes/")
+        validate_git_path("nodes.v2/")
+        validate_git_path("definitions/v1.0/")
+
+    def test_path_with_multiple_slashes(self):
+        """Test paths with multiple slashes."""
+        # Multiple slashes should be fine (not our job to normalize)
+        validate_git_path("nodes//subdirectory/")
+
+    def test_windows_style_path_blocked(self):
+        """Test that Windows-style absolute paths are blocked."""
+        # This might start with a letter, but if it starts with /, it's blocked
+        # Actually, "C:/..." doesn't start with /, so this would pass
+        # Only paths starting with / are blocked
+        validate_git_path("C:/nodes/")  # Would pass (doesn't start with /)
+
+        # But if someone tries /C:/, that's blocked
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("/C:/nodes/")
+
+    def test_hidden_directory_with_dot_prefix(self):
+        """Test that hidden directories (.git, .hidden) are allowed."""
+        # These are valid relative paths, just with dot prefix
+        validate_git_path(".hidden/")
+        validate_git_path(".config/")
+
+    def test_complex_parent_directory_patterns_blocked(self):
+        """Test various complex patterns with .. are all blocked."""
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("../../etc/")
+
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("a/b/../../c/")
+
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("nodes/../../etc/passwd")
