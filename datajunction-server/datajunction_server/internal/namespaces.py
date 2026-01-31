@@ -1188,43 +1188,6 @@ def validate_sibling_relationship(
         )
 
 
-async def validate_one_primary_branch_per_repo(
-    session: AsyncSession,
-    namespace: str,
-    github_repo_path: str,
-    parent_namespace: Optional[str],
-) -> None:
-    """
-    Ensure a repository has only one primary branch (parent_namespace=null).
-
-    A repository should have one "main" branch that all other branches merge into.
-    Multiple unrelated primary branches in the same repo is a misconfiguration.
-    """
-    # Only validate if this namespace is becoming a primary branch
-    if parent_namespace is not None or github_repo_path is None:
-        return
-
-    # Check for other namespaces using same repo as primary
-    stmt = select(NodeNamespace.namespace).where(
-        NodeNamespace.github_repo_path == github_repo_path,
-        NodeNamespace.parent_namespace.is_(None),
-        NodeNamespace.namespace != namespace,  # Exclude current namespace
-    )
-    result = await session.execute(stmt)
-    existing_roots = result.scalars().all()
-
-    if existing_roots:
-        raise DJInvalidInputException(
-            message=(
-                f"Repository '{github_repo_path}' already has primary branch "
-                f"namespace(s): {', '.join(existing_roots)}. "
-                f"A repository should have only one primary branch. "
-                f"Set parent_namespace to create a branch relationship, "
-                f"or use a different repository."
-            ),
-        )
-
-
 async def detect_parent_cycle(
     session: AsyncSession,
     child_namespace: str,
@@ -1236,17 +1199,19 @@ async def detect_parent_cycle(
 
     Prevents circular dependencies like: A -> B -> C -> A
     """
-    visited = {child_namespace}
+    visited = [child_namespace]
+    visited_set = {child_namespace}
     current = new_parent
     depth = 0
 
     while current and depth < max_depth:
-        if current in visited:
+        if current in visited_set:
             raise DJInvalidInputException(
                 message=f"Circular parent reference detected: {' -> '.join(visited)} -> {current}",
             )
 
-        visited.add(current)
+        visited.append(current)
+        visited_set.add(current)
 
         # Fetch parent of current
         stmt = select(NodeNamespace.parent_namespace).where(

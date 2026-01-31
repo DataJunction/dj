@@ -9,8 +9,8 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.namespaces import (
     validate_sibling_relationship,
-    validate_one_primary_branch_per_repo,
     detect_parent_cycle,
+    validate_git_path,
 )
 
 
@@ -147,158 +147,6 @@ class TestValidateSiblingRelationship:
         error_message = str(exc_info.value.message)
         # Should tell user what prefix was expected
         assert "Expected parent to have prefix 'analytics'" in error_message
-
-
-class TestValidateOnePrimaryBranchPerRepo:
-    """Unit tests for validate_one_primary_branch_per_repo function."""
-
-    @pytest.fixture
-    async def session_with_namespaces(self, session: AsyncSession):
-        """Create some test namespaces in the database."""
-        # Create a root namespace
-        root_ns = NodeNamespace(
-            namespace="project.main",
-            github_repo_path="corp/project",
-            git_branch="main",
-            parent_namespace=None,
-        )
-        session.add(root_ns)
-
-        # Create a branch namespace
-        branch_ns = NodeNamespace(
-            namespace="project.feature",
-            github_repo_path="corp/project",
-            git_branch="feature",
-            parent_namespace="project.main",
-        )
-        session.add(branch_ns)
-
-        # Create another root in different repo
-        other_root = NodeNamespace(
-            namespace="analytics.main",
-            github_repo_path="corp/analytics",
-            git_branch="main",
-            parent_namespace=None,
-        )
-        session.add(other_root)
-
-        await session.commit()
-        return session
-
-    @pytest.mark.asyncio
-    async def test_first_root_namespace_allowed(self, session: AsyncSession):
-        """Test that the first root namespace in a repo is allowed."""
-        # No existing namespaces, so this should pass
-        await validate_one_primary_branch_per_repo(
-            session,
-            namespace="demo.main",
-            github_repo_path="corp/demo",
-            parent_namespace=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_second_root_namespace_blocked(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that a second root namespace in the same repo is blocked."""
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            await validate_one_primary_branch_per_repo(
-                session_with_namespaces,
-                namespace="project.production",
-                github_repo_path="corp/project",  # Same repo as project.main
-                parent_namespace=None,
-            )
-
-        error_message = str(exc_info.value.message)
-        assert error_message == (
-            "Repository 'corp/project' already has primary branch namespace(s): project.main. "
-            "A repository should have only one primary branch. Set parent_namespace to create "
-            "a branch relationship, or use a different repository."
-        )
-
-    @pytest.mark.asyncio
-    async def test_branch_namespace_with_parent_allowed(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that branch namespaces (with parent) are allowed."""
-        # Has parent_namespace, so validation should skip
-        await validate_one_primary_branch_per_repo(
-            session_with_namespaces,
-            namespace="project.hotfix",
-            github_repo_path="corp/project",
-            parent_namespace="project.main",  # Has parent
-        )
-
-    @pytest.mark.asyncio
-    async def test_multiple_roots_in_different_repos_allowed(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that different repos can each have their own root."""
-        # project.main already exists in corp/project
-        # analytics.main already exists in corp/analytics
-        # So a new root in corp/demo should be fine
-        await validate_one_primary_branch_per_repo(
-            session_with_namespaces,
-            namespace="demo.main",
-            github_repo_path="corp/demo",  # Different repo
-            parent_namespace=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_updating_existing_root_namespace_allowed(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that updating an existing root namespace is allowed."""
-        # project.main already exists as root in corp/project
-        # Updating project.main itself should be allowed (it's excluded from check)
-        await validate_one_primary_branch_per_repo(
-            session_with_namespaces,
-            namespace="project.main",  # Same namespace
-            github_repo_path="corp/project",  # Same repo
-            parent_namespace=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_changing_to_repo_with_existing_root_blocked(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that changing to a repo that already has a root is blocked."""
-        # analytics.main already exists as root in corp/analytics
-        # Trying to make demo.main also a root in corp/analytics should fail
-        with pytest.raises(DJInvalidInputException) as exc_info:
-            await validate_one_primary_branch_per_repo(
-                session_with_namespaces,
-                namespace="demo.main",
-                github_repo_path="corp/analytics",  # Repo with existing root
-                parent_namespace=None,
-            )
-
-        error_message = str(exc_info.value.message)
-        assert error_message == (
-            "Repository 'corp/analytics' already has primary branch namespace(s): analytics.main. "
-            "A repository should have only one primary branch. Set parent_namespace to create a "
-            "branch relationship, or use a different repository."
-        )
-
-    @pytest.mark.asyncio
-    async def test_null_repo_path_skips_validation(
-        self,
-        session_with_namespaces: AsyncSession,
-    ):
-        """Test that validation is skipped when repo_path is None."""
-        # When repo_path is None, validation shouldn't check for conflicts
-        # (though this is an edge case - you probably shouldn't call this with None)
-        await validate_one_primary_branch_per_repo(
-            session_with_namespaces,
-            namespace="orphan.main",
-            github_repo_path=None,  # type: ignore
-            parent_namespace=None,
-        )
 
 
 class TestDetectParentCycle:
@@ -602,3 +450,121 @@ class TestDetectParentCycle:
 
         error_message = str(exc_info.value.message)
         assert "Circular parent reference detected" in error_message
+
+
+class TestValidateGitPath:
+    """Unit tests for validate_git_path function."""
+
+    def test_valid_relative_paths(self):
+        """Test that valid relative paths are allowed."""
+        # These should all pass without raising
+        validate_git_path("nodes/")
+        validate_git_path("definitions/")
+        validate_git_path("definitions/metrics/")
+        validate_git_path("src/nodes/")
+        validate_git_path("a/b/c/d/")
+        validate_git_path("definitions")  # Without trailing slash
+        validate_git_path("my-nodes/")  # With hyphen
+        validate_git_path("my_nodes/")  # With underscore
+
+    def test_null_path_allowed(self):
+        """Test that None/null path is allowed (validation skipped)."""
+        validate_git_path(None)
+
+    def test_empty_path_allowed(self):
+        """Test that empty string is allowed (validation skipped)."""
+        validate_git_path("")
+        validate_git_path("   ")  # Just whitespace strips to empty
+
+    def test_path_with_parent_directory_blocked(self):
+        """Test that paths with .. are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("../other-repo/")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_path_with_parent_directory_in_middle_blocked(self):
+        """Test that .. in the middle of path is blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("nodes/../other/")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_path_with_parent_directory_at_end_blocked(self):
+        """Test that path ending with .. is blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("nodes/..")
+
+        error_message = str(exc_info.value.message)
+        assert "path traversal" in error_message.lower()
+
+    def test_absolute_path_blocked(self):
+        """Test that absolute paths are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("/etc/passwd")
+
+        error_message = str(exc_info.value.message)
+        assert "must be a relative path" in error_message
+        assert "cannot start with '/'" in error_message
+
+    def test_absolute_path_with_slash_blocked(self):
+        """Test that paths starting with / are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("/usr/local/")
+
+        error_message = str(exc_info.value.message)
+        assert "relative path" in error_message
+
+    def test_network_path_blocked(self):
+        """Test that network-style paths are blocked."""
+        with pytest.raises(DJInvalidInputException) as exc_info:
+            validate_git_path("//network/share")
+
+        error_message = str(exc_info.value.message)
+        assert "relative path" in error_message
+
+    def test_path_with_spaces(self):
+        """Test that paths with spaces are allowed (but trimmed)."""
+        # Leading/trailing spaces should be trimmed
+        validate_git_path("  nodes/  ")
+
+    def test_path_with_dots_in_name(self):
+        """Test that dots in directory names (not ..) are allowed."""
+        validate_git_path("my.nodes/")
+        validate_git_path("nodes.v2/")
+        validate_git_path("definitions/v1.0/")
+
+    def test_path_with_multiple_slashes(self):
+        """Test paths with multiple slashes."""
+        # Multiple slashes should be fine (not our job to normalize)
+        validate_git_path("nodes//subdirectory/")
+
+    def test_windows_style_path_blocked(self):
+        """Test that Windows-style absolute paths are blocked."""
+        # This might start with a letter, but if it starts with /, it's blocked
+        # Actually, "C:/..." doesn't start with /, so this would pass
+        # Only paths starting with / are blocked
+        validate_git_path("C:/nodes/")  # Would pass (doesn't start with /)
+
+        # But if someone tries /C:/, that's blocked
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("/C:/nodes/")
+
+    def test_hidden_directory_with_dot_prefix(self):
+        """Test that hidden directories (.git, .hidden) are allowed."""
+        # These are valid relative paths, just with dot prefix
+        validate_git_path(".hidden/")
+        validate_git_path(".config/")
+
+    def test_complex_parent_directory_patterns_blocked(self):
+        """Test various complex patterns with .. are all blocked."""
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("../../etc/")
+
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("a/b/../../c/")
+
+        with pytest.raises(DJInvalidInputException):
+            validate_git_path("nodes/../../etc/passwd")

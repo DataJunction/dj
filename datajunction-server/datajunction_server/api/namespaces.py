@@ -45,7 +45,6 @@ from datajunction_server.internal.namespaces import (
     get_node_specs_for_export,
     _get_yaml_dumper,
     node_spec_to_yaml,
-    validate_one_primary_branch_per_repo,
     detect_parent_cycle,
     validate_sibling_relationship,
     validate_git_path,
@@ -669,7 +668,6 @@ async def update_namespace_git_config(
     # Early validations (independent of parent relationship)
     validate_git_path(new_path)
     validate_git_only(new_git_only, new_repo, new_branch)
-    await validate_one_primary_branch_per_repo(session, namespace, new_repo, new_parent)
 
     # Validate parent_namespace if provided
     if new_parent:
