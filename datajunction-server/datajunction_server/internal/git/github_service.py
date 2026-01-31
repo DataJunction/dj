@@ -2,16 +2,14 @@
 
 import base64
 import logging
-import os
 import time
 from typing import Optional
 
 import httpx
 import jwt
-from dotenv import load_dotenv
 
-from datajunction_server.config import Settings
 from datajunction_server.errors import DJException
+from datajunction_server.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -41,10 +39,7 @@ class GitHubService:
     """
 
     def __init__(self):
-        # Load settings directly to avoid circular import through utils.py
-        dotenv_file = os.environ.get("DOTENV_FILE", ".env")
-        load_dotenv(dotenv_file)
-        self.settings = Settings()
+        self.settings = get_settings()
         self.base_url = self.settings.github_api_url.rstrip("/")
 
         # Determine auth method and get token

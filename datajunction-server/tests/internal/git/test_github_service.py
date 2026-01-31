@@ -28,13 +28,10 @@ def mock_settings():
 def github_service(mock_settings):
     """Create GitHubService with mocked settings."""
     with patch(
-        "datajunction_server.internal.git.github_service.Settings",
+        "datajunction_server.internal.git.github_service.get_settings",
         return_value=mock_settings,
     ):
-        with patch(
-            "datajunction_server.internal.git.github_service.load_dotenv",
-        ):
-            return GitHubService()
+        return GitHubService()
 
 
 class TestGitHubServiceInit:
@@ -50,17 +47,14 @@ class TestGitHubServiceInit:
         mock_settings.github_app_installation_id = None
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                with pytest.raises(GitHubServiceError) as exc_info:
-                    GitHubService()
+            with pytest.raises(GitHubServiceError) as exc_info:
+                GitHubService()
 
-                assert "GitHub authentication not configured" in str(exc_info.value)
-                assert exc_info.value.http_status_code == 503
+            assert "GitHub authentication not configured" in str(exc_info.value)
+            assert exc_info.value.http_status_code == 503
 
     def test_init_with_pat_token(self, github_service):
         """Should initialize correctly with PAT token."""
@@ -86,22 +80,21 @@ class TestGitHubServiceInit:
         mock_token_response.json.return_value = {"token": "installation-token-abc"}
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                with patch("httpx.Client") as mock_client:
-                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
-                    with patch("jwt.encode", return_value="mock-jwt"):
-                        service = GitHubService()
+            with patch("httpx.Client") as mock_client:
+                mock_client.return_value.__enter__.return_value.post.return_value = (
+                    mock_token_response
+                )
+                with patch("jwt.encode", return_value="mock-jwt"):
+                    service = GitHubService()
 
-                        assert service.token == "installation-token-abc"
-                        assert (
-                            service.headers["Authorization"]
-                            == "Bearer installation-token-abc"
-                        )
+                    assert service.token == "installation-token-abc"
+                    assert (
+                        service.headers["Authorization"]
+                        == "Bearer installation-token-abc"
+                    )
 
     def test_init_github_app_prefers_over_pat(self):
         """Should prefer GitHub App auth when both are configured."""
@@ -119,19 +112,18 @@ class TestGitHubServiceInit:
         mock_token_response.json.return_value = {"token": "installation-token"}
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                with patch("httpx.Client") as mock_client:
-                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
-                    with patch("jwt.encode", return_value="mock-jwt"):
-                        service = GitHubService()
+            with patch("httpx.Client") as mock_client:
+                mock_client.return_value.__enter__.return_value.post.return_value = (
+                    mock_token_response
+                )
+                with patch("jwt.encode", return_value="mock-jwt"):
+                    service = GitHubService()
 
-                        # Should use App token, not PAT
-                        assert service.token == "installation-token"
+                    # Should use App token, not PAT
+                    assert service.token == "installation-token"
 
     def test_init_github_app_partial_config_falls_back_to_pat(self):
         """Should fall back to PAT when GitHub App config is incomplete."""
@@ -144,16 +136,13 @@ class TestGitHubServiceInit:
         mock_settings.github_app_installation_id = None
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                service = GitHubService()
+            service = GitHubService()
 
-                # Should fall back to PAT
-                assert service.token == "pat-token"
+            # Should fall back to PAT
+            assert service.token == "pat-token"
 
     def test_init_github_app_token_fetch_failure(self):
         """Should raise error when GitHub App token fetch fails."""
@@ -172,22 +161,21 @@ class TestGitHubServiceInit:
         mock_token_response.json.return_value = {"message": "Bad credentials"}
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                with patch("httpx.Client") as mock_client:
-                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
-                    with patch("jwt.encode", return_value="mock-jwt"):
-                        with pytest.raises(GitHubServiceError) as exc_info:
-                            GitHubService()
+            with patch("httpx.Client") as mock_client:
+                mock_client.return_value.__enter__.return_value.post.return_value = (
+                    mock_token_response
+                )
+                with patch("jwt.encode", return_value="mock-jwt"):
+                    with pytest.raises(GitHubServiceError) as exc_info:
+                        GitHubService()
 
-                        assert "Failed to get GitHub App installation token" in str(
-                            exc_info.value,
-                        )
-                        assert exc_info.value.github_status == 401
+                    assert "Failed to get GitHub App installation token" in str(
+                        exc_info.value,
+                    )
+                    assert exc_info.value.github_status == 401
 
 
 class TestListBranches:
@@ -660,21 +648,18 @@ class TestJWTEncodingError:
         mock_settings.github_app_installation_id = "67890"
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
             with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
+                "datajunction_server.internal.git.github_service.jwt.encode",
+                side_effect=ValueError("Invalid key format"),
             ):
-                with patch(
-                    "datajunction_server.internal.git.github_service.jwt.encode",
-                    side_effect=ValueError("Invalid key format"),
-                ):
-                    with pytest.raises(GitHubServiceError) as exc_info:
-                        GitHubService()
+                with pytest.raises(GitHubServiceError) as exc_info:
+                    GitHubService()
 
-                    assert "Failed to generate GitHub App JWT" in str(exc_info.value)
-                    assert exc_info.value.http_status_code == 503
+                assert "Failed to generate GitHub App JWT" in str(exc_info.value)
+                assert exc_info.value.http_status_code == 503
 
 
 class TestTokenExchangeErrorParsing:
@@ -698,25 +683,24 @@ class TestTokenExchangeErrorParsing:
         mock_token_response.text = "Internal Server Error"
 
         with patch(
-            "datajunction_server.internal.git.github_service.Settings",
+            "datajunction_server.internal.git.github_service.get_settings",
             return_value=mock_settings,
         ):
-            with patch(
-                "datajunction_server.internal.git.github_service.load_dotenv",
-            ):
-                with patch("httpx.Client") as mock_client:
-                    mock_client.return_value.__enter__.return_value.post.return_value = mock_token_response
-                    with patch(
-                        "datajunction_server.internal.git.github_service.jwt.encode",
-                        return_value="mock-jwt",
-                    ):
-                        with pytest.raises(GitHubServiceError) as exc_info:
-                            GitHubService()
+            with patch("httpx.Client") as mock_client:
+                mock_client.return_value.__enter__.return_value.post.return_value = (
+                    mock_token_response
+                )
+                with patch(
+                    "datajunction_server.internal.git.github_service.jwt.encode",
+                    return_value="mock-jwt",
+                ):
+                    with pytest.raises(GitHubServiceError) as exc_info:
+                        GitHubService()
 
-                        assert "Failed to get GitHub App installation token" in str(
-                            exc_info.value,
-                        )
-                        assert "Internal Server Error" in str(exc_info.value)
+                    assert "Failed to get GitHub App installation token" in str(
+                        exc_info.value,
+                    )
+                    assert "Internal Server Error" in str(exc_info.value)
 
 
 class TestCommitFiles:
