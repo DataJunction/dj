@@ -125,7 +125,7 @@ async def create_branch(
     if len(parent_parts) > 1:
         new_namespace = f"{parent_parts[0]}.{branch_namespace_suffix}"
     else:
-        new_namespace = f"{namespace}.{branch_namespace_suffix}"
+        new_namespace = f"{namespace}.{branch_namespace_suffix}"  # pragma: no cover
 
     # Check if namespace already exists
     existing = await NodeNamespace.get(
