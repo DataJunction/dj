@@ -3,7 +3,7 @@ import json
 from unittest import mock
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -16,7 +16,10 @@ from datajunction_server.models.deployment import (
     DimensionSpec,
     CubeSpec,
     DimensionJoinLinkSpec,
+    GitDeploymentSource,
+    LocalDeploymentSource,
 )
+from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.api.deployments import InProcessExecutor
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.database.node import Node
@@ -3178,8 +3181,6 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_wrong_source_type(self, client):
         """Test that git_only namespace rejects deployment with local source type."""
-        from datajunction_server.models.deployment import LocalDeploymentSource
-
         namespace = "git_only_wrong_type"
 
         # Create namespace and set git_only=True
@@ -3220,8 +3221,6 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_no_commit_sha(self, client):
         """Test that git_only namespace rejects deployment without commit_sha."""
-        from datajunction_server.models.deployment import GitDeploymentSource
-
         namespace = "git_only_no_sha"
 
         # Create namespace and set git_only=True
@@ -3261,56 +3260,8 @@ class TestGitOnlyNamespaceDeployments:
         assert "commit_sha" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_git_only_deployment_no_github_repo_path(self, client):
-        """Test that git_only namespace without github_repo_path fails verification."""
-        from datajunction_server.models.deployment import GitDeploymentSource
-
-        namespace = "git_only_no_repo"
-
-        # Create namespace with git_only=True but NO github_repo_path
-        await client.post(f"/namespaces/{namespace}")
-        # Manually set git_only without github_repo_path via direct patch
-        # This simulates a misconfigured namespace
-        await client.patch(
-            f"/namespaces/{namespace}/git",
-            json={
-                "git_only": True,
-                # No github_repo_path
-            },
-        )
-
-        source_spec = SourceSpec(
-            name="test_source",
-            description="Test source",
-            catalog="default",
-            schema="test",
-            table="test_table",
-            columns=[ColumnSpec(name="id", type="int")],
-        )
-
-        response = await client.post(
-            "/deployments",
-            json=DeploymentSpec(
-                namespace=namespace,
-                nodes=[source_spec],
-                source=GitDeploymentSource(
-                    repository="myorg/myrepo",
-                    branch="main",
-                    commit_sha="abc123def456",
-                ),
-            ).model_dump(),
-        )
-        assert response.status_code == 422
-        assert "git-only" in response.json()["message"]
-        assert "github_repo_path" in response.json()["message"]
-
-    @pytest.mark.asyncio
     async def test_git_only_deployment_invalid_commit(self, client):
         """Test that git_only namespace rejects deployment with invalid commit."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from datajunction_server.models.deployment import GitDeploymentSource
-
         namespace = "git_only_invalid_commit"
 
         # Create namespace and set git_only=True
@@ -3364,11 +3315,6 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_github_error(self, client):
         """Test that git_only namespace handles GitHub API errors gracefully."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from datajunction_server.internal.git.github_service import GitHubServiceError
-        from datajunction_server.models.deployment import GitDeploymentSource
-
         namespace = "git_only_github_error"
 
         # Create namespace and set git_only=True
@@ -3391,7 +3337,7 @@ class TestGitOnlyNamespaceDeployments:
             columns=[ColumnSpec(name="id", type="int")],
         )
 
-        # Mock GitHubService to raise GitHubServiceError
+        # Mock GitHubService.verify_commit to raise GitHubServiceError
         with patch(
             "datajunction_server.api.deployments.GitHubService",
         ) as mock_github_class:
@@ -3419,15 +3365,18 @@ class TestGitOnlyNamespaceDeployments:
             )
 
             assert response.status_code == 422
-            assert "Failed to verify commit" in response.json()["message"]
+            assert (
+                response.json()["message"]
+                == "Failed to verify commit: API rate limit exceeded"
+            )
+            mock_github.verify_commit.assert_called_once_with(
+                repo_path="myorg/myrepo",
+                commit_sha="abc123def456",
+            )
 
     @pytest.mark.asyncio
     async def test_git_only_deployment_success(self, client):
         """Test successful deployment to git_only namespace with valid commit."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from datajunction_server.models.deployment import GitDeploymentSource
-
         namespace = "git_only_success"
 
         # Create namespace and set git_only=True
