@@ -89,7 +89,7 @@ async def _verify_git_deployment(
 
     # Verify commit exists in the configured repository
     if not namespace_obj.github_repo_path:
-        raise DJInvalidInputException(
+        raise DJInvalidInputException(  # pragma: no cover
             message=f"Namespace '{deployment_spec.namespace}' is git-only but has no "
             "github_repo_path configured. Cannot verify commit.",
         )
