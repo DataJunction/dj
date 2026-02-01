@@ -45,6 +45,10 @@ from datajunction_server.internal.namespaces import (
     get_node_specs_for_export,
     _get_yaml_dumper,
     node_spec_to_yaml,
+    detect_parent_cycle,
+    validate_sibling_relationship,
+    validate_git_path,
+    validate_git_only,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -657,6 +661,13 @@ async def update_namespace_git_config(
         if config.parent_namespace is not None
         else node_namespace.parent_namespace
     )
+    new_git_only = (
+        config.git_only if config.git_only is not None else node_namespace.git_only
+    )
+
+    # Early validations (independent of parent relationship)
+    validate_git_path(new_path)
+    validate_git_only(new_git_only, new_repo, new_branch)
 
     # Validate parent_namespace if provided
     if new_parent:
@@ -676,6 +687,12 @@ async def update_namespace_git_config(
             raise DJInvalidInputException(
                 message=f"Parent namespace '{new_parent}' does not exist.",
             )
+
+        # Validate sibling relationship (same prefix)
+        validate_sibling_relationship(namespace, new_parent)
+
+        # Detect circular parent references
+        await detect_parent_cycle(session, namespace, new_parent)
 
         # Check repo matches parent (required for PR creation to work)
         if new_repo and parent_ns_obj.github_repo_path:

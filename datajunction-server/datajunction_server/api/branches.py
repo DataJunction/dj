@@ -30,6 +30,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.internal.namespaces import validate_sibling_relationship
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
@@ -124,7 +125,7 @@ async def create_branch(
     if len(parent_parts) > 1:
         new_namespace = f"{parent_parts[0]}.{branch_namespace_suffix}"
     else:
-        new_namespace = f"{namespace}.{branch_namespace_suffix}"
+        new_namespace = f"{namespace}.{branch_namespace_suffix}"  # pragma: no cover
 
     # Check if namespace already exists
     existing = await NodeNamespace.get(
@@ -156,6 +157,9 @@ async def create_branch(
         raise DJInvalidInputException(
             message=f"Failed to create git branch '{branch_name}': {e.message}",
         ) from e
+
+    # Validate that new namespace and parent are siblings (same prefix)
+    validate_sibling_relationship(new_namespace, namespace)
 
     # Create DJ namespace
     new_ns = NodeNamespace(

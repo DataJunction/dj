@@ -1155,3 +1155,117 @@ def node_spec_to_yaml(node_spec) -> str:
         logger.warning("yamlfix failed to format YAML: %s", e)
 
     return yaml_content
+
+
+# Git configuration validation helpers
+
+
+def validate_sibling_relationship(
+    child_namespace: str,
+    parent_namespace: str,
+) -> None:
+    """
+    Ensure parent and child are siblings (share same prefix).
+
+    This enforces that branch namespaces must be under the same project.
+    For example, demo.feature can have parent demo.main, but not team.main.
+    """
+
+    def get_prefix(ns: str) -> str:
+        return ns.rsplit(".", 1)[0] if "." in ns else ""
+
+    child_prefix = get_prefix(child_namespace)
+    parent_prefix = get_prefix(parent_namespace)
+
+    if child_prefix != parent_prefix:
+        raise DJInvalidInputException(
+            message=(
+                f"Namespace '{child_namespace}' (prefix: '{child_prefix}') "
+                f"cannot have parent '{parent_namespace}' (prefix: '{parent_prefix}'). "
+                f"Branch namespaces must be siblings under the same project. "
+                f"Expected parent to have prefix '{child_prefix}'."
+            ),
+        )
+
+
+async def detect_parent_cycle(
+    session: AsyncSession,
+    child_namespace: str,
+    new_parent: str,
+    max_depth: int = 50,
+) -> None:
+    """
+    Detect cycles in parent_namespace relationships.
+
+    Prevents circular dependencies like: A -> B -> C -> A
+    """
+    visited = [child_namespace]
+    visited_set = {child_namespace}
+    current = new_parent
+    depth = 0
+
+    while current and depth < max_depth:
+        if current in visited_set:
+            raise DJInvalidInputException(
+                message=f"Circular parent reference detected: {' -> '.join(visited)} -> {current}",
+            )
+
+        visited.append(current)
+        visited_set.add(current)
+
+        # Fetch parent of current
+        stmt = select(NodeNamespace.parent_namespace).where(
+            NodeNamespace.namespace == current,
+        )
+        result = await session.execute(stmt)
+        current = result.scalar_one_or_none()
+        depth += 1
+
+    if depth >= max_depth:
+        raise DJInvalidInputException(
+            message=f"Parent chain exceeds maximum depth of {max_depth}",
+        )
+
+
+def validate_git_path(git_path: Optional[str]) -> None:
+    """
+    Ensure git_path doesn't escape repository boundaries.
+
+    Blocks path traversal attacks (..) and absolute paths (/).
+    """
+    if not git_path:
+        return
+
+    # Normalize path
+    normalized = git_path.strip()
+
+    # Block path traversal
+    if ".." in normalized:
+        raise DJInvalidInputException(
+            message="git_path cannot contain '..' (path traversal)",
+        )
+
+    # Block absolute paths
+    if normalized.startswith("/"):
+        raise DJInvalidInputException(
+            message="git_path must be a relative path (cannot start with '/')",
+        )
+
+
+def validate_git_only(
+    git_only: bool,
+    github_repo_path: Optional[str],
+    git_branch: Optional[str],
+) -> None:
+    """
+    Ensure git_only namespaces have git configuration.
+
+    A git_only namespace blocks UI edits, so it must have a git source.
+    """
+    if git_only and (not github_repo_path or not git_branch):
+        raise DJInvalidInputException(
+            message=(
+                "Cannot enable git_only without git configuration. "
+                "Set github_repo_path and git_branch first."
+            ),
+        )

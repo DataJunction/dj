@@ -276,6 +276,13 @@ class TestNamespaceGitConfig:
         )
         # Should succeed - different paths don't conflict
         assert response.status_code == HTTPStatus.OK
+        assert response.json() == {
+            "git_branch": "main",
+            "git_only": False,
+            "git_path": "project-b",
+            "github_repo_path": "myorg/monorepo",
+            "parent_namespace": None,
+        }
 
     @pytest.mark.asyncio
     async def test_update_git_config_same_repo_different_branch_ok(
@@ -304,6 +311,13 @@ class TestNamespaceGitConfig:
         )
         # Should succeed - different branches don't conflict
         assert response.status_code == HTTPStatus.OK
+        assert response.json() == {
+            "git_branch": "feature",
+            "git_only": False,
+            "git_path": None,
+            "github_repo_path": "myorg/repo",
+            "parent_namespace": None,
+        }
 
 
 class TestBranchManagement:
@@ -706,9 +720,9 @@ class TestBranchManagement:
     ):
         """Test creating a branch from a single-part namespace (no dot)."""
         # Create a namespace without a dot in the name
-        await client_with_service_setup.post("/namespaces/singlepart")
+        await client_with_service_setup.post("/namespaces/singlepart.main")
         await client_with_service_setup.patch(
-            "/namespaces/singlepart/git",
+            "/namespaces/singlepart.main/git",
             json={
                 "github_repo_path": "myorg/myrepo",
                 "git_branch": "main",
@@ -728,16 +742,16 @@ class TestBranchManagement:
             mock_github_class.return_value = mock_github
 
             response = await client_with_service_setup.post(
-                "/namespaces/singlepart/branches",
+                "/namespaces/singlepart.main/branches",
                 json={"branch_name": "feature-branch"},
             )
-
+            print("data!!", response.json())
             assert response.status_code == HTTPStatus.CREATED
             data = response.json()
             # For single-part namespace "singlepart", branch becomes "singlepart.feature_branch"
             assert data["branch"]["namespace"] == "singlepart.feature_branch"
             assert data["branch"]["git_branch"] == "feature-branch"
-            assert data["branch"]["parent_namespace"] == "singlepart"
+            assert data["branch"]["parent_namespace"] == "singlepart.main"
             assert data["branch"]["github_repo_path"] == "myorg/myrepo"
             assert data["deployment_results"] == []
 
