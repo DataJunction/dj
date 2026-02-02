@@ -39,6 +39,7 @@ from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJConfigurationException,
+    DJDoesNotExistException,
     DJInvalidInputException,
     ErrorCode,
 )
@@ -68,6 +69,12 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
     upsert_complex_dimension_link,
+)
+from datajunction_server.internal.source_metadata import (
+    get_partition_metadata_range,
+    get_source_table_metadata,
+    upsert_partition_metadata,
+    upsert_source_table_metadata,
 )
 from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.models import access
@@ -102,6 +109,11 @@ from datajunction_server.models.partition import (
     Granularity,
     PartitionInput,
     PartitionType,
+)
+from datajunction_server.models.source_metadata import (
+    PartitionMetadataOutput,
+    SourceTableMetadataInput,
+    SourceTableMetadataOutput,
 )
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
@@ -1575,3 +1587,153 @@ async def copy_node(
     await copy_to_new_node(session, node_name, new_name, current_user, save_history)
     new_node = await Node.get_by_name(session, new_name)
     return new_node  # type: ignore
+
+
+@router.post(
+    "/nodes/{name}/table-metadata",
+    response_model=SourceTableMetadataOutput,
+    status_code=HTTPStatus.OK,
+    name="Set Source Table Metadata",
+)
+async def set_source_table_metadata(
+    name: str,
+    metadata: SourceTableMetadataInput,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> SourceTableMetadataOutput:
+    """
+    Set source table metadata including size, freshness, and partition ranges.
+
+    This endpoint is typically called by the scheduled workflow that queries
+    Iceberg __files metadata tables and kragle/metacat. It upserts table-level
+    metadata and optionally per-partition statistics.
+
+    Only source nodes can have table metadata. The metadata enables:
+    - Safe query execution with cost warnings
+    - Smart materialization defaults with cost estimates
+    - Data freshness monitoring
+    - Partition validation before incremental materialization
+    """
+    # Get the node and verify it's a source node
+    node = await get_node_by_name(session, name, raise_if_not_exists=True)
+
+    # Check write access to the node
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    if node.type != NodeType.SOURCE:
+        raise DJInvalidInputException(
+            message=f"Only source nodes can have table metadata. "
+            f"Node {name} is of type {node.type}",
+        )
+
+    # Upsert table-level metadata
+    table_metadata = await upsert_source_table_metadata(
+        session=session,
+        node_id=node.id,
+        metadata=metadata,
+    )
+
+    # Upsert partition-level metadata if provided
+    if metadata.partition_stats:
+        await upsert_partition_metadata(
+            session=session,
+            source_table_metadata_id=table_metadata.id,
+            partition_stats=metadata.partition_stats,
+        )
+
+    await session.commit()
+    await session.refresh(table_metadata)
+    return SourceTableMetadataOutput.model_validate(table_metadata)
+
+
+@router.get(
+    "/nodes/{name}/table-metadata",
+    response_model=SourceTableMetadataOutput,
+    name="Get Source Table Metadata",
+)
+async def get_node_table_metadata(
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> SourceTableMetadataOutput:
+    """
+    Get source table metadata including size, freshness, and partition ranges.
+
+    Returns table-level aggregates such as total size, row count, partition
+    ranges, and data freshness information.
+    """
+    # Get the node
+    node = await get_node_by_name(session, name, raise_if_not_exists=True)
+
+    # Check read access to the node
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Get the metadata
+    table_metadata = await get_source_table_metadata(session, node.id)
+
+    if not table_metadata:
+        raise DJDoesNotExistException(
+            message=f"No table metadata found for node {name}. "
+            f"Metadata is populated by the scheduled workflow.",
+        )
+
+    return SourceTableMetadataOutput.model_validate(table_metadata)
+
+
+@router.get(
+    "/nodes/{name}/partition-metadata",
+    response_model=List[PartitionMetadataOutput],
+    name="Get Partition Metadata",
+)
+async def get_node_partition_metadata(
+    name: str,
+    *,
+    from_partition: Optional[str] = Query(
+        None,
+        description="Start of partition range (inclusive, e.g., '20260101')",
+    ),
+    to_partition: Optional[str] = Query(
+        None,
+        description="End of partition range (inclusive, e.g., '20260131')",
+    ),
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> List[PartitionMetadataOutput]:
+    """
+    Get per-partition metadata including size and row count.
+
+    Returns statistics for individual partitions (last 90 days only) to enable
+    cost estimation and partition-level analysis. Results are ordered by
+    partition value descending (most recent first).
+    """
+    # Get the node
+    node = await get_node_by_name(session, name, raise_if_not_exists=True)
+
+    # Check read access to the node
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # Get table metadata to find the source_table_metadata_id
+    table_metadata = await get_source_table_metadata(session, node.id)
+
+    if not table_metadata:
+        raise DJDoesNotExistException(
+            message=f"No table metadata found for node {name}. "
+            f"Metadata is populated by the scheduled workflow.",
+        )
+
+    # Get partition metadata in the specified range
+    partition_metadata_list = await get_partition_metadata_range(
+        session=session,
+        source_table_metadata_id=table_metadata.id,
+        from_partition=from_partition,
+        to_partition=to_partition,
+    )
+
+    return [
+        PartitionMetadataOutput.model_validate(pm) for pm in partition_metadata_list
+    ]
