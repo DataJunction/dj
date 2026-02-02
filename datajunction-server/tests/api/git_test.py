@@ -930,6 +930,284 @@ class TestBranchManagement:
         )
         assert response.status_code == HTTPStatus.NOT_FOUND
 
+    @pytest.mark.asyncio
+    async def test_create_branch_git_fails_namespace_succeeds(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that namespace gets cleaned up when git branch creation fails."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_service_setup.post("/namespaces/cleanup_test.main")
+        await client_with_service_setup.patch(
+            "/namespaces/cleanup_test.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            # Mock git branch creation to fail
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Git API error",
+                    http_status_code=500,
+                    github_status=500,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/cleanup_test.main/branches",
+                json={"branch_name": "test-branch"},
+            )
+
+            # Should fail
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert (
+                response.json()["message"]
+                == "Failed to create git branch 'test-branch': Git API error"
+            )
+
+        # Verify namespace was cleaned up (should not exist)
+        response = await client_with_service_setup.get(
+            "/namespaces/cleanup_test.test_branch/",
+        )
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_create_branch_namespace_fails_git_succeeds(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that git branch gets cleaned up when namespace creation fails."""
+        await client_with_service_setup.post("/namespaces/db_fail.main")
+        await client_with_service_setup.patch(
+            "/namespaces/db_fail.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.api.branches.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.branches.copy_nodes_to_namespace",
+            ) as mock_copy,
+        ):
+            # Mock git branch creation to succeed
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/fail-branch",
+                    "object": {"sha": "abc123"},
+                },
+            )
+            mock_github.delete_branch = AsyncMock()
+            mock_github_class.return_value = mock_github
+
+            # Mock node copy to fail
+            mock_copy.side_effect = Exception("Database error during copy")
+
+            response = await client_with_service_setup.post(
+                "/namespaces/db_fail.main/branches",
+                json={"branch_name": "fail-branch"},
+            )
+
+            # Should fail
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert response.json()["message"] == (
+                "Failed to create namespace 'db_fail.fail_branch': Database error during copy"
+            )
+
+            # Verify git cleanup was called
+            mock_github.delete_branch.assert_called_once_with(
+                repo_path="myorg/myrepo",
+                branch="fail-branch",
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_branch_both_operations_fail(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test handling when both git and namespace operations fail."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_service_setup.post("/namespaces/both_fail.main")
+        await client_with_service_setup.patch(
+            "/namespaces/both_fail.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.api.branches.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.branches.copy_nodes_to_namespace",
+            ) as mock_copy,
+        ):
+            # Mock git to fail
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Git error",
+                    http_status_code=500,
+                    github_status=500,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            # Mock namespace to fail
+            mock_copy.side_effect = Exception("DB error")
+
+            response = await client_with_service_setup.post(
+                "/namespaces/both_fail.main/branches",
+                json={"branch_name": "fail-both"},
+            )
+
+            # Should fail with error mentioning both
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            message = response.json()["message"]
+            assert (
+                message
+                == "Failed to create branch: Git error: Git error, Namespace error: DB error"
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_branch_cleanup_git_fails_gracefully(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that git cleanup failure is logged but doesn't crash."""
+        await client_with_service_setup.post("/namespaces/git_cleanup.main")
+        await client_with_service_setup.patch(
+            "/namespaces/git_cleanup.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.api.branches.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.branches.copy_nodes_to_namespace",
+            ) as mock_copy,
+        ):
+            # Mock git to succeed
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/test",
+                    "object": {"sha": "abc"},
+                },
+            )
+            # Mock git delete to fail during cleanup
+            mock_github.delete_branch = AsyncMock(
+                side_effect=Exception("Delete failed"),
+            )
+            mock_github_class.return_value = mock_github
+
+            # Mock namespace copy to fail
+            mock_copy.side_effect = Exception("Copy failed")
+
+            response = await client_with_service_setup.post(
+                "/namespaces/git_cleanup.main/branches",
+                json={"branch_name": "test"},
+            )
+
+            # Should still return error, but cleanup failure is logged
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            # Verify cleanup was attempted
+            mock_github.delete_branch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_branch_cleanup_namespace_fails_gracefully(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that namespace cleanup failure is logged but doesn't crash."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_service_setup.post("/namespaces/ns_cleanup.main")
+        await client_with_service_setup.patch(
+            "/namespaces/ns_cleanup.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create some nodes in parent namespace that will be copied
+        await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "ns_cleanup.main.source1",
+                "catalog": "public",
+                "schema_": "test",
+                "table": "foo",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+        await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "ns_cleanup.main.source2",
+                "catalog": "public",
+                "schema_": "test",
+                "table": "bar",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.api.branches.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.branches._cleanup_namespace_and_nodes",
+            ) as mock_cleanup,
+        ):
+            # Mock git to fail
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Git failed",
+                    http_status_code=500,
+                    github_status=500,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/ns_cleanup.main/branches",
+                json={"branch_name": "test"},
+            )
+
+            # Should still return original error (git failure), not cleanup error
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert (
+                response.json()["message"]
+                == "Failed to create git branch 'test': Git failed"
+            )
+
+            # Verify cleanup was attempted
+            mock_cleanup.assert_called_once()
+
 
 class TestGitSync:
     """Tests for git sync endpoints."""

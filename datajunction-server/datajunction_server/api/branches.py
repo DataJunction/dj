@@ -157,7 +157,7 @@ async def _cleanup_namespace_and_nodes(
 
         # Delete namespace
         ns = await NodeNamespace.get(session, namespace, raise_if_not_exists=False)
-        if ns:
+        if ns:  # pragma: no branch
             await session.delete(ns)
 
         await session.commit()
@@ -166,7 +166,7 @@ async def _cleanup_namespace_and_nodes(
             namespace,
             len(nodes_to_delete),
         )
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         _logger.warning(
             "Failed to cleanup namespace '%s': %s (may need manual cleanup)",
             namespace,
