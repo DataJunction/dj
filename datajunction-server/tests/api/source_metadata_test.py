@@ -2,6 +2,7 @@
 Tests for source table metadata API endpoints.
 """
 
+from http import HTTPStatus
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -214,7 +215,7 @@ class TestSetSourceTableMetadata:
             f"/sources/{transform_node.name}/table-metadata",
             json=metadata_input,
         )
-        assert response.status_code == 400
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         data = response.json()
         assert "Only source nodes can have table metadata" in data["message"]
         assert "transform" in data["message"].lower()
@@ -559,7 +560,7 @@ class TestUpsertPartitionMetadata:
                 ],
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         data = response.json()
         assert "Only source nodes can have partition metadata" in data["message"]
 
@@ -964,7 +965,7 @@ class TestDeletePartitionMetadata:
         response = await client.delete(
             f"/sources/{transform_node.name}/partition-metadata",
         )
-        assert response.status_code == 400
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
     async def test_table_metadata_not_found(
         self,
