@@ -71,6 +71,7 @@ from datajunction_server.internal.nodes import (
     upsert_complex_dimension_link,
 )
 from datajunction_server.internal.source_metadata import (
+    delete_partition_metadata_range,
     get_partition_metadata_range,
     get_source_table_metadata,
     upsert_partition_metadata,
@@ -112,6 +113,7 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.models.source_metadata import (
     PartitionMetadataOutput,
+    PartitionMetadataUpsertInput,
     SourceTableMetadataInput,
     SourceTableMetadataOutput,
 )
@@ -1590,7 +1592,7 @@ async def copy_node(
 
 
 @router.post(
-    "/nodes/{name}/table-metadata",
+    "/sources/{name}/table-metadata",
     response_model=SourceTableMetadataOutput,
     status_code=HTTPStatus.OK,
     name="Set Source Table Metadata",
@@ -1605,9 +1607,9 @@ async def set_source_table_metadata(
     """
     Set source table metadata including size, freshness, and partition ranges.
 
-    This endpoint is typically called by the scheduled workflow that queries
-    Iceberg __files metadata tables and kragle/metacat. It upserts table-level
-    metadata and optionally per-partition statistics.
+    This endpoint is typically called by metadata collection systems that gather
+    statistics from external data catalogs or metadata stores. It upserts table-level
+    aggregates such as total size, row count, and partition ranges.
 
     Only source nodes can have table metadata. The metadata enables:
     - Safe query execution with cost warnings
@@ -1635,25 +1637,17 @@ async def set_source_table_metadata(
         metadata=metadata,
     )
 
-    # Upsert partition-level metadata if provided
-    if metadata.partition_stats:
-        await upsert_partition_metadata(
-            session=session,
-            source_table_metadata_id=table_metadata.id,
-            partition_stats=metadata.partition_stats,
-        )
-
     await session.commit()
     await session.refresh(table_metadata)
     return SourceTableMetadataOutput.model_validate(table_metadata)
 
 
 @router.get(
-    "/nodes/{name}/table-metadata",
+    "/sources/{name}/table-metadata",
     response_model=SourceTableMetadataOutput,
     name="Get Source Table Metadata",
 )
-async def get_node_table_metadata(
+async def get_source_table_metadata_endpoint(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
@@ -1678,18 +1672,78 @@ async def get_node_table_metadata(
     if not table_metadata:
         raise DJDoesNotExistException(
             message=f"No table metadata found for node {name}. "
-            f"Metadata is populated by the scheduled workflow.",
+            f"Metadata is populated by metadata collection systems.",
         )
 
     return SourceTableMetadataOutput.model_validate(table_metadata)
 
 
+@router.post(
+    "/sources/{name}/partition-metadata",
+    status_code=HTTPStatus.CREATED,
+    name="Upsert Partition Metadata",
+)
+async def upsert_source_partition_metadata(
+    name: str,
+    data: PartitionMetadataUpsertInput,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> JSONResponse:
+    """
+    Upsert per-partition metadata including size and row count.
+
+    Performs per-partition upserts: if a partition already exists, updates its
+    size_bytes, row_count, and updated_at. If not, inserts a new record.
+
+    This supports incremental updates (only send new/changed partitions) and
+    full refreshes (send all partitions). There is no automatic deletion of
+    old partitions - use the DELETE endpoint to clean up old data.
+    """
+    # Get the node and verify it's a source node
+    node = await get_node_by_name(session, name, raise_if_not_exists=True)
+
+    # Check write access to the node
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    if node.type != NodeType.SOURCE:
+        raise DJInvalidInputException(
+            message=f"Only source nodes can have partition metadata. "
+            f"Node {name} is of type {node.type}",
+        )
+
+    # Get or create table metadata
+    table_metadata = await get_source_table_metadata(session, node.id)
+    if not table_metadata:
+        raise DJDoesNotExistException(
+            message=f"No table metadata found for node {name}. "
+            f"Please set table metadata first using POST /sources/{name}/table-metadata",
+        )
+
+    # Upsert partition metadata
+    await upsert_partition_metadata(
+        session=session,
+        source_table_metadata_id=table_metadata.id,
+        partition_stats=data.partitions,
+    )
+
+    await session.commit()
+
+    return JSONResponse(
+        status_code=HTTPStatus.CREATED,
+        content={
+            "message": f"Upserted {len(data.partitions)} partition(s) for node {name}",
+        },
+    )
+
+
 @router.get(
-    "/nodes/{name}/partition-metadata",
+    "/sources/{name}/partition-metadata",
     response_model=List[PartitionMetadataOutput],
     name="Get Partition Metadata",
 )
-async def get_node_partition_metadata(
+async def get_source_partition_metadata(
     name: str,
     *,
     from_partition: Optional[str] = Query(
@@ -1706,9 +1760,11 @@ async def get_node_partition_metadata(
     """
     Get per-partition metadata including size and row count.
 
-    Returns statistics for individual partitions (last 90 days only) to enable
-    cost estimation and partition-level analysis. Results are ordered by
-    partition value descending (most recent first).
+    Returns statistics for individual partitions to enable cost estimation
+    and partition-level analysis. Results are ordered by partition value
+    descending (most recent first).
+
+    Optionally filter by partition range using from_partition and to_partition.
     """
     # Get the node
     node = await get_node_by_name(session, name, raise_if_not_exists=True)
@@ -1723,7 +1779,7 @@ async def get_node_partition_metadata(
     if not table_metadata:
         raise DJDoesNotExistException(
             message=f"No table metadata found for node {name}. "
-            f"Metadata is populated by the scheduled workflow.",
+            f"Metadata is populated by metadata collection systems.",
         )
 
     # Get partition metadata in the specified range
@@ -1737,3 +1793,65 @@ async def get_node_partition_metadata(
     return [
         PartitionMetadataOutput.model_validate(pm) for pm in partition_metadata_list
     ]
+
+
+@router.delete(
+    "/sources/{name}/partition-metadata",
+    name="Delete Partition Metadata",
+)
+async def delete_source_partition_metadata(
+    name: str,
+    *,
+    from_partition: Optional[str] = Query(
+        None,
+        description="Start of partition range to delete (inclusive, e.g., '20200101')",
+    ),
+    to_partition: Optional[str] = Query(
+        None,
+        description="End of partition range to delete (inclusive, e.g., '20201231')",
+    ),
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> JSONResponse:
+    """
+    Delete partition metadata in a date range.
+
+    Useful for cleaning up old partitions or removing stale data. If no range
+    is specified, deletes all partition metadata for the node.
+    """
+    # Get the node and verify it's a source node
+    node = await get_node_by_name(session, name, raise_if_not_exists=True)
+
+    # Check write access to the node
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    if node.type != NodeType.SOURCE:
+        raise DJInvalidInputException(
+            message=f"Only source nodes can have partition metadata. "
+            f"Node {name} is of type {node.type}",
+        )
+
+    # Get table metadata
+    table_metadata = await get_source_table_metadata(session, node.id)
+    if not table_metadata:
+        raise DJDoesNotExistException(
+            message=f"No table metadata found for node {name}.",
+        )
+
+    # Delete partition metadata in the specified range
+    deleted_count = await delete_partition_metadata_range(
+        session=session,
+        source_table_metadata_id=table_metadata.id,
+        from_partition=from_partition,
+        to_partition=to_partition,
+    )
+
+    await session.commit()
+
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={
+            "message": f"Deleted {deleted_count} partition(s) for node {name}",
+        },
+    )

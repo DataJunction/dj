@@ -9,10 +9,9 @@ from pydantic import BaseModel, Field
 from datajunction_server.typing import UTCDatetime
 
 
-class PartitionMetadataInput(BaseModel):
+class PartitionMetadataItem(BaseModel):
     """
-    Input model for per-partition statistics.
-    Used by scheduled workflow when posting metadata to DJ API.
+    A single partition's statistics.
     """
 
     partition_value: str = Field(
@@ -28,6 +27,18 @@ class PartitionMetadataInput(BaseModel):
         ...,
         description="Number of rows in partition",
         ge=0,
+    )
+
+
+class PartitionMetadataUpsertInput(BaseModel):
+    """
+    Input model for upserting partition metadata.
+    Used by metadata collection systems when posting partition statistics to DJ API.
+    """
+
+    partitions: List[PartitionMetadataItem] = Field(
+        ...,
+        description="List of partition statistics to upsert",
     )
 
 
@@ -59,7 +70,7 @@ class PartitionMetadataOutput(BaseModel):
 class SourceTableMetadataInput(BaseModel):
     """
     Input model for source table metadata.
-    Used by scheduled workflow when posting metadata to DJ API.
+    Used by metadata collection systems when posting table-level statistics to DJ API.
     """
 
     total_size_bytes: int = Field(
@@ -87,16 +98,12 @@ class SourceTableMetadataInput(BaseModel):
     )
     freshness_timestamp: Optional[int] = Field(
         None,
-        description="Unix timestamp indicating data freshness (from kragle metadata)",
+        description="Unix timestamp indicating data freshness from external metadata sources",
     )
     ttl_days: Optional[int] = Field(
         None,
         description="Time-to-live in days (data retention period)",
         ge=0,
-    )
-    partition_stats: Optional[List[PartitionMetadataInput]] = Field(
-        None,
-        description="Per-partition statistics (last 90 days only)",
     )
 
 
@@ -127,7 +134,7 @@ class SourceTableMetadataOutput(BaseModel):
     )
     freshness_timestamp: Optional[int] = Field(
         None,
-        description="Unix timestamp indicating data freshness (from kragle metadata)",
+        description="Unix timestamp indicating data freshness from external metadata sources",
     )
     ttl_days: Optional[int] = Field(
         None,

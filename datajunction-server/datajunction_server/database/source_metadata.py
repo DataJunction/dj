@@ -17,8 +17,8 @@ class SourceTableMetadata(Base):
     Metadata about upstream source tables.
 
     Stores table-level aggregates including size, row count, partition ranges,
-    and freshness information. Updated by scheduled workflow that queries
-    Iceberg __files metadata tables and kragle/metacat.
+    and freshness information. Updated by metadata collection systems that
+    gather statistics from external data catalogs and metadata stores.
     """
 
     __tablename__ = "sourcetablemetadata"
@@ -56,12 +56,12 @@ class SourceTableMetadata(Base):
     latest_partition_value: Mapped[Optional[str]] = mapped_column(nullable=True)
 
     # Freshness and retention
-    # Unix timestamp from kragle userMetadata.data_dependency.valid_thru_utc_ts
+    # Unix timestamp indicating data freshness from external metadata sources
     freshness_timestamp: Mapped[Optional[int]] = mapped_column(
         sa.BigInteger(),
         nullable=True,
     )
-    # TTL in days from kragle userMetadata.lifetime.days
+    # TTL in days (data retention period from external metadata sources)
     ttl_days: Mapped[Optional[int]] = mapped_column(nullable=True)
 
     updated_at: Mapped[UTCDatetime] = mapped_column(
@@ -77,9 +77,9 @@ class SourcePartitionMetadata(Base):
     """
     Per-partition size and row count data for source tables.
 
-    Stores statistics for individual partitions (last 90 days only) to enable
-    cost estimation and partition-level analysis. Queried from Iceberg __files
-    metadata tables.
+    Stores statistics for individual partitions to enable cost estimation
+    and partition-level analysis. Populated by metadata collection systems
+    that gather statistics from external data catalogs and metadata stores.
     """
 
     __tablename__ = "sourcepartitionmetadata"
