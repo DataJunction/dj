@@ -18,7 +18,7 @@ This section walks through a typical setup where your production namespace is li
 
 ### 1. Configure Your Production Namespace
 
-Link your production namespace (e.g., `demo.metrics.main`) to your Git repository's `main` branch with **git-only** enabled. This makes the namespace read-only—all changes must flow through Git.
+Link your production namespace (e.g., `demo.metrics.main`) to your Git repository's `main` branch with **git-only** enabled. This makes the namespace read-only -- all changes must flow through Git.
 
 | Setting | Value |
 |---------|-------|
@@ -27,7 +27,7 @@ Link your production namespace (e.g., `demo.metrics.main`) to your Git repositor
 | Path | `nodes/` |
 | Git-only | `true` |
 
-With this configuration, direct UI edits on `main` are prohibited. Changes can only be deployed by merging commits to the `main` branch.
+With this configuration, direct UI edits on the `demo.metrics.main` namespace are prohibited. Changes can only be deployed by merging commits to the `main` branch in the `myorg/dj-definitions` repository.
 
 ### 2. Create a Branch to Make Changes
 
@@ -50,7 +50,7 @@ In your new branch namespace, you can freely:
 - Delete nodes
 - Test queries against your changes
 
-All changes are isolated to this branch—your production namespace is unaffected.
+All changes are isolated to this branch -- your production namespace is unaffected.
 
 ### 4. Commit and Create a PR
 
@@ -68,51 +68,6 @@ Complete the deployment cycle:
 2. Merge the PR to `main`
 3. Your changes are automatically deployed to the production namespace
 4. Delete the branch namespace when done
-
-## Namespace-to-Git Mapping
-
-A namespace's Git configuration consists of:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| Repository | GitHub repo in `owner/repo` format | `myorg/dj-definitions` |
-| Branch | Git branch for this namespace | `main` |
-| Path | Directory within the repo for YAML files | `nodes/` |
-| Git-only | Whether UI editing is disabled | `true` / `false` |
-
-Multiple namespaces can point to the same repository but different branches:
-
-```
-demo.metrics.main     → myorg/dj-definitions (main)     [git-only: true]
-demo.metrics.staging  → myorg/dj-definitions (staging)  [git-only: true]
-demo.metrics.feature  → myorg/dj-definitions (feature)  [git-only: false]
-```
-
-## Configuring Git for a Namespace
-
-### Via the UI
-
-1. Navigate to any namespace page
-2. Click the **Configure Git** button in the namespace header
-3. Fill in the configuration:
-   - **Repository**: `owner/repo` format (e.g., `myorg/dj-definitions`)
-   - **Branch**: The Git branch for this namespace (e.g., `main`)
-   - **Path**: Subdirectory for YAML files (e.g., `nodes/`)
-   - **Git-only**: Enable to prevent UI edits (recommended for production)
-4. Click **Save Settings**
-
-### Via the API
-
-```bash
-curl -X PATCH "https://your-dj-server/namespaces/demo.metrics.main/git" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "github_repo_path": "myorg/dj-definitions",
-    "git_branch": "main",
-    "git_path": "nodes/",
-    "git_only": true
-  }'
-```
 
 ## CI/CD Integration
 
@@ -155,15 +110,15 @@ jobs:
 
 ## Best Practices
 
-1. **Use git-only for production**: Prevent accidental UI changes to production namespaces
+1. Use git-only for production to prevent accidental UI changes to production namespaces
 
-2. **Branch for features**: Create branch namespaces for changes rather than editing production directly
+2. Create branch namespaces for changes rather than editing production directly
 
-3. **Consistent paths**: Use the same `git_path` (e.g., `nodes/`) across namespaces pointing to the same repo
+3. Use the same `git_path` (e.g., `nodes/`) across namespaces pointing to the same repo
 
-4. **Review before merge**: Leverage PR reviews to catch issues before they reach production
+4. Leverage PR reviews to catch issues before they reach production
 
-5. **Automate deployments**: Use CI/CD to ensure consistent, repeatable deployments
+5. Automate deployments with CI/CD to ensure consistent, repeatable deployments
 
 ## Server Setup
 
