@@ -3,7 +3,7 @@ weight: 3
 title: "Git Integration"
 ---
 
-DJ provides full Git integration for managing your node definitions. Link a namespace to a repository, then create branches, commit changes, open pull requests, and merge—all from the DJ interface.
+DJ provides full Git integration for managing your node definitions. Link a namespace to a repository, then create branches, commit changes, open pull requests, and merge—all from the DJ UI.
 
 ## Overview
 
@@ -12,16 +12,66 @@ Link any namespace to a Git repository to enable version-controlled workflows. O
 - **Git as source of truth**: Make the namespace read-only so all changes must come from Git commits (recommended for production)
 - **UI-driven development**: Create branches, edit nodes in the UI, commit your changes, and open PRs to merge them back
 
-Key capabilities:
+## Recommended Workflow
 
-- **Version control** for all node definitions
-- **Code review** through pull requests
-- **CI/CD integration** for automated deployments
-- **Branch-based development** for isolated changes
+This section walks through a typical setup where your production namespace is linked to the `main` branch and protected from direct edits.
 
-### Namespace-to-Git Mapping
+### 1. Configure Your Production Namespace
 
-A namespace's git configuration consists of:
+Link your production namespace (e.g., `demo.metrics.main`) to your Git repository's `main` branch with **git-only** enabled. This makes the namespace read-only—all changes must flow through Git.
+
+| Setting | Value |
+|---------|-------|
+| Repository | `myorg/dj-definitions` |
+| Branch | `main` |
+| Path | `nodes/` |
+| Git-only | `true` |
+
+With this configuration, direct UI edits on `main` are prohibited. Changes can only be deployed by merging commits to the `main` branch.
+
+### 2. Create a Branch to Make Changes
+
+When you want to add or modify nodes:
+
+1. Navigate to your production namespace
+2. Click **Create Branch**
+3. Enter a branch name (e.g., `add-revenue-metrics`)
+
+This creates:
+- A new Git branch from `main`
+- A new DJ namespace (e.g., `demo.metrics.add_revenue_metrics`)
+- Copies of all nodes from the production namespace
+
+### 3. Make Changes in the Branch Namespace
+
+In your new branch namespace, you can freely:
+- Create new nodes
+- Edit existing nodes
+- Delete nodes
+- Test queries against your changes
+
+All changes are isolated to this branch—your production namespace is unaffected.
+
+### 4. Commit and Create a PR
+
+Once you're satisfied with your changes:
+
+1. Click **Commit** to push your changes to the Git branch
+2. Click **Create PR** to open a pull request against `main`
+3. Enter a title and description for your PR
+
+### 5. Review and Merge
+
+Complete the deployment cycle:
+
+1. Review the PR in GitHub (code review, CI checks, etc.)
+2. Merge the PR to `main`
+3. Your changes are automatically deployed to the production namespace
+4. Delete the branch namespace when done
+
+## Namespace-to-Git Mapping
+
+A namespace's Git configuration consists of:
 
 | Field | Description | Example |
 |-------|-------------|---------|
@@ -33,16 +83,10 @@ A namespace's git configuration consists of:
 Multiple namespaces can point to the same repository but different branches:
 
 ```
-analytics.prod  → myorg/dj-definitions (main)     [git-only: true]
-analytics.staging → myorg/dj-definitions (staging) [git-only: true]
-analytics.dev   → myorg/dj-definitions (dev)      [git-only: false]
+demo.metrics.main     → myorg/dj-definitions (main)     [git-only: true]
+demo.metrics.staging  → myorg/dj-definitions (staging)  [git-only: true]
+demo.metrics.feature  → myorg/dj-definitions (feature)  [git-only: false]
 ```
-
-## Prerequisites
-
-1. **GitHub Repository**: A repository to store your YAML node definitions
-2. **GitHub Token**: A personal access token or GitHub App token with repo access, configured in your DJ server
-3. **YAML Project Structure**: Node definitions in YAML format (see [YAML Projects](../yaml))
 
 ## Configuring Git for a Namespace
 
@@ -52,7 +96,7 @@ analytics.dev   → myorg/dj-definitions (dev)      [git-only: false]
 2. Click the **Configure Git** button in the namespace header
 3. Fill in the configuration:
    - **Repository**: `owner/repo` format (e.g., `myorg/dj-definitions`)
-   - **Branch**: The git branch for this namespace (e.g., `main`)
+   - **Branch**: The Git branch for this namespace (e.g., `main`)
    - **Path**: Subdirectory for YAML files (e.g., `nodes/`)
    - **Git-only**: Enable to prevent UI edits (recommended for production)
 4. Click **Save Settings**
@@ -60,7 +104,7 @@ analytics.dev   → myorg/dj-definitions (dev)      [git-only: false]
 ### Via the API
 
 ```bash
-curl -X PATCH "https://your-dj-server/namespaces/analytics.prod/git" \
+curl -X PATCH "https://your-dj-server/namespaces/demo.metrics.main/git" \
   -H "Content-Type: application/json" \
   -d '{
     "github_repo_path": "myorg/dj-definitions",
@@ -69,78 +113,6 @@ curl -X PATCH "https://your-dj-server/namespaces/analytics.prod/git" \
     "git_only": true
   }'
 ```
-
-## Git-only Mode
-
-When **git-only** is enabled for a namespace:
-
-- UI editing is disabled (no Edit buttons)
-- Node creation/modification must go through git
-- This is the recommended setting for production namespaces
-
-### Workflow
-
-1. **Edit YAML files** in your local repository
-2. **Create a pull request** for review
-3. **Merge** after approval
-4. **CI/CD deploys** changes using `dj push`
-
-This ensures all changes are reviewed and auditable.
-
-## Editable Mode with Git Sync
-
-When **git-only** is disabled, you can make changes through the UI and sync them to git:
-
-1. **Make changes** in the DJ UI (create/edit nodes)
-2. **Click "Sync to Git"** in the namespace header
-3. Enter a commit message describing your changes
-4. Changes are committed to the configured branch
-
-This mode is useful for:
-- Development and exploration
-- Quick iterations before formalizing in git
-- Teams transitioning to git-based workflows
-
-### Creating Pull Requests from the UI
-
-For branch namespaces (see below), you can create PRs directly from the UI:
-
-1. Make your changes in the branch namespace
-2. Click **Create PR** in the namespace header
-3. Enter a title and description
-4. The UI automatically syncs your changes and creates the PR
-
-## Branch-based Development
-
-Create isolated branch namespaces for developing new features or making significant changes. This gives you a complete sandbox: a new Git branch and a corresponding DJ namespace with copies of all nodes.
-
-### Creating a Branch
-
-1. Navigate to your main namespace (e.g., `analytics.prod`)
-2. Click **Create Branch**
-3. Enter a branch name (e.g., `feature-new-metrics`)
-
-This creates:
-- A new Git branch from the parent's branch
-- A new DJ namespace (e.g., `analytics.feature_new_metrics`)
-- Copies of all nodes from the parent namespace
-
-### Full Development Workflow
-
-From the DJ UI, you can complete the entire development cycle:
-
-1. **Create a branch** from your production namespace
-2. **Make changes** to nodes in the branch namespace
-3. **Commit and push** your changes
-4. **Create a PR**
-5. **Review and merge** the PR
-6. **Delete the branch** namespace when done
-
-### Deleting a Branch
-
-1. Navigate to the branch namespace
-2. Click **Delete Branch**
-3. Optionally delete the git branch as well
 
 ## CI/CD Integration
 
@@ -178,34 +150,14 @@ jobs:
           DJ_URL: ${{ secrets.DJ_URL }}
           DJ_TOKEN: ${{ secrets.DJ_TOKEN }}
         run: |
-          dj push ./nodes --namespace analytics.prod
-```
-
-### Environment-specific Deployments
-
-You can set up different workflows for different environments:
-
-```yaml
-# Deploy to staging on push to staging branch
-on:
-  push:
-    branches: [staging]
-# ...
-run: dj push ./nodes --namespace analytics.staging
-
-# Deploy to prod on push to main branch
-on:
-  push:
-    branches: [main]
-# ...
-run: dj push ./nodes --namespace analytics.prod
+          dj push ./nodes --namespace demo.metrics.main
 ```
 
 ## Best Practices
 
 1. **Use git-only for production**: Prevent accidental UI changes to production namespaces
 
-2. **Branch for features**: Create branch namespaces for significant changes rather than editing production directly
+2. **Branch for features**: Create branch namespaces for changes rather than editing production directly
 
 3. **Consistent paths**: Use the same `git_path` (e.g., `nodes/`) across namespaces pointing to the same repo
 
@@ -213,7 +165,12 @@ run: dj push ./nodes --namespace analytics.prod
 
 5. **Automate deployments**: Use CI/CD to ensure consistent, repeatable deployments
 
-6. **Backup with `dj pull`**: Periodically export your namespaces to ensure you have local backups:
-   ```bash
-   dj pull analytics.prod ./backups/prod-$(date +%Y%m%d)
-   ```
+## Server Setup
+
+This section covers prerequisites for administrators setting up Git integration.
+
+### Prerequisites
+
+1. **GitHub Repository**: A repository to store your YAML node definitions
+2. **GitHub Token**: A personal access token or GitHub App token with repo access, configured in your DJ server
+3. **YAML Project Structure**: Node definitions in YAML format (see [YAML Projects](../yaml))
