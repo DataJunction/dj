@@ -113,7 +113,7 @@ def upgrade():
 
     # Create composite index on source_table_metadata_id and partition_value
     op.create_index(
-        "idx_sourcepartitionmetadata_source_table_metadata_id_partition_value",
+        "idx_srcpartmeta_tblid_partval",
         "sourcepartitionmetadata",
         ["source_table_metadata_id", "partition_value"],
     )
@@ -122,7 +122,7 @@ def upgrade():
 def downgrade():
     # Drop indexes
     op.drop_index(
-        "idx_sourcepartitionmetadata_source_table_metadata_id_partition_value",
+        "idx_srcpartmeta_tblid_partval",
         "sourcepartitionmetadata",
     )
     op.drop_index(
