@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -29,13 +30,13 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.internal.git import GitHubService
+from datajunction_server.internal.git.github_service import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.namespaces import validate_sibling_relationship
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
-from datajunction_server.utils import get_current_user, get_session
+from datajunction_server.utils import SEPARATOR, get_current_user, get_session
 
 _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["branches"])
@@ -142,8 +143,6 @@ async def _cleanup_namespace_and_nodes(
 ) -> None:
     """Delete namespace and all its nodes (best effort)."""
     try:
-        from datajunction_server.database.node import Node
-
         # Delete all nodes
         nodes_query = select(Node).where(
             or_(
@@ -237,11 +236,13 @@ async def create_branch(
 
     # Construct new namespace name
     # If parent is "myproject.main", new namespace is "myproject.feature_x"
-    parent_parts = namespace.rsplit(".", 1)
+    parent_parts = namespace.rsplit(SEPARATOR, 1)
     if len(parent_parts) > 1:
-        new_namespace = f"{parent_parts[0]}.{branch_namespace_suffix}"
+        new_namespace = f"{parent_parts[0]}{SEPARATOR}{branch_namespace_suffix}"
     else:
-        new_namespace = f"{namespace}.{branch_namespace_suffix}"  # pragma: no cover
+        new_namespace = (
+            f"{namespace}{SEPARATOR}{branch_namespace_suffix}"  # pragma: no cover
+        )
 
     # Check if namespace already exists
     existing = await NodeNamespace.get(
