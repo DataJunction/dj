@@ -120,7 +120,7 @@ class SourcePartitionMetadata(Base):
 
     __table_args__ = (
         Index(
-            "idx_sourcepartitionmetadata_source_table_metadata_id_partition_value",
+            "idx_srcpartmeta_tblid_partval",
             "source_table_metadata_id",
             "partition_value",
         ),
