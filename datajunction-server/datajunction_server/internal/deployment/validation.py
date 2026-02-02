@@ -75,17 +75,17 @@ class NodeSpecBulkValidator:
         """
         Validate a list of node specifications.
 
-        For specs with pre-typed columns (e.g., from copying valid nodes),
+        For specs marked with _skip_validation (e.g., from branch copies),
         skips expensive SQL parsing and dependency extraction.
         """
-        # Separate specs that need full validation from those with pre-typed columns
+        # Separate specs that need full validation from those that can skip
         specs_needing_parse = []
-        specs_with_columns = []
+        specs_skip_validation = []
         spec_indices = []  # Track original indices
 
         for i, spec in enumerate(node_specs):
-            if self._spec_has_typed_columns(spec):
-                specs_with_columns.append((i, spec))
+            if spec._skip_validation:
+                specs_skip_validation.append((i, spec))
             else:
                 specs_needing_parse.append(spec)
                 spec_indices.append(i)
@@ -105,29 +105,19 @@ class NodeSpecBulkValidator:
         for idx, result in zip(spec_indices, parsed_validation_results):
             results[idx] = result
 
-        # Process specs with pre-typed columns (fast path)
-        for idx, spec in specs_with_columns:
-            results[idx] = self._validate_pretyped_node(spec)
+        # Process specs that can skip validation (fast path)
+        for idx, spec in specs_skip_validation:
+            results[idx] = self._validate_without_parsing(spec)
 
         return results
 
-    def _spec_has_typed_columns(self, spec: NodeSpec) -> bool:
+    def _validate_without_parsing(self, spec: NodeSpec) -> NodeValidationResult:
         """
-        Check if spec has columns with types already populated.
-        This indicates the spec came from an already-validated node (e.g., copy/branch).
-        """
-        if spec.node_type == NodeType.SOURCE:
-            return False  # Source nodes always use their own validation path
-        if not hasattr(spec, "columns") or not spec.columns:
-            return False
-        return all(col.type is not None for col in spec.columns)
-
-    def _validate_pretyped_node(self, spec: NodeSpec) -> NodeValidationResult:
-        """
-        Fast validation path for nodes with pre-typed columns.
+        Fast validation path for specs from already-validated sources.
         Skips expensive SQL parsing and dependency extraction.
+        Uses pre-existing columns from the source node.
         """
-        columns = spec.columns or []
+        columns = spec.columns if hasattr(spec, "columns") else []
         errors = [
             err
             for err in [
@@ -406,16 +396,14 @@ async def bulk_validate_node_data(
     )
     validator = NodeSpecBulkValidator(context)
 
-    # Count pre-typed specs for logging
-    pretyped_count = sum(
-        1 for spec in node_specs if validator._spec_has_typed_columns(spec)
-    )
-    if pretyped_count > 0:
+    # Count specs that can skip validation for logging
+    skip_count = sum(1 for spec in node_specs if spec._skip_validation)
+    if skip_count > 0:
         logger.info(
-            "Validating %d node queries (%d pre-typed, %d need parsing)",
+            "Validating %d node queries (%d skip validation, %d need parsing)",
             len(node_specs),
-            pretyped_count,
-            len(node_specs) - pretyped_count,
+            skip_count,
+            len(node_specs) - skip_count,
         )
     else:
         logger.info("Validating %d node queries", len(node_specs))
