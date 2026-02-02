@@ -5,6 +5,7 @@ Enables creating, listing, and deleting branch namespaces that are linked
 to git branches for the git-backed workflow.
 """
 
+import asyncio
 import logging
 from http import HTTPStatus
 from typing import List
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -28,13 +30,13 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.internal.git import GitHubService
+from datajunction_server.internal.git.github_service import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.internal.namespaces import validate_sibling_relationship
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
-from datajunction_server.utils import get_current_user, get_session
+from datajunction_server.utils import SEPARATOR, get_current_user, get_session
 
 _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["branches"])
@@ -62,6 +64,117 @@ class CreateBranchResult(BaseModel):
     deployment_results: List[DeploymentResult]
 
 
+async def _create_git_branch(
+    repo_path: str,
+    branch_name: str,
+    from_ref: str,
+) -> None:
+    """Create a git branch via GitHub API."""
+    github = GitHubService()
+    await github.create_branch(
+        repo_path=repo_path,
+        branch=branch_name,
+        from_ref=from_ref,
+    )
+    _logger.info(
+        "Created git branch '%s' from '%s' in repo '%s'",
+        branch_name,
+        from_ref,
+        repo_path,
+    )
+
+
+async def _create_namespace_and_copy_nodes(
+    session: AsyncSession,
+    new_namespace: str,
+    parent_namespace: str,
+    branch_name: str,
+    parent_ns: NodeNamespace,
+    current_user: User,
+) -> List[DeploymentResult]:
+    """Create DJ namespace and copy nodes from parent."""
+    # Validate sibling relationship
+    validate_sibling_relationship(new_namespace, parent_namespace)
+
+    # Create DJ namespace
+    new_ns = NodeNamespace(
+        namespace=new_namespace,
+        github_repo_path=parent_ns.github_repo_path,
+        git_branch=branch_name,
+        git_path=parent_ns.git_path,
+        parent_namespace=parent_namespace,
+    )
+    session.add(new_ns)
+    await session.commit()
+
+    _logger.info(
+        "Created branch namespace '%s' linked to git branch '%s'",
+        new_namespace,
+        branch_name,
+    )
+
+    # Copy all nodes from parent namespace to new branch namespace
+    deployment_results = await copy_nodes_to_namespace(
+        session=session,
+        source_namespace=parent_namespace,
+        target_namespace=new_namespace,
+        current_user=current_user,
+    )
+    return deployment_results
+
+
+async def _cleanup_git_branch(repo_path: str, branch_name: str) -> None:
+    """Delete a git branch via GitHub API (best effort)."""
+    try:
+        github = GitHubService()
+        await github.delete_branch(repo_path=repo_path, branch=branch_name)
+        _logger.info("Cleaned up git branch '%s' in repo '%s'", branch_name, repo_path)
+    except Exception as e:
+        _logger.warning(
+            "Failed to cleanup git branch '%s': %s (may need manual cleanup)",
+            branch_name,
+            e,
+        )
+
+
+async def _cleanup_namespace_and_nodes(
+    session: AsyncSession,
+    namespace: str,
+) -> None:
+    """Delete namespace and all its nodes (best effort)."""
+    try:
+        # Delete all nodes
+        nodes_query = select(Node).where(
+            or_(
+                Node.namespace == namespace,
+                Node.namespace.like(f"{namespace}.%"),
+            ),
+        )
+        result = await session.execute(nodes_query)
+        nodes_to_delete = result.scalars().all()
+        for node in nodes_to_delete:
+            await session.delete(node)
+
+        # Delete namespace
+        ns = await NodeNamespace.get(session, namespace, raise_if_not_exists=False)
+        if ns:  # pragma: no branch
+            await session.delete(ns)
+
+        await session.commit()
+        _logger.info(
+            "Cleaned up namespace '%s' and %d nodes",
+            namespace,
+            len(nodes_to_delete),
+        )
+    except Exception as e:  # pragma: no cover
+        _logger.warning(
+            "Failed to cleanup namespace '%s': %s (may need manual cleanup)",
+            namespace,
+            e,
+        )
+        await session.rollback()
+
+
 @router.post(
     "/namespaces/{namespace}/branches",
     response_model=CreateBranchResult,
@@ -80,8 +193,10 @@ async def create_branch(
     Create a new branch namespace from a parent namespace.
 
     This creates both:
-    1. A git branch in the configured repository
-    2. A DJ namespace linked to that git branch
+    1. A git branch in the configured repository (via GitHub API)
+    2. A DJ namespace with copied nodes
+
+    These operations run in parallel for optimal performance.
 
     Preconditions:
     - Parent namespace must have github_repo_path configured
@@ -121,11 +236,13 @@ async def create_branch(
 
     # Construct new namespace name
     # If parent is "myproject.main", new namespace is "myproject.feature_x"
-    parent_parts = namespace.rsplit(".", 1)
+    parent_parts = namespace.rsplit(SEPARATOR, 1)
     if len(parent_parts) > 1:
-        new_namespace = f"{parent_parts[0]}.{branch_namespace_suffix}"
+        new_namespace = f"{parent_parts[0]}{SEPARATOR}{branch_namespace_suffix}"
     else:
-        new_namespace = f"{namespace}.{branch_namespace_suffix}"  # pragma: no cover
+        new_namespace = (
+            f"{namespace}{SEPARATOR}{branch_namespace_suffix}"  # pragma: no cover
+        )
 
     # Check if namespace already exists
     existing = await NodeNamespace.get(
@@ -138,53 +255,72 @@ async def create_branch(
             message=f"Namespace '{new_namespace}' already exists.",
         )
 
-    # Create git branch via GitHub API
-    try:
-        github = GitHubService()
-        await github.create_branch(
-            repo_path=parent_ns.github_repo_path,
-            branch=branch_name,
-            from_ref=parent_ns.git_branch,
-        )
-        _logger.info(
-            "Created git branch '%s' from '%s' in repo '%s'",
-            branch_name,
-            parent_ns.git_branch,
-            parent_ns.github_repo_path,
-        )
-    except GitHubServiceError as e:
-        _logger.error("Failed to create git branch: %s", e)
-        raise DJInvalidInputException(
-            message=f"Failed to create git branch '{branch_name}': {e.message}",
-        ) from e
-
-    # Validate that new namespace and parent are siblings (same prefix)
-    validate_sibling_relationship(new_namespace, namespace)
-
-    # Create DJ namespace
-    new_ns = NodeNamespace(
-        namespace=new_namespace,
-        github_repo_path=parent_ns.github_repo_path,
-        git_branch=branch_name,
-        git_path=parent_ns.git_path,
-        parent_namespace=namespace,
-    )
-    session.add(new_ns)
-    await session.commit()
-
+    # Run git branch creation and namespace/node copying in parallel
     _logger.info(
-        "Created branch namespace '%s' linked to git branch '%s'",
+        "Starting parallel creation of git branch and namespace for '%s'",
         new_namespace,
-        branch_name,
     )
 
-    # Copy all nodes from parent namespace to new branch namespace
-    deployment_results = await copy_nodes_to_namespace(
-        session=session,
-        source_namespace=namespace,
-        target_namespace=new_namespace,
-        current_user=current_user,
+    git_task = asyncio.create_task(
+        _create_git_branch(
+            repo_path=parent_ns.github_repo_path,
+            branch_name=branch_name,
+            from_ref=parent_ns.git_branch,
+        ),
     )
+
+    namespace_task = asyncio.create_task(
+        _create_namespace_and_copy_nodes(
+            session=session,
+            new_namespace=new_namespace,
+            parent_namespace=namespace,
+            branch_name=branch_name,
+            parent_ns=parent_ns,
+            current_user=current_user,
+        ),
+    )
+
+    # Wait for both operations with proper error handling
+    git_result, namespace_result = await asyncio.gather(
+        git_task,
+        namespace_task,
+        return_exceptions=True,
+    )
+
+    # Handle failures and cleanup
+    git_succeeded = not isinstance(git_result, Exception)
+    namespace_succeeded = not isinstance(namespace_result, Exception)
+
+    if not git_succeeded and not namespace_succeeded:
+        # Both failed - just report the errors
+        _logger.error(
+            "Both git branch and namespace creation failed for '%s'",
+            new_namespace,
+        )
+        raise DJInvalidInputException(
+            message=f"Failed to create branch: Git error: {git_result}, "
+            f"Namespace error: {namespace_result}",
+        )
+
+    if not git_succeeded:
+        # Git failed but namespace succeeded - cleanup namespace
+        _logger.error("Git branch creation failed, cleaning up namespace")
+        await _cleanup_namespace_and_nodes(session, new_namespace)
+        raise DJInvalidInputException(
+            message=f"Failed to create git branch '{branch_name}': "
+            f"{getattr(git_result, 'message', str(git_result))}",
+        )
+
+    if not namespace_succeeded:
+        # Namespace failed but git succeeded - cleanup git branch
+        _logger.error("Namespace creation failed, cleaning up git branch")
+        await _cleanup_git_branch(parent_ns.github_repo_path, branch_name)
+        raise DJInvalidInputException(
+            message=f"Failed to create namespace '{new_namespace}': {namespace_result}",
+        )
+
+    # Both succeeded!
+    deployment_results = namespace_result
 
     return CreateBranchResult(
         branch=BranchInfo(

@@ -73,14 +73,66 @@ class NodeSpecBulkValidator:
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
-        Validate a list of node specifications
+        Validate a list of node specifications.
+
+        For specs marked with _skip_validation (e.g., from branch copies),
+        skips expensive SQL parsing and dependency extraction.
         """
-        parsed_results = await self.parse_queries(node_specs)
+        # Separate specs that need full validation from those that can skip
+        specs_needing_parse = []
+        specs_skip_validation = []
+        spec_indices = []  # Track original indices
+
+        for i, spec in enumerate(node_specs):
+            if spec._skip_validation:
+                specs_skip_validation.append((i, spec))
+            else:
+                specs_needing_parse.append(spec)
+                spec_indices.append(i)
+
+        # Parse only specs that need it
+        parsed_results = await self.parse_queries(specs_needing_parse)
+
+        # Build results in original order
+        results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
+
+        # Process specs needing full validation
         validation_tasks = [
             self.process_validation(spec, parsed_result)
-            for spec, parsed_result in zip(node_specs, parsed_results)
+            for spec, parsed_result in zip(specs_needing_parse, parsed_results)
         ]
-        return await asyncio.gather(*validation_tasks)
+        parsed_validation_results = await asyncio.gather(*validation_tasks)
+        for idx, result in zip(spec_indices, parsed_validation_results):
+            results[idx] = result
+
+        # Process specs that can skip validation (fast path)
+        for idx, spec in specs_skip_validation:
+            results[idx] = self._validate_without_parsing(spec)
+
+        return results
+
+    def _validate_without_parsing(self, spec: NodeSpec) -> NodeValidationResult:
+        """
+        Fast validation path for specs from already-validated sources.
+        Skips expensive SQL parsing and dependency extraction.
+        Uses pre-existing columns from the source node.
+        """
+        columns = spec.columns if hasattr(spec, "columns") else []
+        errors = [
+            err
+            for err in [
+                self._check_inferred_columns(columns),
+                self._check_primary_key(columns, spec),
+            ]
+            if err is not None
+        ]
+        return NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
+            inferred_columns=columns,
+            errors=errors,
+            dependencies=self.context.node_graph.get(spec.rendered_name, []),
+        )
 
     async def validate_source_node(self, spec: SourceSpec) -> NodeValidationResult:
         """Handle source node validation - no query parsing needed"""
@@ -326,9 +378,11 @@ async def bulk_validate_node_data(
     dependency_nodes: Dict[str, Node],
 ) -> List[NodeValidationResult]:
     """
-    Bulk validate node specifications
+    Bulk validate node specifications.
+
+    For specs with pre-typed columns (from copying valid nodes), uses a fast
+    path that skips SQL parsing and dependency extraction.
     """
-    logger.info("Validating %d node queries", len(node_specs))
     validate_start = time.perf_counter()
     context = ValidationContext(
         session=session,
@@ -341,6 +395,19 @@ async def bulk_validate_node_data(
         ),
     )
     validator = NodeSpecBulkValidator(context)
+
+    # Count specs that can skip validation for logging
+    skip_count = sum(1 for spec in node_specs if spec._skip_validation)
+    if skip_count > 0:
+        logger.info(
+            "Validating %d node queries (%d skip validation, %d need parsing)",
+            len(node_specs),
+            skip_count,
+            len(node_specs) - skip_count,
+        )
+    else:
+        logger.info("Validating %d node queries", len(node_specs))
+
     validation_results = await validator.validate(node_specs)
     logger.info(
         "Validated %d node queries in %.2fs",
