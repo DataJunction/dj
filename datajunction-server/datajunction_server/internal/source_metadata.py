@@ -13,7 +13,7 @@ from datajunction_server.database.source_metadata import (
     SourceTableMetadata,
 )
 from datajunction_server.models.source_metadata import (
-    PartitionMetadataInput,
+    PartitionMetadataItem,
     SourceTableMetadataInput,
 )
 
@@ -76,41 +76,96 @@ async def upsert_source_table_metadata(
 async def upsert_partition_metadata(
     session: AsyncSession,
     source_table_metadata_id: int,
-    partition_stats: List[PartitionMetadataInput],
+    partition_stats: List[PartitionMetadataItem],
 ) -> None:
     """
     Insert or update partition-level metadata.
 
-    Replaces all existing partition metadata for the source table with the new stats.
-    This ensures we only keep the last 90 days of partition data.
+    Performs per-partition upserts: if a partition already exists, updates its
+    size_bytes, row_count, and updated_at. If not, inserts a new record.
+
+    This approach supports:
+    - Incremental updates (only send new/changed partitions)
+    - Full refreshes (send all partitions)
+    - No automatic deletion of old partitions
 
     Args:
         session: Database session
         source_table_metadata_id: ID of the SourceTableMetadata instance
-        partition_stats: List of partition statistics to insert
+        partition_stats: List of partition statistics to upsert
     """
-    # Delete existing partition metadata for this source table
-    await session.execute(
-        delete(SourcePartitionMetadata).where(
-            SourcePartitionMetadata.source_table_metadata_id
-            == source_table_metadata_id,
-        ),
-    )
-
-    # Insert new partition metadata
     for stat in partition_stats:
-        partition_metadata = SourcePartitionMetadata(
-            source_table_metadata_id=source_table_metadata_id,
-            partition_value=stat.partition_value,
-            size_bytes=stat.size_bytes,
-            row_count=stat.row_count,
+        # Check if this partition already exists
+        result = await session.execute(
+            select(SourcePartitionMetadata).where(
+                SourcePartitionMetadata.source_table_metadata_id
+                == source_table_metadata_id,
+                SourcePartitionMetadata.partition_value == stat.partition_value,
+            ),
         )
-        session.add(partition_metadata)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Update existing partition metadata
+            existing.size_bytes = stat.size_bytes
+            existing.row_count = stat.row_count
+            # updated_at will be automatically updated by onupdate
+        else:
+            # Insert new partition metadata
+            partition_metadata = SourcePartitionMetadata(
+                source_table_metadata_id=source_table_metadata_id,
+                partition_value=stat.partition_value,
+                size_bytes=stat.size_bytes,
+                row_count=stat.row_count,
+            )
+            session.add(partition_metadata)
 
     _logger.info(
         f"Upserted {len(partition_stats)} partition metadata records "
         f"for source_table_metadata_id={source_table_metadata_id}",
     )
+
+
+async def delete_partition_metadata_range(
+    session: AsyncSession,
+    source_table_metadata_id: int,
+    from_partition: Optional[str] = None,
+    to_partition: Optional[str] = None,
+) -> int:
+    """
+    Delete partition metadata in a date range.
+
+    Useful for cleaning up old partitions or removing stale data.
+
+    Args:
+        session: Database session
+        source_table_metadata_id: ID of the SourceTableMetadata instance
+        from_partition: Start of partition range to delete (inclusive)
+        to_partition: End of partition range to delete (inclusive)
+
+    Returns:
+        Number of partitions deleted
+    """
+    query = delete(SourcePartitionMetadata).where(
+        SourcePartitionMetadata.source_table_metadata_id == source_table_metadata_id,
+    )
+
+    if from_partition:
+        query = query.where(
+            SourcePartitionMetadata.partition_value >= from_partition,
+        )
+
+    if to_partition:
+        query = query.where(SourcePartitionMetadata.partition_value <= to_partition)
+
+    result = await session.execute(query)
+    deleted_count = result.rowcount
+    _logger.info(
+        f"Deleted {deleted_count} partition metadata records "
+        f"for source_table_metadata_id={source_table_metadata_id} "
+        f"(range: {from_partition} to {to_partition})",
+    )
+    return deleted_count
 
 
 async def get_source_table_metadata(
