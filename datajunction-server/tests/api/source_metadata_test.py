@@ -123,7 +123,7 @@ class TestSetSourceTableMetadata:
             json=initial_metadata,
         )
         assert response.status_code == 200
-        initial_data = response.json()
+        # initial_data = response.json()
 
         # Update with new values
         updated_metadata = {
