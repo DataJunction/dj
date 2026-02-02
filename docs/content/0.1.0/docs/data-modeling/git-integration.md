@@ -3,11 +3,16 @@ weight: 3
 title: "Git Integration"
 ---
 
-DJ namespaces can be connected to GitHub repositories, enabling version-controlled workflows for your node definitions. This integration supports both strict git-as-source-of-truth setups and more flexible UI-editable workflows with git sync.
+DJ provides full Git integration for managing your node definitions. Link a namespace to a repository, then create branches, commit changes, open pull requests, and merge—all from the DJ interface.
 
 ## Overview
 
-Each namespace can be mapped to a specific GitHub repository, branch, and path. This mapping enables:
+Link any namespace to a Git repository to enable version-controlled workflows. Once linked, you choose how to work:
+
+- **Git as source of truth**: Make the namespace read-only so all changes must come from Git commits (recommended for production)
+- **UI-driven development**: Create branches, edit nodes in the UI, commit your changes, and open PRs to merge them back
+
+Key capabilities:
 
 - **Version control** for all node definitions
 - **Code review** through pull requests
@@ -107,7 +112,7 @@ For branch namespaces (see below), you can create PRs directly from the UI:
 
 ## Branch-based Development
 
-For larger changes, you can create isolated branch namespaces:
+Create isolated branch namespaces for developing new features or making significant changes. This gives you a complete sandbox: a new Git branch and a corresponding DJ namespace with copies of all nodes.
 
 ### Creating a Branch
 
@@ -116,17 +121,19 @@ For larger changes, you can create isolated branch namespaces:
 3. Enter a branch name (e.g., `feature-new-metrics`)
 
 This creates:
-- A new git branch from the parent's branch
-- A new namespace (e.g., `analytics.feature_new_metrics`)
+- A new Git branch from the parent's branch
+- A new DJ namespace (e.g., `analytics.feature_new_metrics`)
 - Copies of all nodes from the parent namespace
 
-### Development Workflow
+### Full Development Workflow
+
+From the DJ UI, you can complete the entire development cycle:
 
 1. **Create a branch** from your production namespace
-2. **Make changes** in the branch namespace (UI or YAML)
-3. **Test** your changes in isolation
-4. **Create a PR** to merge back to the parent branch
-5. **Review and merge** the PR in GitHub
+2. **Make changes** to nodes in the branch namespace
+3. **Commit and push** your changes
+4. **Create a PR**
+5. **Review and merge** the PR
 6. **Delete the branch** namespace when done
 
 ### Deleting a Branch
