@@ -877,37 +877,19 @@ def _inject_prefix_for_cube_ref(
         Either "${prefix}<suffix>" if node exists in namespace,
         or the original ref_name if it's external
     """
-    logger.info(
-        "Cube ref injection: ref_name=%s, namespace=%s, parent_namespace=%s, "
-        "namespace_suffixes=%s",
-        ref_name,
-        namespace,
-        parent_namespace,
-        namespace_suffixes,
-    )
-
     # First try direct prefix injection (node is in current namespace)
     injected = inject_prefixes(ref_name, namespace)
     if injected != ref_name:
-        logger.info("Cube ref: direct injection matched, %s -> %s", ref_name, injected)
         return injected
 
     # For branch namespaces, check if the reference is from parent namespace
     # and has been copied to this branch
     if parent_namespace:
         suffix = _get_node_suffix(ref_name, parent_namespace)
-        logger.info(
-            "Cube ref: checking parent namespace, suffix=%s, in_suffixes=%s",
-            suffix,
-            suffix in namespace_suffixes if suffix else False,
-        )
         if suffix and suffix in namespace_suffixes:
-            result = f"${{prefix}}{suffix}"
-            logger.info("Cube ref: parent match, %s -> %s", ref_name, result)
-            return result
+            return f"${{prefix}}{suffix}"
 
     # External reference - keep as-is
-    logger.info("Cube ref: external reference, keeping as-is: %s", ref_name)
     return ref_name
 
 
@@ -1006,12 +988,6 @@ async def get_node_specs_for_export(
                 )
                 for dim in node_spec.dimensions
             ]
-            logger.info(
-                "Cube '%s' after injection: metrics=%s, dimensions=%s",
-                node_spec.name,
-                cube_spec.metrics,
-                cube_spec.dimensions,
-            )
 
     return node_specs
 

@@ -387,6 +387,9 @@ class MetricSpec(NodeSpec):
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
     query: str
+    # Internal only - used to skip validation when copying from valid nodes.
+    # Excluded from serialization so it's never exported.
+    columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
