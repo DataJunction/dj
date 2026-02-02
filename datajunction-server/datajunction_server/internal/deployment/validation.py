@@ -73,14 +73,76 @@ class NodeSpecBulkValidator:
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
-        Validate a list of node specifications
+        Validate a list of node specifications.
+
+        For specs with pre-typed columns (e.g., from copying valid nodes),
+        skips expensive SQL parsing and dependency extraction.
         """
-        parsed_results = await self.parse_queries(node_specs)
+        # Separate specs that need full validation from those with pre-typed columns
+        specs_needing_parse = []
+        specs_with_columns = []
+        spec_indices = []  # Track original indices
+
+        for i, spec in enumerate(node_specs):
+            if self._spec_has_typed_columns(spec):
+                specs_with_columns.append((i, spec))
+            else:
+                specs_needing_parse.append(spec)
+                spec_indices.append(i)
+
+        # Parse only specs that need it
+        parsed_results = await self.parse_queries(specs_needing_parse)
+
+        # Build results in original order
+        results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
+
+        # Process specs needing full validation
         validation_tasks = [
             self.process_validation(spec, parsed_result)
-            for spec, parsed_result in zip(node_specs, parsed_results)
+            for spec, parsed_result in zip(specs_needing_parse, parsed_results)
         ]
-        return await asyncio.gather(*validation_tasks)
+        parsed_validation_results = await asyncio.gather(*validation_tasks)
+        for idx, result in zip(spec_indices, parsed_validation_results):
+            results[idx] = result
+
+        # Process specs with pre-typed columns (fast path)
+        for idx, spec in specs_with_columns:
+            results[idx] = self._validate_pretyped_node(spec)
+
+        return results
+
+    def _spec_has_typed_columns(self, spec: NodeSpec) -> bool:
+        """
+        Check if spec has columns with types already populated.
+        This indicates the spec came from an already-validated node (e.g., copy/branch).
+        """
+        if spec.node_type == NodeType.SOURCE:
+            return False  # Source nodes always use their own validation path
+        if not hasattr(spec, "columns") or not spec.columns:
+            return False
+        return all(col.type is not None for col in spec.columns)
+
+    def _validate_pretyped_node(self, spec: NodeSpec) -> NodeValidationResult:
+        """
+        Fast validation path for nodes with pre-typed columns.
+        Skips expensive SQL parsing and dependency extraction.
+        """
+        columns = spec.columns or []
+        errors = [
+            err
+            for err in [
+                self._check_inferred_columns(columns),
+                self._check_primary_key(columns, spec),
+            ]
+            if err is not None
+        ]
+        return NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
+            inferred_columns=columns,
+            errors=errors,
+            dependencies=self.context.node_graph.get(spec.rendered_name, []),
+        )
 
     async def validate_source_node(self, spec: SourceSpec) -> NodeValidationResult:
         """Handle source node validation - no query parsing needed"""
@@ -326,9 +388,11 @@ async def bulk_validate_node_data(
     dependency_nodes: Dict[str, Node],
 ) -> List[NodeValidationResult]:
     """
-    Bulk validate node specifications
+    Bulk validate node specifications.
+
+    For specs with pre-typed columns (from copying valid nodes), uses a fast
+    path that skips SQL parsing and dependency extraction.
     """
-    logger.info("Validating %d node queries", len(node_specs))
     validate_start = time.perf_counter()
     context = ValidationContext(
         session=session,
@@ -341,6 +405,21 @@ async def bulk_validate_node_data(
         ),
     )
     validator = NodeSpecBulkValidator(context)
+
+    # Count pre-typed specs for logging
+    pretyped_count = sum(
+        1 for spec in node_specs if validator._spec_has_typed_columns(spec)
+    )
+    if pretyped_count > 0:
+        logger.info(
+            "Validating %d node queries (%d pre-typed, %d need parsing)",
+            len(node_specs),
+            pretyped_count,
+            len(node_specs) - pretyped_count,
+        )
+    else:
+        logger.info("Validating %d node queries", len(node_specs))
+
     validation_results = await validator.validate(node_specs)
     logger.info(
         "Validated %d node queries in %.2fs",
