@@ -224,6 +224,9 @@ class NodeSpec(BaseModel):
     custom_metadata: dict | None = None
 
     _query_ast: Any | None = PrivateAttr(default=None)
+    # Internal: marks specs from already-validated sources (e.g., branch copies)
+    # that can skip expensive SQL parsing and validation
+    _skip_validation: bool = PrivateAttr(default=False)
 
     model_config = ConfigDict(truncate_errors=False)
 
@@ -387,7 +390,7 @@ class MetricSpec(NodeSpec):
 
     node_type: Literal[NodeType.METRIC] = NodeType.METRIC
     query: str
-    # Internal only - used to skip validation when copying from valid nodes.
+    # Internal only - used for validation skip optimization when copying from valid nodes.
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
     required_dimensions: list[str] | None = None  # Field(default_factory=list)

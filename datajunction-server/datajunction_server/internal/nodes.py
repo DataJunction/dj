@@ -920,6 +920,12 @@ async def copy_nodes_to_namespace(
     if not node_specs:
         return []
 
+    # Mark specs as from validated source to skip re-parsing/re-validation
+    # These specs come from already-validated nodes, so we can safely skip
+    # expensive SQL parsing and dependency extraction
+    for spec in node_specs:
+        spec._skip_validation = True
+
     _logger.info(
         "Copying %d nodes from '%s' to '%s' via deployment",
         len(node_specs),
