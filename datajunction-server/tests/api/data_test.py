@@ -639,6 +639,10 @@ class TestAvailabilityState:
                 "max_temporal_partition": ["2023", "01", "25"],
                 "min_temporal_partition": ["2022", "01", "01"],
                 "url": "http://some.catalog.com/default.accounting.pmts",
+                "total_partitions": 20,
+                "total_row_count": 5511790,
+                "total_size_bytes": 933711627,
+                "ttl_days": 180,
             },
         )
         data = response.json()
@@ -675,6 +679,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": "http://some.catalog.com/default.accounting.pmts",
                     "links": {},
+                    "total_partitions": 20,
+                    "total_row_count": 5511790,
+                    "total_size_bytes": 933711627,
+                    "ttl_days": 180,
                 },
                 "pre": {},
                 "user": "dj",
@@ -700,6 +708,10 @@ class TestAvailabilityState:
             "temporal_partitions": [],
             "url": "http://some.catalog.com/default.accounting.pmts",
             "links": {},
+            "total_partitions": 20,
+            "total_row_count": 5511790,
+            "total_size_bytes": 933711627,
+            "ttl_days": 180,
         }
 
     @pytest.mark.asyncio
@@ -814,6 +826,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": None,
                     "links": {},
+                    "total_partitions": None,
+                    "total_row_count": None,
+                    "total_size_bytes": None,
+                    "ttl_days": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -827,6 +843,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": None,
                     "links": {},
+                    "total_partitions": None,
+                    "total_row_count": None,
+                    "total_size_bytes": None,
+                    "ttl_days": None,
                 },
                 "user": "dj",
             },
@@ -850,6 +870,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": None,
                     "links": {},
+                    "total_partitions": None,
+                    "total_row_count": None,
+                    "total_size_bytes": None,
+                    "ttl_days": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -863,6 +887,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": None,
                     "links": {},
+                    "total_partitions": None,
+                    "total_row_count": None,
+                    "total_size_bytes": None,
+                    "ttl_days": None,
                 },
                 "user": "dj",
             },
@@ -886,6 +914,10 @@ class TestAvailabilityState:
                     "valid_through_ts": 20230125,
                     "url": None,
                     "links": {},
+                    "total_partitions": None,
+                    "total_row_count": None,
+                    "total_size_bytes": None,
+                    "ttl_days": None,
                 },
                 "pre": {},
                 "user": "dj",
@@ -911,6 +943,10 @@ class TestAvailabilityState:
             "temporal_partitions": [],
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1051,6 +1087,10 @@ class TestAvailabilityState:
             "temporal_partitions": ["payment_id"],
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.fixture
@@ -1123,6 +1163,10 @@ class TestAvailabilityState:
             "valid_through_ts": 20230101,
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1170,6 +1214,10 @@ class TestAvailabilityState:
             "valid_through_ts": 20230101,
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1524,6 +1572,10 @@ class TestAvailabilityState:
             "partitions": [],
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1597,6 +1649,10 @@ class TestAvailabilityState:
             "temporal_partitions": [],
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1645,6 +1701,10 @@ class TestAvailabilityState:
             "temporal_partitions": [],
             "url": None,
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
     @pytest.mark.asyncio
@@ -1911,6 +1971,10 @@ class TestAvailabilityState:
             "valid_through_ts": 20230125,
             "url": "http://some.catalog.com/default.accounting.pmts",
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
 
         # Check DELETE activity
@@ -1934,5 +1998,9 @@ class TestAvailabilityState:
             "valid_through_ts": 20230125,
             "url": "http://some.catalog.com/default.accounting.pmts",
             "links": {},
+            "total_partitions": None,
+            "total_row_count": None,
+            "total_size_bytes": None,
+            "ttl_days": None,
         }
         assert delete_activity["user"] == "dj"

@@ -2832,7 +2832,7 @@ class TestCombinedMeasuresSQLEndpoint:
             "/sql/measures/v3/combined",
             params={
                 "metrics": ["v3.total_revenue", "v3.page_view_count"],
-                "dimensions": ["v3.date_dim.date_id"],
+                "dimensions": ["v3.date.date_id"],
             },
         )
 
@@ -2849,24 +2849,26 @@ class TestCombinedMeasuresSQLEndpoint:
             """
             WITH
             v3_order_details AS (
-            SELECT  oi.quantity * oi.unit_price AS line_total
+            SELECT  o.order_date,
+                oi.quantity * oi.unit_price AS line_total
             FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_page_views_enriched AS (
-            SELECT  view_id
+            SELECT  view_id,
+                page_date
             FROM default.v3.page_views
             ),
             gg1 AS (
-            SELECT  t1.date_id,
+            SELECT  t1.order_date date_id,
                 SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            GROUP BY  t1.date_id
+            GROUP BY  t1.order_date
             ),
             gg2 AS (
-            SELECT  t1.date_id,
+            SELECT  t1.page_date date_id,
                 COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1
-            GROUP BY  t1.date_id
+            GROUP BY  t1.page_date
             )
             SELECT  COALESCE(gg1.date_id, gg2.date_id) date_id,
                 gg1.line_total_sum_e1f61696,

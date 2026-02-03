@@ -578,6 +578,10 @@ async def list_node_availability_states(
                 updated_at=revision.availability.updated_at.isoformat(),
                 node_revision_id=revision.id,
                 node_version=revision.version,
+                total_size_bytes=revision.availability.total_size_bytes,
+                total_row_count=revision.availability.total_row_count,
+                total_partitions=revision.availability.total_partitions,
+                ttl_days=revision.availability.ttl_days,
             )
             availability_states.append(availability_state)
 

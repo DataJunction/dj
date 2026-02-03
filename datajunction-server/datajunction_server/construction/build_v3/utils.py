@@ -187,6 +187,11 @@ def add_dimensions_from_metric_expressions(
         for col in combiner_ast.find_all(ast.Column):
             full_name = get_column_full_name(col)
             if full_name and SEPARATOR in full_name and full_name not in existing_dims:
+                # Skip if this is a metric reference (e.g., in derived metric combiners)
+                # Metrics should not be added as dimensions
+                if full_name in ctx.metrics:
+                    continue
+
                 # Check if any existing dimension already covers this (node, column)
                 dim_ref = parse_dimension_ref(full_name)
                 is_covered = False
@@ -243,6 +248,12 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
 
             if full_name in existing_dims:
                 # Already in dimensions, no need to add
+                continue
+
+            # Skip if this is a metric reference, not a dimension
+            # Metrics in WHERE clauses should be treated as HAVING conditions,
+            # not dimension joins
+            if full_name in ctx.metrics:
                 continue
 
             # Check if any existing dimension already covers this (node, column)

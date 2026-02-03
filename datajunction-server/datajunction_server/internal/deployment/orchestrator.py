@@ -1951,6 +1951,7 @@ class DeploymentOrchestrator:
             NodeType.METRIC,
         ):
             new_revision.query = result.spec.rendered_query
+            print("result.inferred_columns", result.inferred_columns)
             new_revision.columns = [
                 self._create_column_from_spec(
                     col,

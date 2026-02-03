@@ -92,6 +92,27 @@ class NodeValidationError(BaseModel):
     message: str
 
 
+class AffectedSource(BaseModel):
+    """
+    Information about a source table affected by an unfiltered scan
+    """
+
+    source_name: str
+    total_size_bytes: int
+    partition_columns: List[str]
+    has_filters: bool
+
+
+class ScanWarning(BaseModel):
+    """
+    Warning about potentially expensive data scans
+    """
+
+    severity: str  # "info", "warning", or "critical"
+    message: str
+    affected_sources: List[AffectedSource]
+
+
 class NodeStatusDetails(BaseModel):
     """
     Node status details. Contains a list of node errors or an empty list of the node status is valid
@@ -99,6 +120,7 @@ class NodeStatusDetails(BaseModel):
 
     status: NodeStatus
     errors: List[NodeValidationError]
+    scan_warnings: Optional[List[ScanWarning]] = None
 
 
 class NodeYAML(TypedDict, total=False):
@@ -317,6 +339,12 @@ class AvailabilityStateBase(TemporalPartitionRange):
 
     # Partition-level availabilities
     partitions: list[PartitionAvailability] | None = Field(default_factory=list)
+
+    # Table-level size metadata
+    total_size_bytes: int | None = None
+    total_row_count: int | None = None
+    total_partitions: int | None = None
+    ttl_days: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

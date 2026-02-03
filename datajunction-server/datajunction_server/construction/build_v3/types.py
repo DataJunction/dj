@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
     from datajunction_server.database.partition import Partition
     from datajunction_server.database.preaggregation import PreAggregation
+    from datajunction_server.models.sql import ScanEstimate
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,12 @@ class BuildContext:
     # Dimensions needed only for filters (not included in output projection)
     # Populated by add_dimensions_from_filters() in setup_build_context
     filter_dimensions: set[str] = field(default_factory=set)
+
+    # Skip-join dimension mappings: original_ref -> local_column_name
+    # When a dimension uses skip-join optimization (e.g., requesting the join key itself),
+    # we map the dimension reference to the actual local column name for filter resolution
+    # Example: "dimensions.time.date.dateint" -> "utc_date"
+    skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
 
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
@@ -229,6 +236,14 @@ class GrainGroupSQL:
     # instead of individual grain group CTEs.
     is_cross_fact_window: bool = False
 
+    # Scan estimation: source tables accessed during SQL generation
+    # Populated by collect_node_ctes during CTE building
+    scanned_sources: list[str] = field(default_factory=list)
+
+    # Scan estimate calculated from scanned_sources by looking up availability states
+    # Populated by calculate_scan_estimate in sql.py endpoint
+    scan_estimate: Optional["ScanEstimate"] = None
+
     @property
     def sql(self) -> str:
         """Render the query AST to SQL string for the target dialect."""
@@ -282,6 +297,9 @@ class GeneratedSQL:
     # If a cube was used to generate this SQL, contains the cube name
     # This is used by the /data/ endpoint to select the correct engine (e.g., Druid)
     cube_name: Optional[str] = None
+
+    # Scan estimate aggregated from all grain groups
+    scan_estimate: Optional["ScanEstimate"] = None
 
     @property
     def sql(self) -> str:

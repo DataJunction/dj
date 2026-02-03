@@ -845,7 +845,6 @@ class TestBranchManagement:
                 "/namespaces/singlepart.main/branches",
                 json={"branch_name": "feature-branch"},
             )
-            print("data!!", response.json())
             assert response.status_code == HTTPStatus.CREATED
             data = response.json()
             # For single-part namespace "singlepart", branch becomes "singlepart.feature_branch"
@@ -3114,10 +3113,8 @@ class TestGitOnlyNamespaceProtection:
             },
         )
         assert response.status_code == HTTPStatus.OK
-        print("response", response.json())
 
         # Try to create a source node directly
-        print("Creating node in ", branch_namespace, " namespace...")
         response = await client_with_service_setup.post(
             "/nodes/source/",
             json={
