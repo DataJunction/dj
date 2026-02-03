@@ -15,6 +15,42 @@ from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 
 
+class SourceScanInfo(BaseModel):
+    """
+    Information about a source table scan.
+
+    Provides detailed metrics about how much data will be scanned:
+    - Total table size vs actual scan size
+    - Total partitions vs partitions that will be scanned
+    - Which filters are applied to reduce the scan
+    """
+
+    source_name: str
+
+    # Byte-level metrics
+    scan_bytes: int  # Bytes that will be scanned (after filters)
+    total_bytes: int  # Total table size (all partitions)
+    scan_percentage: float  # scan_bytes / total_bytes
+
+    # Partition-level metrics
+    total_partition_count: Optional[int] = None  # Total partitions in table
+    scanned_partition_count: Optional[int] = None  # Partitions that will be scanned
+
+    # Filter information
+    partition_columns: List[str]  # Partition columns (e.g., ["utc_date", "region"])
+    applied_filters: List[str]  # Filters applied (e.g., ["utc_date >= '2024-01-01'"])
+
+
+class ScanEstimate(BaseModel):
+    """
+    Estimate of data scan size for a query
+    """
+
+    total_bytes: int
+    sources: List[SourceScanInfo]
+    has_materialization: bool
+
+
 class TranspiledSQL(BaseModel):
     """
     Generated SQL for a given node, the output of a QueryBuilder(...).build() call.
@@ -53,6 +89,7 @@ class GeneratedSQL(TranspiledSQL):
     metrics: dict[str, tuple[list[MetricComponent], str]] | None = None
     spark_conf: dict[str, str] | None = None
     errors: Optional[List[DJQueryBuildError]] = None
+    scan_estimate: Optional[ScanEstimate] = None
 
 
 class ComponentResponse(BaseModel):
@@ -100,6 +137,7 @@ class MeasuresSQLResponse(BaseModel):
     metric_formulas: List[MetricFormulaResponse]  # How metrics combine components
     dialect: Optional[str] = None
     requested_dimensions: List[str]
+    scan_estimate: Optional[ScanEstimate] = None
 
 
 class CombinedMeasuresSQLResponse(BaseModel):

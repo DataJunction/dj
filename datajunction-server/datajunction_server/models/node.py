@@ -92,6 +92,28 @@ class NodeValidationError(BaseModel):
     message: str
 
 
+class AffectedSource(BaseModel):
+    """
+    Information about a source table affected by an unfiltered scan
+    """
+
+    source_name: str
+    total_size_bytes: int
+    partition_columns: List[str]
+    has_filters: bool
+
+
+class ScanWarning(BaseModel):
+    """
+    Warning about potentially expensive data scans.
+
+    Provides structured data only - clients format their own messages.
+    """
+
+    severity: str  # "info", "warning", or "critical"
+    affected_sources: List[AffectedSource]
+
+
 class NodeStatusDetails(BaseModel):
     """
     Node status details. Contains a list of node errors or an empty list of the node status is valid
@@ -99,6 +121,7 @@ class NodeStatusDetails(BaseModel):
 
     status: NodeStatus
     errors: List[NodeValidationError]
+    scan_warnings: Optional[List[ScanWarning]] = None
 
 
 class NodeYAML(TypedDict, total=False):

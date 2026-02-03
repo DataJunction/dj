@@ -7,6 +7,7 @@ which aggregates metric components to the requested dimensional grain.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -75,6 +76,9 @@ from datajunction_server.sql.parsing import types as ct
 import re
 
 
+_logger = logging.getLogger(__name__)
+
+
 # Mapping from type string to ColumnType instance
 # Used to convert stored type strings back to type objects for function inference
 _TYPE_STRING_MAP: dict[str, ct.ColumnType] = {
@@ -109,6 +113,152 @@ def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
     # Normalize to lowercase for lookup
     normalized = type_str.lower().strip()
     return _TYPE_STRING_MAP.get(normalized)
+
+
+def extract_column_names_from_filters(filters: list[str]) -> set[str]:
+    """
+    Extract column names referenced in filter expressions.
+
+    Args:
+        filters: List of filter strings (e.g., ["utc_date >= '2024-01-01'", "region = 'US'"])
+
+    Returns:
+        Set of column names referenced (e.g., {"utc_date", "region"})
+    """
+    column_names = set()
+
+    for filter_str in filters:
+        try:
+            # Parse the filter expression
+            parsed = parse(f"SELECT 1 WHERE {filter_str}")
+            if parsed.select.where:
+                # Extract all column references from the WHERE clause
+                for col in parsed.select.where.find_all(ast.Column):
+                    if col.name:
+                        # Get the simple column name (without table prefix)
+                        col_name = col.name.name if hasattr(col.name, "name") else str(col.name)
+                        # Handle qualified names like "v3.date.utc_date" -> "utc_date"
+                        if "." in col_name:
+                            col_name = col_name.split(".")[-1]
+                        column_names.add(col_name)
+        except Exception:
+            # If parsing fails, skip this filter
+            continue
+
+    return column_names
+
+
+def extract_dimension_node_from_filter(filter_str: str) -> Optional[str]:
+    """
+    Extract dimension node name from a filter expression.
+
+    Args:
+        filter_str: Filter string like "customer.region = 'US'" or "status = 'active'"
+
+    Returns:
+        Dimension node name if filter references a dimension, None otherwise
+        Example: "customer.region = 'US'" -> "customer"
+                 "status = 'active'" -> None
+    """
+    try:
+        # Parse the filter
+        parsed = parse(f"SELECT 1 WHERE {filter_str}")
+        if not parsed.select.where:
+            return None
+
+        # Find column references
+        for col in parsed.select.where.find_all(ast.Column):
+            if col.name and col.name.namespace:
+                # Column has a table/namespace prefix
+                # Extract first part as potential dimension node
+                col_id = col.identifier()
+                if SEPARATOR in col_id:
+                    parts = col_id.split(SEPARATOR)
+                    # Return everything except the last part (column name)
+                    return SEPARATOR.join(parts[:-1])
+        return None
+    except Exception:
+        return None
+
+
+def map_filters_to_sources(
+    filters: list[str],
+    parent_node: Node,
+    scanned_sources: list[str],
+    resolved_dimensions: list[ResolvedDimension],
+    ctx: BuildContext,
+) -> dict[str, tuple[list[str], list[str]]]:
+    """
+    Map filter expressions to the source nodes they apply to.
+
+    Handles both direct source filters and dimension link filters.
+
+    Args:
+        filters: List of filter strings
+        parent_node: The main node being queried (fact/transform)
+        scanned_sources: List of source node names that are scanned
+        resolved_dimensions: Resolved dimensions with join paths
+        ctx: Build context with loaded nodes
+
+    Returns:
+        Dict mapping source_name -> (applied_filters, filtered_columns)
+        Example: {
+            "source.sales_fact": (
+                ["utc_date >= '2024-01-01'", "customer.region = 'US'"],
+                ["utc_date", "customer_id"]  # customer_id from dimension join!
+            )
+        }
+    """
+    # Extract direct column names from filters
+    direct_filtered_columns = extract_column_names_from_filters(filters)
+
+    # Extract dimension join key columns from dimension filters
+    dimension_join_columns: set[str] = set()
+
+    # Build dimension lookup map: dimension_node_name -> ResolvedDimension
+    dim_lookup = {dim.node_name: dim for dim in resolved_dimensions if not dim.is_local}
+
+    for filter_str in filters:
+        # Check if this filter references a dimension
+        dim_node_name = extract_dimension_node_from_filter(filter_str)
+        if not dim_node_name:
+            continue
+
+        # Look up the resolved dimension
+        resolved_dim = dim_lookup.get(dim_node_name)
+        if not resolved_dim or not resolved_dim.join_path:
+            continue
+
+        # Extract join key columns from the join path
+        # These are the source-side columns that get filtered via the dimension join
+        for link in resolved_dim.join_path.links:
+            if link.join_sql:
+                # Extract columns that belong to the parent node (source side)
+                join_cols = extract_join_columns_for_node(link.join_sql, parent_node.name)
+                dimension_join_columns.update(join_cols)
+
+    # Combine direct and dimension join columns
+    all_filtered_columns = direct_filtered_columns | dimension_join_columns
+
+    _logger.info(
+        f"[Scan Estimation] Filter analysis: direct_columns={direct_filtered_columns}, "
+        f"dimension_join_columns={dimension_join_columns}, total={all_filtered_columns}"
+    )
+
+    # Map to sources
+    result: dict[str, tuple[list[str], list[str]]] = {}
+
+    if parent_node.type == NodeType.SOURCE:
+        # Direct case: parent is a source, filters apply to it
+        if parent_node.name in scanned_sources:
+            result[parent_node.name] = (filters, list(all_filtered_columns))
+    else:
+        # Transform case: apply filters to all scanned sources
+        # Conservative - assumes filters might apply to any source
+        for source_name in scanned_sources:
+            result[source_name] = (filters, list(all_filtered_columns))
+
+    return result
 
 
 def infer_component_type(
@@ -288,7 +438,7 @@ def build_select_ast(
     grain_columns: list[str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
-) -> ast.Query:
+) -> tuple[ast.Query, list[str], dict[str, tuple[list[str], list[str]]]]:
     """
     Build a SELECT AST for measures SQL with JOIN support.
 
@@ -307,7 +457,10 @@ def build_select_ast(
                           metrics where raw rows need to be passed through.
 
     Returns:
-        AST Query node
+        Tuple of (query, scanned_sources, source_filter_map):
+        - query: AST Query node
+        - scanned_sources: List of source node names accessed during SQL generation
+        - source_filter_map: Dict mapping source_name -> (applied_filters, filtered_columns)
     """
     # Build projection (SELECT clause)
     # Use Any type to satisfy ast.Select.projection which accepts Union[Aliasable, Expression, Column]
@@ -504,7 +657,7 @@ def build_select_ast(
                         needed_columns_by_node[dim_node.name] = dim_cols
 
     # Build CTEs for all non-source nodes with column filtering
-    ctes = collect_node_ctes(ctx, nodes_for_ctes, needed_columns_by_node)
+    ctes, scanned_sources = collect_node_ctes(ctx, nodes_for_ctes, needed_columns_by_node)
 
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
@@ -608,7 +761,19 @@ def build_select_ast(
             cte_list.append(cte_query)
         query.ctes = cte_list
 
-    return query
+    # Map filters to sources for scan estimation
+    # This enables accurate scan size calculation based on which filters apply to each source
+    # Includes dimension join key columns when dimensions are filtered
+    filters_to_use = filters if filters else []
+    source_filter_map = map_filters_to_sources(
+        filters_to_use,
+        parent_node,
+        scanned_sources,
+        resolved_dimensions,  # NEW: Pass dimensions for join key extraction
+        ctx,
+    )
+
+    return query, scanned_sources, source_filter_map
 
 
 def build_temporal_filter(
@@ -802,6 +967,8 @@ def build_grain_group_from_preagg(  # pragma: no cover
     # Build the query
     query = ast.Query(select=select)
 
+    # Pre-aggregation path: no raw sources scanned (uses materialized table)
+    # TODO: Consider tracking the pre-agg table itself as a "materialized source"
     return GrainGroupSQL(
         query=query,
         columns=columns,
@@ -814,6 +981,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
+        scanned_sources=[],  # Empty for pre-agg path
     )
 
 
@@ -994,7 +1162,7 @@ def build_grain_group_sql(
         pass_through_columns = effective_grain_columns + [
             col_name for col_name, _ in non_decomposable_columns
         ]
-        query_ast = build_select_ast(
+        query_ast, scanned_sources, source_filter_map = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
             resolved_dimensions=resolved_dimensions,
@@ -1006,7 +1174,7 @@ def build_grain_group_sql(
     else:
         # Normal case: combine component expressions with non-decomposable columns
         all_metric_expressions = component_expressions + non_decomposable_columns
-        query_ast = build_select_ast(
+        query_ast, scanned_sources, source_filter_map = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
             resolved_dimensions=resolved_dimensions,
@@ -1120,6 +1288,23 @@ def build_grain_group_sql(
     # Sort for deterministic output
     full_grain.sort()
 
+    # Convert scanned source names to ScannedSourceInfo objects with filter information
+    from datajunction_server.construction.build_v3.types import ScannedSourceInfo
+
+    scanned_source_infos = []
+    for source_name in scanned_sources:
+        # Get filter info for this source (if any)
+        applied_filters, filtered_columns = source_filter_map.get(
+            source_name, ([], [])
+        )
+        scanned_source_infos.append(
+            ScannedSourceInfo(
+                source_name=source_name,
+                applied_filters=applied_filters,
+                filtered_columns=filtered_columns,
+            )
+        )
+
     return GrainGroupSQL(
         query=query_ast,
         columns=columns_metadata,
@@ -1132,6 +1317,7 @@ def build_grain_group_sql(
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
+        scanned_sources=scanned_source_infos,
     )
 
 

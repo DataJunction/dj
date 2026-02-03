@@ -169,6 +169,28 @@ class ResolvedExecutionContext:
 
 
 @dataclass
+class ScannedSourceInfo:
+    """
+    Information about a source table scanned during SQL generation.
+
+    Tracks which source nodes are accessed when building SQL,
+    plus which filters apply to each source for accurate scan size estimation.
+    """
+
+    source_name: str  # Full node name (e.g., "source.sales_fact")
+
+    # Filters that apply to this source
+    # These are the WHERE clause conditions that filter this source's data
+    # Example: ["utc_date >= '2024-01-01'", "region = 'US'"]
+    applied_filters: list[str] = field(default_factory=list)
+
+    # Column names that are filtered (extracted from applied_filters)
+    # Used to match against partition columns for scan estimation
+    # Example: ["utc_date", "region"]
+    filtered_columns: list[str] = field(default_factory=list)
+
+
+@dataclass
 class GrainGroupSQL:
     """
     SQL for a single grain group within measures SQL.
@@ -226,6 +248,10 @@ class GrainGroupSQL:
     # multiple facts (cross-fact). This requires using base_metrics CTE as source
     # instead of individual grain group CTEs.
     is_cross_fact_window: bool = False
+
+    # Scan estimation: source tables accessed during SQL generation
+    # Populated by collect_node_ctes during CTE building
+    scanned_sources: list[ScannedSourceInfo] = field(default_factory=list)
 
     @property
     def sql(self) -> str:
