@@ -240,6 +240,7 @@ async def preload_join_paths(
 
     This is O(2) queries regardless of how many source nodes we have.
     """
+    print("Preloading join paths...", source_revision_ids, target_dimension_names)
 
     if not target_dimension_names or not source_revision_ids:
         return
@@ -250,6 +251,7 @@ async def preload_join_paths(
         source_revision_ids,
         target_dimension_names,
     )
+    print("path_ids", path_ids)
 
     # Collect all link IDs we need to load
     all_link_ids: set[int] = set()
@@ -407,6 +409,18 @@ async def load_nodes(ctx: BuildContext) -> None:
             elif parent_node.current:  # pragma: no branch
                 # Parent is a fact/transform - collect its revision ID
                 parent_revision_ids.add(parent_node.current.id)
+
+                # Also collect revision IDs of SOURCE nodes that this parent references
+                # Dimension links might exist on sources, not just on the transform
+                if parent_node.type == NodeType.TRANSFORM:
+                    for dep_name in ctx.parent_map.get(parent_name, []):
+                        dep_node = ctx.nodes.get(dep_name)
+                        if (
+                            dep_node
+                            and dep_node.type == NodeType.SOURCE
+                            and dep_node.current
+                        ):
+                            parent_revision_ids.add(dep_node.current.id)
 
     for metric_name in ctx.metrics:
         collect_fact_parents(metric_name, set())

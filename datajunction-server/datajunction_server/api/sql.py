@@ -277,29 +277,60 @@ async def get_measures_sql_v3(
             ),
         )
 
-    # Generate scan estimates using tracked source information from grain groups
-    # This is more accurate than parsing SQL since we tracked sources during generation
-    _logger.info("[Scan Estimation] Generating scan estimates from grain group sources")
+    # Generate scan estimates by analyzing the final generated SQL
+    # This trusts query engine optimization (Spark/Trino) to push down filters through CTEs
+    _logger.info("[Scan Estimation] Analyzing final SQL to extract filter information")
 
-    # Collect all unique source names and their filter information across grain groups
-    # Map: source_name -> set of (filter_str_tuple, filtered_columns_tuple)
-    source_filter_info: dict[str, set[tuple[tuple[str, ...], tuple[str, ...]]]] = {}
-
+    # Collect all unique source names across grain groups
+    all_source_names = set()
     for gg in result.grain_groups:
         for scanned_source in gg.scanned_sources:
-            source_name = scanned_source.source_name
-            if source_name not in source_filter_info:
-                source_filter_info[source_name] = set()
-
-            # Add this source's filters (convert lists to tuples for set membership)
-            if scanned_source.applied_filters or scanned_source.filtered_columns:
-                filter_tuple = tuple(scanned_source.applied_filters)
-                columns_tuple = tuple(scanned_source.filtered_columns)
-                source_filter_info[source_name].add((filter_tuple, columns_tuple))
+            all_source_names.add(scanned_source.source_name)
 
     _logger.info(
-        f"[Scan Estimation] Found {len(source_filter_info)} unique source(s): {sorted(source_filter_info.keys())}"
+        f"[Scan Estimation] Found {len(all_source_names)} unique source(s): {sorted(all_source_names)}",
     )
+
+    # Analyze SQL to extract filtered columns for each source
+    # Map: source_name -> list of filtered column names
+    source_filter_columns: dict[str, set[str]] = {
+        name: set() for name in all_source_names
+    }
+    # Store WHERE condition from first grain group for selectivity analysis
+    where_condition_for_analysis = None
+
+    for gg in result.grain_groups:
+        # Get source names scanned by this grain group
+        gg_sources = [s.source_name for s in gg.scanned_sources]
+
+        # Parse the SQL query for this grain group
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        try:
+            sql_ast = parse(gg.sql)
+            # Analyze SQL to extract filtered columns and WHERE condition
+            from datajunction_server.internal.scan_estimation import (
+                analyze_sql_filters_for_sources,
+            )
+
+            gg_filters, where_cond = analyze_sql_filters_for_sources(
+                sql_ast,
+                gg_sources,
+            )
+
+            # Store WHERE condition from first grain group
+            if where_cond and not where_condition_for_analysis:
+                where_condition_for_analysis = where_cond
+
+            # Aggregate filtered columns across grain groups
+            for source_name, filtered_cols in gg_filters.items():
+                source_filter_columns[source_name].update(filtered_cols)
+        except Exception as e:
+            _logger.warning(
+                f"[Scan Estimation] Failed to parse SQL for grain group: {e}. "
+                "Assuming unfiltered scan.",
+            )
+            # On parse failure, assume no filters (conservative - will estimate 100% scan)
 
     # Batch load metadata for all sources
     from datajunction_server.internal.scan_estimation import (
@@ -310,7 +341,8 @@ async def get_measures_sql_v3(
 
     settings = get_settings()
     sources_with_metadata = await get_source_nodes_with_metadata(
-        session, list(source_filter_info.keys())
+        session,
+        list(all_source_names),
     )
 
     # Build scan estimate
@@ -321,30 +353,26 @@ async def get_measures_sql_v3(
 
         for source_name, (source_node, table_metadata) in sources_with_metadata.items():
             if not table_metadata:
-                _logger.info(f"[Scan Estimation] No metadata for {source_name}, skipping")
+                _logger.info(
+                    f"[Scan Estimation] No metadata for {source_name}, skipping",
+                )
                 continue
 
             size_gb = table_metadata.total_size_bytes / (1024**3)
 
-            # Collect all filters for this source across grain groups
-            all_filters = []
-            all_filtered_columns = set()
-            for filter_tuple, columns_tuple in source_filter_info.get(source_name, set()):
-                all_filters.extend(filter_tuple)
-                all_filtered_columns.update(columns_tuple)
-
-            # Deduplicate filters
-            unique_filters = list(dict.fromkeys(all_filters))  # Preserves order
+            # Get filtered columns for this source (from SQL analysis)
+            filtered_columns = list(source_filter_columns.get(source_name, set()))
 
             # Get partition columns for this source
             partition_columns = get_partition_columns(source_node)
 
             # Estimate scan reduction based on filtered columns and partitions
             scan_percentage, scanned_partition_count = estimate_scan_reduction(
-                filtered_columns=list(all_filtered_columns),
+                filtered_columns=filtered_columns,
                 partition_columns=partition_columns,
                 total_partitions=table_metadata.total_partitions,
                 source_name=source_name,
+                where_condition=where_condition_for_analysis,
             )
 
             # Calculate actual scan bytes based on percentage
@@ -353,8 +381,8 @@ async def get_measures_sql_v3(
 
             _logger.info(
                 f"[Scan Estimation] {source_name}: {size_gb:.2f}GB total, "
-                f"{scan_percentage*100:.0f}% scan = {scan_bytes / (1024**3):.2f}GB, "
-                f"{scanned_partition_count}/{table_metadata.total_partitions} partitions"
+                f"{scan_percentage * 100:.0f}% scan = {scan_bytes / (1024**3):.2f}GB, "
+                f"{scanned_partition_count}/{table_metadata.total_partitions} partitions",
             )
 
             source_scan_infos.append(
@@ -366,8 +394,8 @@ async def get_measures_sql_v3(
                     total_partition_count=table_metadata.total_partitions,
                     scanned_partition_count=scanned_partition_count,  # ✅ Estimated!
                     partition_columns=partition_columns,  # ✅ Populated!
-                    applied_filters=unique_filters,
-                )
+                    applied_filters=[],  # Filters are embedded in SQL, not tracked separately
+                ),
             )
 
         if source_scan_infos:
@@ -379,7 +407,7 @@ async def get_measures_sql_v3(
 
             _logger.info(
                 f"[Scan Estimation] Total scan: {total_bytes / (1024**3):.2f}GB "
-                f"across {len(source_scan_infos)} source(s)"
+                f"across {len(source_scan_infos)} source(s)",
             )
 
     return MeasuresSQLResponse(

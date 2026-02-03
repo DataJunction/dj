@@ -173,21 +173,11 @@ class ScannedSourceInfo:
     """
     Information about a source table scanned during SQL generation.
 
-    Tracks which source nodes are accessed when building SQL,
-    plus which filters apply to each source for accurate scan size estimation.
+    Tracks which source nodes are accessed when building SQL.
+    Filter analysis happens separately by parsing the final generated SQL.
     """
 
     source_name: str  # Full node name (e.g., "source.sales_fact")
-
-    # Filters that apply to this source
-    # These are the WHERE clause conditions that filter this source's data
-    # Example: ["utc_date >= '2024-01-01'", "region = 'US'"]
-    applied_filters: list[str] = field(default_factory=list)
-
-    # Column names that are filtered (extracted from applied_filters)
-    # Used to match against partition columns for scan estimation
-    # Example: ["utc_date", "region"]
-    filtered_columns: list[str] = field(default_factory=list)
 
 
 @dataclass
