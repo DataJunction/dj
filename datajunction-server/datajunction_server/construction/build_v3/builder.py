@@ -416,6 +416,12 @@ async def build_metrics_sql(
         if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
             result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+
+            # For cubes, scan estimate would be the cube table itself (already materialized)
+            # We could calculate it here if needed, but cubes are typically small compared to source tables
+            # For now, we'll leave it None for cube queries
+            # TODO: Add cube table size to scan estimate if cube availability has size metadata
+
             return apply_orderby_limit(result, orderby, limit)
 
     # No cube - build grain groups
