@@ -85,6 +85,12 @@ class BuildContext:
     # Populated by add_dimensions_from_filters() in setup_build_context
     filter_dimensions: set[str] = field(default_factory=set)
 
+    # Skip-join dimension mappings: original_ref -> local_column_name
+    # When a dimension uses skip-join optimization (e.g., requesting the join key itself),
+    # we map the dimension reference to the actual local column name for filter resolution
+    # Example: "common.dimensions.time.date.dateint" -> "utc_date"
+    skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

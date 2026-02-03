@@ -10,8 +10,12 @@ from typing import List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from datajunction_server.config import Settings
+from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
+from datajunction_server.construction.build_v3.types import (
+    GrainGroupSQL,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.database.source_metadata import (
     SourceTableMetadata,
@@ -19,26 +23,6 @@ from datajunction_server.database.source_metadata import (
 from datajunction_server.sql.parsing.backends.antlr4 import ast
 
 _logger = logging.getLogger(__name__)
-
-
-async def get_source_table_metadata(
-    session: AsyncSession,
-    node_id: int,
-) -> Optional[SourceTableMetadata]:
-    """
-    Retrieve source table metadata for a given node.
-
-    Args:
-        session: Database session
-        node_id: ID of the source node
-
-    Returns:
-        SourceTableMetadata if available, None otherwise
-    """
-    result = await session.execute(
-        select(SourceTableMetadata).where(SourceTableMetadata.node_id == node_id),
-    )
-    return result.scalar_one_or_none()
 
 
 async def get_source_nodes_with_metadata(
@@ -65,8 +49,6 @@ async def get_source_nodes_with_metadata(
     )
 
     # Single query with left join to get nodes + metadata
-    from sqlalchemy.orm import joinedload
-
     result = await session.execute(
         select(Node, SourceTableMetadata)
         .outerjoin(SourceTableMetadata, SourceTableMetadata.node_id == Node.id)
@@ -82,83 +64,6 @@ async def get_source_nodes_with_metadata(
     )
 
     return sources_dict
-
-
-def determine_severity(scan_bytes: int, settings: Settings) -> str:
-    """
-    Determine warning severity based on scan size.
-
-    Args:
-        scan_bytes: Estimated scan size in bytes
-        settings: Application settings with threshold configuration
-
-    Returns:
-        Severity level: "info", "warning", or "critical"
-    """
-    if scan_bytes >= settings.scan_critical_threshold:
-        return "critical"
-    elif scan_bytes >= settings.scan_warning_threshold:
-        return "warning"
-    elif scan_bytes >= settings.scan_info_threshold:
-        return "info"
-    else:
-        return "info"
-
-
-def extract_source_tables(query_ast: ast.Query) -> List[ast.Table]:
-    """
-    Extract all source table references from a query AST.
-
-    Args:
-        query_ast: Parsed query AST
-
-    Returns:
-        List of table references
-    """
-    tables = []
-    for table in query_ast.find_all(ast.Table):
-        tables.append(table)
-    return tables
-
-
-def extract_where_conditions(
-    query_ast: ast.Query,
-    source_ref: ast.Table,
-) -> List[ast.Expression]:
-    """
-    Extract WHERE clause conditions for a specific table reference.
-
-    Args:
-        query_ast: Parsed query AST
-        source_ref: Table reference to find conditions for
-
-    Returns:
-        List of filter conditions
-    """
-    # This is a simplified implementation
-    # In practice, would need to traverse the AST to find WHERE clauses
-    # that apply to the specific table reference
-    if query_ast.select.where:
-        return [query_ast.select.where]
-    return []
-
-
-def extract_filtered_columns(where_conditions: List[ast.Expression]) -> List[str]:
-    """
-    Extract column names that are filtered in WHERE conditions.
-
-    Args:
-        where_conditions: List of WHERE clause expressions
-
-    Returns:
-        List of filtered column names
-    """
-    filtered_columns = []
-    for condition in where_conditions:
-        # Extract column references from the condition
-        for column in condition.find_all(ast.Column):
-            filtered_columns.append(column.name.name)
-    return filtered_columns
 
 
 def get_partition_columns(node: Node) -> list[str]:
@@ -419,7 +324,37 @@ def analyze_sql_filters_for_sources(
     alias_to_cte: dict[str, str] = {}
 
     if sql_ast.select.from_:
+        _logger.info(
+            f"[Scan Estimation] Main query FROM clause type: {type(sql_ast.select.from_)}",
+        )
+
+        # Check for Alias nodes that wrap Table nodes
+        for node in sql_ast.select.from_.find_all(ast.Alias):
+            _logger.info(
+                f"[Scan Estimation] Found Alias node: {type(node)}, has child: {hasattr(node, 'child')}, has alias: {hasattr(node, 'alias')}",
+            )
+            if hasattr(node, "child") and isinstance(node.child, ast.Table):
+                if hasattr(node, "alias") and node.alias:
+                    alias_name = (
+                        node.alias.name
+                        if hasattr(node.alias, "name")
+                        else str(node.alias)
+                    )
+                    table_name = (
+                        node.child.name.name
+                        if hasattr(node.child.name, "name")
+                        else str(node.child.name)
+                    )
+                    alias_to_cte[alias_name] = table_name
+                    _logger.info(
+                        f"[Scan Estimation] Mapped alias: {alias_name} -> {table_name}",
+                    )
+
+        # Also check for Table nodes directly (fallback)
         for table in sql_ast.select.from_.find_all(ast.Table):
+            _logger.info(
+                f"[Scan Estimation] Found Table node: has alias: {hasattr(table, 'alias')}, has name: {hasattr(table, 'name')}",
+            )
             if hasattr(table, "alias") and table.alias and hasattr(table, "name"):
                 alias = (
                     table.alias.name
@@ -519,7 +454,6 @@ def parse_filter_selectivity(
         return None
 
     # Analyze the operations
-    has_equality = False
     range_bounds = {"min": None, "max": None}
 
     for op in matching_ops:
@@ -527,20 +461,56 @@ def parse_filter_selectivity(
             # Equality: single partition
             return 1
 
-        elif op.op == ast.BinaryOpKind.Gte or op.op == ast.BinaryOpKind.Gt:
+        elif op.op == ast.BinaryOpKind.GtEq or op.op == ast.BinaryOpKind.Gt:
             # Greater than - sets lower bound
-            # date >= '2024-01-01'
-            has_equality = True
+            # date >= '2024-01-01' or dateint >= 20240101
+            range_bounds["min"] = op.right.value
 
-        elif op.op == ast.BinaryOpKind.Lte or op.op == ast.BinaryOpKind.Lt:
+        elif op.op == ast.BinaryOpKind.LtEq or op.op == ast.BinaryOpKind.Lt:
             # Less than - sets upper bound
-            # date <= '2024-01-31'
-            has_equality = True
+            # date <= '2024-01-31' or dateint <= 20240131
+            range_bounds["max"] = op.right.value
 
-    # If we have range bounds (>= and <=), we could try to parse the values
-    # For now, use a heuristic: range filter = 10% of partitions
-    if has_equality:
-        return None  # Signal to use default heuristic
+    # If we have both min and max bounds, calculate the range
+    if range_bounds["min"] is not None and range_bounds["max"] is not None:
+        try:
+            min_val = range_bounds["min"]
+            max_val = range_bounds["max"]
+
+            # Try to parse as integer dateint format (YYYYMMDD)
+            if isinstance(min_val, int) and isinstance(max_val, int):
+                # Convert YYYYMMDD to date
+                from datetime import datetime
+
+                min_date = datetime.strptime(str(min_val), "%Y%m%d")
+                max_date = datetime.strptime(str(max_val), "%Y%m%d")
+                days = (max_date - min_date).days + 1  # Inclusive
+                _logger.info(
+                    f"[Scan Estimation] Parsed dateint range: {min_val} to {max_val} = {days} partitions",
+                )
+                return days
+
+            # Try to parse as string dates (YYYY-MM-DD)
+            if isinstance(min_val, str) and isinstance(max_val, str):
+                from datetime import datetime
+
+                # Try various date formats
+                for date_format in ["%Y-%m-%d", "%Y%m%d", "%Y/%m/%d"]:
+                    try:
+                        min_date = datetime.strptime(min_val, date_format)
+                        max_date = datetime.strptime(max_val, date_format)
+                        days = (max_date - min_date).days + 1  # Inclusive
+                        _logger.info(
+                            f"[Scan Estimation] Parsed date range: {min_val} to {max_val} = {days} partitions",
+                        )
+                        return days
+                    except ValueError:
+                        continue
+
+        except Exception as e:
+            _logger.debug(
+                f"[Scan Estimation] Failed to parse range bounds {range_bounds}: {e}",
+            )
 
     return None
 
@@ -569,12 +539,13 @@ def estimate_scan_reduction(
     """
     if not partition_columns:
         # No partitions defined - full table scan
-        _logger.info(
-            f"[Scan Estimation] {source_name}: No partition columns, 100% scan",
-        )
         return 1.0, None
 
     # Check if any partition columns are filtered
+    _logger.info(
+        f"[Scan Estimation] {source_name}: Checking match - filtered_columns={filtered_columns}, partition_columns={partition_columns}",
+    )
+
     partition_cols_filtered = [
         col for col in filtered_columns if col in partition_columns
     ]
@@ -582,7 +553,7 @@ def estimate_scan_reduction(
     if not partition_cols_filtered:
         # No partition columns filtered - full table scan
         _logger.info(
-            f"[Scan Estimation] {source_name}: Partition columns {partition_columns} not filtered, 100% scan",
+            f"[Scan Estimation] {source_name}: Partition columns {partition_columns} not filtered (no match with {filtered_columns}), 100% scan",
         )
         return 1.0, total_partitions
 
@@ -633,3 +604,120 @@ def estimate_scan_reduction(
     )
 
     return scan_percentage, estimated_partitions
+
+
+async def calculate_grain_group_scan_estimate(
+    session: AsyncSession,
+    grain_group: "GrainGroupSQL",  # type: ignore
+) -> Optional["ScanEstimate"]:  # type: ignore
+    """
+    Calculate scan estimate for a single grain group query.
+
+    This function encapsulates all scan estimation logic for a single SQL query,
+    including filter analysis, metadata loading, and scan reduction calculation.
+
+    Args:
+        session: Database session for loading source metadata
+        grain_group: The grain group containing:
+            - query: Parsed SQL AST
+            - scanned_sources: List of source tables referenced
+
+    Returns:
+        ScanEstimate with per-source breakdown and total bytes, or None if:
+        - No sources are scanned
+        - Metadata is unavailable for all sources
+        - Filter analysis fails
+    """
+    # Extract source names from this grain group
+    source_names = [s.source_name for s in grain_group.scanned_sources]
+    if not source_names:
+        return None
+
+    # Analyze SQL to extract filtered columns
+    try:
+        source_filter_columns, where_condition = analyze_sql_filters_for_sources(
+            grain_group.query,  # Use existing AST (no re-parsing)
+            source_names,
+        )
+    except Exception as e:
+        _logger.warning(
+            f"[Scan Estimation] Failed to analyze SQL filters: {e}. "
+            "Assuming unfiltered scan.",
+        )
+        source_filter_columns = {}
+        where_condition = None
+
+    # Batch load metadata for all sources in this grain group
+    sources_with_metadata = await get_source_nodes_with_metadata(
+        session,
+        source_names,
+    )
+
+    if not sources_with_metadata:
+        _logger.info("[Scan Estimation] No metadata available for any source")
+        return None
+
+    # Calculate scan reduction for each source
+    total_bytes = 0
+    source_scan_infos = []
+
+    for source_name, (source_node, table_metadata) in sources_with_metadata.items():
+        if not table_metadata:
+            _logger.info(
+                f"[Scan Estimation] No metadata for {source_name}, skipping",
+            )
+            continue
+
+        size_gb = table_metadata.total_size_bytes / (1024**3)
+
+        # Get filtered columns for this source
+        filtered_columns = list(source_filter_columns.get(source_name, set()))
+
+        # Get partition columns
+        partition_columns = get_partition_columns(source_node)
+
+        # Estimate scan reduction based on filters and partitions
+        scan_percentage, scanned_partition_count = estimate_scan_reduction(
+            filtered_columns=filtered_columns,
+            partition_columns=partition_columns,
+            total_partitions=table_metadata.total_partitions,
+            source_name=source_name,
+            where_condition=where_condition,
+        )
+
+        # Calculate actual scan bytes
+        scan_bytes = int(table_metadata.total_size_bytes * scan_percentage)
+        total_bytes += scan_bytes
+
+        _logger.info(
+            f"[Scan Estimation] {source_name}: {size_gb:.2f}GB total, "
+            f"{scan_percentage * 100:.0f}% scan = {scan_bytes / (1024**3):.2f}GB, "
+            f"{scanned_partition_count}/{table_metadata.total_partitions} partitions",
+        )
+
+        source_scan_infos.append(
+            SourceScanInfo(
+                source_name=source_name,
+                scan_bytes=scan_bytes,
+                total_bytes=table_metadata.total_size_bytes,
+                scan_percentage=scan_percentage,
+                total_partition_count=table_metadata.total_partitions,
+                scanned_partition_count=scanned_partition_count,
+                partition_columns=partition_columns,
+                applied_filters=[],  # Filters are embedded in SQL, not tracked separately
+            ),
+        )
+
+    if not source_scan_infos:
+        return None
+
+    _logger.info(
+        f"[Scan Estimation] Grain group scan total: {total_bytes / (1024**3):.2f}GB "
+        f"across {len(source_scan_infos)} source(s)",
+    )
+
+    return ScanEstimate(
+        total_bytes=total_bytes,
+        sources=source_scan_infos,
+        has_materialization=False,  # Grain groups don't use materialized data
+    )

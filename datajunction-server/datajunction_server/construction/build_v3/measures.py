@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 if TYPE_CHECKING:
     from datajunction_server.database.preaggregation import PreAggregation
 
+from datajunction_server.construction.build_v3.types import ScannedSourceInfo
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
     extract_dimension_node,
@@ -570,6 +571,15 @@ def build_select_ast(
             for col in parent_node.current.columns:
                 if col.name not in filter_column_aliases:  # pragma: no branch
                     filter_column_aliases[col.name] = col.name
+
+        # Override aliases for skip-join dimensions
+        # When skip-join optimization is used, the dimension reference maps to a local column
+        # Example: "common.dimensions.time.date.dateint" -> "utc_date"
+        for dim_ref, local_col in ctx.skip_join_column_mapping.items():
+            filter_column_aliases[dim_ref] = local_col
+            _logger.info(
+                f"[BuildV3] Filter alias override for skip-join: {dim_ref} -> {local_col}",
+            )
 
         # Parse and resolve filters
         # Note: We don't pass a cte_alias because the column references are already
@@ -1135,8 +1145,6 @@ def build_grain_group_sql(
 
     # Convert scanned source names to ScannedSourceInfo objects
     # Filter analysis happens later by parsing the final generated SQL
-    from datajunction_server.construction.build_v3.types import ScannedSourceInfo
-
     scanned_source_infos = [
         ScannedSourceInfo(source_name=source_name) for source_name in scanned_sources
     ]

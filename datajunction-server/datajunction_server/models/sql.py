@@ -22,7 +22,7 @@ class SourceScanInfo(BaseModel):
     Provides detailed metrics about how much data will be scanned:
     - Total table size vs actual scan size
     - Total partitions vs partitions that will be scanned
-    - Which filters are applied to reduce the scan
+    - Partition columns available for filtering
     """
 
     source_name: str
@@ -38,7 +38,6 @@ class SourceScanInfo(BaseModel):
 
     # Filter information
     partition_columns: List[str]  # Partition columns (e.g., ["utc_date", "region"])
-    applied_filters: List[str]  # Filters applied (e.g., ["utc_date >= '2024-01-01'"])
 
 
 class ScanEstimate(BaseModel):
@@ -128,6 +127,7 @@ class GrainGroupResponse(BaseModel):
         ComponentResponse
     ]  # Metric components for materialization planning
     parent_name: str  # Source fact/transform node name
+    scan_estimate: Optional[ScanEstimate] = None  # Per-query scan estimate
 
 
 class MeasuresSQLResponse(BaseModel):
@@ -137,7 +137,6 @@ class MeasuresSQLResponse(BaseModel):
     metric_formulas: List[MetricFormulaResponse]  # How metrics combine components
     dialect: Optional[str] = None
     requested_dimensions: List[str]
-    scan_estimate: Optional[ScanEstimate] = None
 
 
 class CombinedMeasuresSQLResponse(BaseModel):

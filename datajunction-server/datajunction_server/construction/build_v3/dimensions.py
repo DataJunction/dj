@@ -4,6 +4,7 @@ Dimension + join path resolution and building functions
 
 from __future__ import annotations
 
+from http import HTTPStatus
 import logging
 from typing import Optional, cast
 
@@ -11,6 +12,7 @@ from datajunction_server.construction.build_v3.utils import (
     get_short_name,
     make_name,
 )
+from datajunction_server.errors import DJException
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
@@ -90,7 +92,6 @@ def find_join_path(
 
     # Look up preloaded path with exact role match
     key = (source_revision_id, target_dim_name, role_path)
-    print("ctx.join_paths", ctx.join_paths)
     links = ctx.join_paths.get(key)
 
     if links:
@@ -149,29 +150,13 @@ def can_skip_join_for_dimension(
 
     link = join_path.links[0]
 
-    # Get the dimension column being requested
-    # Use short name of dimension node to match the table alias in join SQL
-    # For example: "common.dimensions.date" -> "date"
-    # This matches the table alias used in join SQL like "date.dateint = ..."
-    dim_table_name = get_short_name(dim_ref.node_name)
-    dim_col_key = f"{dim_table_name}{SEPARATOR}{dim_ref.column_name}"
-
-    # Debug logging
-    logger.info(
-        f"[Dimension Skip Join] Checking if can skip join for {dim_ref.node_name}.{dim_ref.column_name}",
-    )
-    logger.info(f"[Dimension Skip Join] Looking for key: {dim_col_key}")
-    logger.info(
-        f"[Dimension Skip Join] Available keys in foreign_keys_reversed: {list(link.foreign_keys_reversed.keys())}",
-    )
+    # Get the dimension column being requested (fully qualified)
+    dim_col_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # Check if this dimension column is in the foreign keys mapping
-    if parent_col := link.foreign_keys_reversed.get(dim_col_key):  # pragma: no cover
-        logger.info(f"[Dimension Skip Join] Found match! Local column: {parent_col}")
+    if parent_col := link.foreign_keys_reversed.get(dim_col_fqn):
         # Join can be skipped - the FK column on the parent matches the requested dim
         return True, get_short_name(parent_col)
-
-    logger.info("[Dimension Skip Join] No match found, cannot skip join")
     return False, None
 
 
@@ -189,33 +174,19 @@ def resolve_dimensions(
     """
     resolved = []
 
-    logger.info(
-        f"[Resolve Dimensions] Parent node: {parent_node.name}, Dimensions: {ctx.dimensions}",
-    )
-
     for dim in ctx.dimensions:
         dim_ref = parse_dimension_ref(dim)
-        logger.info(
-            f"[Resolve Dimensions] Processing dimension: {dim}, parsed as node={dim_ref.node_name}, col={dim_ref.column_name}",
-        )
 
         # Check if it's a local dimension (column on the parent node itself)
         is_local = False
         if dim_ref.node_name == parent_node.name:
             is_local = True
-            logger.info(
-                f"[Resolve Dimensions] Dimension {dim} is LOCAL (node name matches parent)",
-            )
         elif not dim_ref.node_name:  # pragma: no cover
             # No node specified, assume it's local
             is_local = True
             dim_ref.node_name = parent_node.name
-            logger.info(
-                f"[Resolve Dimensions] Dimension {dim} is LOCAL (no node specified)",
-            )
 
         if is_local:
-            logger.info(f"[Resolve Dimensions] Creating local dimension for {dim}")
             resolved.append(
                 ResolvedDimension(
                     original_ref=dim,
@@ -228,9 +199,6 @@ def resolve_dimensions(
             )
         else:
             # Need to find join path
-            logger.info(
-                f"[Resolve Dimensions] Dimension {dim} is NOT local, finding join path from {parent_node.name} to {dim_ref.node_name}",
-            )
             join_path = find_join_path(
                 ctx,
                 parent_node,
@@ -257,29 +225,27 @@ def resolve_dimensions(
 
             # Validate that we found a join path
             if not join_path:
-                # No join path found - cannot access this dimension
-                from datajunction_server.errors import DJException
-
                 raise DJException(
-                    http_status_code=400,
+                    http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                     message=f"Cannot find join path from {parent_node.name} to dimension {dim_ref.node_name}. "
                     f"Please create a dimension link between these nodes.",
                 )
 
             # Optimization: if requesting the join key column, skip the join
-            logger.info(f"[Resolve Dimensions] Checking if can skip join for {dim}")
             can_skip, local_col = can_skip_join_for_dimension(
                 dim_ref,
                 join_path,
                 parent_node,
             )
-            logger.info(
-                f"[Resolve Dimensions] can_skip={can_skip}, local_col={local_col}",
-            )
-            if can_skip and local_col:  # pragma: no cover
+            print("can_skip", can_skip)
+            if can_skip and local_col:
                 logger.info(
                     f"[BuildV3] Skipping join for {dim} - using local column {local_col}",
                 )
+                # Store the mapping for filter resolution
+                # This allows filters referencing the dimension name to resolve to the local column
+                ctx.skip_join_column_mapping[dim] = local_col
+                logger.info(f"[BuildV3] Stored skip-join mapping: {dim} -> {local_col}")
                 resolved.append(
                     ResolvedDimension(
                         original_ref=dim,
