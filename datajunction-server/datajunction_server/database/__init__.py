@@ -21,8 +21,6 @@ __all__ = [
     "Role",
     "RoleAssignment",
     "RoleScope",
-    "SourcePartitionMetadata",
-    "SourceTableMetadata",
     "Table",
     "Tag",
     "User",
@@ -45,10 +43,6 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.database.queryrequest import QueryRequest
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
-from datajunction_server.database.source_metadata import (
-    SourcePartitionMetadata,
-    SourceTableMetadata,
-)
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User
 from datajunction_server.models.history import History
