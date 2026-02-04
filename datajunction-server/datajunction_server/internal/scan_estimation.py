@@ -2,19 +2,14 @@
 Scan estimation for query cost analysis.
 
 Estimates the amount of data that will be scanned when executing a query
-by looking up table size metadata from AvailabilityState records.
+by reading table size metadata from already-loaded AvailabilityState records.
 """
 
 from typing import Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroupSQL
-from datajunction_server.database.availabilitystate import (
-    AvailabilityState,
-    NodeAvailabilityState,
-)
 from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
 
 
@@ -63,25 +58,16 @@ async def calculate_scan_estimate(
             )
             continue
 
-        # Query for availability state via NodeAvailabilityState
-        stmt = (
-            select(AvailabilityState)
-            .join(
-                NodeAvailabilityState,
-                NodeAvailabilityState.availability_id == AvailabilityState.id,
-            )
-            .where(NodeAvailabilityState.node_id == node.current.id)
-        )
-        result = await session.execute(stmt)
-        availability = result.scalar_one_or_none()
-
-        # Always add the source to the list
+        # Availability is already eagerly loaded in load_nodes()
+        availability = node.current.availability
         size_bytes = (
             availability.total_size_bytes
             if availability and availability.total_size_bytes
             else 0
         )
         total_bytes += size_bytes
+
+        # Always add the source to the list
         sources.append(
             SourceScanInfo(
                 source_name=source_name,

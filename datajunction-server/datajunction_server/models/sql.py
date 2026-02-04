@@ -54,7 +54,6 @@ class ScanEstimate(BaseModel):
 
     total_bytes: Optional[int]  # None if no size metadata available for any source
     sources: List[SourceScanInfo]
-    has_materialization: bool
 
 
 class TranspiledSQL(BaseModel):

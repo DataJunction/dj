@@ -1885,10 +1885,10 @@ def generate_metrics_sql(
         # Aggregate by source name to avoid double-counting if same source appears in multiple grain groups
         sources_by_name: dict[str, SourceScanInfo] = {}
         for gg in grain_groups_with_scans:
-            for source in gg.scan_estimate.sources:
-                # Use the first occurrence of each source (they should all be the same)
-                if source.source_name not in sources_by_name:
-                    sources_by_name[source.source_name] = source
+            if gg.scan_estimate:
+                for source in gg.scan_estimate.sources:
+                    if source.source_name not in sources_by_name:
+                        sources_by_name[source.source_name] = source
 
         # Sum total_bytes, skipping sources with None (no size data)
         total_bytes = sum(
@@ -1897,14 +1897,9 @@ def generate_metrics_sql(
         # Set to None if no sources have size data
         total_bytes_result = total_bytes if total_bytes > 0 else None
 
-        has_materialization = any(
-            gg.scan_estimate.has_materialization for gg in grain_groups_with_scans
-        )
-
         scan_estimate = ScanEstimate(
             total_bytes=total_bytes_result,
             sources=list(sources_by_name.values()),
-            has_materialization=has_materialization,
         )
 
     return GeneratedSQL(
