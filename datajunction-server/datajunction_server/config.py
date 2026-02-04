@@ -191,14 +191,14 @@ class Settings(BaseSettings):  # pragma: no cover
     preagg_catalog: str = "default"
     preagg_schema: str = "dj_preaggs"
 
-    # Scan estimation thresholds (in bytes)
-    # Used for both node page warnings and query execution warnings
-    # Info threshold - just informational (1GB)
-    scan_info_threshold: int = 1 * 1024**3
-    # Warning threshold - yellow badge (10GB)
-    scan_warning_threshold: int = 10 * 1024**3
-    # Critical threshold - red badge, requires confirmation (100GB)
-    scan_critical_threshold: int = 100 * 1024**3
+    # # Scan estimation thresholds (in bytes)
+    # # Used for both node page warnings and query execution warnings
+    # # Info threshold - just informational (1GB)
+    # scan_info_threshold: int = 1 * 1024**3
+    # # Warning threshold - yellow badge (10GB)
+    # scan_warning_threshold: int = 10 * 1024**3
+    # # Critical threshold - red badge, requires confirmation (100GB)
+    # scan_critical_threshold: int = 100 * 1024**3
 
     # GitHub API configuration for git-backed branch management
     # API URL (defaults to github.com, override for GitHub Enterprise)

@@ -205,9 +205,6 @@ def resolve_dimensions(
                 dim_ref.node_name,
                 dim_ref.role,
             )
-            logger.info(
-                f"[Resolve Dimensions] Join path found: {join_path is not None}, links: {len(join_path.links) if join_path else 0}",
-            )
 
             if not join_path and dim_ref.role:  # pragma: no cover
                 # Try finding via role path
@@ -237,15 +234,10 @@ def resolve_dimensions(
                 join_path,
                 parent_node,
             )
-            print("can_skip", can_skip)
             if can_skip and local_col:
-                logger.info(
-                    f"[BuildV3] Skipping join for {dim} - using local column {local_col}",
-                )
                 # Store the mapping for filter resolution
                 # This allows filters referencing the dimension name to resolve to the local column
                 ctx.skip_join_column_mapping[dim] = local_col
-                logger.info(f"[BuildV3] Stored skip-join mapping: {dim} -> {local_col}")
                 resolved.append(
                     ResolvedDimension(
                         original_ref=dim,

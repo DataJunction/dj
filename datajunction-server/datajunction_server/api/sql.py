@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
     build_metrics_sql,
     build_measures_sql,
+    resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
@@ -280,12 +281,7 @@ async def get_measures_sql_v3(
     # Calculate scan estimates for each grain group
     grain_group_responses = []
     for gg in result.grain_groups:
-        # Calculate scan estimate for this specific grain group
-        scan_estimate = await calculate_scan_estimate(session, gg, result.ctx)
-
-        # Store on the grain group object so generate_metrics_sql can access it
-        gg.scan_estimate = scan_estimate
-
+        gg.scan_estimate = await calculate_scan_estimate(session, gg, result.ctx)
         grain_group_responses.append(
             GrainGroupResponse(
                 sql=gg.sql,
@@ -317,7 +313,7 @@ async def get_measures_sql_v3(
                     for comp in gg.components
                 ],
                 parent_name=gg.parent_name,
-                scan_estimate=scan_estimate,
+                scan_estimate=gg.scan_estimate,
             ),
         )
 
@@ -455,10 +451,19 @@ async def get_metrics_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderby: List[str] = Query(
+        [],
+        description="ORDER BY clauses using semantic names (e.g., 'v3.total_revenue DESC', 'v3.date.month')",
+    ),
+    limit: Optional[int] = Query(
+        None,
+        description="Maximum number of rows to return",
+    ),
     use_materialized: bool = Query(True),
-    dialect: Dialect = Query(
-        Dialect.SPARK,
-        description="SQL dialect for the generated query.",
+    dialect: Optional[Dialect] = Query(
+        None,
+        description="SQL dialect for the generated query. If not specified, "
+        "auto-resolves based on cube availability.",
     ),
     *,
     session: AsyncSession = Depends(get_session),
@@ -490,18 +495,31 @@ async def get_metrics_sql_v3(
         metrics: List of metric names to include
         dimensions: List of dimensions to group by (the grain)
         filters: Optional filters to apply
-        dialect: SQL dialect for the generated query
+        dialect: SQL dialect for the generated query. If not specified, auto-resolves
+            based on cube availability (uses Druid if cube exists, else metric's catalog).
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
+    # Auto-resolve dialect if not explicitly provided
+    resolved_dialect = dialect
+    if resolved_dialect is None:  # pragma: no branch
+        execution_ctx = await resolve_dialect_and_engine_for_metrics(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            use_materialized=use_materialized,
+        )
+        resolved_dialect = execution_ctx.dialect
 
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
-        dialect=dialect,
+        orderby=orderby if orderby else None,
+        limit=limit,
+        dialect=resolved_dialect,
         use_materialized=use_materialized,
     )
 
@@ -517,6 +535,7 @@ async def get_metrics_sql_v3(
             for col in result.columns
         ],
         dialect=result.dialect,
+        cube_name=result.cube_name,
         scan_estimate=result.scan_estimate,
     )
 

@@ -40,9 +40,8 @@ def upgrade():
 
 
 def downgrade():
-    pass
-    # # Remove table-level size metadata columns from availabilitystate
-    # op.drop_column("availabilitystate", "ttl_days")
-    # op.drop_column("availabilitystate", "total_partitions")
-    # op.drop_column("availabilitystate", "total_row_count")
-    # op.drop_column("availabilitystate", "total_size_bytes")
+    # Remove table-level size metadata columns from availabilitystate
+    op.drop_column("availabilitystate", "ttl_days")
+    op.drop_column("availabilitystate", "total_partitions")
+    op.drop_column("availabilitystate", "total_row_count")
+    op.drop_column("availabilitystate", "total_size_bytes")

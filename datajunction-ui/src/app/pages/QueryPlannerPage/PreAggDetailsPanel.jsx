@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomOneLight } from 'react-syntax-highlighter/src/styles/hljs';
+import {
+  SCAN_WARNING_THRESHOLD,
+  SCAN_CRITICAL_THRESHOLD,
+} from '../../constants';
 
 /**
  * Helper to extract dimension node name from a dimension path
@@ -210,9 +214,8 @@ function formatBytes(bytes) {
  * Get warning level for scan size
  */
 function getScanWarningLevel(bytes) {
-  const GB = 1024 * 1024 * 1024;
-  if (bytes > 100 * GB) return 'critical';
-  if (bytes > 10 * GB) return 'warning';
+  if (bytes > SCAN_CRITICAL_THRESHOLD) return 'critical';
+  if (bytes > SCAN_WARNING_THRESHOLD) return 'warning';
   return 'ok';
 }
 

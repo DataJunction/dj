@@ -577,9 +577,6 @@ def build_select_ast(
         # Example: "common.dimensions.time.date.dateint" -> "utc_date"
         for dim_ref, local_col in ctx.skip_join_column_mapping.items():
             filter_column_aliases[dim_ref] = local_col
-            _logger.info(
-                f"[BuildV3] Filter alias override for skip-join: {dim_ref} -> {local_col}",
-            )
 
         # Parse and resolve filters
         # Note: We don't pass a cte_alias because the column references are already
