@@ -130,7 +130,6 @@ async def add_availability_state(
     ):
         data.merge(node_revision.availability)
 
-    print("new availability state", data)
     # Update the node with the new availability state
     node_revision.availability = AvailabilityState(
         catalog=data.catalog,
@@ -156,7 +155,6 @@ async def add_availability_state(
         total_partitions=data.total_partitions,
         ttl_days=data.ttl_days,
     )
-    print("stored availability state", node_revision.availability.total_size_bytes)
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []
     session.add(node_revision)
@@ -180,7 +178,6 @@ async def add_availability_state(
     )
     await session.commit()
     await session.refresh(node_revision.availability)
-    print("final availability state", node_revision.availability.id)
     return JSONResponse(
         status_code=200,
         content={"message": "Availability state successfully posted"},

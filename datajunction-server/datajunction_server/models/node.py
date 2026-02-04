@@ -615,7 +615,12 @@ class ImmutableNodeFields(BaseModel):
     """
 
     name: str
-    namespace: str = "default"
+    namespace: Optional[str] = None
+
+    @model_validator(mode="after")
+    def set_namespace_from_name(self):
+        self.namespace = self.name.rsplit(".", 1)[0]
+        return self
 
 
 class MutableNodeFields(BaseModel):
