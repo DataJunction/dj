@@ -39,14 +39,8 @@ async def calculate_scan_estimate(
         no size data is available.
     """
     # Collect source names from this grain group
-    all_source_names = set()
-    for scanned in grain_group.scanned_sources:
-        all_source_names.add(scanned.source_name)
-
-    print(f"[SCAN DEBUG] Scanned source names: {all_source_names}")
-
+    all_source_names = {scanned.source_name for scanned in grain_group.scanned_sources}
     if not all_source_names:
-        print("[SCAN DEBUG] No scanned sources found")
         return None
 
     # Query availability states for these sources
@@ -54,13 +48,11 @@ async def calculate_scan_estimate(
     total_bytes = 0
 
     for source_name in all_source_names:
-        print(f"[SCAN DEBUG] Processing source: {source_name}")
-
-        # Look up the source node
+        # Look up the node by source name
         node = ctx.nodes.get(source_name)
+
+        # Still add the source, but with no metadata
         if not node or not node.current:
-            print("[SCAN DEBUG]   Node not found in context")
-            # Still add the source, but with no metadata
             sources.append(
                 SourceScanInfo(
                     source_name=source_name,
@@ -70,9 +62,6 @@ async def calculate_scan_estimate(
                 ),
             )
             continue
-
-        print(f"[SCAN DEBUG]   Node.current.id: {node.current.id}")
-        print(f"[SCAN DEBUG]   Node.type: {node.type}")
 
         # Query for availability state via NodeAvailabilityState
         stmt = (
@@ -86,66 +75,41 @@ async def calculate_scan_estimate(
         result = await session.execute(stmt)
         availability = result.scalar_one_or_none()
 
-        print(f"[SCAN DEBUG]   Availability found: {availability is not None}")
-        if availability:
-            print(f"[SCAN DEBUG]   Availability.id: {availability.id}")
-            print(f"[SCAN DEBUG]   total_size_bytes: {availability.total_size_bytes}")
-            print(f"[SCAN DEBUG]   total_row_count: {availability.total_row_count}")
-
         # Always add the source to the list
-        if availability and availability.total_size_bytes:
-            # We have size data - include it and add to total
-            size_bytes = availability.total_size_bytes
-            total_bytes += size_bytes
-
-            sources.append(
-                SourceScanInfo(
-                    source_name=source_name,
-                    catalog=availability.catalog,
-                    schema_=availability.schema_,
-                    table=availability.table,
-                    total_bytes=size_bytes,
-                    partition_columns=availability.temporal_partitions or [],
-                    total_partition_count=availability.total_partitions,
-                    # Filter-based estimates omitted - we can't calculate them accurately yet
-                    # scan_bytes, scan_percentage, scanned_partition_count remain None
+        size_bytes = (
+            availability.total_size_bytes
+            if availability and availability.total_size_bytes
+            else 0
+        )
+        total_bytes += size_bytes
+        sources.append(
+            SourceScanInfo(
+                source_name=source_name,
+                catalog=availability.catalog if availability else None,
+                schema_=availability.schema_ if availability else None,
+                table=availability.table if availability else None,
+                total_bytes=size_bytes,
+                partition_columns=(
+                    availability.temporal_partitions or [] if availability else []
                 ),
-            )
-        else:
-            # No availability data or no size - still add source with None values
-            sources.append(
-                SourceScanInfo(
-                    source_name=source_name,
-                    catalog=availability.catalog if availability else None,
-                    schema_=availability.schema_ if availability else None,
-                    table=availability.table if availability else None,
-                    total_bytes=None,
-                    partition_columns=availability.temporal_partitions or []
-                    if availability
-                    else [],
-                    total_partition_count=availability.total_partitions
-                    if availability
-                    else None,
+                total_partition_count=(
+                    availability.total_partitions if availability else None
                 ),
-            )
+                # Filter-based estimates omitted - we can't calculate them accurately yet
+                # scan_bytes, scan_percentage, scanned_partition_count remain None
+            ),
+        )
 
     # If no sources were scanned, return None
     if not sources:
-        print("[SCAN DEBUG] No sources were scanned")
         return None
 
-    # Check if using materialization
     # TODO: Check if pre-aggs are actually being used in this specific grain group
-    has_materialization = ctx.use_materialized
 
     # Set total_bytes to None if no sources have size data
     total_bytes_result = total_bytes if total_bytes > 0 else None
-
-    print(
-        f"[SCAN DEBUG] Returning scan estimate: total_bytes={total_bytes_result}, sources={len(sources)}",
-    )
     return ScanEstimate(
         total_bytes=total_bytes_result,
         sources=sources,
-        has_materialization=has_materialization,
+        has_materialization=ctx.use_materialized,
     )

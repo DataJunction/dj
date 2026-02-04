@@ -89,7 +89,7 @@ class BuildContext:
     # Skip-join dimension mappings: original_ref -> local_column_name
     # When a dimension uses skip-join optimization (e.g., requesting the join key itself),
     # we map the dimension reference to the actual local column name for filter resolution
-    # Example: "common.dimensions.time.date.dateint" -> "utc_date"
+    # Example: "dimensions.time.date.dateint" -> "utc_date"
     skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
 
     def next_table_alias(self, base_name: str) -> str:

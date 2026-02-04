@@ -574,7 +574,7 @@ def build_select_ast(
 
         # Override aliases for skip-join dimensions
         # When skip-join optimization is used, the dimension reference maps to a local column
-        # Example: "common.dimensions.time.date.dateint" -> "utc_date"
+        # Example: "dimensions.time.date.dateint" -> "utc_date"
         for dim_ref, local_col in ctx.skip_join_column_mapping.items():
             filter_column_aliases[dim_ref] = local_col
 

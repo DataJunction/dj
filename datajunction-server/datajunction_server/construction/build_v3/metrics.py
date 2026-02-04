@@ -1879,14 +1879,12 @@ def generate_metrics_sql(
     grain_groups_with_scans = [
         gg for gg in measures_result.grain_groups if gg.scan_estimate is not None
     ]
-    print("grain_groups_with_scans", grain_groups_with_scans)
     if grain_groups_with_scans:
         from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
 
         # Aggregate by source name to avoid double-counting if same source appears in multiple grain groups
         sources_by_name: dict[str, SourceScanInfo] = {}
         for gg in grain_groups_with_scans:
-            print("gg.scan_estimate", gg.scan_estimate)
             for source in gg.scan_estimate.sources:
                 # Use the first occurrence of each source (they should all be the same)
                 if source.source_name not in sources_by_name:
