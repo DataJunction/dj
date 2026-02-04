@@ -19,33 +19,40 @@ class SourceScanInfo(BaseModel):
     """
     Information about a source table scan.
 
-    Provides detailed metrics about how much data will be scanned:
-    - Total table size vs actual scan size
-    - Total partitions vs partitions that will be scanned
-    - Partition columns available for filtering
+    Provides table-level scan metrics. All size/partition fields are optional
+    and only included when availability metadata is available.
     """
 
-    source_name: str
+    source_name: str  # Node name (e.g., "source.sales_fact")
 
-    # Byte-level metrics
-    scan_bytes: int  # Bytes that will be scanned (after filters)
-    total_bytes: int  # Total table size (all partitions)
-    scan_percentage: float  # scan_bytes / total_bytes
+    # Physical table location (from availability state)
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None  # underscore to avoid Python keyword
+    table: Optional[str] = None
 
-    # Partition-level metrics
+    # Table size (None if no availability metadata)
+    total_bytes: Optional[int] = None  # Total table size (all partitions)
+
+    # Partition information (None if no availability metadata)
+    partition_columns: List[
+        str
+    ] = []  # Partition columns (e.g., ["utc_date", "region"])
     total_partition_count: Optional[int] = None  # Total partitions in table
-    scanned_partition_count: Optional[int] = None  # Partitions that will be scanned
 
-    # Filter information
-    partition_columns: List[str]  # Partition columns (e.g., ["utc_date", "region"])
+    # Filter-based estimates (optional - only included when accurate)
+    scan_bytes: Optional[int] = None  # Bytes that will be scanned (after filters)
+    scan_percentage: Optional[float] = None  # scan_bytes / total_bytes
+    scanned_partition_count: Optional[int] = None  # Partitions that will be scanned
 
 
 class ScanEstimate(BaseModel):
     """
-    Estimate of data scan size for a query
+    Estimate of data scan size for a query.
+
+    total_bytes is None if no sources have size metadata available.
     """
 
-    total_bytes: int
+    total_bytes: Optional[int]  # None if no size metadata available for any source
     sources: List[SourceScanInfo]
     has_materialization: bool
 

@@ -135,3 +135,6 @@ class V3TranslatedSQL(BaseModel):
 
     # If a cube was used, contains cube name (fetch details via /cubes/{name}/)
     cube_name: Optional[str] = None
+
+    # Scan estimate (aggregated from all grain groups)
+    scan_estimate: Optional["ScanEstimate"] = None

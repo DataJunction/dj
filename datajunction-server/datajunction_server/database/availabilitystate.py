@@ -65,6 +65,18 @@ class AvailabilityState(Base):
         default=partial(datetime.now, timezone.utc),
     )
 
+    # Table-level size metadata
+    total_size_bytes: Mapped[Optional[int]] = mapped_column(
+        sa.BigInteger(),
+        nullable=True,
+    )
+    total_row_count: Mapped[Optional[int]] = mapped_column(
+        sa.BigInteger(),
+        nullable=True,
+    )
+    total_partitions: Mapped[Optional[int]] = mapped_column(nullable=True)
+    ttl_days: Mapped[Optional[int]] = mapped_column(nullable=True)
+
     def is_available(
         self,
         criteria: Optional[BuildCriteria] = None,

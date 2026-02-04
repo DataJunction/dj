@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
     from datajunction_server.database.node import NodeRevision
     from datajunction_server.database.preaggregation import PreAggregation
+    from datajunction_server.models.sql import ScanEstimate
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +250,10 @@ class GrainGroupSQL:
     # Populated by collect_node_ctes during CTE building
     scanned_sources: list[ScannedSourceInfo] = field(default_factory=list)
 
+    # Scan estimate calculated from scanned_sources by looking up availability states
+    # Populated by calculate_scan_estimate in sql.py endpoint
+    scan_estimate: Optional["ScanEstimate"] = None
+
     @property
     def sql(self) -> str:
         """Render the query AST to SQL string for the target dialect."""
@@ -302,6 +307,9 @@ class GeneratedSQL:
     # If a cube was used to generate this SQL, contains the cube name
     # This is used by the /data/ endpoint to select the correct engine (e.g., Druid)
     cube_name: Optional[str] = None
+
+    # Scan estimate aggregated from all grain groups
+    scan_estimate: Optional["ScanEstimate"] = None
 
     @property
     def sql(self) -> str:

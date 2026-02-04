@@ -5,7 +5,6 @@ SQL related APIs.
 import logging
 from http import HTTPStatus
 from typing import List, Optional
-from copy import deepcopy
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,6 @@ from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
     build_metrics_sql,
     build_measures_sql,
-    resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
@@ -36,6 +34,7 @@ from datajunction_server.database.user import User
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
@@ -232,6 +231,8 @@ async def get_measures_sql_v3(
     metric_formulas = []
     for metric_name, decomposed in result.decomposed_metrics.items():
         # Get the combiner expression and rewrite component names to actual SQL aliases
+        from copy import deepcopy
+
         combiner_ast = deepcopy(decomposed.derived_ast.select.projection[0])
 
         # Replace component hash names with actual SQL aliases in the combiner
@@ -276,21 +277,14 @@ async def get_measures_sql_v3(
             ),
         )
 
-    # Build grain group responses with per-query scan estimates
-    from datajunction_server.internal.scan_estimation import (
-        calculate_grain_group_scan_estimate,
-    )
-
+    # Calculate scan estimates for each grain group
     grain_group_responses = []
     for gg in result.grain_groups:
-        # Calculate scan estimate for this grain group
-        scan_estimate = None
-        try:
-            scan_estimate = await calculate_grain_group_scan_estimate(session, gg)
-        except Exception as e:
-            _logger.error(
-                f"[Scan Estimation] Failed to calculate scan estimate for grain group: {e}",
-            )
+        # Calculate scan estimate for this specific grain group
+        scan_estimate = await calculate_scan_estimate(session, gg, result.ctx)
+
+        # Store on the grain group object so generate_metrics_sql can access it
+        gg.scan_estimate = scan_estimate
 
         grain_group_responses.append(
             GrainGroupResponse(
@@ -299,7 +293,7 @@ async def get_measures_sql_v3(
                     V3ColumnMetadata(
                         name=col.name,
                         type=str(col.type),  # Ensure string even if ColumnType object
-                        semantic_name=col.semantic_name,
+                        semantic_entity=col.semantic_name,
                         semantic_type=col.semantic_type,
                     )
                     for col in gg.columns
@@ -438,7 +432,7 @@ async def get_combined_measures_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=col.type,
-                semantic_name=col.semantic_name,
+                semantic_entity=col.semantic_entity,
                 semantic_type=col.semantic_type,
             )
             for col in combined_result.columns
@@ -461,19 +455,10 @@ async def get_metrics_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
-    orderby: List[str] = Query(
-        [],
-        description="ORDER BY clauses using semantic names (e.g., 'v3.total_revenue DESC', 'v3.date.month')",
-    ),
-    limit: Optional[int] = Query(
-        None,
-        description="Maximum number of rows to return",
-    ),
     use_materialized: bool = Query(True),
-    dialect: Optional[Dialect] = Query(
-        None,
-        description="SQL dialect for the generated query. If not specified, "
-        "auto-resolves based on cube availability (same logic as /data/).",
+    dialect: Dialect = Query(
+        Dialect.SPARK,
+        description="SQL dialect for the generated query.",
     ),
     *,
     session: AsyncSession = Depends(get_session),
@@ -505,36 +490,18 @@ async def get_metrics_sql_v3(
         metrics: List of metric names to include
         dimensions: List of dimensions to group by (the grain)
         filters: Optional filters to apply
-        dialect: SQL dialect for the generated query. If not specified, auto-resolves
-            based on cube availability (uses Druid if cube exists, else metric's catalog).
+        dialect: SQL dialect for the generated query
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
-    # Auto-resolve dialect if not explicitly provided
-    resolved_dialect = dialect
-    if resolved_dialect is None:  # pragma: no branch
-        execution_ctx = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            use_materialized=use_materialized,
-        )
-        resolved_dialect = execution_ctx.dialect
-        _logger.info(
-            "[/sql/metrics/v3/] Auto-resolved dialect=%s for metrics=%s",
-            resolved_dialect,
-            metrics,
-        )
 
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
         filters=filters,
-        orderby=orderby if orderby else None,
-        limit=limit,
-        dialect=resolved_dialect,
+        dialect=dialect,
         use_materialized=use_materialized,
     )
 
@@ -544,13 +511,13 @@ async def get_metrics_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=str(col.type),  # Ensure string even if ColumnType object
-                semantic_name=col.semantic_name,
+                semantic_entity=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
             for col in result.columns
         ],
         dialect=result.dialect,
-        cube_name=result.cube_name,
+        scan_estimate=result.scan_estimate,
     )
 
 

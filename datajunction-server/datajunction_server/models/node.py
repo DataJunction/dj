@@ -105,12 +105,11 @@ class AffectedSource(BaseModel):
 
 class ScanWarning(BaseModel):
     """
-    Warning about potentially expensive data scans.
-
-    Provides structured data only - clients format their own messages.
+    Warning about potentially expensive data scans
     """
 
     severity: str  # "info", "warning", or "critical"
+    message: str
     affected_sources: List[AffectedSource]
 
 
@@ -309,6 +308,12 @@ class AvailabilityStateBase(TemporalPartitionRange):
 
     # Partition-level availabilities
     partitions: list[PartitionAvailability] | None = Field(default_factory=list)
+
+    # Table-level size metadata
+    total_size_bytes: int | None = None
+    total_row_count: int | None = None
+    total_partitions: int | None = None
+    ttl_days: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -610,12 +615,7 @@ class ImmutableNodeFields(BaseModel):
     """
 
     name: str
-    namespace: Optional[str] = None
-
-    @model_validator(mode="after")
-    def set_namespace_from_name(self):
-        self.namespace = self.name.rsplit(".", 1)[0]
-        return self
+    namespace: str = "default"
 
 
 class MutableNodeFields(BaseModel):
