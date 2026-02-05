@@ -1074,7 +1074,7 @@ export function QueryPlannerPage() {
         '',
         false, // useMaterialized = false for raw SQL
       );
-      return result.sql;
+      return result; // Return full result including scan_estimate
     } catch (err) {
       console.error('Failed to fetch raw SQL:', err);
       return null;

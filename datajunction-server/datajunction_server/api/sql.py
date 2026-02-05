@@ -277,8 +277,10 @@ async def get_measures_sql_v3(
             ),
         )
 
-    return MeasuresSQLResponse(
-        grain_groups=[
+    # Calculate scan estimates for each grain group
+    grain_group_responses = []
+    for gg in result.grain_groups:
+        grain_group_responses.append(
             GrainGroupResponse(
                 sql=gg.sql,
                 columns=[
@@ -309,9 +311,12 @@ async def get_measures_sql_v3(
                     for comp in gg.components
                 ],
                 parent_name=gg.parent_name,
-            )
-            for gg in result.grain_groups
-        ],
+                scan_estimate=gg.scan_estimate,
+            ),
+        )
+
+    return MeasuresSQLResponse(
+        grain_groups=grain_group_responses,
         metric_formulas=metric_formulas,
         dialect=str(result.dialect) if result.dialect else None,
         requested_dimensions=result.requested_dimensions,
@@ -456,7 +461,7 @@ async def get_metrics_sql_v3(
     dialect: Optional[Dialect] = Query(
         None,
         description="SQL dialect for the generated query. If not specified, "
-        "auto-resolves based on cube availability (same logic as /data/).",
+        "auto-resolves based on cube availability.",
     ),
     *,
     session: AsyncSession = Depends(get_session),
@@ -504,11 +509,6 @@ async def get_metrics_sql_v3(
             use_materialized=use_materialized,
         )
         resolved_dialect = execution_ctx.dialect
-        _logger.info(
-            "[/sql/metrics/v3/] Auto-resolved dialect=%s for metrics=%s",
-            resolved_dialect,
-            metrics,
-        )
 
     result = await build_metrics_sql(
         session=session,
@@ -534,6 +534,7 @@ async def get_metrics_sql_v3(
         ],
         dialect=result.dialect,
         cube_name=result.cube_name,
+        scan_estimate=result.scan_estimate,
     )
 
 

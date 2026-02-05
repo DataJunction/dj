@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomOneLight } from 'react-syntax-highlighter/src/styles/hljs';
+import {
+  SCAN_WARNING_THRESHOLD,
+  SCAN_CRITICAL_THRESHOLD,
+} from '../../constants';
 
 /**
  * Helper to extract dimension node name from a dimension path
@@ -196,6 +200,63 @@ function inferGranularity(grainGroups) {
 }
 
 /**
+ * Format bytes to human-readable string
+ */
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+}
+
+/**
+ * Get warning level for scan size
+ */
+function getScanWarningLevel(bytes) {
+  if (bytes > SCAN_CRITICAL_THRESHOLD) return 'critical';
+  if (bytes > SCAN_WARNING_THRESHOLD) return 'warning';
+  return 'ok';
+}
+
+/**
+ * Format scan estimate for display
+ */
+function formatScanEstimate(scanEstimate) {
+  if (
+    !scanEstimate ||
+    !scanEstimate.sources ||
+    scanEstimate.sources.length === 0
+  ) {
+    return null;
+  }
+
+  // Check if any sources are missing size data
+  const hasMissingData = scanEstimate.sources.some(
+    s => s.total_bytes === null || s.total_bytes === undefined,
+  );
+
+  // Determine warning level based on total_bytes (if available)
+  let level = 'unknown';
+  let icon = 'ℹ️';
+  if (
+    scanEstimate.total_bytes !== null &&
+    scanEstimate.total_bytes !== undefined
+  ) {
+    level = getScanWarningLevel(scanEstimate.total_bytes);
+    icon = level === 'critical' ? '⚠️' : level === 'warning' ? '⚡' : '✓';
+  }
+
+  return {
+    icon,
+    level,
+    totalBytes: scanEstimate.total_bytes,
+    sources: scanEstimate.sources || [],
+    hasMissingData,
+  };
+}
+
+/**
  * CubeBackfillModal - Simple modal to collect start/end dates for backfill
  */
 function CubeBackfillModal({ onClose, onSubmit, loading }) {
@@ -292,7 +353,6 @@ export function QueryOverviewPanel({
   onClearWorkflowUrls,
   loadedCubeName = null, // Existing cube name if loaded from preset
   cubeMaterialization = null, // Full cube materialization info {schedule, strategy, lookbackWindow, ...}
-  cubeAvailability = null, // Cube availability info for data freshness
   onUpdateCubeConfig,
   onRefreshCubeWorkflow,
   onRunCubeBackfill,
@@ -362,17 +422,17 @@ export function QueryOverviewPanel({
 
   // SQL view toggle state: 'optimized' (uses pre-aggs) or 'raw' (from source tables)
   const [sqlViewMode, setSqlViewMode] = useState('optimized');
-  const [rawSql, setRawSql] = useState(null);
+  const [rawResult, setRawResult] = useState(null);
   const [loadingRawSql, setLoadingRawSql] = useState(false);
 
   // Handle SQL view toggle
   const handleSqlViewToggle = async mode => {
     setSqlViewMode(mode);
     // Fetch raw SQL lazily when switching to raw mode
-    if (mode === 'raw' && !rawSql && onFetchRawSql) {
+    if (mode === 'raw' && !rawResult && onFetchRawSql) {
       setLoadingRawSql(true);
-      const sql = await onFetchRawSql();
-      setRawSql(sql);
+      const result = await onFetchRawSql();
+      setRawResult(result);
       setLoadingRawSql(false);
     }
   };
@@ -579,9 +639,6 @@ export function QueryOverviewPanel({
   const grainGroups = measuresResult.grain_groups || [];
   const metricFormulas = measuresResult.metric_formulas || [];
   const sql = metricsResult.sql || '';
-  const dialect = metricsResult.dialect || null;
-  const cubeName = metricsResult.cube_name || null;
-  const isFastQuery = !!cubeName; // Fast if using materialized cube
 
   // Determine if materialization is already configured (has active workflows)
   const isMaterialized =
@@ -613,29 +670,11 @@ export function QueryOverviewPanel({
       {/* Header */}
       <div className="details-header">
         <h2 className="details-title">Query Plan</h2>
-        <p className="details-info-row">
+        <p className="details-full-name">
           {selectedMetrics.length} metric
           {selectedMetrics.length !== 1 ? 's' : ''} ×{' '}
           {selectedDimensions.length} dimension
           {selectedDimensions.length !== 1 ? 's' : ''}
-          {isFastQuery && (
-            <>
-              {' · '}
-              <span className="info-materialized">
-                <span style={{ fontFamily: 'sans-serif' }}>⚡</span>{' '}
-                Materialized cube available
-              </span>
-              {cubeAvailability?.validThroughTs && (
-                <>
-                  {' '}
-                  · Valid thru{' '}
-                  {new Date(
-                    cubeAvailability.validThroughTs,
-                  ).toLocaleDateString()}
-                </>
-              )}
-            </>
-          )}
         </p>
       </div>
 
@@ -2220,29 +2259,6 @@ export function QueryOverviewPanel({
               <span className="section-icon">⌘</span>
               Generated SQL
             </h3>
-            <span className="sql-info-inline">
-              {sqlViewMode === 'optimized' && isFastQuery ? (
-                <>
-                  <span className="info-materialized">
-                    <span style={{ fontFamily: 'sans-serif' }}>⚡</span> Using
-                    materialized cube
-                  </span>
-                  {cubeAvailability?.validThroughTs && (
-                    <>
-                      {' · Valid thru '}
-                      {new Date(
-                        cubeAvailability.validThroughTs,
-                      ).toLocaleDateString()}
-                    </>
-                  )}
-                </>
-              ) : sqlViewMode === 'raw' ? (
-                <span className="info-base-tables">
-                  <span style={{ fontFamily: 'sans-serif' }}>⚠️</span> Using
-                  base tables
-                </span>
-              ) : null}
-            </span>
             <div className="sql-view-toggle">
               <button
                 className={`sql-toggle-btn ${
@@ -2267,6 +2283,65 @@ export function QueryOverviewPanel({
               </button>
             </div>
           </div>
+
+          {/* Scan Estimate Info */}
+          {(() => {
+            const currentScanEstimate =
+              sqlViewMode === 'raw'
+                ? rawResult?.scan_estimate
+                : metricsResult?.scan_estimate;
+            const scanInfo = formatScanEstimate(currentScanEstimate);
+
+            if (scanInfo) {
+              return (
+                <div
+                  className={`scan-estimate-banner scan-estimate-${scanInfo.level}`}
+                >
+                  <span className="scan-estimate-icon">{scanInfo.icon}</span>
+                  <div className="scan-estimate-content">
+                    <div className="scan-estimate-header">
+                      <strong>Scan Cost:</strong>{' '}
+                      {scanInfo.totalBytes !== null &&
+                      scanInfo.totalBytes !== undefined
+                        ? (scanInfo.hasMissingData ? '≥ ' : '') +
+                          formatBytes(scanInfo.totalBytes)
+                        : 'Unknown'}
+                    </div>
+                    <div className="scan-estimate-sources">
+                      {scanInfo.sources.map((source, idx) => {
+                        // Prefer schema.table display, fall back to node name
+                        let displayName = source.source_name;
+                        if (source.schema_ && source.table) {
+                          displayName = `${source.schema_}.${source.table}`;
+                        } else if (source.table) {
+                          displayName = source.table;
+                        }
+
+                        return (
+                          <div key={idx} className="scan-source-item">
+                            <span
+                              className="scan-source-name"
+                              title={source.source_name}
+                            >
+                              {displayName}
+                            </span>
+                            <span className="scan-source-size">
+                              {source.total_bytes !== null &&
+                              source.total_bytes !== undefined
+                                ? formatBytes(source.total_bytes)
+                                : 'no size data'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
           <div className="sql-code-wrapper">
             <SyntaxHighlighter
               language="sql"
@@ -2279,7 +2354,7 @@ export function QueryOverviewPanel({
                 border: '1px solid #e2e8f0',
               }}
             >
-              {sqlViewMode === 'raw' ? rawSql || 'Loading...' : sql}
+              {sqlViewMode === 'raw' ? rawResult?.sql || 'Loading...' : sql}
             </SyntaxHighlighter>
           </div>
         </div>

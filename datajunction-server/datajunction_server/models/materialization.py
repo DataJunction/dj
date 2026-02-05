@@ -125,6 +125,7 @@ class MaterializationInfo(BaseModel):
 
     output_tables: List[str]
     urls: List[str]
+    # scan_estimate: Optional[ScanEstimate] = None  # TODO: Add in Phase 3
 
 
 class MaterializationConfigOutput(BaseModel):
