@@ -207,7 +207,7 @@ function formatBytes(bytes) {
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 /**
@@ -223,19 +223,26 @@ function getScanWarningLevel(bytes) {
  * Format scan estimate for display
  */
 function formatScanEstimate(scanEstimate) {
-  if (!scanEstimate || !scanEstimate.sources || scanEstimate.sources.length === 0) {
+  if (
+    !scanEstimate ||
+    !scanEstimate.sources ||
+    scanEstimate.sources.length === 0
+  ) {
     return null;
   }
 
   // Check if any sources are missing size data
   const hasMissingData = scanEstimate.sources.some(
-    s => s.total_bytes === null || s.total_bytes === undefined
+    s => s.total_bytes === null || s.total_bytes === undefined,
   );
 
   // Determine warning level based on total_bytes (if available)
   let level = 'unknown';
   let icon = 'ℹ️';
-  if (scanEstimate.total_bytes !== null && scanEstimate.total_bytes !== undefined) {
+  if (
+    scanEstimate.total_bytes !== null &&
+    scanEstimate.total_bytes !== undefined
+  ) {
     level = getScanWarningLevel(scanEstimate.total_bytes);
     icon = level === 'critical' ? '⚠️' : level === 'warning' ? '⚡' : '✓';
   }
@@ -2279,20 +2286,25 @@ export function QueryOverviewPanel({
 
           {/* Scan Estimate Info */}
           {(() => {
-            const currentScanEstimate = sqlViewMode === 'raw'
-              ? rawResult?.scan_estimate
-              : metricsResult?.scan_estimate;
+            const currentScanEstimate =
+              sqlViewMode === 'raw'
+                ? rawResult?.scan_estimate
+                : metricsResult?.scan_estimate;
             const scanInfo = formatScanEstimate(currentScanEstimate);
 
             if (scanInfo) {
               return (
-                <div className={`scan-estimate-banner scan-estimate-${scanInfo.level}`}>
+                <div
+                  className={`scan-estimate-banner scan-estimate-${scanInfo.level}`}
+                >
                   <span className="scan-estimate-icon">{scanInfo.icon}</span>
                   <div className="scan-estimate-content">
                     <div className="scan-estimate-header">
                       <strong>Scan Cost:</strong>{' '}
-                      {scanInfo.totalBytes !== null && scanInfo.totalBytes !== undefined
-                        ? (scanInfo.hasMissingData ? '≥ ' : '') + formatBytes(scanInfo.totalBytes)
+                      {scanInfo.totalBytes !== null &&
+                      scanInfo.totalBytes !== undefined
+                        ? (scanInfo.hasMissingData ? '≥ ' : '') +
+                          formatBytes(scanInfo.totalBytes)
                         : 'Unknown'}
                     </div>
                     <div className="scan-estimate-sources">
@@ -2307,11 +2319,15 @@ export function QueryOverviewPanel({
 
                         return (
                           <div key={idx} className="scan-source-item">
-                            <span className="scan-source-name" title={source.source_name}>
+                            <span
+                              className="scan-source-name"
+                              title={source.source_name}
+                            >
                               {displayName}
                             </span>
                             <span className="scan-source-size">
-                              {source.total_bytes !== null && source.total_bytes !== undefined
+                              {source.total_bytes !== null &&
+                              source.total_bytes !== undefined
                                 ? formatBytes(source.total_bytes)
                                 : 'no size data'}
                             </span>

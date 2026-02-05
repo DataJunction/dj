@@ -158,7 +158,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                         format: '',
                         granularity: '',
                       },
-                      { setSubmitting: () => {}, setStatus: (s) => {} }
+                      { setSubmitting: () => {}, setStatus: s => {} },
                     );
                   }}
                   style={{
