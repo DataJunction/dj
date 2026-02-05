@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 if TYPE_CHECKING:
     from datajunction_server.database.preaggregation import PreAggregation
 
-from datajunction_server.construction.build_v3.types import ScannedSourceInfo
 from datajunction_server.construction.build_v3.cte import (
     collect_node_ctes,
     extract_dimension_node,
@@ -67,6 +66,7 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
     get_preagg_measure_column,
 )
+from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     GrainGroupSQL,
@@ -807,7 +807,8 @@ def build_grain_group_from_preagg(  # pragma: no cover
         group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
 
     # Build FROM clause using the helper method
-    from_clause = ast.From.Table(SEPARATOR.join(table_parts))
+    preagg_table = SEPARATOR.join(table_parts)
+    from_clause = ast.From.Table(preagg_table)
 
     # Build SELECT statement
     select = ast.Select(
@@ -833,7 +834,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
-        scanned_sources=[],  # Empty for pre-agg path
+        scanned_sources=[preagg_table],
     )
 
 
@@ -1140,12 +1141,6 @@ def build_grain_group_sql(
     # Sort for deterministic output
     full_grain.sort()
 
-    # Convert scanned source names to ScannedSourceInfo objects
-    # Filter analysis happens later by parsing the final generated SQL
-    scanned_source_infos = [
-        ScannedSourceInfo(source_name=source_name) for source_name in scanned_sources
-    ]
-
     return GrainGroupSQL(
         query=query_ast,
         columns=columns_metadata,
@@ -1158,7 +1153,7 @@ def build_grain_group_sql(
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
-        scanned_sources=scanned_source_infos,
+        scan_estimate=calculate_scan_estimate(scanned_sources, ctx),
     )
 
 

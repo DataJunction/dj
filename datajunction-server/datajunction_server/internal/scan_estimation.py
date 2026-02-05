@@ -7,42 +7,37 @@ by reading table size metadata from already-loaded AvailabilityState records.
 
 from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from datajunction_server.construction.build_v3.types import BuildContext, GrainGroupSQL
+from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
 
 
-async def calculate_scan_estimate(
-    session: AsyncSession,
-    grain_group: GrainGroupSQL,
+def calculate_scan_estimate(
+    physical_tables: list[str],
     ctx: BuildContext,
 ) -> Optional[ScanEstimate]:
     """
     Calculate scan estimate for a single grain group.
 
-    Uses the scanned_sources tracked during SQL generation to look up
+    Uses the physical tables tracked during SQL generation to look up
     availability states and compute total scan size.
 
     Args:
         session: Database session
-        grain_group: A single grain group with scanned_sources
+        physical_tables: A list of table names involved in the query
         ctx: Build context with node information
 
     Returns:
         ScanEstimate with total bytes and per-source breakdowns, or None if
         no size data is available.
     """
-    # Collect source names from this grain group
-    all_source_names = {scanned.source_name for scanned in grain_group.scanned_sources}
-    if not all_source_names:
+    if not physical_tables:
         return None
 
     # Query availability states for these sources
     sources: list[SourceScanInfo] = []
     total_bytes = 0
 
-    for source_name in all_source_names:
+    for source_name in physical_tables:
         # Look up the node by source name
         node = ctx.nodes.get(source_name)
 
@@ -85,10 +80,6 @@ async def calculate_scan_estimate(
                 # scan_bytes, scan_percentage, scanned_partition_count remain None
             ),
         )
-
-    # If no sources were scanned, return None
-    if not sources:
-        return None
 
     # TODO: Check if pre-aggs are actually being used in this specific grain group
 

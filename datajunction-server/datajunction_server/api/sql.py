@@ -35,7 +35,6 @@ from datajunction_server.database.user import User
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
@@ -281,7 +280,6 @@ async def get_measures_sql_v3(
     # Calculate scan estimates for each grain group
     grain_group_responses = []
     for gg in result.grain_groups:
-        gg.scan_estimate = await calculate_scan_estimate(session, gg, result.ctx)
         grain_group_responses.append(
             GrainGroupResponse(
                 sql=gg.sql,
@@ -289,7 +287,7 @@ async def get_measures_sql_v3(
                     V3ColumnMetadata(
                         name=col.name,
                         type=str(col.type),  # Ensure string even if ColumnType object
-                        semantic_entity=col.semantic_name,
+                        semantic_name=col.semantic_name,
                         semantic_type=col.semantic_type,
                     )
                     for col in gg.columns
@@ -428,7 +426,7 @@ async def get_combined_measures_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=col.type,
-                semantic_entity=col.semantic_entity,
+                semantic_name=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
             for col in combined_result.columns
@@ -529,7 +527,7 @@ async def get_metrics_sql_v3(
             V3ColumnMetadata(
                 name=col.name,
                 type=str(col.type),  # Ensure string even if ColumnType object
-                semantic_entity=col.semantic_name,
+                semantic_name=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
             for col in result.columns

@@ -176,18 +176,6 @@ class ResolvedExecutionContext:
 
 
 @dataclass
-class ScannedSourceInfo:
-    """
-    Information about a source table scanned during SQL generation.
-
-    Tracks which source nodes are accessed when building SQL.
-    Filter analysis happens separately by parsing the final generated SQL.
-    """
-
-    source_name: str  # Full node name (e.g., "source.sales_fact")
-
-
-@dataclass
 class GrainGroupSQL:
     """
     SQL for a single grain group within measures SQL.
@@ -248,7 +236,7 @@ class GrainGroupSQL:
 
     # Scan estimation: source tables accessed during SQL generation
     # Populated by collect_node_ctes during CTE building
-    scanned_sources: list[ScannedSourceInfo] = field(default_factory=list)
+    scanned_sources: list[str] = field(default_factory=list)
 
     # Scan estimate calculated from scanned_sources by looking up availability states
     # Populated by calculate_scan_estimate in sql.py endpoint

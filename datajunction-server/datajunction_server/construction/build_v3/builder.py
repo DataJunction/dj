@@ -40,7 +40,6 @@ from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_metric_expressions,
 )
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -381,10 +380,6 @@ async def build_metrics_sql(
 
     if not measures_result.grain_groups:  # pragma: no cover
         raise DJInvalidInputException("No grain groups produced from measures SQL")
-
-    # Calculate scan estimates for each grain group
-    for gg in measures_result.grain_groups:
-        gg.scan_estimate = await calculate_scan_estimate(session, gg, ctx)
 
     result = generate_metrics_sql(
         ctx,
