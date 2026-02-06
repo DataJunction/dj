@@ -1462,52 +1462,6 @@ class TestExportYaml:
 class TestYamlHelpers:
     """Tests for internal YAML helper functions"""
 
-    def test_multiline_str_representer_with_newlines(self):
-        """Test that multiline strings get literal block style"""
-        from datajunction_server.internal.namespaces import _multiline_str_representer
-        import yaml
-
-        dumper = yaml.SafeDumper("")
-
-        # Test with multiline string
-        multiline = "SELECT *\nFROM table\nWHERE x = 1"
-        result = _multiline_str_representer(dumper, multiline)
-        assert result.style == "|"
-
-    def test_multiline_str_representer_single_line(self):
-        """Test that single line strings don't get block style"""
-        from datajunction_server.internal.namespaces import _multiline_str_representer
-        import yaml
-
-        dumper = yaml.SafeDumper("")
-
-        # Test with single line string
-        single = "SELECT * FROM table"
-        result = _multiline_str_representer(dumper, single)
-        assert result.style is None  # Default style
-
-    def test_get_yaml_dumper(self):
-        """Test that YAML dumper uses literal block style for multiline strings"""
-        from datajunction_server.internal.namespaces import _get_yaml_dumper
-        from pathlib import Path
-        import yaml
-
-        dumper = _get_yaml_dumper()
-
-        # Verify it's a SafeDumper subclass
-        assert issubclass(dumper, yaml.SafeDumper)
-
-        # Test dumping a multiline string uses literal block style
-        data = {"query": "SELECT *\nFROM table\nWHERE x = 1", "name": "test_node"}
-        output = yaml.dump(data, Dumper=dumper, sort_keys=False)
-
-        # Compare against expected fixture
-        fixture_path = (
-            Path(__file__).parent.parent / "fixtures" / "expected_multiline_query.yaml"
-        )
-        expected = fixture_path.read_text()
-        assert output == expected
-
     def test_node_spec_to_yaml_dict_excludes_none(self):
         """Test that _node_spec_to_yaml_dict excludes None values"""
         from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict

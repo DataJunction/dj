@@ -4,6 +4,7 @@ Git sync API endpoints.
 Enables syncing node definitions to git and creating pull requests.
 """
 
+import base64
 import logging
 from typing import List, Optional
 
@@ -132,8 +133,6 @@ async def sync_node_to_git(
     if hasattr(node_spec, "query") and node_spec.query:
         node_spec.query = inject_prefixes(node_spec.query, node.namespace)
 
-    yaml_content = node_spec_to_yaml(node_spec)
-
     # File path uses short name (strip namespace prefix)
     # e.g., "demo.main.orders" with namespace "demo.main" -> "orders.yaml"
     if node_name.startswith(node.namespace + "."):
@@ -147,21 +146,34 @@ async def sync_node_to_git(
         git_path = namespace_obj.git_path.strip("/")
         file_path = f"{git_path}/{file_path}"
 
-    _logger.info("Syncing node to git: %s -> %s", node_name, file_path)
-
-    # Commit message
-    commit_message = request.commit_message or f"Update {node_name}"
-
     # Sync to git
     try:
         github = GitHubService()
 
-        # Check if file exists to get SHA for update
-        existing_file = await github.get_file(
-            repo_path=namespace_obj.github_repo_path,
-            path=file_path,
-            branch=namespace_obj.git_branch,
-        )
+        # Try to read existing YAML content to preserve comments
+        # Also get the file SHA if it exists for the commit
+        existing_yaml = None
+        existing_file = None
+        try:
+            existing_file = await github.get_file(
+                repo_path=namespace_obj.github_repo_path,
+                path=file_path,
+                branch=namespace_obj.git_branch,
+            )
+            if existing_file and "content" in existing_file:
+                existing_yaml = base64.b64decode(existing_file["content"]).decode(
+                    "utf-8",
+                )
+        except Exception:
+            # File doesn't exist yet or couldn't be read - that's ok
+            pass
+
+        yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
+
+        _logger.info("Syncing node to git: %s -> %s", node_name, file_path)
+
+        # Commit message
+        commit_message = request.commit_message or f"Update {node_name}"
 
         result = await github.commit_file(
             repo_path=namespace_obj.github_repo_path,
@@ -250,41 +262,58 @@ async def sync_namespace_to_git(
     files_to_commit: List[dict] = []
     results: List[SyncResult] = []
 
-    for node_spec in node_specs:
-        # The spec name has ${prefix} injected (e.g., "${prefix}orders")
-        # Strip ${prefix} to get the short name for file path
-        spec_name = node_spec.name
-        if spec_name.startswith("${prefix}"):
-            short_name = spec_name[len("${prefix}") :]
-        else:
-            short_name = spec_name  # pragma: no cover
-
-        # Convert to YAML using the export format (with ${prefix})
-        yaml_content = node_spec_to_yaml(node_spec)
-
-        # File path uses short name (no namespace prefix, no ${prefix})
-        # e.g., "orders" -> "nodes/orders.yaml" (with git_path="nodes")
-        parts = short_name.split(".")
-        file_path = "/".join(parts) + ".yaml"
-        if namespace_obj.git_path:
-            git_path = namespace_obj.git_path.strip("/")
-            file_path = f"{git_path}/{file_path}"
-
-        files_to_commit.append(
-            {
-                "path": file_path,
-                "content": yaml_content,
-                "node_name": spec_name,
-            },
-        )
-        _logger.info(
-            "Preparing file for git sync: %s (spec name: %s)",
-            file_path,
-            spec_name,
-        )
-
     try:
         github = GitHubService()
+
+        for node_spec in node_specs:
+            # The spec name has ${prefix} injected (e.g., "${prefix}orders")
+            # Strip ${prefix} to get the short name for file path
+            spec_name = node_spec.name
+            if spec_name.startswith("${prefix}"):
+                short_name = spec_name[len("${prefix}") :]
+            else:
+                short_name = spec_name  # pragma: no cover
+
+            # File path uses short name (no namespace prefix, no ${prefix})
+            # e.g., "orders" -> "nodes/orders.yaml" (with git_path="nodes")
+            parts = short_name.split(".")
+            file_path = "/".join(parts) + ".yaml"
+            if namespace_obj.git_path:
+                git_path = namespace_obj.git_path.strip("/")
+                file_path = f"{git_path}/{file_path}"
+
+            # Try to read existing YAML content to preserve comments
+            existing_yaml = None
+            try:
+                existing_file = await github.get_file(
+                    repo_path=namespace_obj.github_repo_path,
+                    path=file_path,
+                    branch=namespace_obj.git_branch,
+                )
+                if existing_file and "content" in existing_file:
+                    existing_yaml = base64.b64decode(existing_file["content"]).decode(
+                        "utf-8",
+                    )
+            except Exception:
+                # File doesn't exist yet or couldn't be read - that's ok
+                pass
+
+            # Convert to YAML using the export format (with ${prefix})
+            yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
+
+            files_to_commit.append(
+                {
+                    "path": file_path,
+                    "content": yaml_content,
+                    "node_name": spec_name,
+                },
+            )
+            _logger.info(
+                "Preparing file for git sync: %s (spec name: %s)",
+                file_path,
+                spec_name,
+            )
+
         commit_message = request.commit_message or f"Sync {namespace}"
 
         # Batch commit all files in a single commit
