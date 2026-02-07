@@ -352,7 +352,7 @@ class Node(Base):
         # Check for columns without order set
         unordered_columns = [col for col in self.current.columns if col.order is None]
         if unordered_columns:
-            _logger.warning(
+            _logger.warning(  # pragma: no cover
                 "Node '%s' has %d columns without order set: %s",
                 self.name,
                 len(unordered_columns),

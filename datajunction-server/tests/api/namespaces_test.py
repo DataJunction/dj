@@ -1659,10 +1659,8 @@ class TestYamlHelpers:
         # Should not crash; join_on should remain empty or be handled
         assert "dimension_links" in result
 
-    def test_node_spec_to_yaml_yamlfix_failure(self):
-        """Test node_spec_to_yaml handles yamlfix failures gracefully."""
-        from unittest.mock import patch
-
+    def test_node_spec_to_yaml_handles_invalid_existing_yaml(self):
+        """Test node_spec_to_yaml handles invalid existing YAML gracefully."""
         from datajunction_server.internal.namespaces import node_spec_to_yaml
         from datajunction_server.models.deployment import TransformSpec
 
@@ -1671,17 +1669,16 @@ class TestYamlHelpers:
             query="SELECT 1",
         )
 
-        # Mock yamlfix to raise an exception
-        with patch(
-            "datajunction_server.internal.namespaces.fix_code",
-            side_effect=Exception("yamlfix crashed"),
-        ):
-            # Should not raise, should return the unformatted YAML
-            result = node_spec_to_yaml(spec)
+        # Provide malformed YAML as existing_yaml
+        invalid_yaml = "name: |-\n  invalid: syntax: here"
 
-            # Should still return valid YAML (just not yamlfix-formatted)
-            assert "name:" in result
-            assert "query:" in result
+        # Should not raise, should fall back to generating new YAML
+        result = node_spec_to_yaml(spec, existing_yaml=invalid_yaml)
+
+        # Should return valid YAML (without preserving comments from invalid input)
+        assert "name:" in result
+        assert "query:" in result
+        assert "test.node" in result
 
 
 @pytest.mark.asyncio

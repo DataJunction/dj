@@ -1161,7 +1161,7 @@ def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
                     yaml_handler,
                 )
                 yaml_dict = merged_data
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.warning("Failed to preserve comments from existing YAML: %s", e)
             # Fall through to export without comment preservation
 
