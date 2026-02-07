@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from typing import Callable, Dict, List, Tuple
 
 from sqlalchemy import or_, select, delete, func
@@ -1006,13 +1007,69 @@ def _get_yaml_handler():
     return yaml_handler
 
 
+def _merge_list_with_key(existing_list, new_list, match_key="name"):
+    """
+    Merge a list of dicts by matching on a key (e.g., 'name').
+
+    Preserves comments from existing items when they match new items.
+    Handles additions, deletions, and reordering.
+
+    Args:
+        existing_list: Existing list (potentially CommentedSeq with comments)
+        new_list: New list of dicts to merge
+        match_key: Key to use for matching items (default: 'name')
+
+    Returns:
+        Merged list with comments preserved where items match
+    """
+    # Build lookup of existing items by match_key
+    existing_by_key = {}
+    for item in existing_list:
+        if isinstance(item, dict) and match_key in item:
+            existing_by_key[item[match_key]] = item
+
+    # Build result list in the order of new_list
+    result = CommentedSeq()
+    for new_item in new_list:
+        if not isinstance(new_item, dict) or match_key not in new_item:
+            # Can't match this item, just use new value
+            result.append(new_item)
+            continue
+
+        key_value = new_item[match_key]
+        if key_value in existing_by_key:
+            # Item exists - merge to preserve comments
+            existing_item = existing_by_key[key_value]
+            if isinstance(existing_item, CommentedMap):
+                # Start with existing to preserve comments
+                merged_item = CommentedMap(existing_item)
+                # Update with new values
+                for k, v in new_item.items():
+                    merged_item[k] = v
+                # Remove keys that no longer exist
+                for k in list(merged_item.keys()):
+                    if k not in new_item:
+                        del merged_item[k]
+                result.append(merged_item)
+            else:
+                # Existing item has no comments, just use new
+                result.append(new_item)
+        else:
+            # New item - add it
+            result.append(new_item)
+
+    return result
+
+
 def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
     """
     Merge new data into existing YAML structure while preserving comments.
 
     Strategy:
     - For simple values: update in place
-    - For lists: replace entirely (too complex to merge intelligently)
+    - For lists of dicts with 'name' key (columns): match by name and merge items (preserves comments)
+    - For lists of dicts with 'dimension_node' key (dimension_links): match and merge
+    - For other lists: replace entirely
     - For dicts: recursively merge keys
     - Preserve comments attached to keys that still exist
     - Remove keys that no longer exist in new_data
@@ -1025,8 +1082,6 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
     Returns:
         Merged data structure with comments preserved
     """
-    from ruamel.yaml.comments import CommentedMap
-
     # If existing isn't a CommentedMap (loaded from YAML), just return new_data
     if not isinstance(existing, (dict, CommentedMap)):
         return new_data
@@ -1053,8 +1108,35 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                     new_value,
                     yaml_handler,
                 )
-            # For lists, replace entirely (merging is complex and error-prone)
+            # For lists of dicts with identifiable keys, do smart merge
+            elif isinstance(new_value, list) and isinstance(old_value, list):
+                # Check if this is a list we can intelligently merge
+                if (
+                    key in ("columns", "dimension_links")
+                    and new_value
+                    and isinstance(new_value[0], dict)
+                ):
+                    # Determine match key based on list type
+                    if key == "columns" and "name" in new_value[0]:
+                        result[key] = _merge_list_with_key(
+                            old_value,
+                            new_value,
+                            match_key="name",
+                        )
+                    elif key == "dimension_links" and "dimension_node" in new_value[0]:
+                        result[key] = _merge_list_with_key(
+                            old_value,
+                            new_value,
+                            match_key="dimension_node",
+                        )
+                    else:
+                        # Fallback: replace entirely
+                        result[key] = new_value
+                else:
+                    # Other lists: replace entirely
+                    result[key] = new_value
             else:
+                # Simple value or type mismatch: replace
                 result[key] = new_value
         else:
             # New key - just add it

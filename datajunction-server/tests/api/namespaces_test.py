@@ -10,6 +10,8 @@ from unittest import mock
 
 import pytest
 
+from datajunction_server.internal.namespaces import node_spec_to_yaml
+from datajunction_server.models.deployment import TransformSpec
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -1661,9 +1663,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_handles_invalid_existing_yaml(self):
         """Test node_spec_to_yaml handles invalid existing YAML gracefully."""
-        from datajunction_server.internal.namespaces import node_spec_to_yaml
-        from datajunction_server.models.deployment import TransformSpec
-
         spec = TransformSpec(
             name="test.node",
             query="SELECT 1",
@@ -1679,6 +1678,81 @@ class TestYamlHelpers:
         assert "name:" in result
         assert "query:" in result
         assert "test.node" in result
+
+    def test_node_spec_to_yaml_preserves_column_comments(self):
+        """Test that column-level comments are preserved when updating YAML."""
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT order_id, customer_id FROM orders",
+            columns=[
+                ColumnSpec(name="order_id", type="int"),
+                ColumnSpec(name="customer_id", type="int"),
+            ],
+        )
+
+        # Existing YAML with comments on columns
+        existing_yaml = """name: test.orders
+query: SELECT order_id, customer_id FROM orders
+columns:
+  # Primary key for the order
+  - name: order_id
+    type: int
+  # Reference to customer table
+  - name: customer_id
+    type: int
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        # Comments should be preserved
+        assert "# Primary key for the order" in result
+        assert "# Reference to customer table" in result
+        assert "order_id" in result
+        assert "customer_id" in result
+
+    def test_node_spec_to_yaml_handles_reordered_columns(self):
+        """Test that columns can be reordered while preserving comments."""
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        # New spec with columns in different order
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT customer_id, order_id FROM orders",
+            columns=[
+                ColumnSpec(name="customer_id", type="int"),  # Now first
+                ColumnSpec(name="order_id", type="int"),  # Now second
+            ],
+        )
+
+        # Existing YAML with original order
+        existing_yaml = """name: test.orders
+query: SELECT old_query
+columns:
+  # Primary key for the order
+  - name: order_id
+    type: int
+  # Reference to customer table
+  - name: customer_id
+    type: int
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        # Comments should be preserved and matched to correct columns by name
+        assert "# Primary key for the order" in result
+        assert "# Reference to customer table" in result
+
+        # Verify new order (customer_id first)
+        customer_idx = result.index("customer_id")
+        order_idx = result.index("order_id")
+        assert customer_idx < order_idx, "Columns should be in new order"
+
+        # Verify comments are still attached to correct columns
+        # Customer comment should appear before customer_id
+        customer_comment_idx = result.index("# Reference to customer table")
+        assert customer_comment_idx < customer_idx
 
 
 @pytest.mark.asyncio

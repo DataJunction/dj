@@ -10,7 +10,7 @@ Tests for:
 
 from http import HTTPStatus
 from unittest.mock import AsyncMock, MagicMock, patch
-
+import base64
 import pytest
 from httpx import AsyncClient
 
@@ -1340,7 +1340,6 @@ class TestGitSync:
         existing_yaml_with_comment = (
             "# Important comment\nname: old_name\nquery: SELECT 1"
         )
-        import base64
 
         encoded_content = base64.b64encode(
             existing_yaml_with_comment.encode("utf-8"),
@@ -1561,8 +1560,6 @@ class TestGitSync:
 
         # Existing YAML with comments
         existing_yaml = "# File comment\nname: old_value\nquery: SELECT 1"
-        import base64
-
         encoded = base64.b64encode(existing_yaml.encode("utf-8")).decode("utf-8")
 
         with (
