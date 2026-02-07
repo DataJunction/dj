@@ -43,7 +43,6 @@ from datajunction_server.internal.namespaces import (
     get_sources_for_namespace,
     get_sources_for_namespaces_bulk,
     get_node_specs_for_export,
-    _get_yaml_dumper,
     node_spec_to_yaml,
     detect_parent_cycle,
     validate_sibling_relationship,
@@ -484,14 +483,11 @@ async def export_namespace_yaml(
             "description": f"Exported project for namespace {namespace}",
             "namespace": namespace,
         }
-        # Get custom dumper for clean multiline strings
-        yaml_dumper = _get_yaml_dumper()
 
         zf.writestr(
             "dj.yaml",
             yaml.dump(
                 project_manifest,
-                Dumper=yaml_dumper,
                 sort_keys=False,
                 default_flow_style=False,
             ),

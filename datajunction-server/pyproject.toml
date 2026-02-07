@@ -68,6 +68,7 @@ dependencies = [
     "jinja2>=3.1.4",
     "python-multipart>=0.0.20",
     "pyyaml>=6.0.1",
+    "ruamel.yaml>=0.18.0",
     "yamlfix>=1.16.0",
     "nbformat>=5.10.4",
 

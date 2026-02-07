@@ -7,14 +7,15 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from typing import Callable, Dict, List, Tuple
 
 from sqlalchemy import or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from io import StringIO
 
-from yamlfix import fix_code
-from yamlfix.model import YamlfixConfig
+from ruamel.yaml import YAML
 
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.models.deployment import (
@@ -55,7 +56,6 @@ from datajunction_server.utils import SEPARATOR
 import logging
 from typing import Callable, Dict, List, Optional, cast
 
-import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node
@@ -992,42 +992,157 @@ async def get_node_specs_for_export(
     return node_specs
 
 
-class LiteralBlockString(str):
-    """Marker class for strings that should always use literal block style (|-) in YAML."""
-
-    pass
-
-
-def _literal_block_representer(dumper, data):
-    """Representer for LiteralBlockString - always uses |- style."""
-    # Strip trailing whitespace so YAML uses |- (strip chomping)
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data.rstrip(), style="|")
-
-
-def _multiline_str_representer(dumper, data):
+def _get_yaml_handler():
     """
-    Custom YAML representer that uses literal block style (|-) for multiline strings.
-    Strips trailing newlines so YAML uses the strip chomping indicator (-).
+    Get a configured ruamel.yaml YAML handler for node export.
+    Preserves comments and uses literal block style for multiline strings.
     """
-    if "\n" in data:
-        # Strip trailing whitespace/newlines so YAML uses |- (strip chomping)
-        data = data.rstrip()
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
+    yaml_handler.default_flow_style = False
+    yaml_handler.width = 120
+    yaml_handler.indent(mapping=2, sequence=2, offset=0)
+    # Use literal block style (|) for multiline strings
+    yaml_handler.default_style = "|"
+    return yaml_handler
 
 
-def _get_yaml_dumper():
+def _merge_list_with_key(existing_list, new_list, match_key="name"):
     """
-    Get a YAML dumper configured for clean node export.
-    Uses literal block style for multiline strings (like SQL queries).
+    Merge a list of dicts by matching on a key (e.g., 'name').
+
+    Preserves comments from existing items when they match new items.
+    Handles additions, deletions, and reordering.
+
+    Args:
+        existing_list: Existing list (potentially CommentedSeq with comments)
+        new_list: New list of dicts to merge
+        match_key: Key to use for matching items (default: 'name')
+
+    Returns:
+        Merged list with comments preserved where items match
     """
+    # Build lookup of existing items by match_key
+    existing_by_key = {}
+    for item in existing_list:
+        if isinstance(item, dict) and match_key in item:
+            existing_by_key[item[match_key]] = item
 
-    class MultilineStrDumper(yaml.SafeDumper):
-        pass
+    # Build result list in the order of new_list
+    result = CommentedSeq()
+    for new_item in new_list:
+        if not isinstance(new_item, dict) or match_key not in new_item:
+            # Can't match this item, just use new value
+            result.append(new_item)
+            continue
 
-    MultilineStrDumper.add_representer(str, _multiline_str_representer)
-    MultilineStrDumper.add_representer(LiteralBlockString, _literal_block_representer)
-    return MultilineStrDumper
+        key_value = new_item[match_key]
+        if key_value in existing_by_key:
+            # Item exists - merge to preserve comments
+            existing_item = existing_by_key[key_value]
+            if isinstance(existing_item, CommentedMap):
+                # Start with existing to preserve comments
+                merged_item = CommentedMap(existing_item)
+                # Update with new values
+                for k, v in new_item.items():
+                    merged_item[k] = v
+                # Remove keys that no longer exist
+                for k in list(merged_item.keys()):
+                    if k not in new_item:
+                        del merged_item[k]
+                result.append(merged_item)
+            else:
+                # Existing item has no comments, just use new
+                result.append(new_item)
+        else:
+            # New item - add it
+            result.append(new_item)
+
+    return result
+
+
+def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
+    """
+    Merge new data into existing YAML structure while preserving comments.
+
+    Strategy:
+    - For simple values: update in place
+    - For lists of dicts with 'name' key (columns): match by name and merge items (preserves comments)
+    - For lists of dicts with 'dimension_node' key (dimension_links): match and merge
+    - For other lists: replace entirely
+    - For dicts: recursively merge keys
+    - Preserve comments attached to keys that still exist
+    - Remove keys that no longer exist in new_data
+
+    Args:
+        existing: Existing YAML data loaded with ruamel.yaml (has comment info)
+        new_data: New data dict to merge in
+        yaml_handler: YAML handler instance
+
+    Returns:
+        Merged data structure with comments preserved
+    """
+    # If existing isn't a CommentedMap (loaded from YAML), just return new_data
+    if not isinstance(existing, (dict, CommentedMap)):
+        return new_data
+
+    # Start with existing to preserve comments
+    result = existing if isinstance(existing, CommentedMap) else CommentedMap(existing)
+
+    # Remove keys that no longer exist in new_data
+    keys_to_remove = [k for k in result.keys() if k not in new_data]
+    for key in keys_to_remove:
+        del result[key]
+
+    # Update/add keys from new_data
+    for key, new_value in new_data.items():
+        if key in result:
+            old_value = result[key]
+            # For dicts, recursively merge
+            if isinstance(new_value, dict) and isinstance(
+                old_value,
+                (dict, CommentedMap),
+            ):
+                result[key] = _merge_yaml_preserving_comments(
+                    old_value,
+                    new_value,
+                    yaml_handler,
+                )
+            # For lists of dicts with identifiable keys, do smart merge
+            elif isinstance(new_value, list) and isinstance(old_value, list):
+                # Check if this is a list we can intelligently merge
+                if (
+                    key in ("columns", "dimension_links")
+                    and new_value
+                    and isinstance(new_value[0], dict)
+                ):
+                    # Determine match key based on list type
+                    if key == "columns" and "name" in new_value[0]:
+                        result[key] = _merge_list_with_key(
+                            old_value,
+                            new_value,
+                            match_key="name",
+                        )
+                    elif key == "dimension_links" and "dimension_node" in new_value[0]:
+                        result[key] = _merge_list_with_key(
+                            old_value,
+                            new_value,
+                            match_key="dimension_node",
+                        )
+                    else:
+                        # Fallback: replace entirely
+                        result[key] = new_value
+                else:
+                    # Other lists: replace entirely
+                    result[key] = new_value
+            else:
+                # Simple value or type mismatch: replace
+                result[key] = new_value
+        else:
+            # New key - just add it
+            result[key] = new_value
+
+    return result
 
 
 def _node_spec_to_yaml_dict(node_spec) -> dict:
@@ -1083,54 +1198,59 @@ def _node_spec_to_yaml_dict(node_spec) -> dict:
     # Remove empty lists/dicts for cleaner YAML
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
 
-    # Wrap query fields with LiteralBlockString so they always use |- style
-    # Strip trailing whitespace from each line to ensure block style works
+    # Clean up multiline strings by stripping trailing whitespace from each line
+    # ruamel.yaml will automatically use literal block style for multiline strings
     if "query" in data and data["query"]:
-        cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
-        data["query"] = LiteralBlockString(cleaned_query)
+        data["query"] = "\n".join(line.rstrip() for line in data["query"].split("\n"))
 
-    # Also wrap join_on in dimension_links
+    # Also clean join_on in dimension_links
     if "dimension_links" in data:
         for link in data["dimension_links"]:
             if "join_on" in link and link["join_on"]:
-                cleaned_join = "\n".join(
+                link["join_on"] = "\n".join(
                     line.rstrip() for line in link["join_on"].split("\n")
                 )
-                link["join_on"] = LiteralBlockString(cleaned_join)
 
     return data
 
 
-def node_spec_to_yaml(node_spec) -> str:
+def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
     """
     Convert a NodeSpec to formatted YAML string.
 
-    Uses yamlfix to ensure consistent formatting.
+    If existing_yaml is provided, merges the new data with existing content
+    to preserve comments and ordering.
+
+    Args:
+        node_spec: The node specification to convert
+        existing_yaml: Optional existing YAML content with comments to preserve
+
+    Returns:
+        Formatted YAML string with comments preserved (if existing_yaml provided)
     """
     yaml_dict = _node_spec_to_yaml_dict(node_spec)
-    yaml_dumper = _get_yaml_dumper()
-    yaml_content = yaml.dump(
-        yaml_dict,
-        Dumper=yaml_dumper,
-        sort_keys=False,
-        default_flow_style=False,
-        width=200,  # Prevent premature line wrapping; let yamlfix handle it
-    )
+    yaml_handler = _get_yaml_handler()
 
-    # Configure yamlfix to match pre-commit hook defaults
-    config = YamlfixConfig(
-        explicit_start=False,
-        line_length=120,  # Match typical yamlfix default for repos
-    )
+    # If existing YAML provided, load it and merge to preserve comments
+    if existing_yaml:
+        try:
+            existing_data = yaml_handler.load(existing_yaml)
+            if existing_data:
+                # Merge: update existing data with new values
+                merged_data = _merge_yaml_preserving_comments(
+                    existing_data,
+                    yaml_dict,
+                    yaml_handler,
+                )
+                yaml_dict = merged_data
+        except Exception as e:  # pragma: no cover
+            logger.warning("Failed to preserve comments from existing YAML: %s", e)
+            # Fall through to export without comment preservation
 
-    # Format with yamlfix for consistent style
-    try:
-        yaml_content = fix_code(yaml_content, config=config)
-    except Exception as e:
-        # If yamlfix fails, log and return the original YAML
-        logger.warning("yamlfix failed to format YAML: %s", e)
-
-    return yaml_content
+    # Export to YAML
+    stream = StringIO()
+    yaml_handler.dump(yaml_dict, stream)
+    return stream.getvalue()
 
 
 # Git configuration validation helpers

@@ -10,6 +10,8 @@ from unittest import mock
 
 import pytest
 
+from datajunction_server.internal.namespaces import node_spec_to_yaml
+from datajunction_server.models.deployment import TransformSpec
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -1462,52 +1464,6 @@ class TestExportYaml:
 class TestYamlHelpers:
     """Tests for internal YAML helper functions"""
 
-    def test_multiline_str_representer_with_newlines(self):
-        """Test that multiline strings get literal block style"""
-        from datajunction_server.internal.namespaces import _multiline_str_representer
-        import yaml
-
-        dumper = yaml.SafeDumper("")
-
-        # Test with multiline string
-        multiline = "SELECT *\nFROM table\nWHERE x = 1"
-        result = _multiline_str_representer(dumper, multiline)
-        assert result.style == "|"
-
-    def test_multiline_str_representer_single_line(self):
-        """Test that single line strings don't get block style"""
-        from datajunction_server.internal.namespaces import _multiline_str_representer
-        import yaml
-
-        dumper = yaml.SafeDumper("")
-
-        # Test with single line string
-        single = "SELECT * FROM table"
-        result = _multiline_str_representer(dumper, single)
-        assert result.style is None  # Default style
-
-    def test_get_yaml_dumper(self):
-        """Test that YAML dumper uses literal block style for multiline strings"""
-        from datajunction_server.internal.namespaces import _get_yaml_dumper
-        from pathlib import Path
-        import yaml
-
-        dumper = _get_yaml_dumper()
-
-        # Verify it's a SafeDumper subclass
-        assert issubclass(dumper, yaml.SafeDumper)
-
-        # Test dumping a multiline string uses literal block style
-        data = {"query": "SELECT *\nFROM table\nWHERE x = 1", "name": "test_node"}
-        output = yaml.dump(data, Dumper=dumper, sort_keys=False)
-
-        # Compare against expected fixture
-        fixture_path = (
-            Path(__file__).parent.parent / "fixtures" / "expected_multiline_query.yaml"
-        )
-        expected = fixture_path.read_text()
-        assert output == expected
-
     def test_node_spec_to_yaml_dict_excludes_none(self):
         """Test that _node_spec_to_yaml_dict excludes None values"""
         from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
@@ -1705,29 +1661,98 @@ class TestYamlHelpers:
         # Should not crash; join_on should remain empty or be handled
         assert "dimension_links" in result
 
-    def test_node_spec_to_yaml_yamlfix_failure(self):
-        """Test node_spec_to_yaml handles yamlfix failures gracefully."""
-        from unittest.mock import patch
-
-        from datajunction_server.internal.namespaces import node_spec_to_yaml
-        from datajunction_server.models.deployment import TransformSpec
-
+    def test_node_spec_to_yaml_handles_invalid_existing_yaml(self):
+        """Test node_spec_to_yaml handles invalid existing YAML gracefully."""
         spec = TransformSpec(
             name="test.node",
             query="SELECT 1",
         )
 
-        # Mock yamlfix to raise an exception
-        with patch(
-            "datajunction_server.internal.namespaces.fix_code",
-            side_effect=Exception("yamlfix crashed"),
-        ):
-            # Should not raise, should return the unformatted YAML
-            result = node_spec_to_yaml(spec)
+        # Provide malformed YAML as existing_yaml
+        invalid_yaml = "name: |-\n  invalid: syntax: here"
 
-            # Should still return valid YAML (just not yamlfix-formatted)
-            assert "name:" in result
-            assert "query:" in result
+        # Should not raise, should fall back to generating new YAML
+        result = node_spec_to_yaml(spec, existing_yaml=invalid_yaml)
+
+        # Should return valid YAML (without preserving comments from invalid input)
+        assert "name:" in result
+        assert "query:" in result
+        assert "test.node" in result
+
+    def test_node_spec_to_yaml_preserves_column_comments(self):
+        """Test that column-level comments are preserved when updating YAML."""
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT order_id, customer_id FROM orders",
+            columns=[
+                ColumnSpec(name="order_id", type="int"),
+                ColumnSpec(name="customer_id", type="int"),
+            ],
+        )
+
+        # Existing YAML with comments on columns
+        existing_yaml = """name: test.orders
+query: SELECT order_id, customer_id FROM orders
+columns:
+  # Primary key for the order
+  - name: order_id
+    type: int
+  # Reference to customer table
+  - name: customer_id
+    type: int
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        # Comments should be preserved
+        assert "# Primary key for the order" in result
+        assert "# Reference to customer table" in result
+        assert "order_id" in result
+        assert "customer_id" in result
+
+    def test_node_spec_to_yaml_handles_reordered_columns(self):
+        """Test that columns can be reordered while preserving comments."""
+        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
+
+        # New spec with columns in different order
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT customer_id, order_id FROM orders",
+            columns=[
+                ColumnSpec(name="customer_id", type="int"),  # Now first
+                ColumnSpec(name="order_id", type="int"),  # Now second
+            ],
+        )
+
+        # Existing YAML with original order
+        existing_yaml = """name: test.orders
+query: SELECT old_query
+columns:
+  # Primary key for the order
+  - name: order_id
+    type: int
+  # Reference to customer table
+  - name: customer_id
+    type: int
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        # Comments should be preserved and matched to correct columns by name
+        assert "# Primary key for the order" in result
+        assert "# Reference to customer table" in result
+
+        # Verify new order (customer_id first)
+        customer_idx = result.index("customer_id")
+        order_idx = result.index("order_id")
+        assert customer_idx < order_idx, "Columns should be in new order"
+
+        # Verify comments are still attached to correct columns
+        # Customer comment should appear before customer_id
+        customer_comment_idx = result.index("# Reference to customer table")
+        assert customer_comment_idx < customer_idx
 
 
 @pytest.mark.asyncio
