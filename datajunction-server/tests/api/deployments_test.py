@@ -2648,6 +2648,54 @@ async def test_node_to_spec_transform(module__session, module__client_with_roads
 
 
 @pytest.mark.asyncio
+async def test_node_to_spec_respects_column_order(
+    module__session,
+    module__client_with_roads,
+):
+    """
+    Test that to_spec() returns columns sorted by their order field,
+    regardless of the order they were loaded from the database.
+
+    This test simulates the bug where selectinload might not respect
+    the relationship's order_by, by manually reordering columns before
+    calling to_spec().
+    """
+    # Get a node with columns
+    repair_orders_fact = await Node.get_by_name(
+        module__session,
+        "default.repair_orders_fact",
+        options=Node.cube_load_options(),
+    )
+
+    # Get the original column order values
+    original_columns = repair_orders_fact.current.columns
+    column_orders = [(col.name, col.order) for col in original_columns]
+
+    # Manually shuffle columns to simulate selectinload not respecting order_by
+    # Reverse the list to put them in wrong order
+    repair_orders_fact.current.columns = list(reversed(original_columns))
+
+    # Call to_spec - it should sort them back to correct order
+    spec = await repair_orders_fact.to_spec(module__session)
+
+    # Verify columns are in the correct order (by order field, not by list position)
+    sorted_column_names = [
+        name
+        for name, _ in sorted(
+            column_orders,
+            key=lambda x: x[1] if x[1] is not None else float("inf"),
+        )
+    ]
+    actual_column_names = [col.name for col in spec.columns]
+
+    assert actual_column_names == sorted_column_names, (
+        f"Columns not in correct order. "
+        f"Expected: {sorted_column_names}, "
+        f"Got: {actual_column_names}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_node_to_spec_dimension(module__session, module__client_with_roads):
     """
     Test that a dimension node can be converted to a spec correctly
