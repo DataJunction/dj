@@ -290,7 +290,7 @@ async def sync_namespace_to_git(
                     path=file_path,
                     branch=namespace_obj.git_branch,
                 )
-                if existing_file and "content" in existing_file:
+                if existing_file and "content" in existing_file:  # pragma: no branch
                     existing_yaml = base64.b64decode(existing_file["content"]).decode(
                         "utf-8",
                     )

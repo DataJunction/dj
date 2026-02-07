@@ -10,17 +10,26 @@ from unittest import mock
 
 import pytest
 
+from datajunction_server.internal.namespaces import (
+    _node_spec_to_yaml_dict,
+    node_spec_to_yaml,
+)
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
     ColumnSpec,
+    CubeSpec,
     DeploymentSourceType,
     DeploymentSpec,
+    DimensionJoinLinkSpec,
     GitDeploymentSource,
     LocalDeploymentSource,
     NamespaceSourcesResponse,
     SourceSpec,
+    TransformSpec,
+    PartitionSpec,
 )
+from datajunction_server.models.partition import PartitionType, Granularity
 
 import pytest
 from httpx import AsyncClient
@@ -1464,8 +1473,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_excludes_none(self):
         """Test that _node_spec_to_yaml_dict excludes None values"""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import TransformSpec
 
         spec = TransformSpec(
             name="test.node",
@@ -1481,8 +1488,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_cube_excludes_columns(self):
         """Test that cube nodes always exclude columns"""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import CubeSpec, ColumnSpec
 
         spec = CubeSpec(
             name="test.cube",
@@ -1501,8 +1506,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_filters_columns_without_customizations(self):
         """Test that columns without customizations are filtered out"""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
 
         spec = TransformSpec(
             name="test.transform",
@@ -1527,8 +1530,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_keeps_column_with_attributes(self):
         """Test that columns with attributes are kept"""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
 
         spec = TransformSpec(
             name="test.transform",
@@ -1546,8 +1547,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_removes_empty_columns(self):
         """Test that columns key is removed when no columns have customizations"""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import TransformSpec, ColumnSpec
 
         spec = TransformSpec(
             name="test.transform",
@@ -1632,13 +1631,6 @@ class TestYamlHelpers:
 
     def test_node_spec_to_yaml_dict_empty_join_on(self):
         """Test _node_spec_to_yaml_dict handles empty join_on in dimension_links."""
-        from datajunction_server.internal.namespaces import _node_spec_to_yaml_dict
-        from datajunction_server.models.deployment import (
-            SourceSpec,
-            ColumnSpec,
-            DimensionJoinLinkSpec,
-        )
-
         spec = SourceSpec(
             name="test.source",
             catalog="default",
@@ -1659,29 +1651,147 @@ class TestYamlHelpers:
         # Should not crash; join_on should remain empty or be handled
         assert "dimension_links" in result
 
-    def test_node_spec_to_yaml_yamlfix_failure(self):
-        """Test node_spec_to_yaml handles yamlfix failures gracefully."""
-        from unittest.mock import patch
-
-        from datajunction_server.internal.namespaces import node_spec_to_yaml
-        from datajunction_server.models.deployment import TransformSpec
-
+    def test_node_spec_to_yaml_handles_invalid_existing_yaml(self):
+        """Test node_spec_to_yaml handles invalid existing YAML gracefully."""
         spec = TransformSpec(
             name="test.node",
             query="SELECT 1",
         )
 
-        # Mock yamlfix to raise an exception
-        with patch(
-            "datajunction_server.internal.namespaces.fix_code",
-            side_effect=Exception("yamlfix crashed"),
-        ):
-            # Should not raise, should return the unformatted YAML
-            result = node_spec_to_yaml(spec)
+        # Provide malformed YAML as existing_yaml
+        invalid_yaml = "name: |-\n  invalid: syntax: here"
 
-            # Should still return valid YAML (just not yamlfix-formatted)
-            assert "name:" in result
-            assert "query:" in result
+        # Should not raise, should fall back to generating new YAML
+        result = node_spec_to_yaml(spec, existing_yaml=invalid_yaml)
+
+        # Should return valid YAML (without preserving comments from invalid input)
+        assert "name:" in result
+        assert "query:" in result
+        assert "test.node" in result
+
+    def test_node_spec_to_yaml_preserves_column_comments(self):
+        """Test that column-level comments are preserved when updating YAML."""
+
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT order_id, customer_id FROM orders",
+            columns=[
+                ColumnSpec(name="order_id", type="int"),
+                ColumnSpec(name="customer_id", type="int"),
+            ],
+        )
+
+        # Existing YAML with comments on columns
+        # Using single-line flow style for list items so ruamel.yaml can parse comments correctly
+        existing_yaml = """name: test.orders
+query: SELECT order_id, customer_id FROM orders
+columns:
+  # Primary key for the order
+  - {name: order_id, type: int}
+  # Reference to customer table
+  - {name: customer_id, type: int}
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        # Comments should be preserved
+        assert "# Primary key for the order" in result
+        assert "# Reference to customer table" in result
+        assert "order_id" in result
+        assert "customer_id" in result
+
+    def test_node_spec_to_yaml_filters_columns_without_customizations(self):
+        """Test that columns without meaningful customizations are filtered out."""
+        spec = TransformSpec(
+            name="test.basic",
+            query="SELECT a, b, c FROM table",
+            columns=[
+                ColumnSpec(
+                    name="a",
+                    type="int",
+                ),  # No customizations - should be filtered
+                ColumnSpec(
+                    name="b",
+                    type="string",
+                    description="Column B",
+                ),  # Has description
+                ColumnSpec(
+                    name="c",
+                    type="int",
+                    attributes=["dimension"],
+                ),  # Has attributes
+            ],
+        )
+
+        result = node_spec_to_yaml(spec)
+
+        # Column 'a' should be filtered out (no customizations)
+        assert "name: a" not in result
+        # Columns 'b' and 'c' should be included
+        assert "name: b" in result
+        assert "name: c" in result
+        assert "description: Column B" in result
+
+    def test_node_spec_to_yaml_includes_columns_with_custom_display_name(self):
+        """Test that columns with custom display_name are included."""
+        spec = TransformSpec(
+            name="test.display",
+            query="SELECT user_id FROM users",
+            columns=[
+                ColumnSpec(name="user_id", type="int", display_name="User ID"),
+            ],
+        )
+
+        result = node_spec_to_yaml(spec)
+
+        assert "name: user_id" in result
+        assert "display_name: User ID" in result
+
+    def test_node_spec_to_yaml_includes_columns_with_partition(self):
+        """Test that columns with partition info are included."""
+        spec = TransformSpec(
+            name="test.partition",
+            query="SELECT event_date FROM events",
+            columns=[
+                ColumnSpec(
+                    name="event_date",
+                    type="date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+
+        result = node_spec_to_yaml(spec)
+
+        assert "name: event_date" in result
+        assert "partition:" in result
+
+    def test_node_spec_to_yaml_merge_removes_old_keys(self):
+        """Test that merging removes keys that no longer exist."""
+        spec = TransformSpec(
+            name="test.removed",
+            query="SELECT id FROM table",
+            columns=[
+                ColumnSpec(name="id", type="int", description="ID field"),
+            ],
+        )
+
+        # Existing YAML has an extra field that should be removed
+        existing_yaml = """name: test.removed
+query: SELECT id FROM table
+columns:
+  - {name: id, type: int, description: ID field, old_field: should_be_removed}
+"""
+
+        result = node_spec_to_yaml(spec, existing_yaml=existing_yaml)
+
+        assert "old_field" not in result
+        assert "name: id" in result
+        assert "description: ID field" in result
 
 
 @pytest.mark.asyncio
