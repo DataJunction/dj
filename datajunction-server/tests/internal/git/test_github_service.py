@@ -912,3 +912,77 @@ class TestVerifyCommit:
             result = await github_service.verify_commit("owner/repo", "nonexistent")
 
             assert result is False
+
+
+class TestDownloadArchive:
+    """Tests for download_archive method."""
+
+    @pytest.mark.asyncio
+    async def test_download_archive_success(self, github_service):
+        """Should download repository archive as tarball."""
+        mock_archive_content = b"fake-tarball-content"
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.content = mock_archive_content
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.download_archive(
+                repo_path="owner/repo",
+                branch="main",
+                format="tarball",
+            )
+
+            assert result == mock_archive_content
+
+            # Verify the call was made correctly
+            call_args = mock_client.return_value.__aenter__.return_value.get.call_args
+            assert "/repos/owner/repo/tarball/main" in call_args.args[0]
+            assert call_args.kwargs["follow_redirects"] is True
+            assert call_args.kwargs["timeout"] == 120.0
+
+    @pytest.mark.asyncio
+    async def test_download_archive_zipball(self, github_service):
+        """Should support zipball format."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.content = b"fake-zipball-content"
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            await github_service.download_archive(
+                repo_path="owner/repo",
+                branch="feature-x",
+                format="zipball",
+            )
+
+            call_args = mock_client.return_value.__aenter__.return_value.get.call_args
+            assert "/repos/owner/repo/zipball/feature-x" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_download_archive_error(self, github_service):
+        """Should raise error on download failure."""
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Not Found"}
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            with pytest.raises(GitHubServiceError) as exc_info:
+                await github_service.download_archive(
+                    repo_path="owner/repo",
+                    branch="nonexistent",
+                )
+
+            assert "download tarball failed" in str(exc_info.value)
+            assert exc_info.value.github_status == 404

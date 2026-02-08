@@ -11,8 +11,41 @@ Tests for:
 from http import HTTPStatus
 from unittest.mock import AsyncMock, MagicMock, patch
 import base64
+import io
+import tarfile
 import pytest
 from httpx import AsyncClient
+
+
+def create_mock_tarball(files: dict[str, str]) -> bytes:
+    """Create a mock tarball with the given files.
+
+    Args:
+        files: Dict mapping file paths to file contents
+
+    Returns:
+        Tarball bytes
+    """
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+        # GitHub archives have a root directory like "owner-repo-sha"
+        root_dir = "myorg-myrepo-abc123"
+
+        # Always add the root directory
+        root_info = tarfile.TarInfo(name=root_dir)
+        root_info.type = tarfile.DIRTYPE
+        root_info.mode = 0o755
+        tar.addfile(root_info)
+
+        for file_path, content in files.items():
+            # Add file to tarball
+            file_data = content.encode("utf-8")
+            tarinfo = tarfile.TarInfo(name=f"{root_dir}/{file_path}")
+            tarinfo.size = len(file_data)
+            tar.addfile(tarinfo, io.BytesIO(file_data))
+
+    tar_buffer.seek(0)
+    return tar_buffer.read()
 
 
 class TestNamespaceGitConfig:
@@ -1523,6 +1556,10 @@ class TestGitSync:
             "datajunction_server.api.git_sync.GitHubService",
         ) as mock_github_class:
             mock_github = MagicMock()
+            # Mock download_archive to return empty tarball
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball({}),
+            )
             # Namespace sync uses commit_files (batch) not commit_file (single)
             mock_github.commit_files = AsyncMock(
                 return_value={
@@ -1549,7 +1586,7 @@ class TestGitSync:
         self,
         client_with_roads: AsyncClient,
     ):
-        """Test that namespace sync decodes base64 and passes existing YAML for comment preservation."""
+        """Test that namespace sync reads existing YAML from archive for comment preservation."""
         await client_with_roads.patch(
             "/namespaces/default/git",
             json={
@@ -1558,9 +1595,9 @@ class TestGitSync:
             },
         )
 
-        # Existing YAML with comments
+        # Existing YAML with comments - we'll put some files in the mock tarball
+        # The namespace "default" should have nodes like "default.repair_orders"
         existing_yaml = "# File comment\nname: old_value\nquery: SELECT 1"
-        encoded = base64.b64encode(existing_yaml.encode("utf-8")).decode("utf-8")
 
         with (
             patch(
@@ -1571,12 +1608,14 @@ class TestGitSync:
             ) as mock_node_spec_to_yaml,
         ):
             mock_github = MagicMock()
-            # Mock get_file to return base64-encoded YAML
-            mock_github.get_file = AsyncMock(
-                return_value={
-                    "sha": "file-sha-789",
-                    "content": encoded,
-                },
+            # Mock download_archive to return tarball with existing YAML files
+            # Create tarball with some existing files
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball(
+                    {
+                        "repair_orders.yaml": existing_yaml,
+                    },
+                ),
             )
             mock_github.commit_files = AsyncMock(
                 return_value={
@@ -1793,6 +1832,10 @@ mode: published
             "datajunction_server.api.git_sync.GitHubService",
         ) as mock_github_class:
             mock_github = MagicMock()
+            # Mock download_archive to return empty tarball
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball({}),
+            )
             mock_github.commit_files = AsyncMock(
                 side_effect=GitHubServiceError(
                     "Repository not found",
