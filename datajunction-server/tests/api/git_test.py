@@ -10,9 +10,42 @@ Tests for:
 
 from http import HTTPStatus
 from unittest.mock import AsyncMock, MagicMock, patch
-
+import base64
+import io
+import tarfile
 import pytest
 from httpx import AsyncClient
+
+
+def create_mock_tarball(files: dict[str, str]) -> bytes:
+    """Create a mock tarball with the given files.
+
+    Args:
+        files: Dict mapping file paths to file contents
+
+    Returns:
+        Tarball bytes
+    """
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+        # GitHub archives have a root directory like "owner-repo-sha"
+        root_dir = "myorg-myrepo-abc123"
+
+        # Always add the root directory
+        root_info = tarfile.TarInfo(name=root_dir)
+        root_info.type = tarfile.DIRTYPE
+        root_info.mode = 0o755
+        tar.addfile(root_info)
+
+        for file_path, content in files.items():
+            # Add file to tarball
+            file_data = content.encode("utf-8")
+            tarinfo = tarfile.TarInfo(name=f"{root_dir}/{file_path}")
+            tarinfo.size = len(file_data)
+            tar.addfile(tarinfo, io.BytesIO(file_data))
+
+    tar_buffer.seek(0)
+    return tar_buffer.read()
 
 
 class TestNamespaceGitConfig:
@@ -1323,6 +1356,68 @@ class TestGitSync:
             assert call_kwargs["sha"] == "existing-sha-123"
 
     @pytest.mark.asyncio
+    async def test_sync_node_preserves_comments_from_existing(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test that syncing decodes base64 content and passes it for comment preservation."""
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Existing YAML with a comment
+        existing_yaml_with_comment = (
+            "# Important comment\nname: old_name\nquery: SELECT 1"
+        )
+
+        encoded_content = base64.b64encode(
+            existing_yaml_with_comment.encode("utf-8"),
+        ).decode("utf-8")
+
+        with (
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.git_sync.node_spec_to_yaml",
+            ) as mock_node_spec_to_yaml,
+        ):
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(
+                return_value={
+                    "sha": "existing-sha-456",
+                    "content": encoded_content,
+                },
+            )
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "newcommit456",
+                        "html_url": "https://github.com/myorg/myrepo/commit/new2",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+            mock_node_spec_to_yaml.return_value = "updated: yaml"
+
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+
+            # Verify node_spec_to_yaml was called with the decoded existing YAML
+            assert mock_node_spec_to_yaml.called
+            call_args = mock_node_spec_to_yaml.call_args
+            # Second argument should be existing_yaml
+            assert call_args.kwargs["existing_yaml"] == existing_yaml_with_comment
+
+    @pytest.mark.asyncio
     async def test_sync_node_nonexistent(
         self,
         client_with_roads: AsyncClient,
@@ -1461,6 +1556,10 @@ class TestGitSync:
             "datajunction_server.api.git_sync.GitHubService",
         ) as mock_github_class:
             mock_github = MagicMock()
+            # Mock download_archive to return empty tarball
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball({}),
+            )
             # Namespace sync uses commit_files (batch) not commit_file (single)
             mock_github.commit_files = AsyncMock(
                 return_value={
@@ -1481,6 +1580,169 @@ class TestGitSync:
             assert data["namespace"] == "default"
             assert data["files_synced"] > 0
             assert len(data["results"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_sync_namespace_preserves_comments_from_existing(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test that namespace sync reads existing YAML from archive for comment preservation."""
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Existing YAML with comments - we'll put some files in the mock tarball
+        # The namespace "default" should have nodes like "default.repair_orders"
+        existing_yaml = "# File comment\nname: old_value\nquery: SELECT 1"
+
+        with (
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.git_sync.node_spec_to_yaml",
+            ) as mock_node_spec_to_yaml,
+        ):
+            mock_github = MagicMock()
+            # Mock download_archive to return tarball with existing YAML files
+            # Create tarball with some existing files
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball(
+                    {
+                        "repair_orders.yaml": existing_yaml,
+                    },
+                ),
+            )
+            mock_github.commit_files = AsyncMock(
+                return_value={
+                    "sha": "batch-commit-789",
+                    "html_url": "https://github.com/myorg/myrepo/commit/batch",
+                },
+            )
+            mock_github_class.return_value = mock_github
+            mock_node_spec_to_yaml.return_value = "updated: yaml content"
+
+            response = await client_with_roads.post(
+                "/namespaces/default/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+
+            # Verify node_spec_to_yaml was called with decoded existing_yaml
+            assert mock_node_spec_to_yaml.called
+            # Check that at least one call had existing_yaml parameter
+            calls_with_existing = [
+                call
+                for call in mock_node_spec_to_yaml.call_args_list
+                if call.kwargs.get("existing_yaml") == existing_yaml
+            ]
+            assert len(calls_with_existing) > 0, (
+                "Expected at least one call with decoded existing_yaml"
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_node_file_doesnt_exist_yet(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test syncing a node when the YAML file doesn't exist in Git yet (covers exception handler)."""
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            # Simulate file not existing by raising exception
+            mock_github.get_file = AsyncMock(side_effect=Exception("File not found"))
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "newcommit789",
+                        "html_url": "https://github.com/myorg/myrepo/commit/new3",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            # Verify commit_file was called (file created)
+            assert mock_github.commit_file.called
+            # Verify sha=None was passed (new file)
+            call_kwargs = mock_github.commit_file.call_args.kwargs
+            assert call_kwargs.get("sha") is None
+
+    @pytest.mark.asyncio
+    async def test_sync_node_with_existing_file_real_decode(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test syncing with real base64 decoding (no mocking of node_spec_to_yaml)."""
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create realistic existing YAML for a transform node
+        existing_yaml = """name: default.repair_orders
+query: SELECT 1
+node_type: transform
+mode: published
+"""
+        encoded_content = base64.b64encode(existing_yaml.encode("utf-8")).decode(
+            "utf-8",
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            # Return existing file with base64 content
+            mock_github.get_file = AsyncMock(
+                return_value={
+                    "sha": "existing-file-sha",
+                    "content": encoded_content,
+                },
+            )
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "updated-commit",
+                        "html_url": "https://github.com/myorg/myrepo/commit/upd",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            # Don't mock node_spec_to_yaml - let it run for real
+            response = await client_with_roads.post(
+                "/nodes/default.repair_orders/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            # Verify the file was updated (sha was passed)
+            assert mock_github.commit_file.called
+            call_kwargs = mock_github.commit_file.call_args.kwargs
+            assert call_kwargs["sha"] == "existing-file-sha"
 
     @pytest.mark.asyncio
     async def test_sync_namespace_empty(
@@ -1570,6 +1832,10 @@ class TestGitSync:
             "datajunction_server.api.git_sync.GitHubService",
         ) as mock_github_class:
             mock_github = MagicMock()
+            # Mock download_archive to return empty tarball
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball({}),
+            )
             mock_github.commit_files = AsyncMock(
                 side_effect=GitHubServiceError(
                     "Repository not found",
