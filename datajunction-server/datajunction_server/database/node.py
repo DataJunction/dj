@@ -1,5 +1,6 @@
 """Node database schema."""
 
+import logging
 import pickle
 import zlib
 from datetime import datetime, timezone
@@ -78,6 +79,9 @@ from datajunction_server.utils import SEPARATOR, execute_with_retry
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
     from datajunction_server.database.measure import FrozenMeasure
+
+
+_logger = logging.getLogger(__name__)
 
 
 class NodeRelationship(Base):
@@ -344,6 +348,22 @@ class Node(Base):
 
         await session.refresh(self, ["owners"])
 
+        # Sort columns by order field once to ensure consistent output everywhere
+        # Check for columns without order set
+        unordered_columns = [col for col in self.current.columns if col.order is None]
+        if unordered_columns:
+            _logger.warning(  # pragma: no cover
+                "Node '%s' has %d columns without order set: %s",
+                self.name,
+                len(unordered_columns),
+                [col.name for col in unordered_columns],
+            )
+
+        sorted_columns = sorted(
+            self.current.columns,
+            key=lambda col: col.order if col.order is not None else float("inf"),
+        )
+
         # Base kwargs common to all node types
         base_kwargs = dict(
             name=self.name,
@@ -371,7 +391,7 @@ class Node(Base):
             NodeType.METRIC,
             NodeType.CUBE,
         ):
-            cols = [col.to_spec() for col in self.current.columns]
+            cols = [col.to_spec() for col in sorted_columns]
             extra_kwargs.update(
                 columns=cols,
             )
@@ -387,10 +407,10 @@ class Node(Base):
                     node_column=col.name,
                     dimension=f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
                 )
-                for col in self.current.columns
+                for col in sorted_columns
                 if col.dimension_id and col.dimension_column
             ]
-            col_specs = [col.to_spec() for col in self.current.columns]
+            col_specs = [col.to_spec() for col in sorted_columns]
             extra_kwargs.update(
                 primary_key=[
                     col.name for col in col_specs if "primary_key" in col.attributes
@@ -404,7 +424,7 @@ class Node(Base):
                 catalog=self.current.catalog.name,
                 schema_=self.current.schema_,
                 table=self.current.table,
-                columns=[col.to_spec() for col in self.current.columns],
+                columns=[col.to_spec() for col in sorted_columns],
             )
 
         # Metric-specific
