@@ -617,3 +617,32 @@ class GitHubService:
                 timeout=30.0,
             )
             return resp.status_code == 200
+
+    async def download_archive(
+        self,
+        repo_path: str,
+        branch: str,
+        format: str = "tarball",
+    ) -> bytes:
+        """Download entire repository archive as tarball or zipball.
+
+        This is much more efficient than calling get_file() multiple times
+        when you need to read many files from the repository.
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            branch: Branch name
+            format: "tarball" or "zipball"
+
+        Returns:
+            Raw archive bytes
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/{format}/{branch}",
+                headers=self.headers,
+                timeout=120.0,  # Longer timeout for potentially large repos
+                follow_redirects=True,  # GitHub redirects to blob storage
+            )
+            self._handle_error(resp, f"download {format}")
+            return resp.content

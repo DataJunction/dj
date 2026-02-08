@@ -1022,8 +1022,6 @@ def _merge_list_with_key(existing_list, new_list, match_key="name"):
     Returns:
         Merged list with comments preserved where items match
     """
-    print("existing_list", existing_list)
-    print("new_list", new_list)
     # Build lookup of existing items by match_key, including their index for comment preservation
     existing_by_key = {}
     for idx, item in enumerate(existing_list):
