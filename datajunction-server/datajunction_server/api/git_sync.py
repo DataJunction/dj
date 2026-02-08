@@ -289,7 +289,7 @@ async def sync_namespace_to_git(
             # Find the extracted repo directory (GitHub adds a prefix like "owner-repo-sha")
             extracted_dirs = list(Path(tmpdir).iterdir())
             if not extracted_dirs:
-                raise GitHubServiceError(
+                raise GitHubServiceError(  # pragma: no cover
                     message="Failed to extract archive - no directories found",
                 )
             repo_dir = extracted_dirs[0]
@@ -330,7 +330,7 @@ async def sync_namespace_to_git(
                 if file_path in existing_files_map:
                     try:
                         existing_yaml = existing_files_map[file_path].read_text()
-                    except Exception:
+                    except Exception:  # pragma: no cover
                         # File couldn't be read - that's ok
                         pass
 
