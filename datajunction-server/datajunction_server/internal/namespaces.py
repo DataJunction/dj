@@ -1342,15 +1342,83 @@ def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
 # Git configuration validation helpers
 
 
+async def resolve_git_config(
+    session: AsyncSession,
+    namespace: str,
+    max_depth: int = 50,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Resolve complete git configuration by walking up parent chain.
+
+    Returns (github_repo_path, git_path, git_branch) tuple.
+    - github_repo_path and git_path are resolved by walking up parents
+    - git_branch is only taken from the current namespace (not inherited)
+
+    This enables hierarchical configuration:
+    - Parent namespace (e.g., "demo.metrics") has repo/path
+    - Child namespaces (e.g., "demo.metrics.main") have branch + parent link
+
+    Args:
+        session: Database session
+        namespace: Namespace to resolve config for
+        max_depth: Maximum parent chain depth (prevents infinite loops)
+
+    Returns:
+        Tuple of (github_repo_path, git_path, git_branch)
+        Any element can be None if not configured
+
+    Raises:
+        DJDoesNotExistException: If namespace doesn't exist
+        DJInvalidInputException: If parent chain exceeds max_depth
+    """
+    from datajunction_server.api.helpers import get_node_namespace
+
+    current_ns = await get_node_namespace(session, namespace)
+
+    # git_branch is never inherited - only from current namespace
+    git_branch = current_ns.git_branch
+
+    # Start with current namespace's direct values
+    github_repo_path = current_ns.github_repo_path
+    git_path = current_ns.git_path
+
+    # Walk up parent chain to resolve missing fields
+    current = current_ns
+    depth = 0
+
+    while (not github_repo_path or git_path is None) and current.parent_namespace:
+        if depth >= max_depth:
+            raise DJInvalidInputException(
+                message=f"Parent chain exceeds maximum depth of {max_depth} "
+                f"while resolving git config for '{namespace}'",
+            )
+
+        parent_ns = await get_node_namespace(session, current.parent_namespace)
+
+        # Inherit missing fields from parent
+        if not github_repo_path:
+            github_repo_path = parent_ns.github_repo_path
+        if git_path is None:  # Explicitly check None (empty string is valid)
+            git_path = parent_ns.git_path
+
+        current = parent_ns
+        depth += 1
+
+    return github_repo_path, git_path, git_branch
+
+
 def validate_sibling_relationship(
     child_namespace: str,
     parent_namespace: str,
 ) -> None:
     """
-    Ensure parent and child are siblings (share same prefix).
+    Ensure parent-child namespace relationships are valid.
 
-    This enforces that branch namespaces must be under the same project.
-    For example, demo.feature can have parent demo.main, but not team.main.
+    Two valid patterns:
+    1. Siblings: demo.main can have parent demo.feature (both have prefix "demo")
+    2. Direct child: demo.main can have parent demo (child's prefix is "demo")
+
+    Invalid: demo.feature cannot have parent team.main (different projects)
     """
 
     def get_prefix(ns: str) -> str:
@@ -1359,13 +1427,19 @@ def validate_sibling_relationship(
     child_prefix = get_prefix(child_namespace)
     parent_prefix = get_prefix(parent_namespace)
 
-    if child_prefix != parent_prefix:
+    # Allow either:
+    # 1. Siblings: child and parent have same prefix (e.g., demo.main + demo.feature)
+    # 2. Direct child: child's prefix equals parent's namespace (e.g., demo.main -> demo)
+    is_sibling = child_prefix == parent_prefix
+    is_direct_child = child_prefix == parent_namespace
+
+    if not (is_sibling or is_direct_child):
         raise DJInvalidInputException(
             message=(
                 f"Namespace '{child_namespace}' (prefix: '{child_prefix}') "
-                f"cannot have parent '{parent_namespace}' (prefix: '{parent_prefix}'). "
-                f"Branch namespaces must be siblings under the same project. "
-                f"Expected parent to have prefix '{child_prefix}'."
+                f"cannot have parent '{parent_namespace}'. "
+                f"Expected parent to either be '{child_prefix}' (direct parent) "
+                f"or have prefix '{child_prefix}' (sibling)."
             ),
         )
 
@@ -1434,20 +1508,27 @@ def validate_git_path(git_path: Optional[str]) -> None:
         )
 
 
-def validate_git_only(
+async def validate_git_only(
+    session: AsyncSession,
+    namespace: str,
     git_only: bool,
-    github_repo_path: Optional[str],
-    git_branch: Optional[str],
 ) -> None:
     """
     Ensure git_only namespaces have git configuration.
 
     A git_only namespace blocks UI edits, so it must have a git source.
+    This now checks the resolved git config (including inherited values).
     """
-    if git_only and (not github_repo_path or not git_branch):
+    if not git_only:
+        return
+
+    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
+
+    if not github_repo_path or not git_branch:
         raise DJInvalidInputException(
             message=(
                 "Cannot enable git_only without git configuration. "
-                "Set github_repo_path and git_branch first."
+                "Either set github_repo_path and git_branch on this namespace, "
+                "or set a parent_namespace that has git configured."
             ),
         )

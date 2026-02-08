@@ -32,7 +32,10 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.git.github_service import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
-from datajunction_server.internal.namespaces import validate_sibling_relationship
+from datajunction_server.internal.namespaces import (
+    resolve_git_config,
+    validate_sibling_relationship,
+)
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
@@ -97,11 +100,11 @@ async def _create_namespace_and_copy_nodes(
     validate_sibling_relationship(new_namespace, parent_namespace)
 
     # Create DJ namespace
+    # Note: We don't copy github_repo_path or git_path - those are inherited
+    # from parent via resolve_git_config(). Only set branch and parent link.
     new_ns = NodeNamespace(
         namespace=new_namespace,
-        github_repo_path=parent_ns.github_repo_path,
         git_branch=branch_name,
-        git_path=parent_ns.git_path,
         parent_namespace=parent_namespace,
     )
     session.add(new_ns)
@@ -211,19 +214,21 @@ async def create_branch(
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Get parent namespace and validate it has git config
+    # Get parent namespace and validate it has git config (resolved)
     parent_ns = await get_node_namespace(session, namespace)
 
-    if not parent_ns.github_repo_path:
+    # Resolve git config - repo/path may be inherited from ancestors
+    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
+
+    if not github_repo_path:
         raise DJInvalidInputException(
             message=f"Namespace '{namespace}' does not have git configured. "
-            "Set github_repo_path first.",
+            "Set github_repo_path on this namespace or a parent namespace.",
         )
 
-    if not parent_ns.git_branch:
+    if not git_branch:
         raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' does not have a git branch configured. "
-            "Set git_branch first.",
+            message=f"Namespace '{namespace}' does not have a git branch configured.",
         )
 
     # Validate branch name
@@ -263,9 +268,9 @@ async def create_branch(
 
     git_task = asyncio.create_task(
         _create_git_branch(
-            repo_path=parent_ns.github_repo_path,
+            repo_path=github_repo_path,
             branch_name=branch_name,
-            from_ref=parent_ns.git_branch,
+            from_ref=git_branch,
         ),
     )
 
@@ -314,7 +319,7 @@ async def create_branch(
     if not namespace_succeeded:
         # Namespace failed but git succeeded - cleanup git branch
         _logger.error("Namespace creation failed, cleaning up git branch")
-        await _cleanup_git_branch(parent_ns.github_repo_path, branch_name)
+        await _cleanup_git_branch(github_repo_path, branch_name)
         raise DJInvalidInputException(
             message=f"Failed to create namespace '{new_namespace}': {namespace_result}",
         )
@@ -327,7 +332,7 @@ async def create_branch(
             namespace=new_namespace,
             git_branch=branch_name,
             parent_namespace=namespace,
-            github_repo_path=parent_ns.github_repo_path,
+            github_repo_path=github_repo_path,
         ),
         deployment_results=deployment_results,
     )
