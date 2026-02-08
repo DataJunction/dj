@@ -32,6 +32,7 @@ from datajunction_server.internal.namespaces import (
     get_node_specs_for_export,
     inject_prefixes,
     node_spec_to_yaml,
+    resolve_git_config,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.utils import get_current_user, get_session, get_settings
@@ -117,14 +118,18 @@ async def sync_node_to_git(
     access_checker.add_namespace(node.namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Get namespace git config
-    namespace_obj = await get_node_namespace(session, node.namespace)
+    # Resolve git config (may be inherited from parent)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        node.namespace,
+    )
 
-    if not namespace_obj.github_repo_path:
+    if not github_repo_path:
         raise DJInvalidInputException(
-            message=f"Namespace '{node.namespace}' does not have git configured.",
+            message=f"Namespace '{node.namespace}' does not have git configured. "
+            "Set github_repo_path on this namespace or a parent namespace.",
         )
-    if not namespace_obj.git_branch:
+    if not git_branch:
         raise DJInvalidInputException(
             message=f"Namespace '{node.namespace}' does not have a git branch configured.",
         )
@@ -146,9 +151,9 @@ async def sync_node_to_git(
 
     parts = short_name.split(".")
     file_path = "/".join(parts) + ".yaml"
-    if namespace_obj.git_path:
-        git_path = namespace_obj.git_path.strip("/")
-        file_path = f"{git_path}/{file_path}"
+    if git_path:
+        git_path_stripped = git_path.strip("/")
+        file_path = f"{git_path_stripped}/{file_path}"
 
     # Sync to git
     try:
@@ -160,9 +165,9 @@ async def sync_node_to_git(
         existing_file = None
         try:
             existing_file = await github.get_file(
-                repo_path=namespace_obj.github_repo_path,
+                repo_path=github_repo_path,
                 path=file_path,
-                branch=namespace_obj.git_branch,
+                branch=git_branch,
             )
             if existing_file and "content" in existing_file:
                 existing_yaml = base64.b64decode(existing_file["content"]).decode(
@@ -180,11 +185,11 @@ async def sync_node_to_git(
         commit_message = request.commit_message or f"Update {node_name}"
 
         result = await github.commit_file(
-            repo_path=namespace_obj.github_repo_path,
+            repo_path=github_repo_path,
             path=file_path,
             content=yaml_content,
             message=commit_message,
-            branch=namespace_obj.git_branch,
+            branch=git_branch,
             sha=existing_file["sha"] if existing_file else None,
             co_author_name=current_user.username,
             co_author_email=current_user.email
@@ -242,14 +247,15 @@ async def sync_namespace_to_git(
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Get namespace git config
-    namespace_obj = await get_node_namespace(session, namespace)
+    # Resolve git config (may be inherited from parent)
+    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
 
-    if not namespace_obj.github_repo_path:
+    if not github_repo_path:
         raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' does not have git configured.",
+            message=f"Namespace '{namespace}' does not have git configured. "
+            "Set github_repo_path on this namespace or a parent namespace.",
         )
-    if not namespace_obj.git_branch:
+    if not git_branch:
         raise DJInvalidInputException(
             message=f"Namespace '{namespace}' does not have a git branch configured.",
         )
@@ -272,12 +278,12 @@ async def sync_namespace_to_git(
         # Download entire repo archive once (much faster than N get_file calls)
         _logger.info(
             "Downloading archive for %s branch '%s'",
-            namespace_obj.github_repo_path,
-            namespace_obj.git_branch,
+            github_repo_path,
+            git_branch,
         )
         archive_bytes = await github.download_archive(
-            repo_path=namespace_obj.github_repo_path,
-            branch=namespace_obj.git_branch,
+            repo_path=github_repo_path,
+            branch=git_branch,
             format="tarball",
         )
 
@@ -296,9 +302,9 @@ async def sync_namespace_to_git(
 
             # Build a map of existing files for quick lookup
             existing_files_map = {}
-            if namespace_obj.git_path:
-                git_path = namespace_obj.git_path.strip("/")
-                files_dir = repo_dir / git_path
+            if git_path:
+                git_path_stripped = git_path.strip("/")
+                files_dir = repo_dir / git_path_stripped
             else:
                 files_dir = repo_dir
 
@@ -321,9 +327,9 @@ async def sync_namespace_to_git(
                 # e.g., "orders" -> "nodes/orders.yaml" (with git_path="nodes")
                 parts = short_name.split(".")
                 file_path = "/".join(parts) + ".yaml"
-                if namespace_obj.git_path:
-                    git_path = namespace_obj.git_path.strip("/")
-                    file_path = f"{git_path}/{file_path}"
+                if git_path:
+                    git_path_stripped = git_path.strip("/")
+                    file_path = f"{git_path_stripped}/{file_path}"
 
                 # Try to read existing YAML content from extracted archive
                 existing_yaml = None
@@ -354,12 +360,12 @@ async def sync_namespace_to_git(
 
         # Batch commit all files in a single commit
         commit_result = await github.commit_files(
-            repo_path=namespace_obj.github_repo_path,
+            repo_path=github_repo_path,
             files=[
                 {"path": f["path"], "content": f["content"]} for f in files_to_commit
             ],
             message=commit_message,
-            branch=namespace_obj.git_branch,
+            branch=git_branch,
             co_author_name=current_user.username,
             co_author_email=current_user.email
             or f"{current_user.username}@users.noreply",
@@ -426,27 +432,33 @@ async def get_pull_request(
     if not namespace_obj.parent_namespace:
         return None  # Not a branch namespace, no PR possible
 
-    if not namespace_obj.github_repo_path or not namespace_obj.git_branch:
+    # Resolve git config for this namespace
+    github_repo_path, _, git_branch = await resolve_git_config(session, namespace)
+    if not github_repo_path or not git_branch:
         return None  # No git configured
 
-    parent_ns = await get_node_namespace(session, namespace_obj.parent_namespace)
-    if not parent_ns.git_branch:
+    # Resolve parent's git branch
+    _, _, parent_git_branch = await resolve_git_config(
+        session,
+        namespace_obj.parent_namespace,
+    )
+    if not parent_git_branch:
         return None  # Parent has no git branch
 
     try:
         github = GitHubService()
         existing_pr = await github.get_pull_request(
-            repo_path=namespace_obj.github_repo_path,
-            head=namespace_obj.git_branch,
-            base=parent_ns.git_branch,
+            repo_path=github_repo_path,
+            head=git_branch,
+            base=parent_git_branch,
         )
 
         if existing_pr:
             return PRResult(
                 pr_number=existing_pr["number"],
                 pr_url=existing_pr["html_url"],
-                head_branch=namespace_obj.git_branch,
-                base_branch=parent_ns.git_branch,
+                head_branch=git_branch,
+                base_branch=parent_git_branch,
             )
         return None
 
@@ -488,15 +500,20 @@ async def create_pull_request(
             "Only branch namespaces (with parent_namespace) can create PRs.",
         )
 
-    if not namespace_obj.github_repo_path or not namespace_obj.git_branch:
+    # Resolve git config for this namespace
+    github_repo_path, _, git_branch = await resolve_git_config(session, namespace)
+    if not github_repo_path or not git_branch:
         raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' does not have git configured.",
+            message=f"Namespace '{namespace}' does not have git configured. "
+            "Set github_repo_path and git_branch on this namespace or a parent.",
         )
 
-    # Get parent namespace
-    parent_ns = await get_node_namespace(session, namespace_obj.parent_namespace)
-
-    if not parent_ns.git_branch:
+    # Resolve parent's git branch
+    _, _, parent_git_branch = await resolve_git_config(
+        session,
+        namespace_obj.parent_namespace,
+    )
+    if not parent_git_branch:
         raise DJInvalidInputException(
             message=f"Parent namespace '{namespace_obj.parent_namespace}' does not have a git branch configured.",
         )
@@ -506,26 +523,26 @@ async def create_pull_request(
 
         # Check if PR already exists
         existing_pr = await github.get_pull_request(
-            repo_path=namespace_obj.github_repo_path,
-            head=namespace_obj.git_branch,
-            base=parent_ns.git_branch,
+            repo_path=github_repo_path,
+            head=git_branch,
+            base=parent_git_branch,
         )
 
         if existing_pr:
             return PRResult(
                 pr_number=existing_pr["number"],
                 pr_url=existing_pr["html_url"],
-                head_branch=namespace_obj.git_branch,
-                base_branch=parent_ns.git_branch,
+                head_branch=git_branch,
+                base_branch=parent_git_branch,
             )
 
         # Create PR
         pr_body = request.body or f"Changes from DJ namespace `{namespace}`"
 
         result = await github.create_pull_request(
-            repo_path=namespace_obj.github_repo_path,
-            head=namespace_obj.git_branch,
-            base=parent_ns.git_branch,
+            repo_path=github_repo_path,
+            head=git_branch,
+            base=parent_git_branch,
             title=request.title,
             body=pr_body,
         )
@@ -533,15 +550,15 @@ async def create_pull_request(
         _logger.info(
             "Created PR #%d: %s -> %s",
             result["number"],
-            namespace_obj.git_branch,
-            parent_ns.git_branch,
+            git_branch,
+            parent_git_branch,
         )
 
         return PRResult(
             pr_number=result["number"],
             pr_url=result["html_url"],
-            head_branch=namespace_obj.git_branch,
-            base_branch=parent_ns.git_branch,
+            head_branch=git_branch,
+            base_branch=parent_git_branch,
         )
 
     except GitHubServiceError as e:
