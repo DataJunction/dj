@@ -1799,16 +1799,24 @@ async def test_delete_namespace_git_config_success(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
     """Test successfully deleting git configuration from a namespace."""
+    root_namespace = "test.git.root"
     namespace = "test.git.delete"
 
-    # First create the namespace
-    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
+    # Create root namespace with git config
+    await module__client_with_all_examples.post(f"/namespaces/{root_namespace}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_namespace}/git",
+        json={
+            "github_repo_path": "owner/repo",
+            "git_path": "nodes/",
+        },
+    )
 
-    # Configure git settings
+    # Create branch namespace with git_only
+    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
     git_config = {
-        "github_repo_path": "owner/repo",
+        "parent_namespace": root_namespace,
         "git_branch": "main",
-        "git_path": "nodes/",
         "git_only": True,
     }
     patch_response = await module__client_with_all_examples.patch(
@@ -1817,12 +1825,14 @@ async def test_delete_namespace_git_config_success(
     )
     assert patch_response.status_code == 200
 
-    # Verify git config exists
+    # Verify git config exists (with inherited github_repo_path)
     get_response = await module__client_with_all_examples.get(
         f"/namespaces/{namespace}/git",
     )
     assert get_response.status_code == 200
     assert get_response.json()["github_repo_path"] == "owner/repo"
+    assert get_response.json()["parent_namespace"] == root_namespace
+    assert get_response.json()["git_branch"] == "main"
 
     # Delete git configuration
     delete_response = await module__client_with_all_examples.delete(
@@ -1905,34 +1915,49 @@ async def test_delete_namespace_git_config_preserves_namespace(
 async def test_validate_sibling_relationship_valid_siblings(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that sibling namespaces (same prefix) can have parent-child relationships."""
-    # Create parent and child namespaces
+    """Test that both sibling and direct-child relationships work."""
+    # Create namespaces
+    await module__client_with_all_examples.post("/namespaces/demo/")
     await module__client_with_all_examples.post("/namespaces/demo.main/")
     await module__client_with_all_examples.post("/namespaces/demo.feature/")
 
-    # Configure parent with git
-    parent_git_config = {
+    # Configure git root namespace (demo) with repo/path
+    root_git_config = {
         "github_repo_path": "corp/demo",
+        "git_path": "definitions/",
+    }
+    await module__client_with_all_examples.patch(
+        "/namespaces/demo/git",
+        json=root_git_config,
+    )
+
+    # Configure main as direct child of demo (demo.main -> demo)
+    main_git_config = {
         "git_branch": "main",
+        "parent_namespace": "demo",
     }
     await module__client_with_all_examples.patch(
         "/namespaces/demo.main/git",
-        json=parent_git_config,
+        json=main_git_config,
     )
 
-    # Child should be able to set parent (same prefix "demo")
-    child_git_config = {
-        "github_repo_path": "corp/demo",
+    # Configure feature as direct child of demo (demo.feature -> demo)
+    feature_git_config = {
         "git_branch": "feature",
-        "parent_namespace": "demo.main",
+        "parent_namespace": "demo",
     }
     response = await module__client_with_all_examples.patch(
         "/namespaces/demo.feature/git",
-        json=child_git_config,
+        json=feature_git_config,
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["parent_namespace"] == "demo.main"
+    assert data["parent_namespace"] == "demo"
+    assert data["git_branch"] == "feature"
+    # Response shows resolved/effective values (including inherited)
+    assert data["github_repo_path"] == "corp/demo"  # Inherited from demo
+    assert data["git_path"] == "definitions/"  # Inherited from demo
+    assert data["git_only"] is False
 
 
 @pytest.mark.asyncio
@@ -1955,8 +1980,8 @@ async def test_validate_sibling_relationship_different_prefixes_blocked(
     )
 
     # Child with different prefix should be blocked
+    # Note: child only sets branch and parent (not repo/path in new model)
     child_git_config = {
-        "github_repo_path": "corp/repo",
         "git_branch": "feature",
         "parent_namespace": "team.main",  # Different prefix: "demo" vs "team"
     }
@@ -1966,9 +1991,8 @@ async def test_validate_sibling_relationship_different_prefixes_blocked(
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Namespace 'demo.feature' (prefix: 'demo') cannot have parent 'team.main' "
-        "(prefix: 'team'). Branch namespaces must be siblings under the same "
-        "project. Expected parent to have prefix 'demo'."
+        "Namespace 'demo.feature' (prefix: 'demo') cannot have parent 'team.main'. "
+        "Expected parent to either be 'demo' (direct parent) or have prefix 'demo' (sibling)."
     )
 
 
@@ -1981,10 +2005,9 @@ async def test_validate_sibling_relationship_top_level_namespaces(
     await module__client_with_all_examples.post("/namespaces/main/")
     await module__client_with_all_examples.post("/namespaces/feature/")
 
-    # Configure parent with git
+    # Configure parent as git root (only repo, no branch)
     parent_git_config = {
         "github_repo_path": "corp/repo",
-        "git_branch": "main",
     }
     await module__client_with_all_examples.patch(
         "/namespaces/main/git",
@@ -1992,8 +2015,8 @@ async def test_validate_sibling_relationship_top_level_namespaces(
     )
 
     # Top-level child should be able to set top-level parent (both have prefix "")
+    # Note: child only sets branch and parent (not repo/path)
     child_git_config = {
-        "github_repo_path": "corp/repo",
         "git_branch": "feature",
         "parent_namespace": "main",
     }
@@ -2004,6 +2027,8 @@ async def test_validate_sibling_relationship_top_level_namespaces(
     assert response.status_code == 200
     data = response.json()
     assert data["parent_namespace"] == "main"
+    # Verify inheritance works (resolved values at top level)
+    assert data["github_repo_path"] == "corp/repo"
 
 
 @pytest.mark.asyncio
@@ -2030,8 +2055,8 @@ async def test_validate_sibling_relationship_deep_hierarchy(
     )
 
     # Deep hierarchy child should work (both have prefix "company.division.team")
+    # Note: child only sets branch and parent (not repo/path)
     child_git_config = {
-        "github_repo_path": "corp/deep-hierarchy-repo",
         "git_branch": "deep-feature",
         "parent_namespace": "company.division.team.main",
     }
@@ -2041,12 +2066,9 @@ async def test_validate_sibling_relationship_deep_hierarchy(
     )
     assert response.status_code == 200
     data = response.json()
-    """
-    Git location conflict: namespace 'feature' already uses repo 'corp/repo', branch
-    'feature', path '(root)'. Each namespace must have a unique git location to
-    avoid overwriting files.
-    """
     assert data["parent_namespace"] == "company.division.team.main"
+    # Verify inheritance works for deep hierarchies (resolved values at top level)
+    assert data["github_repo_path"] == "corp/deep-hierarchy-repo"
 
 
 @pytest.mark.asyncio
@@ -2058,11 +2080,10 @@ async def test_detect_parent_cycle_two_node_cycle(
     await module__client_with_all_examples.post("/namespaces/cycle.a/")
     await module__client_with_all_examples.post("/namespaces/cycle.b/")
 
-    # Set up A -> B
+    # Set up A -> B (no repo config needed to test cycle detection)
     await module__client_with_all_examples.patch(
         "/namespaces/cycle.a/git",
         json={
-            "github_repo_path": "corp/repo",
             "git_branch": "a",
             "parent_namespace": "cycle.b",
         },
@@ -2072,7 +2093,6 @@ async def test_detect_parent_cycle_two_node_cycle(
     response = await module__client_with_all_examples.patch(
         "/namespaces/cycle.b/git",
         json={
-            "github_repo_path": "corp/repo",
             "git_branch": "b",
             "parent_namespace": "cycle.a",
         },
@@ -2093,11 +2113,10 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.post("/namespaces/cycle3.b/")
     await module__client_with_all_examples.post("/namespaces/cycle3.c/")
 
-    # Set up A -> B
+    # Set up A -> B (no repo config needed to test cycle detection)
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.a/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-a",
             "parent_namespace": "cycle3.b",
         },
@@ -2107,7 +2126,6 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.b/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-b",
             "parent_namespace": "cycle3.c",
         },
@@ -2117,7 +2135,6 @@ async def test_detect_parent_cycle_three_node_cycle(
     response = await module__client_with_all_examples.patch(
         "/namespaces/cycle3.c/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-c",
             "parent_namespace": "cycle3.a",
         },
@@ -2197,13 +2214,13 @@ async def test_validate_git_path_allows_valid_relative_paths(
 async def test_validate_git_only_blocked_without_git_config(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is blocked when git config is missing."""
+    """Test that git_only=true is blocked when not a branch namespace."""
     await module__client_with_all_examples.post("/namespaces/gitonly.test1/")
 
-    # Try to enable git_only without git config
+    # Try to enable git_only without parent_namespace and git_branch
     git_config = {
         "git_only": True,
-        # Missing github_repo_path and git_branch
+        # Missing parent_namespace and git_branch (required for branch namespace)
     }
     response = await module__client_with_all_examples.patch(
         "/namespaces/gitonly.test1/git",
@@ -2211,8 +2228,9 @@ async def test_validate_git_only_blocked_without_git_config(
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Cannot enable git_only without git configuration. "
-        "Set github_repo_path and git_branch first."
+        "Cannot enable git_only on a git root namespace. "
+        "git_only is only applicable to branch namespaces that have "
+        "parent_namespace and git_branch configured."
     )
 
 
@@ -2220,17 +2238,27 @@ async def test_validate_git_only_blocked_without_git_config(
 async def test_validate_git_only_allowed_with_git_config(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is allowed when git config is present."""
-    await module__client_with_all_examples.post("/namespaces/gitonly.test2/")
+    """Test that git_only=true is allowed on branch namespaces."""
+    # Create git root namespace
+    root_namespace = "gitonly.root"
+    await module__client_with_all_examples.post(f"/namespaces/{root_namespace}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_namespace}/git",
+        json={
+            "github_repo_path": "corp/repo-123",
+        },
+    )
 
-    # Enable git_only with git config
+    # Create branch namespace with git_only (sibling of root)
+    branch_namespace = "gitonly.test2"
+    await module__client_with_all_examples.post(f"/namespaces/{branch_namespace}/")
     git_config = {
-        "github_repo_path": "corp/repo-123",
+        "parent_namespace": root_namespace,
         "git_branch": "main",
         "git_only": True,
     }
     response = await module__client_with_all_examples.patch(
-        "/namespaces/gitonly.test2/git",
+        f"/namespaces/{branch_namespace}/git",
         json=git_config,
     )
     assert response.status_code == 200
@@ -2239,22 +2267,65 @@ async def test_validate_git_only_allowed_with_git_config(
 
 
 @pytest.mark.asyncio
+async def test_branch_namespace_cannot_set_git_path(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test that branch namespaces cannot set git_path (must inherit from parent)."""
+    # Create root namespace with git_path
+    root_ns = "gitpath.root"
+    await module__client_with_all_examples.post(f"/namespaces/{root_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_ns}/git",
+        json={
+            "github_repo_path": "corp/repo",
+            "git_path": "definitions/",
+        },
+    )
+
+    # Create branch namespace
+    branch_ns = "gitpath.branch"
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+
+    # Try to set both parent_namespace AND git_path (should fail)
+    response = await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={
+            "parent_namespace": root_ns,
+            "git_branch": "feature",
+            "git_path": "custom/path/",  # This should trigger error
+        },
+    )
+    assert response.status_code == 422
+    assert "Cannot set git_path on a branch namespace" in response.json()["message"]
+    assert "inherited from parent_namespace" in response.json()["message"]
+
+
+@pytest.mark.asyncio
 async def test_multi_level_git_branch_hierarchy(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that multi-level git branch hierarchy is allowed (main -> dev -> feature)."""
-    # Create namespaces
+    """Test that multi-level git branch hierarchy is allowed (flow -> main -> dev -> feature)."""
+    # Create namespaces including git root
+    await module__client_with_all_examples.post("/namespaces/flow/")
     await module__client_with_all_examples.post("/namespaces/flow.main/")
     await module__client_with_all_examples.post("/namespaces/flow.dev/")
     await module__client_with_all_examples.post("/namespaces/flow.feature/")
 
-    # Set up main (root)
+    # Set up git root (flow) with repo configuration
+    await module__client_with_all_examples.patch(
+        "/namespaces/flow/git",
+        json={
+            "github_repo_path": "corp/flow",
+            "git_path": "definitions/",
+        },
+    )
+
+    # Set up main -> flow (root)
     await module__client_with_all_examples.patch(
         "/namespaces/flow.main/git",
         json={
-            "github_repo_path": "corp/flow",
             "git_branch": "main",
-            "parent_namespace": None,
+            "parent_namespace": "flow",
         },
     )
 
@@ -2262,7 +2333,6 @@ async def test_multi_level_git_branch_hierarchy(
     await module__client_with_all_examples.patch(
         "/namespaces/flow.dev/git",
         json={
-            "github_repo_path": "corp/flow",
             "git_branch": "dev",
             "parent_namespace": "flow.main",
         },
@@ -2272,7 +2342,6 @@ async def test_multi_level_git_branch_hierarchy(
     response = await module__client_with_all_examples.patch(
         "/namespaces/flow.feature/git",
         json={
-            "github_repo_path": "corp/flow",
             "git_branch": "feature",
             "parent_namespace": "flow.dev",
         },
@@ -2280,3 +2349,50 @@ async def test_multi_level_git_branch_hierarchy(
     assert response.status_code == 200
     data = response.json()
     assert data["parent_namespace"] == "flow.dev"
+    # Verify multi-level inheritance works (resolved values at top level)
+    assert data["github_repo_path"] == "corp/flow"
+    assert data["git_path"] == "definitions/"
+    assert data["git_branch"] == "feature"
+
+    # Also verify intermediate levels inherit correctly
+    dev_response = await module__client_with_all_examples.get(
+        "/namespaces/flow.dev/git",
+    )
+    assert dev_response.status_code == 200
+    dev_data = dev_response.json()
+    assert dev_data["github_repo_path"] == "corp/flow"  # Inherited from grandparent
+    assert dev_data["git_path"] == "definitions/"  # Inherited from grandparent
+    assert dev_data["git_branch"] == "dev"
+    assert dev_data["parent_namespace"] == "flow.main"
+
+
+@pytest.mark.asyncio
+async def test_git_inheritance_with_no_git_path(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test git config inheritance when root has no git_path (empty string is valid)."""
+    # Create root namespace with github_repo_path but no git_path
+    await module__client_with_all_examples.post("/namespaces/nopath/")
+    await module__client_with_all_examples.patch(
+        "/namespaces/nopath/git",
+        json={
+            "github_repo_path": "corp/nopath-repo",
+            # Omit git_path - should default to None/root
+        },
+    )
+
+    # Create branch namespace
+    await module__client_with_all_examples.post("/namespaces/nopath.branch/")
+    response = await module__client_with_all_examples.patch(
+        "/namespaces/nopath.branch/git",
+        json={
+            "parent_namespace": "nopath",
+            "git_branch": "feature",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["github_repo_path"] == "corp/nopath-repo"
+    assert data["git_path"] is None  # Inherited as None from parent
+    assert data["git_branch"] == "feature"

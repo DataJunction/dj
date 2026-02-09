@@ -710,9 +710,8 @@ describe('<NamespaceHeader />', () => {
       getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
       updateNamespaceGitConfig: jest.fn().mockResolvedValue({
         github_repo_path: 'myorg/repo',
-        git_branch: 'main',
         git_path: 'nodes/',
-        git_only: true,
+        // git_branch and git_only not present in git root config
       }),
     };
 
@@ -731,15 +730,13 @@ describe('<NamespaceHeader />', () => {
     fireEvent.click(screen.getByText('Git Settings'));
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Repository')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Repository/)).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText('Repository'), {
+    fireEvent.change(screen.getByLabelText(/Repository/), {
       target: { value: 'myorg/repo' },
     });
-    fireEvent.change(screen.getByLabelText('Branch'), {
-      target: { value: 'main' },
-    });
+    // Branch field is not present in git root mode
 
     fireEvent.click(screen.getByText('Save Settings'));
 
@@ -748,7 +745,6 @@ describe('<NamespaceHeader />', () => {
         'test.namespace',
         expect.objectContaining({
           github_repo_path: 'myorg/repo',
-          git_branch: 'main',
         }),
       );
     });
