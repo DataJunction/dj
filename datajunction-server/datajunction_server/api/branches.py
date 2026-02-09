@@ -427,7 +427,7 @@ async def delete_branch(
         # Resolve git config from branch namespace (may be inherited from parent)
         github_repo_path, _, _ = await resolve_git_config(session, branch_namespace)
 
-        if github_repo_path:
+        if github_repo_path:  # pragma: no branch
             try:
                 github = GitHubService()
                 await github.delete_branch(

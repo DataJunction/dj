@@ -2240,7 +2240,7 @@ async def test_validate_git_only_allowed_with_git_config(
 ) -> None:
     """Test that git_only=true is allowed on branch namespaces."""
     # Create git root namespace
-    root_namespace = "gitonly.test2.root"
+    root_namespace = "gitonly.root"
     await module__client_with_all_examples.post(f"/namespaces/{root_namespace}/")
     await module__client_with_all_examples.patch(
         f"/namespaces/{root_namespace}/git",
@@ -2249,7 +2249,7 @@ async def test_validate_git_only_allowed_with_git_config(
         },
     )
 
-    # Create branch namespace with git_only
+    # Create branch namespace with git_only (sibling of root)
     branch_namespace = "gitonly.test2"
     await module__client_with_all_examples.post(f"/namespaces/{branch_namespace}/")
     git_config = {
@@ -2264,6 +2264,40 @@ async def test_validate_git_only_allowed_with_git_config(
     assert response.status_code == 200
     data = response.json()
     assert data["git_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_branch_namespace_cannot_set_git_path(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test that branch namespaces cannot set git_path (must inherit from parent)."""
+    # Create root namespace with git_path
+    root_ns = "gitpath.root"
+    await module__client_with_all_examples.post(f"/namespaces/{root_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_ns}/git",
+        json={
+            "github_repo_path": "corp/repo",
+            "git_path": "definitions/",
+        },
+    )
+
+    # Create branch namespace
+    branch_ns = "gitpath.branch"
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+
+    # Try to set both parent_namespace AND git_path (should fail)
+    response = await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={
+            "parent_namespace": root_ns,
+            "git_branch": "feature",
+            "git_path": "custom/path/",  # This should trigger error
+        },
+    )
+    assert response.status_code == 422
+    assert "Cannot set git_path on a branch namespace" in response.json()["message"]
+    assert "inherited from parent_namespace" in response.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -2318,4 +2352,47 @@ async def test_multi_level_git_branch_hierarchy(
     # Verify multi-level inheritance works (resolved values at top level)
     assert data["github_repo_path"] == "corp/flow"
     assert data["git_path"] == "definitions/"
+    assert data["git_branch"] == "feature"
+
+    # Also verify intermediate levels inherit correctly
+    dev_response = await module__client_with_all_examples.get(
+        "/namespaces/flow.dev/git",
+    )
+    assert dev_response.status_code == 200
+    dev_data = dev_response.json()
+    assert dev_data["github_repo_path"] == "corp/flow"  # Inherited from grandparent
+    assert dev_data["git_path"] == "definitions/"  # Inherited from grandparent
+    assert dev_data["git_branch"] == "dev"
+    assert dev_data["parent_namespace"] == "flow.main"
+
+
+@pytest.mark.asyncio
+async def test_git_inheritance_with_no_git_path(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Test git config inheritance when root has no git_path (empty string is valid)."""
+    # Create root namespace with github_repo_path but no git_path
+    await module__client_with_all_examples.post("/namespaces/nopath/")
+    await module__client_with_all_examples.patch(
+        "/namespaces/nopath/git",
+        json={
+            "github_repo_path": "corp/nopath-repo",
+            # Omit git_path - should default to None/root
+        },
+    )
+
+    # Create branch namespace
+    await module__client_with_all_examples.post("/namespaces/nopath.branch/")
+    response = await module__client_with_all_examples.patch(
+        "/namespaces/nopath.branch/git",
+        json={
+            "parent_namespace": "nopath",
+            "git_branch": "feature",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["github_repo_path"] == "corp/nopath-repo"
+    assert data["git_path"] is None  # Inherited as None from parent
     assert data["git_branch"] == "feature"

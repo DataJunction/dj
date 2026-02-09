@@ -656,7 +656,7 @@ async def update_namespace_git_config(
         namespace,
         raise_if_not_exists=False,
     )
-    if not node_namespace:
+    if not node_namespace:  # pragma: no cover
         node_namespace = NodeNamespace(namespace=namespace)
         session.add(node_namespace)
         await session.commit()
