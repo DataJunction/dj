@@ -649,7 +649,18 @@ async def update_namespace_git_config(
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    node_namespace = await get_node_namespace(session, namespace)
+    # Get or create the namespace - auto-create if it doesn't exist
+    # This allows retroactive configuration of parent namespaces when children already exist
+    node_namespace = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if not node_namespace:
+        node_namespace = NodeNamespace(namespace=namespace)
+        session.add(node_namespace)
+        await session.commit()
+        await session.refresh(node_namespace)
 
     # Compute the effective values after update
     new_repo = (
@@ -696,20 +707,18 @@ async def update_namespace_git_config(
             )
 
     # Validate git_only requirement (must have git config, either direct or inherited)
-    # We check this early with the computed final values
+    # Validate git_only - only makes sense for branch namespaces
     if new_git_only:
-        # For git_only, we need either:
-        # 1. Direct repo+branch on this namespace, OR
-        # 2. A parent that has repo configured + branch on this namespace
-        has_direct_config = new_repo and new_branch
-        will_have_parent = new_parent is not None
+        # git_only requires a branch namespace (parent + branch)
+        # Git roots just store configuration and don't have deployable content
+        is_branch_namespace = new_parent and new_branch
 
-        if not has_direct_config and not will_have_parent:
+        if not is_branch_namespace:
             raise DJInvalidInputException(
                 message=(
-                    "Cannot enable git_only without git configuration. "
-                    "Either set github_repo_path and git_branch on this namespace, "
-                    "or set a parent_namespace that has git configured."
+                    "Cannot enable git_only on a git root namespace. "
+                    "git_only is only applicable to branch namespaces that have "
+                    "parent_namespace and git_branch configured."
                 ),
             )
 
