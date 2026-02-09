@@ -350,4 +350,139 @@ describe('<GitSettingsModal />', () => {
       });
     });
   });
+
+  it('should show error when branch name is empty in branch mode', async () => {
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={null}
+        namespace="test.feature"
+      />,
+    );
+
+    // Switch to branch mode
+    fireEvent.click(screen.getByText('Branch Namespace'));
+
+    // Try to save without entering a branch name
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Git branch is required for branch mode'),
+      ).toBeInTheDocument();
+    });
+
+    expect(mockOnSave).not.toHaveBeenCalled();
+  });
+
+  it('should show error when namespace has no parent in branch mode', async () => {
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={null}
+        namespace="toplevel"
+      />,
+    );
+
+    // Switch to branch mode (should fail because namespace has no parent)
+    fireEvent.click(screen.getByText('Branch Namespace'));
+
+    // Try to save
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /Cannot configure as branch namespace: namespace has no parent/,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    expect(mockOnSave).not.toHaveBeenCalled();
+  });
+
+  it('should show error when repository is empty in git root mode', async () => {
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={null}
+        namespace="test.namespace"
+      />,
+    );
+
+    // Default is git root mode
+    // Clear the repository field if it has any default value
+    const repoInput = screen.getByLabelText(/Repository/);
+    fireEvent.change(repoInput, { target: { value: '' } });
+
+    // Try to save without entering a repository
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Repository is required')).toBeInTheDocument();
+    });
+
+    expect(mockOnSave).not.toHaveBeenCalled();
+  });
+
+  it('should handle parent config fetch failure gracefully', async () => {
+    // Mock fetch to fail
+    global.fetch = jest.fn(() => Promise.reject(new Error('Network error')));
+
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={{
+          parent_namespace: 'test',
+          git_branch: 'main',
+        }}
+        namespace="test.feature"
+      />,
+    );
+
+    // Wait for the component to attempt fetching parent config
+    await waitFor(() => {
+      // Should still render even if parent config fetch fails
+      expect(screen.getByDisplayValue('main')).toBeInTheDocument();
+    });
+
+    // Parent config should not be shown (fetch failed)
+    expect(screen.queryByText('test/repo')).not.toBeInTheDocument();
+  });
+
+  it('should allow switching from branch mode to root mode', async () => {
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={null}
+        namespace="test.feature"
+      />,
+    );
+
+    // Start in branch mode
+    fireEvent.click(screen.getByText('Branch Namespace'));
+    expect(screen.getByLabelText(/Branch/)).toBeInTheDocument();
+
+    // Switch to root mode
+    fireEvent.click(screen.getByText('Git Root'));
+
+    // Should show repository field instead of branch field
+    expect(screen.getByLabelText(/Repository/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Branch/)).not.toBeInTheDocument();
+  });
 });
