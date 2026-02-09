@@ -15,10 +15,11 @@ describe('<GitSettingsModal />', () => {
     global.fetch = jest.fn(() =>
       Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          github_repo_path: 'test/repo',
-          git_path: 'nodes/',
-        }),
+        json: () =>
+          Promise.resolve({
+            github_repo_path: 'test/repo',
+            git_path: 'nodes/',
+          }),
       }),
     );
   });
