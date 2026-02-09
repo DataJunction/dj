@@ -11,18 +11,26 @@ describe('<GitSettingsModal />', () => {
     jest.clearAllMocks();
     // Mock window.confirm
     global.confirm = jest.fn(() => true);
+    // Mock fetch for parent config fetching
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          github_repo_path: 'test/repo',
+          git_path: 'nodes/',
+        }),
+      }),
+    );
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('should render with existing config', () => {
+  it('should render with existing git root config', () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     render(
@@ -37,16 +45,40 @@ describe('<GitSettingsModal />', () => {
     );
 
     expect(screen.getByDisplayValue('test/repo')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('main')).toBeInTheDocument();
     expect(screen.getByDisplayValue('nodes/')).toBeInTheDocument();
+    // Branch field should not be present in git root mode
+    expect(screen.queryByDisplayValue('main')).not.toBeInTheDocument();
+  });
+
+  it('should render with existing branch namespace config', () => {
+    const currentConfig = {
+      parent_namespace: 'test',
+      git_branch: 'main',
+      git_only: false,
+    };
+
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={currentConfig}
+        namespace="test.feature"
+      />,
+    );
+
+    expect(screen.getByDisplayValue('main')).toBeInTheDocument();
+    expect(screen.getByText('test')).toBeInTheDocument(); // Parent shown as read-only
+    // git_only is false, so checkbox should not be checked
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).not.toBeChecked();
   });
 
   it('should call onRemove when Reset button is clicked and confirmed', async () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     mockOnRemove.mockResolvedValue({ success: true });
@@ -85,9 +117,7 @@ describe('<GitSettingsModal />', () => {
 
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     render(
@@ -111,9 +141,7 @@ describe('<GitSettingsModal />', () => {
   it('should show error message when remove fails', async () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     mockOnRemove.mockResolvedValue({
@@ -150,9 +178,7 @@ describe('<GitSettingsModal />', () => {
 
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     mockOnRemove.mockResolvedValue({ success: true });
@@ -195,9 +221,7 @@ describe('<GitSettingsModal />', () => {
   it('should handle exception during remove', async () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     mockOnRemove.mockRejectedValue(new Error('Network error'));
@@ -224,9 +248,7 @@ describe('<GitSettingsModal />', () => {
   it('should show removing state while operation is in progress', async () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
-      git_branch: 'main',
       git_path: 'nodes/',
-      git_only: false,
     };
 
     // Create a promise that we can control
@@ -266,7 +288,7 @@ describe('<GitSettingsModal />', () => {
     });
   });
 
-  it('should call onSave when Save Settings is clicked', async () => {
+  it('should call onSave when Save Settings is clicked in git root mode', async () => {
     mockOnSave.mockResolvedValue({ success: true });
 
     render(
@@ -280,22 +302,51 @@ describe('<GitSettingsModal />', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Repository'), {
+    // Default mode is git root
+    fireEvent.change(screen.getByLabelText(/Repository/), {
       target: { value: 'myorg/repo' },
-    });
-    fireEvent.change(screen.getByLabelText('Branch'), {
-      target: { value: 'main' },
     });
 
     fireEvent.click(screen.getByText('Save Settings'));
 
     await waitFor(() => {
-      expect(mockOnSave).toHaveBeenCalledWith(
-        expect.objectContaining({
-          github_repo_path: 'myorg/repo',
-          git_branch: 'main',
-        }),
-      );
+      expect(mockOnSave).toHaveBeenCalledWith({
+        github_repo_path: 'myorg/repo',
+        git_path: 'nodes/', // Default value
+      });
+    });
+  });
+
+  it('should call onSave when Save Settings is clicked in branch mode', async () => {
+    mockOnSave.mockResolvedValue({ success: true });
+
+    render(
+      <GitSettingsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+        onRemove={mockOnRemove}
+        currentConfig={null}
+        namespace="test.feature"
+      />,
+    );
+
+    // Switch to branch mode
+    fireEvent.click(screen.getByText('Branch Namespace'));
+
+    // Fill in branch name
+    fireEvent.change(screen.getByLabelText(/Branch/), {
+      target: { value: 'feature-x' },
+    });
+
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      expect(mockOnSave).toHaveBeenCalledWith({
+        git_branch: 'feature-x',
+        parent_namespace: 'test',
+        git_only: true, // Default for branch mode
+      });
     });
   });
 });

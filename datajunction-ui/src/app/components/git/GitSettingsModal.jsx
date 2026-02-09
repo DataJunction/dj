@@ -123,9 +123,9 @@ export function GitSettingsModal({
     }
   };
 
-  // Fetch parent config when parent namespace changes
+  // Fetch parent config when parent namespace changes (only if modal is open)
   useEffect(() => {
-    if (mode === 'branch' && parentNamespace) {
+    if (isOpen && mode === 'branch' && parentNamespace) {
       // Fetch parent's git config to show inherited values
       fetch(`/api/namespaces/${parentNamespace}/git`)
         .then(res => (res.ok ? res.json() : null))
@@ -134,7 +134,7 @@ export function GitSettingsModal({
     } else {
       setParentConfig(null);
     }
-  }, [mode, parentNamespace]);
+  }, [isOpen, mode, parentNamespace]);
 
   const handleRemove = async () => {
     if (
