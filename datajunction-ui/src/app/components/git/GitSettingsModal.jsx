@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 
 /**
  * Modal for configuring git settings for a namespace.
+ * Supports two modes:
+ * - Git Root: Configure repository and path only (no branch, no git_only flag)
+ * - Branch Namespace: Auto-calculates parent from namespace name, user sets branch and git_only
+ *   (e.g., "demo.main" automatically has parent "demo")
+ *   git_only determines if the branch is read-only (deployed from git) or editable (UI changes allowed)
  */
 export function GitSettingsModal({
   isOpen,
@@ -11,6 +16,7 @@ export function GitSettingsModal({
   currentConfig,
   namespace,
 }) {
+  const [mode, setMode] = useState('root'); // 'root' or 'branch'
   const [repoPath, setRepoPath] = useState('');
   const [branch, setBranch] = useState('');
   const [path, setPath] = useState('');
@@ -20,25 +26,43 @@ export function GitSettingsModal({
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [wasRemoved, setWasRemoved] = useState(false);
+  const [parentConfig, setParentConfig] = useState(null);
+
+  // Auto-calculate parent namespace from current namespace
+  // e.g., "demo.main" -> "demo", "demo.metrics.feature1" -> "demo.metrics"
+  const parentNamespace = namespace?.includes('.')
+    ? namespace.substring(0, namespace.lastIndexOf('.'))
+    : '';
 
   useEffect(() => {
     if (currentConfig) {
+      // Determine mode based on whether parent_namespace is set
+      const isBranchMode = !!currentConfig.parent_namespace;
+      setMode(isBranchMode ? 'branch' : 'root');
+
       setRepoPath(currentConfig.github_repo_path || '');
       setBranch(currentConfig.git_branch || '');
       setPath(currentConfig.git_path || 'nodes/');
-      // If git is already configured (has repo path), use the existing git_only value
-      // Otherwise, default to read-only (true) for new git configurations
-      const hasExistingGitConfig = !!currentConfig.github_repo_path;
-      setGitOnly(hasExistingGitConfig ? currentConfig.git_only : true);
+
+      // git_only is only relevant for branch namespaces
+      // Default to true (read-only) for new branch configs, use existing value if set
+      if (isBranchMode) {
+        setGitOnly(
+          currentConfig.git_only !== undefined ? currentConfig.git_only : true,
+        );
+      }
     } else {
-      // New configuration - default to read-only and nodes/ path
+      // New configuration - default to git root mode and nodes/ path
+      setMode('root');
       setPath('nodes/');
+      // Default git_only to true for when user switches to branch mode
       setGitOnly(true);
     }
     // Don't reset success here - it gets reset when modal closes
     // Otherwise the success banner disappears when currentConfig updates after save
     setError(null);
     setWasRemoved(false);
+    setParentConfig(null);
   }, [currentConfig]);
 
   const handleSubmit = async e => {
@@ -46,15 +70,43 @@ export function GitSettingsModal({
     setError(null);
     setSuccess(false);
     setWasRemoved(false);
+
+    // Client-side validation
+    if (mode === 'branch') {
+      if (!parentNamespace) {
+        setError(
+          'Cannot configure as branch namespace: namespace has no parent (no dots in name)',
+        );
+        return;
+      }
+      if (!branch.trim()) {
+        setError('Git branch is required for branch mode');
+        return;
+      }
+    } else {
+      // Git root mode
+      if (!repoPath.trim()) {
+        setError('Repository is required');
+        return;
+      }
+    }
+
     setSaving(true);
 
     try {
-      const config = {
-        github_repo_path: repoPath.trim() || null,
-        git_branch: branch.trim() || null,
-        git_path: path.trim() || null,
-        git_only: gitOnly,
-      };
+      const config =
+        mode === 'branch'
+          ? {
+              // Branch mode: only send branch, parent, and git_only
+              git_branch: branch.trim() || null,
+              parent_namespace: parentNamespace || null,
+              git_only: gitOnly,
+            }
+          : {
+              // Git root mode: only send repo and path (no branch, no git_only)
+              github_repo_path: repoPath.trim() || null,
+              git_path: path.trim() || null,
+            };
 
       const result = await onSave(config);
       if (result?._error) {
@@ -70,6 +122,19 @@ export function GitSettingsModal({
       setSaving(false);
     }
   };
+
+  // Fetch parent config when parent namespace changes (only if modal is open)
+  useEffect(() => {
+    if (isOpen && mode === 'branch' && parentNamespace) {
+      // Fetch parent's git config to show inherited values
+      fetch(`/api/namespaces/${parentNamespace}/git`)
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => setParentConfig(data))
+        .catch(() => setParentConfig(null));
+    } else {
+      setParentConfig(null);
+    }
+  }, [isOpen, mode, parentNamespace]);
 
   const handleRemove = async () => {
     if (
@@ -163,110 +228,290 @@ export function GitSettingsModal({
               </div>
             )}
 
-            <div className="form-group">
-              <label htmlFor="git-repo-path">Repository</label>
-              <input
-                id="git-repo-path"
-                type="text"
-                placeholder="owner/repo"
-                value={repoPath}
-                onChange={e => setRepoPath(e.target.value)}
-                disabled={saving}
-              />
-              <span className="form-hint">
-                GitHub repository path (e.g., "myorg/dj-definitions")
-              </span>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="git-branch">Branch</label>
-              <input
-                id="git-branch"
-                type="text"
-                placeholder="main"
-                value={branch}
-                onChange={e => setBranch(e.target.value)}
-                disabled={saving}
-              />
-              <span className="form-hint">
-                Git branch for this namespace (e.g., "main" or "production")
-              </span>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="git-path">Path</label>
-              <input
-                id="git-path"
-                type="text"
-                placeholder="nodes/"
-                value={path}
-                onChange={e => setPath(e.target.value)}
-                disabled={saving}
-                required
-              />
-              <span className="form-hint">
-                Subdirectory within the repo for node YAML files
-              </span>
-            </div>
-
-            <div
-              style={{
-                marginTop: '16px',
-                padding: '12px',
-                backgroundColor: gitOnly ? '#fef3c7' : '#f0fdf4',
-                borderRadius: '6px',
-                border: `1px solid ${gitOnly ? '#fcd34d' : '#86efac'}`,
-              }}
-            >
-              <label
+            {/* Mode Toggle */}
+            <div style={{ marginBottom: '20px' }}>
+              <div
                 style={{
                   display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '10px',
-                  cursor: 'pointer',
-                  margin: 0,
-                  textTransform: 'none',
-                  letterSpacing: 'normal',
-                  fontSize: '14px',
-                  fontWeight: 'normal',
+                  gap: '12px',
+                  padding: '4px',
+                  backgroundColor: '#f1f5f9',
+                  borderRadius: '8px',
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={gitOnly}
-                  onChange={e => setGitOnly(e.target.checked)}
+                <button
+                  type="button"
+                  onClick={() => setMode('root')}
                   disabled={saving}
-                  style={{ marginTop: '3px' }}
-                />
-                <span>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      color: gitOnly ? '#92400e' : '#166534',
-                      textTransform: 'none',
-                    }}
-                  >
-                    {gitOnly
-                      ? 'Read-only (Git is source of truth)'
-                      : 'Editable (UI edits allowed)'}
-                  </span>
-                  <span
-                    style={{
-                      display: 'block',
-                      marginTop: '4px',
-                      fontSize: '12px',
-                      color: '#64748b',
-                      fontWeight: 'normal',
-                      textTransform: 'none',
-                    }}
-                  >
-                    {gitOnly
-                      ? 'Changes must be made via git and deployed through CI/CD. UI editing is disabled.'
-                      : 'Users can edit nodes in the UI. Changes can be synced to git.'}
-                  </span>
-                </span>
-              </label>
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    border: 'none',
+                    borderRadius: '6px',
+                    backgroundColor:
+                      mode === 'root' ? '#ffffff' : 'transparent',
+                    color: mode === 'root' ? '#0f172a' : '#64748b',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    boxShadow:
+                      mode === 'root' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  Git Root
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('branch')}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    border: 'none',
+                    borderRadius: '6px',
+                    backgroundColor:
+                      mode === 'branch' ? '#ffffff' : 'transparent',
+                    color: mode === 'branch' ? '#0f172a' : '#64748b',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    boxShadow:
+                      mode === 'branch' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  Branch Namespace
+                </button>
+              </div>
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                }}
+              >
+                {mode === 'root'
+                  ? 'Configure repository for this namespace (recommended for most users)'
+                  : `Link to parent "${
+                      parentNamespace || '(none)'
+                    }" and inherit repository configuration`}
+              </span>
             </div>
+
+            {/* Conditional Fields based on Mode */}
+            {mode === 'root' ? (
+              <>
+                {/* Git Root Mode - Repository and Path only */}
+                <div className="form-group">
+                  <label htmlFor="git-repo-path">Repository *</label>
+                  <input
+                    id="git-repo-path"
+                    type="text"
+                    placeholder="owner/repo"
+                    value={repoPath}
+                    onChange={e => setRepoPath(e.target.value)}
+                    disabled={saving}
+                    required
+                  />
+                  <span className="form-hint">
+                    GitHub repository path (e.g., "myorg/dj-definitions")
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="git-path">Path</label>
+                  <input
+                    id="git-path"
+                    type="text"
+                    placeholder="nodes/"
+                    value={path}
+                    onChange={e => setPath(e.target.value)}
+                    disabled={saving}
+                  />
+                  <span className="form-hint">
+                    Subdirectory within the repo for node YAML files
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Branch Mode - Show parent and branch field */}
+                {!parentNamespace ? (
+                  <div
+                    style={{
+                      marginBottom: '16px',
+                      padding: '12px',
+                      backgroundColor: '#fef2f2',
+                      borderRadius: '6px',
+                      border: '1px solid #fecaca',
+                      color: '#dc2626',
+                      fontSize: '13px',
+                    }}
+                  >
+                    Cannot configure as branch namespace: namespace "{namespace}
+                    " has no parent. Branch namespaces must have a dot in their
+                    name (e.g., "demo.main").
+                  </div>
+                ) : (
+                  <>
+                    {/* Display parent namespace as read-only info */}
+                    <div
+                      style={{
+                        marginBottom: '16px',
+                        padding: '12px',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: '6px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#475569',
+                          marginBottom: '8px',
+                        }}
+                      >
+                        Parent Namespace
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          color: '#0f172a',
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {parentNamespace}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          color: '#64748b',
+                          marginTop: '6px',
+                        }}
+                      >
+                        Repository configuration will be inherited from this
+                        parent
+                      </div>
+                    </div>
+
+                    {/* Show inherited config from parent */}
+                    {parentConfig && (
+                      <div
+                        style={{
+                          marginBottom: '16px',
+                          padding: '12px',
+                          backgroundColor: '#f0f9ff',
+                          borderRadius: '6px',
+                          border: '1px solid #bae6fd',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#0369a1',
+                            marginBottom: '8px',
+                          }}
+                        >
+                          Inherited Configuration
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>
+                          <div style={{ marginBottom: '4px' }}>
+                            <strong>Repository:</strong>{' '}
+                            {parentConfig.github_repo_path ||
+                              '(not configured)'}
+                          </div>
+                          <div>
+                            <strong>Path:</strong>{' '}
+                            {parentConfig.git_path || '(root)'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="form-group">
+                  <label htmlFor="git-branch">Branch *</label>
+                  <input
+                    id="git-branch"
+                    type="text"
+                    placeholder="feature-x, dev, etc."
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                    disabled={saving}
+                    required
+                  />
+                  <span className="form-hint">
+                    Git branch name for this namespace
+                  </span>
+                </div>
+
+                {/* Git-only checkbox - only for branch namespaces */}
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    backgroundColor: gitOnly ? '#fef3c7' : '#f0fdf4',
+                    borderRadius: '6px',
+                    border: `1px solid ${gitOnly ? '#fcd34d' : '#86efac'}`,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                      cursor: 'pointer',
+                      margin: 0,
+                      textTransform: 'none',
+                      letterSpacing: 'normal',
+                      fontSize: '14px',
+                      fontWeight: 'normal',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={gitOnly}
+                      onChange={e => setGitOnly(e.target.checked)}
+                      disabled={saving}
+                      style={{ marginTop: '3px' }}
+                    />
+                    <span>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          color: gitOnly ? '#92400e' : '#166534',
+                          textTransform: 'none',
+                        }}
+                      >
+                        {gitOnly
+                          ? 'Read-only (Git is source of truth)'
+                          : 'Editable (UI edits allowed)'}
+                      </span>
+                      <span
+                        style={{
+                          display: 'block',
+                          marginTop: '4px',
+                          fontSize: '12px',
+                          color: '#64748b',
+                          fontWeight: 'normal',
+                          textTransform: 'none',
+                        }}
+                      >
+                        {gitOnly
+                          ? 'Changes must be made via git and deployed through CI/CD. UI editing is disabled.'
+                          : 'Users can edit nodes in the UI. Changes can be synced to git.'}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </>
+            )}
 
             {success && (
               <div

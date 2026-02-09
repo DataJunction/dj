@@ -19,6 +19,7 @@ from datajunction_server.internal.git.github_service import (
     GitHubServiceError,
     GitHubService,
 )
+from datajunction_server.internal.namespaces import resolve_git_config
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.models.deployment import (
     DeploymentResult,
@@ -55,6 +56,7 @@ router = SecureAPIRouter(tags=["deployments"])
 
 
 async def _verify_git_deployment(
+    session: AsyncSession,
     deployment_spec: DeploymentSpec,
     namespace_obj: NodeNamespace,
 ) -> None:
@@ -87,8 +89,14 @@ async def _verify_git_deployment(
             "Deployments must include source.commit_sha.",
         )
 
+    # Resolve git config (may be inherited from parent for branch namespaces)
+    github_repo_path, _, _ = await resolve_git_config(
+        session,
+        deployment_spec.namespace,
+    )
+
     # Verify commit exists in the configured repository
-    if not namespace_obj.github_repo_path:
+    if not github_repo_path:
         raise DJInvalidInputException(  # pragma: no cover
             message=f"Namespace '{deployment_spec.namespace}' is git-only but has no "
             "github_repo_path configured. Cannot verify commit.",
@@ -97,13 +105,13 @@ async def _verify_git_deployment(
     try:
         github = GitHubService()
         commit_exists = await github.verify_commit(
-            repo_path=namespace_obj.github_repo_path,
+            repo_path=github_repo_path,
             commit_sha=deployment_spec.source.commit_sha,
         )
         if not commit_exists:
             raise DJInvalidInputException(
                 message=f"Commit '{deployment_spec.source.commit_sha}' not found in "
-                f"repository '{namespace_obj.github_repo_path}'. "
+                f"repository '{github_repo_path}'. "
                 "Deployments to git-only namespaces must reference valid commits.",
             )
     except GitHubServiceError as e:
@@ -263,7 +271,7 @@ async def create_deployment(
         raise_if_not_exists=False,
     )
     if namespace_obj and namespace_obj.git_only:
-        await _verify_git_deployment(deployment_spec, namespace_obj)
+        await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
     deployment_id = await executor.submit(
         spec=deployment_spec,

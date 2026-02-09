@@ -45,9 +45,9 @@ from datajunction_server.internal.namespaces import (
     get_node_specs_for_export,
     node_spec_to_yaml,
     detect_parent_cycle,
+    resolve_git_config,
     validate_sibling_relationship,
     validate_git_path,
-    validate_git_only,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
@@ -63,6 +63,10 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["namespaces"])
+
+
+# Response model is the same as the base model, but we return resolved values
+# If parent_namespace is set, clients can GET the parent to understand inheritance
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
@@ -590,18 +594,27 @@ async def get_namespace_git_config(
     """
     Get the git configuration for a namespace.
 
-    Returns the GitHub repository path, branch, and other git settings
-    that enable branch management from the UI.
+    Returns the effective git configuration (resolved, including inherited values).
+    If parent_namespace is set, the github_repo_path and git_path may be
+    inherited from the parent. Clients can GET the parent namespace to
+    understand the inheritance hierarchy.
     """
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await get_node_namespace(session, namespace)
 
+    # Resolve the effective git config (including inherited values)
+    resolved_repo, resolved_path, resolved_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
+
     return NamespaceGitConfig(
-        github_repo_path=node_namespace.github_repo_path,
-        git_branch=node_namespace.git_branch,
-        git_path=node_namespace.git_path,
+        # Return resolved values (effective configuration)
+        github_repo_path=resolved_repo,
+        git_path=resolved_path,
+        git_branch=resolved_branch,
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,
     )
@@ -636,7 +649,18 @@ async def update_namespace_git_config(
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    node_namespace = await get_node_namespace(session, namespace)
+    # Get or create the namespace - auto-create if it doesn't exist
+    # This allows retroactive configuration of parent namespaces when children already exist
+    node_namespace = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if not node_namespace:  # pragma: no cover
+        node_namespace = NodeNamespace(namespace=namespace)
+        session.add(node_namespace)
+        await session.commit()
+        await session.refresh(node_namespace)
 
     # Compute the effective values after update
     new_repo = (
@@ -663,7 +687,40 @@ async def update_namespace_git_config(
 
     # Early validations (independent of parent relationship)
     validate_git_path(new_path)
-    validate_git_only(new_git_only, new_repo, new_branch)
+
+    # Validate hierarchical config rules: child namespaces cannot set repo/path
+    # This enforces the model: parent has repo/path, children have branch+parent_namespace
+    if new_parent:
+        # If setting parent_namespace, cannot also set github_repo_path or git_path
+        # (they must be inherited from parent)
+        if config.github_repo_path is not None and config.github_repo_path != "":
+            raise DJInvalidInputException(
+                message="Cannot set github_repo_path on a branch namespace. "
+                "Git repository configuration is inherited from parent_namespace. "
+                "Remove parent_namespace if you want to configure this as a git root.",
+            )
+        if config.git_path is not None and config.git_path != "":
+            raise DJInvalidInputException(
+                message="Cannot set git_path on a branch namespace. "
+                "Git path configuration is inherited from parent_namespace. "
+                "Remove parent_namespace if you want to configure this as a git root.",
+            )
+
+    # Validate git_only requirement (must have git config, either direct or inherited)
+    # Validate git_only - only makes sense for branch namespaces
+    if new_git_only:
+        # git_only requires a branch namespace (parent + branch)
+        # Git roots just store configuration and don't have deployable content
+        is_branch_namespace = new_parent and new_branch
+
+        if not is_branch_namespace:
+            raise DJInvalidInputException(
+                message=(
+                    "Cannot enable git_only on a git root namespace. "
+                    "git_only is only applicable to branch namespaces that have "
+                    "parent_namespace and git_branch configured."
+                ),
+            )
 
     # Validate parent_namespace if provided
     if new_parent:
@@ -690,15 +747,9 @@ async def update_namespace_git_config(
         # Detect circular parent references
         await detect_parent_cycle(session, namespace, new_parent)
 
-        # Check repo matches parent (required for PR creation to work)
-        if new_repo and parent_ns_obj.github_repo_path:
-            if new_repo != parent_ns_obj.github_repo_path:
-                raise DJInvalidInputException(
-                    message=f"Repository mismatch: this namespace uses '{new_repo}' "
-                    f"but parent '{new_parent}' uses '{parent_ns_obj.github_repo_path}'. "
-                    "Branch namespaces must use the same repository as their parent "
-                    "for pull requests to work.",
-                )
+        # Note: No need to check repo matches parent anymore since we prevent
+        # child namespaces from setting github_repo_path/git_path entirely.
+        # They inherit these from parent via resolve_git_config().
 
     # Check for duplicate repo+branch+path (excluding this namespace)
     if new_repo and new_branch:
@@ -748,10 +799,17 @@ async def update_namespace_git_config(
         node_namespace.git_only,
     )
 
+    # Resolve and return the effective git config (including inherited values)
+    resolved_repo, resolved_path, resolved_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
+
     return NamespaceGitConfig(
-        github_repo_path=node_namespace.github_repo_path,
-        git_branch=node_namespace.git_branch,
-        git_path=node_namespace.git_path,
+        # Return resolved values (effective configuration)
+        github_repo_path=resolved_repo,
+        git_path=resolved_path,
+        git_branch=resolved_branch,
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,
     )
