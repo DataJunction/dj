@@ -1514,14 +1514,26 @@ async def validate_git_only(
     git_only: bool,
 ) -> None:
     """
-    Ensure git_only namespaces have git configuration.
+    Ensure git_only is only set on branch namespaces with proper git configuration.
 
-    A git_only namespace blocks UI edits, so it must have a git source.
-    This now checks the resolved git config (including inherited values).
+    git_only blocks UI edits, requiring changes via git deployments.
+    This only makes sense for branch namespaces (not git roots, which are just configuration).
     """
     if not git_only:
         return
 
+    # Get the namespace record to check if it's a branch namespace
+    ns = await NodeNamespace.get(session, namespace, raise_if_not_exists=False)
+    if not ns or not ns.parent_namespace:
+        raise DJInvalidInputException(
+            message=(
+                "Cannot enable git_only on a git root namespace. "
+                "git_only is only applicable to branch namespaces that have "
+                "parent_namespace configured."
+            ),
+        )
+
+    # Verify the branch namespace has complete git config
     github_repo_path, git_path, git_branch = await resolve_git_config(
         session,
         namespace,
@@ -1530,8 +1542,8 @@ async def validate_git_only(
     if not github_repo_path or not git_branch:
         raise DJInvalidInputException(
             message=(
-                "Cannot enable git_only without git configuration. "
-                "Either set github_repo_path and git_branch on this namespace, "
-                "or set a parent_namespace that has git configured."
+                "Cannot enable git_only without complete git configuration. "
+                "Branch namespace must have parent_namespace and git_branch set, "
+                "and parent must have github_repo_path configured."
             ),
         )
