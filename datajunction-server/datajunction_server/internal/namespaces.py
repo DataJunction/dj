@@ -1522,7 +1522,10 @@ async def validate_git_only(
     if not git_only:
         return
 
-    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
 
     if not github_repo_path or not git_branch:
         raise DJInvalidInputException(

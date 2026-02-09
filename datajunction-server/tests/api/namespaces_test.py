@@ -1981,9 +1981,8 @@ async def test_validate_sibling_relationship_different_prefixes_blocked(
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Namespace 'demo.feature' (prefix: 'demo') cannot have parent 'team.main' "
-        "(prefix: 'team'). Branch namespaces must be siblings under the same "
-        "project. Expected parent to have prefix 'demo'."
+        "Namespace 'demo.feature' (prefix: 'demo') cannot have parent 'team.main'. "
+        "Expected parent to either be 'demo' (direct parent) or have prefix 'demo' (sibling)."
     )
 
 
@@ -2072,11 +2071,10 @@ async def test_detect_parent_cycle_two_node_cycle(
     await module__client_with_all_examples.post("/namespaces/cycle.a/")
     await module__client_with_all_examples.post("/namespaces/cycle.b/")
 
-    # Set up A -> B
+    # Set up A -> B (no repo config needed to test cycle detection)
     await module__client_with_all_examples.patch(
         "/namespaces/cycle.a/git",
         json={
-            "github_repo_path": "corp/repo",
             "git_branch": "a",
             "parent_namespace": "cycle.b",
         },
@@ -2086,7 +2084,6 @@ async def test_detect_parent_cycle_two_node_cycle(
     response = await module__client_with_all_examples.patch(
         "/namespaces/cycle.b/git",
         json={
-            "github_repo_path": "corp/repo",
             "git_branch": "b",
             "parent_namespace": "cycle.a",
         },
@@ -2107,11 +2104,10 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.post("/namespaces/cycle3.b/")
     await module__client_with_all_examples.post("/namespaces/cycle3.c/")
 
-    # Set up A -> B
+    # Set up A -> B (no repo config needed to test cycle detection)
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.a/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-a",
             "parent_namespace": "cycle3.b",
         },
@@ -2121,7 +2117,6 @@ async def test_detect_parent_cycle_three_node_cycle(
     await module__client_with_all_examples.patch(
         "/namespaces/cycle3.b/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-b",
             "parent_namespace": "cycle3.c",
         },
@@ -2131,7 +2126,6 @@ async def test_detect_parent_cycle_three_node_cycle(
     response = await module__client_with_all_examples.patch(
         "/namespaces/cycle3.c/git",
         json={
-            "github_repo_path": "corp/three-cycle-repo",
             "git_branch": "three-cycle-c",
             "parent_namespace": "cycle3.a",
         },

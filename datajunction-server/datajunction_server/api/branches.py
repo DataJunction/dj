@@ -218,7 +218,10 @@ async def create_branch(
     parent_ns = await get_node_namespace(session, namespace)
 
     # Resolve git config - repo/path may be inherited from ancestors
-    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
 
     if not github_repo_path:
         raise DJInvalidInputException(
