@@ -190,18 +190,17 @@ class TestNamespaceGitConfig:
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test setting a different repo than parent namespace."""
-        # Create parent with repo A
+        """Test that branch namespaces cannot set github_repo_path (must inherit from parent)."""
+        # Create parent with repo
         await client_with_service_setup.post("/namespaces/parent_repo_ns")
         await client_with_service_setup.patch(
             "/namespaces/parent_repo_ns/git",
             json={
                 "github_repo_path": "myorg/repo-a",
-                "git_branch": "main",
             },
         )
 
-        # Create child and try to use repo B
+        # Create child and try to set a repo (should fail - must inherit from parent)
         await client_with_service_setup.post("/namespaces/child_repo_ns")
         response = await client_with_service_setup.patch(
             "/namespaces/child_repo_ns/git",
@@ -212,39 +211,41 @@ class TestNamespaceGitConfig:
             },
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        assert response.json()["message"] == (
-            "Repository mismatch: this namespace uses 'myorg/repo-b' but parent "
-            "'parent_repo_ns' uses 'myorg/repo-a'. Branch namespaces must use the same "
-            "repository as their parent for pull requests to work."
+        assert (
+            "Cannot set github_repo_path on a branch namespace"
+            in response.json()["message"]
         )
 
     @pytest.mark.asyncio
-    async def test_update_git_config_same_repo_as_parent_ok(
+    async def test_update_git_config_branch_namespace_inherits_repo(
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test setting same repo as parent namespace succeeds."""
-        # Create parent
+        """Test that branch namespaces only set branch and parent, inheriting repo."""
+        # Create parent with repo
         await client_with_service_setup.post("/namespaces/valid_parent_ns")
         await client_with_service_setup.patch(
             "/namespaces/valid_parent_ns/git",
             json={
                 "github_repo_path": "myorg/shared-repo",
-                "git_branch": "main",
             },
         )
 
-        # Create child with same repo but different branch
+        # Create child with only branch and parent (no repo - it's inherited)
         await client_with_service_setup.post("/namespaces/valid_child_ns")
         response = await client_with_service_setup.patch(
             "/namespaces/valid_child_ns/git",
             json={
-                "github_repo_path": "myorg/shared-repo",
                 "git_branch": "feature-x",
                 "parent_namespace": "valid_parent_ns",
             },
         )
         assert response.status_code == HTTPStatus.OK
+        # Verify the response includes the inherited repo
+        data = response.json()
+        assert data["github_repo_path"] == "myorg/shared-repo"
+        assert data["git_branch"] == "feature-x"
+        assert data["parent_namespace"] == "valid_parent_ns"
 
     @pytest.mark.asyncio
     async def test_update_git_config_duplicate_location(
@@ -371,7 +372,8 @@ class TestBranchManagement:
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert response.json()["message"] == (
-            "Namespace 'test_no_git' does not have git configured. Set github_repo_path first."
+            "Namespace 'test_no_git' does not have git configured. Set github_repo_path"
+            " on this namespace or a parent namespace."
         )
 
     @pytest.mark.asyncio
@@ -393,7 +395,7 @@ class TestBranchManagement:
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert response.json()["message"] == (
-            "Namespace 'test_no_branch' does not have a git branch configured. Set git_branch first."
+            "Namespace 'test_no_branch' does not have a git branch configured."
         )
 
     @pytest.mark.asyncio
@@ -652,7 +654,7 @@ class TestBranchManagement:
         client_with_service_setup: AsyncClient,
     ):
         """Test deleting a branch namespace along with its git branch."""
-        # Create parent and branch
+        # Create parent namespace with git config
         await client_with_service_setup.post("/namespaces/del_git.main")
         await client_with_service_setup.patch(
             "/namespaces/del_git.main/git",
@@ -671,10 +673,12 @@ class TestBranchManagement:
             )
             mock_github_class.return_value = mock_github
 
-            await client_with_service_setup.post(
+            response = await client_with_service_setup.post(
                 "/namespaces/del_git.main/branches",
                 json={"branch_name": "to-delete"},
             )
+            assert response.status_code == HTTPStatus.CREATED
+            assert response.json()["branch"]["namespace"] == "del_git.to_delete"
 
         # Delete the branch with git branch deletion
         with patch(
@@ -688,6 +692,7 @@ class TestBranchManagement:
                 "/namespaces/del_git.main/branches/del_git.to_delete"
                 "?delete_git_branch=true",
             )
+            print("response!!", response.json())
             assert response.status_code == HTTPStatus.OK
             assert response.json()["git_branch_deleted"] is True
 
@@ -1258,7 +1263,8 @@ class TestGitSync:
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert (
             response.json()["message"]
-            == "Namespace 'default' does not have git configured."
+            == "Namespace 'default' does not have git configured. Set github_repo_path"
+            " on this namespace or a parent namespace."
         )
 
     @pytest.mark.asyncio
@@ -1784,7 +1790,8 @@ mode: published
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert (
             response.json()["message"]
-            == "Namespace 'no_git_ns' does not have git configured."
+            == "Namespace 'no_git_ns' does not have git configured. "
+            "Set github_repo_path on this namespace or a parent namespace."
         )
 
     @pytest.mark.asyncio
@@ -2039,7 +2046,8 @@ class TestPullRequest:
         )
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert response.json()["message"] == (
-            "Parent namespace 'pr_nobranch.main' does not have a git branch configured."
+            "Namespace 'pr_nobranch.feature' is not a branch namespace. "
+            "Only branch namespaces (with parent_namespace) can create PRs."
         )
 
     @pytest.mark.asyncio
@@ -2075,7 +2083,8 @@ class TestPullRequest:
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert (
             response.json()["message"]
-            == "Namespace 'pr_noconfig.feature' does not have git configured."
+            == "Namespace 'pr_noconfig.feature' does not have git configured. Set "
+            "github_repo_path and git_branch on this namespace or a parent."
         )
 
     @pytest.mark.asyncio
@@ -2402,14 +2411,25 @@ class TestGitOnlyNamespaceProtection:
         client_with_service_setup: AsyncClient,
     ):
         """Test that creating a node in a git_only namespace is rejected."""
-        namespace = "git_only_protected"
+        root_namespace = "git_only_root"
+        branch_namespace = "git_only_protected"
 
-        # Create namespace and set git_only=True
-        await client_with_service_setup.post(f"/namespaces/{namespace}")
+        # Create git root namespace with only github_repo_path
+        await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         response = await client_with_service_setup.patch(
-            f"/namespaces/{namespace}/git",
+            f"/namespaces/{root_namespace}/git",
             json={
                 "github_repo_path": "myorg/myrepo",
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        # Create branch namespace and set git_only=True
+        await client_with_service_setup.post(f"/namespaces/{branch_namespace}")
+        response = await client_with_service_setup.patch(
+            f"/namespaces/{branch_namespace}/git",
+            json={
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -2418,11 +2438,11 @@ class TestGitOnlyNamespaceProtection:
         print("response", response.json())
 
         # Try to create a source node directly
-        print("Creating node in ", namespace, " namespace...")
+        print("Creating node in ", branch_namespace, " namespace...")
         response = await client_with_service_setup.post(
             "/nodes/source/",
             json={
-                "name": f"{namespace}.test_source",
+                "name": f"{branch_namespace}.test_source",
                 "description": "Test source",
                 "catalog": "default",
                 "schema_": "test",
@@ -2441,16 +2461,27 @@ class TestGitOnlyNamespaceProtection:
         client_with_service_setup: AsyncClient,
     ):
         """Test updating git_only field via PATCH endpoint."""
-        namespace = "update_git_only"
+        root_namespace = "update_git_only_root"
+        branch_namespace = "update_git_only"
 
-        # Create namespace
-        await client_with_service_setup.post(f"/namespaces/{namespace}")
-
-        # Set git_only=True
+        # Create git root namespace
+        await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         response = await client_with_service_setup.patch(
-            f"/namespaces/{namespace}/git",
+            f"/namespaces/{root_namespace}/git",
             json={
                 "github_repo_path": "myorg/myrepo",
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        # Create branch namespace
+        await client_with_service_setup.post(f"/namespaces/{branch_namespace}")
+
+        # Set git_only=True on branch namespace
+        response = await client_with_service_setup.patch(
+            f"/namespaces/{branch_namespace}/git",
+            json={
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -2460,7 +2491,7 @@ class TestGitOnlyNamespaceProtection:
 
         # Update git_only back to False
         response = await client_with_service_setup.patch(
-            f"/namespaces/{namespace}/git",
+            f"/namespaces/{branch_namespace}/git",
             json={
                 "git_only": False,
             },

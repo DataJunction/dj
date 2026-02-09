@@ -423,22 +423,26 @@ async def delete_branch(
 
     # Delete the git branch
     git_branch_deleted = False
-    if delete_git_branch and branch_ns.github_repo_path and branch_ns.git_branch:
-        try:
-            github = GitHubService()
-            await github.delete_branch(
-                repo_path=branch_ns.github_repo_path,
-                branch=branch_ns.git_branch,
-            )
-            git_branch_deleted = True
-            _logger.info(
-                "Deleted git branch '%s' in repo '%s'",
-                branch_ns.git_branch,
-                branch_ns.github_repo_path,
-            )
-        except GitHubServiceError as e:
-            _logger.warning("Failed to delete git branch: %s", e)
-            # Don't fail the request - the branch might already be deleted
+    if delete_git_branch and branch_ns.git_branch:
+        # Resolve git config from branch namespace (may be inherited from parent)
+        github_repo_path, _, _ = await resolve_git_config(session, branch_namespace)
+
+        if github_repo_path:
+            try:
+                github = GitHubService()
+                await github.delete_branch(
+                    repo_path=github_repo_path,
+                    branch=branch_ns.git_branch,
+                )
+                git_branch_deleted = True
+                _logger.info(
+                    "Deleted git branch '%s' in repo '%s'",
+                    branch_ns.git_branch,
+                    github_repo_path,
+                )
+            except GitHubServiceError as e:
+                _logger.warning("Failed to delete git branch: %s", e)
+                # Don't fail the request - the branch might already be deleted
 
     # Delete all nodes in the branch namespace
     from datajunction_server.database.node import Node
