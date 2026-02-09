@@ -1799,16 +1799,24 @@ async def test_delete_namespace_git_config_success(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
     """Test successfully deleting git configuration from a namespace."""
+    root_namespace = "test.git.root"
     namespace = "test.git.delete"
 
-    # First create the namespace
-    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
+    # Create root namespace with git config
+    await module__client_with_all_examples.post(f"/namespaces/{root_namespace}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_namespace}/git",
+        json={
+            "github_repo_path": "owner/repo",
+            "git_path": "nodes/",
+        },
+    )
 
-    # Configure git settings
+    # Create branch namespace with git_only
+    await module__client_with_all_examples.post(f"/namespaces/{namespace}/")
     git_config = {
-        "github_repo_path": "owner/repo",
+        "parent_namespace": root_namespace,
         "git_branch": "main",
-        "git_path": "nodes/",
         "git_only": True,
     }
     patch_response = await module__client_with_all_examples.patch(
@@ -1817,12 +1825,14 @@ async def test_delete_namespace_git_config_success(
     )
     assert patch_response.status_code == 200
 
-    # Verify git config exists
+    # Verify git config exists (with inherited github_repo_path)
     get_response = await module__client_with_all_examples.get(
         f"/namespaces/{namespace}/git",
     )
     assert get_response.status_code == 200
     assert get_response.json()["github_repo_path"] == "owner/repo"
+    assert get_response.json()["parent_namespace"] == root_namespace
+    assert get_response.json()["git_branch"] == "main"
 
     # Delete git configuration
     delete_response = await module__client_with_all_examples.delete(
@@ -1995,10 +2005,9 @@ async def test_validate_sibling_relationship_top_level_namespaces(
     await module__client_with_all_examples.post("/namespaces/main/")
     await module__client_with_all_examples.post("/namespaces/feature/")
 
-    # Configure parent with git
+    # Configure parent as git root (only repo, no branch)
     parent_git_config = {
         "github_repo_path": "corp/repo",
-        "git_branch": "main",
     }
     await module__client_with_all_examples.patch(
         "/namespaces/main/git",
@@ -2205,13 +2214,13 @@ async def test_validate_git_path_allows_valid_relative_paths(
 async def test_validate_git_only_blocked_without_git_config(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is blocked when git config is missing."""
+    """Test that git_only=true is blocked when not a branch namespace."""
     await module__client_with_all_examples.post("/namespaces/gitonly.test1/")
 
-    # Try to enable git_only without git config
+    # Try to enable git_only without parent_namespace and git_branch
     git_config = {
         "git_only": True,
-        # Missing github_repo_path and git_branch
+        # Missing parent_namespace and git_branch (required for branch namespace)
     }
     response = await module__client_with_all_examples.patch(
         "/namespaces/gitonly.test1/git",
@@ -2219,9 +2228,9 @@ async def test_validate_git_only_blocked_without_git_config(
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Cannot enable git_only without git configuration. "
-        "Either set github_repo_path and git_branch on this namespace, "
-        "or set a parent_namespace that has git configured."
+        "Cannot enable git_only on a git root namespace. "
+        "git_only is only applicable to branch namespaces that have "
+        "parent_namespace and git_branch configured."
     )
 
 
@@ -2229,17 +2238,27 @@ async def test_validate_git_only_blocked_without_git_config(
 async def test_validate_git_only_allowed_with_git_config(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is allowed when git config is present."""
-    await module__client_with_all_examples.post("/namespaces/gitonly.test2/")
+    """Test that git_only=true is allowed on branch namespaces."""
+    # Create git root namespace
+    root_namespace = "gitonly.test2.root"
+    await module__client_with_all_examples.post(f"/namespaces/{root_namespace}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root_namespace}/git",
+        json={
+            "github_repo_path": "corp/repo-123",
+        },
+    )
 
-    # Enable git_only with git config
+    # Create branch namespace with git_only
+    branch_namespace = "gitonly.test2"
+    await module__client_with_all_examples.post(f"/namespaces/{branch_namespace}/")
     git_config = {
-        "github_repo_path": "corp/repo-123",
+        "parent_namespace": root_namespace,
         "git_branch": "main",
         "git_only": True,
     }
     response = await module__client_with_all_examples.patch(
-        "/namespaces/gitonly.test2/git",
+        f"/namespaces/{branch_namespace}/git",
         json=git_config,
     )
     assert response.status_code == 200
