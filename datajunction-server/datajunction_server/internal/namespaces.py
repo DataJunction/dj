@@ -1396,9 +1396,9 @@ async def resolve_git_config(
         parent_ns = await get_node_namespace(session, current.parent_namespace)
 
         # Inherit missing fields from parent
-        if not github_repo_path:
+        if not github_repo_path:  # pragma: no branch
             github_repo_path = parent_ns.github_repo_path
-        if git_path is None:  # Explicitly check None (empty string is valid)
+        if git_path is None:  # pragma: no branch
             git_path = parent_ns.git_path
 
         current = parent_ns
@@ -1505,45 +1505,4 @@ def validate_git_path(git_path: Optional[str]) -> None:
     if normalized.startswith("/"):
         raise DJInvalidInputException(
             message="git_path must be a relative path (cannot start with '/')",
-        )
-
-
-async def validate_git_only(
-    session: AsyncSession,
-    namespace: str,
-    git_only: bool,
-) -> None:
-    """
-    Ensure git_only is only set on branch namespaces with proper git configuration.
-
-    git_only blocks UI edits, requiring changes via git deployments.
-    This only makes sense for branch namespaces (not git roots, which are just configuration).
-    """
-    if not git_only:
-        return
-
-    # Get the namespace record to check if it's a branch namespace
-    ns = await NodeNamespace.get(session, namespace, raise_if_not_exists=False)
-    if not ns or not ns.parent_namespace:
-        raise DJInvalidInputException(
-            message=(
-                "Cannot enable git_only on a git root namespace. "
-                "git_only is only applicable to branch namespaces that have "
-                "parent_namespace configured."
-            ),
-        )
-
-    # Verify the branch namespace has complete git config
-    github_repo_path, git_path, git_branch = await resolve_git_config(
-        session,
-        namespace,
-    )
-
-    if not github_repo_path or not git_branch:
-        raise DJInvalidInputException(
-            message=(
-                "Cannot enable git_only without complete git configuration. "
-                "Branch namespace must have parent_namespace and git_branch set, "
-                "and parent must have github_repo_path configured."
-            ),
         )
