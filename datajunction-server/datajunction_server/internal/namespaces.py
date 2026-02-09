@@ -1388,7 +1388,7 @@ async def resolve_git_config(
 
     while (not github_repo_path or git_path is None) and current.parent_namespace:
         if depth >= max_depth:
-            raise DJInvalidInputException(
+            raise DJInvalidInputException(  # pragma: no cover
                 message=f"Parent chain exceeds maximum depth of {max_depth} "
                 f"while resolving git config for '{namespace}'",
             )

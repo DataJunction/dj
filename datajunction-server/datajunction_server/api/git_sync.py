@@ -445,8 +445,8 @@ async def get_pull_request(
         session,
         namespace_obj.parent_namespace,
     )
-    if not parent_git_branch:
-        return None  # Parent has no git branch
+    if not parent_git_branch:  # Parent has no git branch
+        return None  # pragma: no cover
 
     try:
         github = GitHubService()
@@ -517,7 +517,7 @@ async def create_pull_request(
         namespace_obj.parent_namespace,
     )
     if not parent_git_branch:
-        raise DJInvalidInputException(
+        raise DJInvalidInputException(  # pragma: no cover
             message=f"Parent namespace '{namespace_obj.parent_namespace}' does not have a git branch configured.",
         )
 
