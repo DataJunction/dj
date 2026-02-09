@@ -3191,14 +3191,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_no_source(self, client):
         """Test that git_only namespace rejects deployment without source."""
+        root_namespace = "git_only_no_source_root"
         namespace = "git_only_no_source"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -3229,14 +3239,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_wrong_source_type(self, client):
         """Test that git_only namespace rejects deployment with local source type."""
+        root_namespace = "git_only_wrong_type_root"
         namespace = "git_only_wrong_type"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -3269,14 +3289,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_no_commit_sha(self, client):
         """Test that git_only namespace rejects deployment without commit_sha."""
+        root_namespace = "git_only_no_sha_root"
         namespace = "git_only_no_sha"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -3310,14 +3340,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_invalid_commit(self, client):
         """Test that git_only namespace rejects deployment with invalid commit."""
+        root_namespace = "git_only_invalid_commit_root"
         namespace = "git_only_invalid_commit"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -3363,14 +3403,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_github_error(self, client):
         """Test that git_only namespace handles GitHub API errors gracefully."""
+        root_namespace = "git_only_github_error_root"
         namespace = "git_only_github_error"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },
@@ -3425,14 +3475,24 @@ class TestGitOnlyNamespaceDeployments:
     @pytest.mark.asyncio
     async def test_git_only_deployment_success(self, client):
         """Test successful deployment to git_only namespace with valid commit."""
+        root_namespace = "git_only_success_root"
         namespace = "git_only_success"
 
-        # Create namespace and set git_only=True
+        # Create git root namespace
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+            },
+        )
+
+        # Create branch namespace and set git_only=True
         await client.post(f"/namespaces/{namespace}")
         await client.patch(
             f"/namespaces/{namespace}/git",
             json={
-                "github_repo_path": "myorg/myrepo",
+                "parent_namespace": root_namespace,
                 "git_branch": "main",
                 "git_only": True,
             },

@@ -48,11 +48,10 @@ class TestValidateSiblingRelationship:
             validate_sibling_relationship("team.feature", "demo.main")
 
         error_message = str(exc_info.value.message)
-        assert "team.feature" in error_message
-        assert "demo.main" in error_message
-        assert "prefix: 'team'" in error_message
-        assert "prefix: 'demo'" in error_message
-        assert "Branch namespaces must be siblings" in error_message
+        assert error_message == (
+            "Namespace 'team.feature' (prefix: 'team') cannot have parent 'demo.main'. "
+            "Expected parent to either be 'team' (direct parent) or have prefix 'team' (sibling)."
+        )
 
     def test_invalid_siblings_nested_vs_flat(self):
         """Test that nested namespace cannot have flat namespace as parent."""
@@ -60,10 +59,11 @@ class TestValidateSiblingRelationship:
             validate_sibling_relationship("demo.prod.feature", "demo.main")
 
         error_message = str(exc_info.value.message)
-        assert "demo.prod.feature" in error_message
-        assert "demo.main" in error_message
-        assert "prefix: 'demo.prod'" in error_message
-        assert "prefix: 'demo'" in error_message
+        assert error_message == (
+            "Namespace 'demo.prod.feature' (prefix: 'demo.prod') cannot have parent 'demo.main'."
+            " Expected parent to either be 'demo.prod' (direct parent) or have prefix "
+            "'demo.prod' (sibling)."
+        )
 
     def test_invalid_siblings_top_level_vs_nested(self):
         """Test that top-level namespace cannot have nested namespace as parent."""
@@ -71,11 +71,10 @@ class TestValidateSiblingRelationship:
             validate_sibling_relationship("feature", "demo.main")
 
         error_message = str(exc_info.value.message)
-        assert "feature" in error_message
-        assert "demo.main" in error_message
-        # feature has empty prefix ""
-        assert "prefix: ''" in error_message or 'prefix: ""' in error_message
-        assert "prefix: 'demo'" in error_message
+        assert error_message == (
+            "Namespace 'feature' (prefix: '') cannot have parent 'demo.main'. "
+            "Expected parent to either be '' (direct parent) or have prefix '' (sibling)."
+        )
 
     def test_invalid_siblings_cross_project(self):
         """Test that namespaces from different projects cannot be related."""
@@ -83,10 +82,11 @@ class TestValidateSiblingRelationship:
             validate_sibling_relationship("analytics.feature", "demo.main")
 
         error_message = str(exc_info.value.message)
-        assert "analytics.feature" in error_message
-        assert "demo.main" in error_message
-        assert "prefix: 'analytics'" in error_message
-        assert "prefix: 'demo'" in error_message
+        assert error_message == (
+            "Namespace 'analytics.feature' (prefix: 'analytics') cannot have "
+            "parent 'demo.main'. Expected parent to either be 'analytics' (direct parent) or have "
+            "prefix 'analytics' (sibling)."
+        )
 
     def test_invalid_siblings_different_deep_hierarchies(self):
         """Test that namespaces with different deep hierarchy prefixes are blocked."""
@@ -146,7 +146,11 @@ class TestValidateSiblingRelationship:
 
         error_message = str(exc_info.value.message)
         # Should tell user what prefix was expected
-        assert "Expected parent to have prefix 'analytics'" in error_message
+        assert error_message == (
+            "Namespace 'analytics.feature' (prefix: 'analytics') cannot have parent 'demo.main'. "
+            "Expected parent to either be 'analytics' (direct parent) or have prefix 'analytics'"
+            " (sibling)."
+        )
 
 
 class TestDetectParentCycle:
