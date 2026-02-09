@@ -248,7 +248,10 @@ async def sync_namespace_to_git(
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Resolve git config (may be inherited from parent)
-    github_repo_path, git_path, git_branch = await resolve_git_config(session, namespace)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
 
     if not github_repo_path:
         raise DJInvalidInputException(

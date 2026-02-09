@@ -10,7 +10,6 @@ from typing import Callable, Dict, List, Optional
 
 import yaml
 from fastapi import Depends, Query, BackgroundTasks, Request, Response
-from pydantic import BaseModel
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +48,6 @@ from datajunction_server.internal.namespaces import (
     resolve_git_config,
     validate_sibling_relationship,
     validate_git_path,
-    validate_git_only,
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
