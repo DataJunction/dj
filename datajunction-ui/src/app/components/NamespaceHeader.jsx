@@ -109,7 +109,10 @@ export default function NamespaceHeader({
 
   const namespaceParts = namespace ? namespace.split('.') : [];
 
-  const hasGitConfig = gitConfig?.github_repo_path && gitConfig?.git_branch;
+  // Git config is valid if:
+  // - Git root: has github_repo_path
+  // - Branch namespace: has parent_namespace and git_branch (inherits repo from parent)
+  const hasGitConfig = gitConfig?.github_repo_path || (gitConfig?.parent_namespace && gitConfig?.git_branch);
   const isBranchNamespace = !!gitConfig?.parent_namespace;
 
   // Handlers for git operations
@@ -728,7 +731,11 @@ export default function NamespaceHeader({
               </svg>
               Git Settings
             </button>
-            <button style={buttonStyle} onClick={() => setShowSyncToGit(true)}>
+
+            {/* Sync to Git and Create PR only for editable branches (git_only = false) */}
+            {!gitConfig?.git_only && (
+              <>
+                <button style={buttonStyle} onClick={() => setShowSyncToGit(true)}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="14"
@@ -798,6 +805,8 @@ export default function NamespaceHeader({
                 Create PR
               </button>
             )}
+
+            {/* Delete Branch - only for editable branches */}
             <button
               style={{
                 ...buttonStyle,
@@ -823,6 +832,8 @@ export default function NamespaceHeader({
                 <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
               </svg>
             </button>
+              </>
+            )}
           </>
         )}
 
