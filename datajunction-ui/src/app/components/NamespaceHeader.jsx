@@ -112,7 +112,9 @@ export default function NamespaceHeader({
   // Git config is valid if:
   // - Git root: has github_repo_path
   // - Branch namespace: has parent_namespace and git_branch (inherits repo from parent)
-  const hasGitConfig = gitConfig?.github_repo_path || (gitConfig?.parent_namespace && gitConfig?.git_branch);
+  const hasGitConfig =
+    gitConfig?.github_repo_path ||
+    (gitConfig?.parent_namespace && gitConfig?.git_branch);
   const isBranchNamespace = !!gitConfig?.parent_namespace;
 
   // Handlers for git operations
@@ -735,103 +737,106 @@ export default function NamespaceHeader({
             {/* Sync to Git and Create PR only for editable branches (git_only = false) */}
             {!gitConfig?.git_only && (
               <>
-                <button style={buttonStyle} onClick={() => setShowSyncToGit(true)}>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9" />
-              </svg>
-              Sync to Git
-            </button>
-            {existingPR ? (
-              <a
-                href={existingPR.pr_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  ...primaryButtonStyle,
-                  textDecoration: 'none',
-                  backgroundColor: '#16a34a',
-                  borderColor: '#16a34a',
-                }}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <button
+                  style={buttonStyle}
+                  onClick={() => setShowSyncToGit(true)}
                 >
-                  <circle cx="18" cy="18" r="3" />
-                  <circle cx="6" cy="6" r="3" />
-                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                  <line x1="6" y1="9" x2="6" y2="21" />
-                </svg>
-                View PR #{existingPR.pr_number}
-              </a>
-            ) : (
-              <button
-                style={primaryButtonStyle}
-                onClick={() => setShowCreatePR(true)}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="18" cy="18" r="3" />
-                  <circle cx="6" cy="6" r="3" />
-                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                  <line x1="6" y1="9" x2="6" y2="21" />
-                </svg>
-                Create PR
-              </button>
-            )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9" />
+                  </svg>
+                  Sync to Git
+                </button>
+                {existingPR ? (
+                  <a
+                    href={existingPR.pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      ...primaryButtonStyle,
+                      textDecoration: 'none',
+                      backgroundColor: '#16a34a',
+                      borderColor: '#16a34a',
+                    }}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="18" cy="18" r="3" />
+                      <circle cx="6" cy="6" r="3" />
+                      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                      <line x1="6" y1="9" x2="6" y2="21" />
+                    </svg>
+                    View PR #{existingPR.pr_number}
+                  </a>
+                ) : (
+                  <button
+                    style={primaryButtonStyle}
+                    onClick={() => setShowCreatePR(true)}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="18" cy="18" r="3" />
+                      <circle cx="6" cy="6" r="3" />
+                      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                      <line x1="6" y1="9" x2="6" y2="21" />
+                    </svg>
+                    Create PR
+                  </button>
+                )}
 
-            {/* Delete Branch - only for editable branches */}
-            <button
-              style={{
-                ...buttonStyle,
-                color: '#dc2626',
-                borderColor: '#fecaca',
-              }}
-              onClick={() => setShowDeleteBranch(true)}
-              title="Delete Branch"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 6h18" />
-                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              </svg>
-            </button>
+                {/* Delete Branch - only for editable branches */}
+                <button
+                  style={{
+                    ...buttonStyle,
+                    color: '#dc2626',
+                    borderColor: '#fecaca',
+                  }}
+                  onClick={() => setShowDeleteBranch(true)}
+                  title="Delete Branch"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
+                </button>
               </>
             )}
           </>

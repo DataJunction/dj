@@ -751,10 +751,11 @@ describe('<GitSettingsModal />', () => {
     global.fetch = jest.fn(() =>
       Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          github_repo_path: 'test/repo',
-          git_path: 'nodes/',
-        }),
+        json: () =>
+          Promise.resolve({
+            github_repo_path: 'test/repo',
+            git_path: 'nodes/',
+          }),
       }),
     );
   });
@@ -795,7 +796,13 @@ describe('<GitSettingsModal />', () => {
       git_only: false,
     };
 
-    render(<GitSettingsModal {...defaultProps} namespace="analytics.feature" currentConfig={config} />);
+    render(
+      <GitSettingsModal
+        {...defaultProps}
+        namespace="analytics.feature"
+        currentConfig={config}
+      />,
+    );
 
     const checkbox = screen.getByRole('checkbox');
     expect(checkbox).not.toBeChecked();
@@ -833,7 +840,9 @@ describe('<GitSettingsModal />', () => {
   it('should call onSave with git_only when branch namespace form is submitted', async () => {
     defaultProps.onSave.mockResolvedValue({ success: true });
 
-    render(<GitSettingsModal {...defaultProps} namespace="analytics.feature" />);
+    render(
+      <GitSettingsModal {...defaultProps} namespace="analytics.feature" />,
+    );
 
     // Switch to branch mode
     await userEvent.click(screen.getByText('Branch Namespace'));
@@ -928,7 +937,9 @@ describe('<GitSettingsModal />', () => {
   });
 
   it('should toggle git-only checkbox in branch mode', async () => {
-    render(<GitSettingsModal {...defaultProps} namespace="analytics.feature" />);
+    render(
+      <GitSettingsModal {...defaultProps} namespace="analytics.feature" />,
+    );
 
     // Switch to branch mode
     await userEvent.click(screen.getByText('Branch Namespace'));
