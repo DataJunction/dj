@@ -1003,7 +1003,7 @@ def _get_yaml_handler():
     yaml_handler = YAML()
     yaml_handler.default_flow_style = False
     yaml_handler.width = 120
-    yaml_handler.indent(mapping=2, sequence=2, offset=0)
+    yaml_handler.indent(mapping=2, sequence=2, offset=2)
     return yaml_handler
 
 

@@ -28,7 +28,8 @@ export function CreateBranchModal({
         } else {
           // Branch namespace: remove last segment to get parent prefix
           const parts = namespace.split('.');
-          const prefix = parts.length > 1 ? parts.slice(0, -1).join('.') : namespace;
+          const prefix =
+            parts.length > 1 ? parts.slice(0, -1).join('.') : namespace;
           return `${prefix}.${branchSuffix}`;
         }
       })()

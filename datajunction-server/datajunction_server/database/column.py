@@ -103,6 +103,7 @@ class Column(Base):  # type: ignore
             description=self.description,
             attributes=self.attribute_names(),
             partition=self.partition.to_spec() if self.partition else None,
+            order=self.order,
         )
 
     def identifier(self) -> Tuple[str, ColumnType]:
