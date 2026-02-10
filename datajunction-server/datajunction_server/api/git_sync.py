@@ -512,13 +512,21 @@ async def create_pull_request(
         )
 
     # Resolve parent's git branch
+    # If parent is a git root (has default_branch but no git_branch), target the default_branch namespace
+    parent_ns_obj = await get_node_namespace(session, namespace_obj.parent_namespace)
+    target_namespace = namespace_obj.parent_namespace
+
+    if parent_ns_obj.default_branch and not parent_ns_obj.git_branch:
+        # Parent is a git root - target the default_branch namespace (e.g., "demo.metrics.main")
+        target_namespace = f"{namespace_obj.parent_namespace}.{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
+
     _, _, parent_git_branch = await resolve_git_config(
         session,
-        namespace_obj.parent_namespace,
+        target_namespace,
     )
     if not parent_git_branch:
         raise DJInvalidInputException(  # pragma: no cover
-            message=f"Parent namespace '{namespace_obj.parent_namespace}' does not have a git branch configured.",
+            message=f"Target namespace '{target_namespace}' does not have a git branch configured.",
         )
 
     try:

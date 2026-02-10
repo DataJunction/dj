@@ -610,6 +610,7 @@ class NamespaceGitConfig(BaseModel):
     github_repo_path: str | None = None  # e.g., "owner/repo"
     git_branch: str | None = None  # e.g., "main" or "feature-x"
     git_path: str | None = None  # e.g., "definitions/" - subdirectory within repo
+    default_branch: str | None = None  # Default branch for git roots (e.g., "main")
     parent_namespace: str | None = None  # Links branch namespaces to parent
     git_only: bool | None = None  # If True, UI edits blocked; must edit via git
 
