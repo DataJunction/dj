@@ -32,6 +32,7 @@ describe('<GitSettingsModal />', () => {
     const currentConfig = {
       github_repo_path: 'test/repo',
       git_path: 'nodes/',
+      default_branch: 'main',
     };
 
     render(
@@ -47,8 +48,9 @@ describe('<GitSettingsModal />', () => {
 
     expect(screen.getByDisplayValue('test/repo')).toBeInTheDocument();
     expect(screen.getByDisplayValue('nodes/')).toBeInTheDocument();
-    // Branch field should not be present in git root mode
-    expect(screen.queryByDisplayValue('main')).not.toBeInTheDocument();
+    // Default branch field should be present in git root mode
+    expect(screen.getByLabelText(/Default Branch/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('main')).toBeInTheDocument();
   });
 
   it('should render with existing branch namespace config', () => {
@@ -314,6 +316,7 @@ describe('<GitSettingsModal />', () => {
       expect(mockOnSave).toHaveBeenCalledWith({
         github_repo_path: 'myorg/repo',
         git_path: 'nodes/', // Default value
+        default_branch: 'main', // Default value for git roots
       });
     });
   });
@@ -476,13 +479,14 @@ describe('<GitSettingsModal />', () => {
 
     // Start in branch mode
     fireEvent.click(screen.getByText('Branch Namespace'));
-    expect(screen.getByLabelText(/Branch/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Branch *')).toBeInTheDocument();
 
     // Switch to root mode
     fireEvent.click(screen.getByText('Git Root'));
 
-    // Should show repository field instead of branch field
+    // Should show repository and default branch fields instead of branch field
     expect(screen.getByLabelText(/Repository/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Branch/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Default Branch/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Branch *')).not.toBeInTheDocument();
   });
 });
