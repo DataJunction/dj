@@ -35,7 +35,12 @@ from datajunction_server.internal.namespaces import (
     resolve_git_config,
 )
 from datajunction_server.models.access import ResourceAction
-from datajunction_server.utils import get_current_user, get_session, get_settings
+from datajunction_server.utils import (
+    SEPARATOR,
+    get_current_user,
+    get_session,
+    get_settings,
+)
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -144,8 +149,8 @@ async def sync_node_to_git(
 
     # File path uses short name (strip namespace prefix)
     # e.g., "demo.main.orders" with namespace "demo.main" -> "orders.yaml"
-    if node_name.startswith(node.namespace + "."):
-        short_name = node_name[len(node.namespace) + 1 :]
+    if node_name.startswith(node.namespace + SEPARATOR):
+        short_name = node_name[len(node.namespace) + len(SEPARATOR) :]
     else:
         short_name = node_name  # pragma: no cover
 
@@ -518,7 +523,7 @@ async def create_pull_request(
 
     if parent_ns_obj.default_branch and not parent_ns_obj.git_branch:
         # Parent is a git root - target the default_branch namespace (e.g., "demo.metrics.main")
-        target_namespace = f"{namespace_obj.parent_namespace}.{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
+        target_namespace = f"{namespace_obj.parent_namespace}{SEPARATOR}{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
 
     _, _, parent_git_branch = await resolve_git_config(
         session,

@@ -916,6 +916,7 @@ async def copy_nodes_to_namespace(
 
     # Get all node specs from source namespace with ${prefix} injection
     node_specs = await get_node_specs_for_export(session, source_namespace)
+    print("node_specs!", node_specs)
 
     if not node_specs:
         return []

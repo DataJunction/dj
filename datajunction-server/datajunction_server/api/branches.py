@@ -90,21 +90,48 @@ async def _create_git_branch(
 async def _create_namespace_and_copy_nodes(
     session: AsyncSession,
     new_namespace: str,
-    parent_namespace: str,
     branch_name: str,
-    parent_ns: NodeNamespace,
+    root_namespace: NodeNamespace,
     current_user: User,
-    source_namespace: str = None,
 ) -> List[DeploymentResult]:
-    """Create DJ namespace and copy nodes from source namespace.
+    """Create DJ namespace and copy nodes from appropriate source.
 
     Args:
-        parent_namespace: The parent namespace to link to (for PR targeting)
-        source_namespace: The namespace to copy nodes from (defaults to parent_namespace)
+        root_namespace: The git root namespace that the branch is being created from.
+
+    If creating from a git root (has default_branch but no git_branch), copies from
+    the default_branch namespace and links to the git root as parent.
+    Otherwise copies from the branch namespace and links to the sibling parent.
     """
-    # Use parent_namespace as source if not explicitly provided
-    if source_namespace is None:
-        source_namespace = parent_namespace
+    # Determine parent namespace for the link (used for PR targeting)
+    # - Git root: link to the git root itself (e.g., "demo.metrics")
+    # - Branch: link to shared parent by removing last segment (e.g., "demo.main" -> "demo")
+    if root_namespace.default_branch and not root_namespace.git_branch:
+        # Creating from git root - new branch is a child
+        parent_namespace = root_namespace.namespace
+    else:
+        # Creating from branch - new branch is a sibling
+        parent_namespace = (
+            root_namespace.namespace.rsplit(SEPARATOR, 1)[0]
+            if SEPARATOR in root_namespace.namespace
+            else root_namespace.namespace
+        )
+
+    # Determine source namespace to copy from
+    if root_namespace.default_branch and not root_namespace.git_branch:
+        # Creating from git root - copy from parent.default_branch
+        source_namespace = f"{root_namespace.namespace}{SEPARATOR}{root_namespace.default_branch.replace('-', '_').replace('/', '_')}"
+        _logger.info(
+            "Copying from default branch namespace '%s' (creating from git root)",
+            source_namespace,
+        )
+    else:
+        # Creating from branch namespace - copy from it directly
+        source_namespace = root_namespace.namespace
+        _logger.info(
+            "Copying from source namespace '%s' (creating from branch)",
+            source_namespace,
+        )
 
     # Validate sibling relationship
     validate_sibling_relationship(new_namespace, parent_namespace)
@@ -286,20 +313,6 @@ async def create_branch(
             message=f"Namespace '{new_namespace}' already exists.",
         )
 
-    # Determine the source namespace to copy nodes from
-    # If creating from git root, copy from the default_branch namespace (e.g., "demo.metrics.main")
-    # If creating from branch namespace, copy from that namespace (e.g., "demo.main")
-    if git_branch:
-        # Branch namespace - copy from this namespace, link to parent for sibling relationship
-        source_namespace_for_copy = namespace
-        parent_for_link = (
-            namespace.rsplit(SEPARATOR, 1)[0] if SEPARATOR in namespace else namespace
-        )
-    else:
-        # Git root - copy from default_branch namespace, link to git root
-        source_namespace_for_copy = f"{namespace}{SEPARATOR}{parent_ns.default_branch.replace('-', '_').replace('/', '_')}"
-        parent_for_link = namespace
-
     # Run git branch creation and namespace/node copying in parallel
     _logger.info(
         "Starting parallel creation of git branch and namespace for '%s'",
@@ -318,11 +331,9 @@ async def create_branch(
         _create_namespace_and_copy_nodes(
             session=session,
             new_namespace=new_namespace,
-            parent_namespace=parent_for_link,
             branch_name=branch_name,
-            parent_ns=parent_ns,
+            root_namespace=parent_ns,
             current_user=current_user,
-            source_namespace=source_namespace_for_copy,
         ),
     )
 
