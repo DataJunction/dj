@@ -116,6 +116,8 @@ export default function NamespaceHeader({
     gitConfig?.github_repo_path ||
     (gitConfig?.parent_namespace && gitConfig?.git_branch);
   const isBranchNamespace = !!gitConfig?.parent_namespace;
+  const isGitRoot = gitConfig?.github_repo_path && !gitConfig?.parent_namespace;
+  const canCreateBranches = isGitRoot && gitConfig?.default_branch;
 
   // Handlers for git operations
   const handleSaveGitConfig = async config => {
@@ -682,7 +684,7 @@ export default function NamespaceHeader({
               </svg>
               Git Settings
             </button>
-            {hasGitConfig ? (
+            {canCreateBranches ? (
               <button
                 style={primaryButtonStyle}
                 onClick={() => setShowCreateBranch(true)}
@@ -861,7 +863,8 @@ export default function NamespaceHeader({
         onClose={() => setShowCreateBranch(false)}
         onCreate={handleCreateBranch}
         namespace={namespace}
-        gitBranch={gitConfig?.git_branch}
+        gitBranch={gitConfig?.git_branch || gitConfig?.default_branch}
+        isGitRoot={isGitRoot}
       />
 
       <SyncToGitModal
@@ -879,7 +882,9 @@ export default function NamespaceHeader({
         onCreate={handleCreatePR}
         namespace={namespace}
         gitBranch={gitConfig?.git_branch}
-        parentBranch={parentGitConfig?.git_branch}
+        parentBranch={
+          parentGitConfig?.git_branch || parentGitConfig?.default_branch
+        }
         repoPath={gitConfig?.github_repo_path}
       />
 

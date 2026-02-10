@@ -94,8 +94,18 @@ async def _create_namespace_and_copy_nodes(
     branch_name: str,
     parent_ns: NodeNamespace,
     current_user: User,
+    source_namespace: str = None,
 ) -> List[DeploymentResult]:
-    """Create DJ namespace and copy nodes from parent."""
+    """Create DJ namespace and copy nodes from source namespace.
+
+    Args:
+        parent_namespace: The parent namespace to link to (for PR targeting)
+        source_namespace: The namespace to copy nodes from (defaults to parent_namespace)
+    """
+    # Use parent_namespace as source if not explicitly provided
+    if source_namespace is None:
+        source_namespace = parent_namespace
+
     # Validate sibling relationship
     validate_sibling_relationship(new_namespace, parent_namespace)
 
@@ -116,10 +126,10 @@ async def _create_namespace_and_copy_nodes(
         branch_name,
     )
 
-    # Copy all nodes from parent namespace to new branch namespace
+    # Copy all nodes from source namespace to new branch namespace
     deployment_results = await copy_nodes_to_namespace(
         session=session,
-        source_namespace=parent_namespace,
+        source_namespace=source_namespace,
         target_namespace=new_namespace,
         current_user=current_user,
     )
@@ -229,10 +239,17 @@ async def create_branch(
             "Set github_repo_path on this namespace or a parent namespace.",
         )
 
-    if not git_branch:
-        raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' does not have a git branch configured.",
-        )
+    # For git root namespaces (no git_branch), use default_branch
+    # For branch namespaces, use the existing git_branch
+    source_branch = git_branch
+    if not source_branch:
+        # This is a git root namespace - use default_branch
+        if not parent_ns.default_branch:
+            raise DJInvalidInputException(
+                message=f"Namespace '{namespace}' is a git root without a default_branch configured. "
+                "Set default_branch to specify which branch to create new branches from.",
+            )
+        source_branch = parent_ns.default_branch
 
     # Validate branch name
     branch_name = request.branch_name.strip()
@@ -243,14 +260,20 @@ async def create_branch(
     branch_namespace_suffix = branch_name.replace("-", "_").replace("/", "_")
 
     # Construct new namespace name
-    # If parent is "myproject.main", new namespace is "myproject.feature_x"
-    parent_parts = namespace.rsplit(SEPARATOR, 1)
-    if len(parent_parts) > 1:
-        new_namespace = f"{parent_parts[0]}{SEPARATOR}{branch_namespace_suffix}"
+    # If creating from git root (e.g., "demo.metrics"), use full namespace: "demo.metrics.feature_x"
+    # If creating from branch namespace (e.g., "demo.main"), use parent prefix: "demo.feature_x"
+    if git_branch:
+        # This is a branch namespace - siblings share parent prefix
+        # e.g., "demo.main" -> "demo.feature_x"
+        parent_parts = namespace.rsplit(SEPARATOR, 1)
+        if len(parent_parts) > 1:
+            new_namespace = f"{parent_parts[0]}{SEPARATOR}{branch_namespace_suffix}"
+        else:
+            new_namespace = f"{namespace}{SEPARATOR}{branch_namespace_suffix}"
     else:
-        new_namespace = (
-            f"{namespace}{SEPARATOR}{branch_namespace_suffix}"  # pragma: no cover
-        )
+        # This is a git root namespace - new branch is a child
+        # e.g., "demo.metrics" -> "demo.metrics.feature_x"
+        new_namespace = f"{namespace}{SEPARATOR}{branch_namespace_suffix}"
 
     # Check if namespace already exists
     existing = await NodeNamespace.get(
@@ -263,6 +286,20 @@ async def create_branch(
             message=f"Namespace '{new_namespace}' already exists.",
         )
 
+    # Determine the source namespace to copy nodes from
+    # If creating from git root, copy from the default_branch namespace (e.g., "demo.metrics.main")
+    # If creating from branch namespace, copy from that namespace (e.g., "demo.main")
+    if git_branch:
+        # Branch namespace - copy from this namespace, link to parent for sibling relationship
+        source_namespace_for_copy = namespace
+        parent_for_link = (
+            namespace.rsplit(SEPARATOR, 1)[0] if SEPARATOR in namespace else namespace
+        )
+    else:
+        # Git root - copy from default_branch namespace, link to git root
+        source_namespace_for_copy = f"{namespace}{SEPARATOR}{parent_ns.default_branch.replace('-', '_').replace('/', '_')}"
+        parent_for_link = namespace
+
     # Run git branch creation and namespace/node copying in parallel
     _logger.info(
         "Starting parallel creation of git branch and namespace for '%s'",
@@ -273,7 +310,7 @@ async def create_branch(
         _create_git_branch(
             repo_path=github_repo_path,
             branch_name=branch_name,
-            from_ref=git_branch,
+            from_ref=source_branch,  # type: ignore
         ),
     )
 
@@ -281,10 +318,11 @@ async def create_branch(
         _create_namespace_and_copy_nodes(
             session=session,
             new_namespace=new_namespace,
-            parent_namespace=namespace,
+            parent_namespace=parent_for_link,
             branch_name=branch_name,
             parent_ns=parent_ns,
             current_user=current_user,
+            source_namespace=source_namespace_for_copy,
         ),
     )
 
