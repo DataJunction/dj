@@ -1240,74 +1240,82 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     )
 
     # Filter columns to only include meaningful customizations
-    # UNLESS include_all_columns=True (when merging with existing YAML to preserve comments)
-    # Special case for cubes: only export columns with partitions
-    if "columns" in data and data["columns"] is not None and not include_all_columns:
+    # Special case for cubes: ALWAYS only export columns with partitions
+    # For other nodes: respect include_all_columns flag to preserve comments
+    if "columns" in data and data["columns"] is not None:
         from datajunction_server.models.base import labelize
 
         is_cube = data.get("node_type") == "cube"
-        filtered_columns = []
 
-        for col in data["columns"]:
-            # Check for meaningful customizations
-            # For display_name, check if it's different from both the full name AND the default
-            col_name = col.get("name", "")
-            display_name = col.get("display_name")
-            default_display = labelize(col_name.split(".")[-1]) if col_name else None
-            has_custom_display = (
-                display_name
-                and display_name != col_name
-                and display_name != default_display
-            )
-            has_attributes = bool(col.get("attributes"))
-            has_description = bool(col.get("description"))
-            has_partition = bool(col.get("partition"))
+        # Cubes: always filter to only partitions (even when preserving comments)
+        # Other nodes: only filter when include_all_columns=False
+        should_filter = is_cube or not include_all_columns
 
-            # For cubes: only include columns with partitions
-            # For other nodes: include columns with any customization
-            if is_cube:
-                should_include = has_partition
-            else:
-                should_include = (
-                    has_custom_display
-                    or has_attributes
-                    or has_description
-                    or has_partition
+        if should_filter:
+            filtered_columns = []
+
+            for col in data["columns"]:
+                # Check for meaningful customizations
+                # For display_name, check if it's different from both the full name AND the default
+                col_name = col.get("name", "")
+                display_name = col.get("display_name")
+                default_display = (
+                    labelize(col_name.split(".")[-1]) if col_name else None
                 )
+                has_custom_display = (
+                    display_name
+                    and display_name != col_name
+                    and display_name != default_display
+                )
+                has_attributes = bool(col.get("attributes"))
+                has_description = bool(col.get("description"))
+                has_partition = bool(col.get("partition"))
 
-            if should_include:
-                # Include column but exclude type and order (let DJ infer)
-                filtered_col = {
+                # For cubes: only include columns with partitions
+                # For other nodes: include columns with any customization
+                if is_cube:
+                    should_include = has_partition
+                else:
+                    should_include = (
+                        has_custom_display
+                        or has_attributes
+                        or has_description
+                        or has_partition
+                    )
+
+                if should_include:
+                    # Include column but exclude type and order (let DJ infer)
+                    filtered_col = {
+                        k: v
+                        for k, v in col.items()
+                        if k not in ("type", "order")
+                        and v is not None  # Exclude type, order and None values
+                        and v != []  # Exclude empty lists
+                        and v != {}  # Exclude empty dicts
+                    }
+                    filtered_columns.append(filtered_col)
+
+            if filtered_columns:
+                data["columns"] = filtered_columns
+            else:
+                # Remove columns entirely if none have customizations
+                del data["columns"]
+        else:
+            # include_all_columns=True for non-cube nodes (preserve all columns for comment merging)
+            data["columns"] = [
+                {
                     k: v
                     for k, v in col.items()
                     if k not in ("type", "order")
-                    and v is not None  # Exclude type, order and None values
+                    and v is not None
                     and v != []  # Exclude empty lists
                     and v != {}  # Exclude empty dicts
                 }
-                filtered_columns.append(filtered_col)
-
-        if filtered_columns:
-            data["columns"] = filtered_columns
-        else:
-            # Remove columns entirely if none have customizations
-            del data["columns"]
+                for col in data["columns"]
+            ]
     elif "columns" in data and data["columns"] is None:  # pragma: no cover
         # If columns is explicitly None, remove it
         del data["columns"]
-    elif "columns" in data and data["columns"] and include_all_columns:
-        # When preserving comments, include all columns but still exclude types and order
-        data["columns"] = [
-            {
-                k: v
-                for k, v in col.items()
-                if k not in ("type", "order")
-                and v is not None
-                and v != []  # Exclude empty lists
-                and v != {}  # Exclude empty dicts
-            }
-            for col in data["columns"]
-        ]
 
     # Remove empty lists/dicts for cleaner YAML
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
