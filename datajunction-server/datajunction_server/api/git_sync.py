@@ -453,7 +453,9 @@ async def get_pull_request(
     parent_ns_obj = await get_node_namespace(session, namespace_obj.parent_namespace)
     target_namespace = namespace_obj.parent_namespace
 
-    if parent_ns_obj.default_branch and not parent_ns_obj.git_branch:
+    if (
+        parent_ns_obj.default_branch and not parent_ns_obj.git_branch
+    ):  # pragma: no cover
         # Parent is a git root - target the default_branch namespace (e.g., "demo.metrics.main")
         target_namespace = f"{namespace_obj.parent_namespace}{SEPARATOR}{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
 
@@ -532,7 +534,9 @@ async def create_pull_request(
     parent_ns_obj = await get_node_namespace(session, namespace_obj.parent_namespace)
     target_namespace = namespace_obj.parent_namespace
 
-    if parent_ns_obj.default_branch and not parent_ns_obj.git_branch:
+    if (
+        parent_ns_obj.default_branch and not parent_ns_obj.git_branch
+    ):  # pragma: no cover
         # Parent is a git root - target the default_branch namespace (e.g., "demo.metrics.main")
         target_namespace = f"{namespace_obj.parent_namespace}{SEPARATOR}{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
 

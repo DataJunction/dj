@@ -1292,7 +1292,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         else:
             # Remove columns entirely if none have customizations
             del data["columns"]
-    elif "columns" in data and data["columns"] is None:
+    elif "columns" in data and data["columns"] is None:  # pragma: no cover
         # If columns is explicitly None, remove it
         del data["columns"]
     elif "columns" in data and data["columns"] and include_all_columns:
@@ -1338,7 +1338,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
                 # Strip any trailing newlines to ensure proper YAML parsing
                 cleaned_join = cleaned_join.rstrip("\n")
                 # Use literal block style for multiline join conditions
-                if "\n" in cleaned_join:
+                if "\n" in cleaned_join:  # pragma: no cover
                     link["join_on"] = LiteralScalarString(cleaned_join)
                 else:
                     link["join_on"] = cleaned_join

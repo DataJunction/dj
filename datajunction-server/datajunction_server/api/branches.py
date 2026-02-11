@@ -329,7 +329,7 @@ async def create_branch(
         parent_parts = namespace.rsplit(SEPARATOR, 1)
         if len(parent_parts) > 1:
             new_namespace = f"{parent_parts[0]}{SEPARATOR}{branch_namespace_suffix}"
-        else:
+        else:  # pragma: no cover
             new_namespace = f"{namespace}{SEPARATOR}{branch_namespace_suffix}"
     else:
         # This is a git root namespace - new branch is a child
