@@ -386,24 +386,16 @@ class Node(Base):
             )
 
         # Export columns for all nodes that have them
-        # For cubes: only export columns with partitions (all other columns are inferred from metrics/dimensions)
         if self.type in (
             NodeType.TRANSFORM,
             NodeType.DIMENSION,
             NodeType.METRIC,
             NodeType.CUBE,
         ):
-            if self.type == NodeType.CUBE:
-                # For cubes, only include columns with partitions
-                cols = [col.to_spec() for col in sorted_columns if col.partition]
-            else:
-                cols = [col.to_spec() for col in sorted_columns]
-
-            # Only add columns if there are any to add
-            if cols:
-                extra_kwargs.update(
-                    columns=cols,
-                )
+            cols = [col.to_spec() for col in sorted_columns]
+            extra_kwargs.update(
+                columns=cols,
+            )
 
         # Nodes with dimension links
         if self.type in (NodeType.SOURCE, NodeType.DIMENSION, NodeType.TRANSFORM):
