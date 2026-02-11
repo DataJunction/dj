@@ -68,6 +68,7 @@ class TestNamespaceGitConfig:
         assert data["git_branch"] is None
         assert data["git_path"] is None
         assert data["parent_namespace"] is None
+        assert data["default_branch"] is None
 
     @pytest.mark.asyncio
     async def test_update_git_config(
@@ -316,6 +317,7 @@ class TestNamespaceGitConfig:
             "git_path": "project-b",
             "github_repo_path": "myorg/monorepo",
             "parent_namespace": None,
+            "default_branch": None,
         }
 
     @pytest.mark.asyncio
@@ -351,6 +353,7 @@ class TestNamespaceGitConfig:
             "git_path": None,
             "github_repo_path": "myorg/repo",
             "parent_namespace": None,
+            "default_branch": None,
         }
 
 
@@ -2128,7 +2131,7 @@ class TestPullRequest:
                 json={"title": "My PR", "body": "Test PR"},
             )
 
-            assert response.status_code == HTTPStatus.CREATED
+            assert response.status_code == HTTPStatus.OK
             data = response.json()
             assert data["pr_number"] == 42
             assert data["head_branch"] == "feature"

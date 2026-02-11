@@ -1460,6 +1460,7 @@ class TestExportYaml:
             # Check at least one node file has valid YAML structure
             for node_file in node_files[:3]:  # Check first 3 node files
                 content = zf.read(node_file).decode("utf-8")
+                print("content~", content)
                 node_data = yaml.safe_load(content)
 
                 # Node should have a name
@@ -1851,6 +1852,7 @@ async def test_delete_namespace_git_config_success(
     assert result["git_path"] is None
     assert result["parent_namespace"] is None
     assert result["git_only"] is False
+    assert result["default_branch"] is None
 
     # Delete git configuration (should succeed even though nothing is configured)
     delete_response = await module__client_with_all_examples.delete(

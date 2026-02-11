@@ -136,6 +136,40 @@ async def _create_namespace_and_copy_nodes(
     # Validate sibling relationship
     validate_sibling_relationship(new_namespace, parent_namespace)
 
+    # Ensure parent namespace exists before creating child
+    # This prevents foreign key violations
+    parent_ns = await NodeNamespace.get(
+        session,
+        parent_namespace,
+        raise_if_not_exists=False,
+    )
+    if not parent_ns:
+        # Parent doesn't exist - create it as a git root placeholder
+        # Copy git config from the source namespace and set default_branch
+        # to the source's git_branch so PRs can resolve correctly
+        github_repo_path, git_path, _ = await resolve_git_config(
+            session,
+            root_namespace.namespace,
+        )
+        parent_ns = NodeNamespace(
+            namespace=parent_namespace,
+            github_repo_path=github_repo_path,
+            git_path=git_path,
+            default_branch=root_namespace.git_branch,  # Use source's branch as default
+        )
+        session.add(parent_ns)
+        await session.flush()  # Ensure it's in DB before creating child
+
+    # If the source namespace doesn't have this parent set, link it
+    # This ensures the source and its branches all belong to the same family
+    if (
+        root_namespace.git_branch
+        and root_namespace.parent_namespace != parent_namespace
+    ):
+        root_namespace.parent_namespace = parent_namespace
+        session.add(root_namespace)
+        await session.flush()
+
     # Create DJ namespace
     # Note: We don't copy github_repo_path or git_path - those are inherited
     # from parent via resolve_git_config(). Only set branch and parent link.
@@ -349,7 +383,7 @@ async def create_branch(
     namespace_succeeded = not isinstance(namespace_result, Exception)
 
     if not git_succeeded and not namespace_succeeded:
-        # Both failed - just report the errors
+        # Both failed - report both errors for debugging
         _logger.error(
             "Both git branch and namespace creation failed for '%s'",
             new_namespace,
@@ -362,7 +396,13 @@ async def create_branch(
     if not git_succeeded:
         # Git failed but namespace succeeded - cleanup namespace
         _logger.error("Git branch creation failed, cleaning up namespace")
-        await _cleanup_namespace_and_nodes(session, new_namespace)
+        try:
+            await _cleanup_namespace_and_nodes(session, new_namespace)
+        except Exception as cleanup_error:  # pragma: no cover
+            _logger.warning(
+                "Failed to cleanup namespace after git failure: %s",
+                cleanup_error,
+            )
         raise DJInvalidInputException(
             message=f"Failed to create git branch '{branch_name}': "
             f"{getattr(git_result, 'message', str(git_result))}",
@@ -371,7 +411,13 @@ async def create_branch(
     if not namespace_succeeded:
         # Namespace failed but git succeeded - cleanup git branch
         _logger.error("Namespace creation failed, cleaning up git branch")
-        await _cleanup_git_branch(github_repo_path, branch_name)
+        try:
+            await _cleanup_git_branch(github_repo_path, branch_name)
+        except Exception as cleanup_error:  # pragma: no cover
+            _logger.warning(
+                "Failed to cleanup git branch after namespace failure: %s",
+                cleanup_error,
+            )
         raise DJInvalidInputException(
             message=f"Failed to create namespace '{new_namespace}': {namespace_result}",
         )
@@ -404,25 +450,41 @@ async def list_branches(
     """
     List all branch namespaces that were created from this namespace.
 
-    Returns namespaces where parent_namespace equals the given namespace.
+    Returns:
+    - Direct children: where parent_namespace equals the given namespace (git root branches)
+    - Siblings: where parent_namespace equals this namespace's parent (branch-from-branch)
     """
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Verify parent namespace exists
-    parent_ns = await get_node_namespace(session, namespace)
+    # Verify namespace exists
+    source_ns = await get_node_namespace(session, namespace)
 
-    # Query child namespaces
-    stmt = select(NodeNamespace).where(NodeNamespace.parent_namespace == namespace)
+    # Build query to find related branches
+    if source_ns.parent_namespace:
+        # This is a branch namespace - find siblings that share the same parent
+        # (excluding self)
+        stmt = (
+            select(NodeNamespace)
+            .where(NodeNamespace.parent_namespace == source_ns.parent_namespace)
+            .where(NodeNamespace.namespace != namespace)
+        )
+    else:
+        # This is a root namespace - find direct children
+        stmt = select(NodeNamespace).where(NodeNamespace.parent_namespace == namespace)
+
     result = await session.execute(stmt)
     child_namespaces = result.scalars().all()
+
+    # Resolve github_repo_path for response
+    github_repo_path, _, _ = await resolve_git_config(session, namespace)
 
     return [
         BranchInfo(
             namespace=ns.namespace,
             git_branch=ns.git_branch or "",
-            parent_namespace=namespace,
-            github_repo_path=ns.github_repo_path or parent_ns.github_repo_path or "",
+            parent_namespace=ns.parent_namespace or "",
+            github_repo_path=github_repo_path or "",
         )
         for ns in child_namespaces
     ]
@@ -464,8 +526,18 @@ async def delete_branch(
     # Get the branch namespace
     branch_ns = await get_node_namespace(session, branch_namespace)
 
-    # Verify it's actually a child of the parent
-    if branch_ns.parent_namespace != namespace:
+    # Verify it's actually related to the parent namespace
+    # Two cases are valid:
+    # 1. Direct child: branch_ns.parent_namespace == namespace (git root branches)
+    # 2. Sibling: branch_ns.parent_namespace == namespace's parent (branch-from-branch)
+    parent_ns = await get_node_namespace(session, namespace)
+    is_direct_child = branch_ns.parent_namespace == namespace
+    is_sibling = (
+        parent_ns.parent_namespace
+        and branch_ns.parent_namespace == parent_ns.parent_namespace
+    )
+
+    if not (is_direct_child or is_sibling):
         raise DJInvalidInputException(
             message=f"Namespace '{branch_namespace}' is not a branch of '{namespace}'.",
         )
