@@ -1003,7 +1003,8 @@ def _get_yaml_handler():
     yaml_handler = YAML()
     yaml_handler.default_flow_style = False
     yaml_handler.width = 120
-    yaml_handler.indent(mapping=2, sequence=2, offset=0)
+    # Don't set offset - it breaks list item indentation in ruamel.yaml
+    yaml_handler.indent(mapping=2, sequence=4, offset=2)
     return yaml_handler
 
 
@@ -1222,12 +1223,12 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
                            If False (default), only include columns with meaningful customizations.
 
     For columns:
-    - Cubes: columns are always excluded (they're inferred from metrics/dimensions)
+    - Cubes: only export columns that have partitions set (all other columns are inferred)
     - Other nodes:
       - If include_all_columns=True: include all columns (but exclude types)
       - If include_all_columns=False: only includes columns with meaningful customizations
-        (display_name different from name, attributes, description, or partition).
-    - Column types are always excluded - let DJ infer them from the query/source.
+        (display_name different from default, attributes, description, or partition).
+    - Column types and order are always excluded - let DJ infer them from the query/source.
     """
     # Use model_dump with mode="json" to convert Enums to strings
     # Note: Don't use exclude_unset=True as it would exclude discriminator fields
@@ -1238,58 +1239,117 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         exclude={"namespace"},  # namespace is part of file path, not content
     )
 
-    # Cubes should never have columns in export - they're inferred from metrics/dimensions
-    if data.get("node_type") == "cube":
-        data.pop("columns", None)
-    # For other nodes, filter columns to only include meaningful customizations
-    # UNLESS include_all_columns=True (when merging with existing YAML to preserve comments)
-    elif "columns" in data and data["columns"] and not include_all_columns:
-        filtered_columns = []
-        for col in data["columns"]:
-            # Check for meaningful customizations
-            has_custom_display = col.get("display_name") and col.get(
-                "display_name",
-            ) != col.get("name")
-            has_attributes = bool(col.get("attributes"))
-            has_description = bool(col.get("description"))
-            has_partition = bool(col.get("partition"))
+    # Filter columns to only include meaningful customizations
+    # Special case for cubes: ALWAYS only export columns with partitions
+    # For other nodes: respect include_all_columns flag to preserve comments
+    if "columns" in data and data["columns"] is not None:
+        from datajunction_server.models.base import labelize
 
-            if has_custom_display or has_attributes or has_description or has_partition:
-                # Include column but exclude type (let DJ infer)
-                filtered_col = {
+        is_cube = data.get("node_type") == "cube"
+
+        # Cubes: always filter to only partitions (even when preserving comments)
+        # Other nodes: only filter when include_all_columns=False
+        should_filter = is_cube or not include_all_columns
+
+        if should_filter:
+            filtered_columns = []
+
+            for col in data["columns"]:
+                # Check for meaningful customizations
+                # For display_name, check if it's different from both the full name AND the default
+                col_name = col.get("name", "")
+                display_name = col.get("display_name")
+                default_display = (
+                    labelize(col_name.split(".")[-1]) if col_name else None
+                )
+                has_custom_display = (
+                    display_name
+                    and display_name != col_name
+                    and display_name != default_display
+                )
+                has_attributes = bool(col.get("attributes"))
+                has_description = bool(col.get("description"))
+                has_partition = bool(col.get("partition"))
+
+                # For cubes: only include columns with partitions
+                # For other nodes: include columns with any customization
+                if is_cube:
+                    should_include = has_partition
+                else:
+                    should_include = (
+                        has_custom_display
+                        or has_attributes
+                        or has_description
+                        or has_partition
+                    )
+
+                if should_include:
+                    # Include column but exclude type and order (let DJ infer)
+                    filtered_col = {
+                        k: v
+                        for k, v in col.items()
+                        if k not in ("type", "order")
+                        and v is not None  # Exclude type, order and None values
+                        and v != []  # Exclude empty lists
+                        and v != {}  # Exclude empty dicts
+                    }
+                    filtered_columns.append(filtered_col)
+
+            if filtered_columns:
+                data["columns"] = filtered_columns
+            else:
+                # Remove columns entirely if none have customizations
+                del data["columns"]
+        else:
+            # include_all_columns=True for non-cube nodes (preserve all columns for comment merging)
+            data["columns"] = [
+                {
                     k: v
                     for k, v in col.items()
-                    if k != "type" and v  # Exclude type and empty values
+                    if k not in ("type", "order")
+                    and v is not None
+                    and v != []  # Exclude empty lists
+                    and v != {}  # Exclude empty dicts
                 }
-                filtered_columns.append(filtered_col)
-
-        if filtered_columns:
-            data["columns"] = filtered_columns
-        else:
-            # Remove columns entirely if none have customizations
-            del data["columns"]
-    elif "columns" in data and data["columns"] and include_all_columns:
-        # When preserving comments, include all columns but still exclude types
-        data["columns"] = [
-            {k: v for k, v in col.items() if k != "type" and v}
-            for col in data["columns"]
-        ]
+                for col in data["columns"]
+            ]
+    elif "columns" in data and data["columns"] is None:  # pragma: no cover
+        # If columns is explicitly None, remove it
+        del data["columns"]
 
     # Remove empty lists/dicts for cleaner YAML
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
 
     # Clean up multiline strings by stripping trailing whitespace from each line
-    # ruamel.yaml will automatically use literal block style for multiline strings
+    # Use LiteralScalarString to force literal block style (|) for multiline queries
     if "query" in data and data["query"]:
-        data["query"] = "\n".join(line.rstrip() for line in data["query"].split("\n"))
+        from ruamel.yaml.scalarstring import LiteralScalarString
+
+        cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
+        # Strip any trailing newlines to ensure proper YAML parsing
+        cleaned_query = cleaned_query.rstrip("\n")
+        # Only use literal block style if it's actually multiline
+        if "\n" in cleaned_query:
+            data["query"] = LiteralScalarString(cleaned_query)
+        else:
+            data["query"] = cleaned_query
 
     # Also clean join_on in dimension_links
     if "dimension_links" in data:
+        from ruamel.yaml.scalarstring import LiteralScalarString
+
         for link in data["dimension_links"]:
             if "join_on" in link and link["join_on"]:
-                link["join_on"] = "\n".join(
+                cleaned_join = "\n".join(
                     line.rstrip() for line in link["join_on"].split("\n")
                 )
+                # Strip any trailing newlines to ensure proper YAML parsing
+                cleaned_join = cleaned_join.rstrip("\n")
+                # Use literal block style for multiline join conditions
+                if "\n" in cleaned_join:  # pragma: no cover
+                    link["join_on"] = LiteralScalarString(cleaned_join)
+                else:
+                    link["join_on"] = cleaned_join
 
     return data
 

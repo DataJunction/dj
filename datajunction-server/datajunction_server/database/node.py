@@ -72,7 +72,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
-from datajunction_server.naming import amenable_name, from_amenable_name
+from datajunction_server.naming import amenable_name
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, execute_with_retry
 
@@ -385,6 +385,7 @@ class Node(Base):
                 query=self.current.query,
             )
 
+        # Export columns for all nodes that have them
         if self.type in (
             NodeType.TRANSFORM,
             NodeType.DIMENSION,
@@ -1325,10 +1326,12 @@ class NodeRevision(
         """
         if self.type != NodeType.CUBE:
             return []  # pragma: no cover
+        # Build set of metric node names to exclude from dimensions
+        # For metrics, cube columns use the full node name (e.g., "demo.metrics.total_thumbs")
         cube_metrics = {
-            from_amenable_name(elem.name): node
+            node.name: node
             for elem, node in self.cube_elements_with_nodes()
-            if node.type == NodeType.METRIC  # type: ignore
+            if node and node.type == NodeType.METRIC  # type: ignore
         }
         res = [
             element.name + (element.dimension_column or "")

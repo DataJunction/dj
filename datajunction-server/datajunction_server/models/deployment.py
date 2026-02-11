@@ -73,6 +73,10 @@ class ColumnSpec(BaseModel):
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
     partition: PartitionSpec | None = None
+    order: int | None = Field(
+        default=None,
+        exclude=True,
+    )  # Internal use only, not serialized
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, ColumnSpec):
@@ -610,6 +614,7 @@ class NamespaceGitConfig(BaseModel):
     github_repo_path: str | None = None  # e.g., "owner/repo"
     git_branch: str | None = None  # e.g., "main" or "feature-x"
     git_path: str | None = None  # e.g., "definitions/" - subdirectory within repo
+    default_branch: str | None = None  # Default branch for git roots (e.g., "main")
     parent_namespace: str | None = None  # Links branch namespaces to parent
     git_only: bool | None = None  # If True, UI edits blocked; must edit via git
 

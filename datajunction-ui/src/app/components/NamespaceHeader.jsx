@@ -24,6 +24,7 @@ export default function NamespaceHeader({
   const [gitConfigLoading, setGitConfigLoading] = useState(true);
   const [parentGitConfig, setParentGitConfig] = useState(null);
   const [existingPR, setExistingPR] = useState(null);
+  const [prLoading, setPrLoading] = useState(false);
 
   // Modal states
   const [showGitSettings, setShowGitSettings] = useState(false);
@@ -35,6 +36,8 @@ export default function NamespaceHeader({
   useEffect(() => {
     // Reset loading state when namespace changes
     setGitConfigLoading(true);
+    setPrLoading(false);
+    setExistingPR(null);
 
     const fetchData = async () => {
       if (namespace) {
@@ -74,12 +77,15 @@ export default function NamespaceHeader({
             }
 
             // Check for existing PR
+            setPrLoading(true);
             try {
               const pr = await djClient.getPullRequest(namespace);
               setExistingPR(pr);
             } catch (e) {
               // No PR or error - that's fine
               setExistingPR(null);
+            } finally {
+              setPrLoading(false);
             }
           }
         } catch (e) {
@@ -116,6 +122,8 @@ export default function NamespaceHeader({
     gitConfig?.github_repo_path ||
     (gitConfig?.parent_namespace && gitConfig?.git_branch);
   const isBranchNamespace = !!gitConfig?.parent_namespace;
+  const isGitRoot = gitConfig?.github_repo_path && !gitConfig?.parent_namespace;
+  const canCreateBranches = isGitRoot && gitConfig?.default_branch;
 
   // Handlers for git operations
   const handleSaveGitConfig = async config => {
@@ -189,266 +197,199 @@ export default function NamespaceHeader({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 12px 12px 20px',
-        marginBottom: '16px',
-        borderTop: '1px solid #e2e8f0',
-        borderBottom: '1px solid #e2e8f0',
-        background: '#ffffff',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
+    <>
+      <style>
+        {`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 12px 12px 20px',
+          marginBottom: '16px',
+          borderTop: '1px solid #e2e8f0',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#ffffff',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              fill="currentColor"
+              viewBox="0 0 16 16"
+            >
+              <path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5 8 5.961 14.154 3.5 8.186 1.113zM15 4.239l-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923l6.5 2.6zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464L7.443.184z" />
+            </svg>
+          </a>
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            fill="currentColor"
+            width="12"
+            height="12"
+            fill="#6c757d"
             viewBox="0 0 16 16"
           >
-            <path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5 8 5.961 14.154 3.5 8.186 1.113zM15 4.239l-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923l6.5 2.6zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464L7.443.184z" />
+            <path
+              fillRule="evenodd"
+              d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
+            />
           </svg>
-        </a>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="12"
-          height="12"
-          fill="#6c757d"
-          viewBox="0 0 16 16"
-        >
-          <path
-            fillRule="evenodd"
-            d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-          />
-        </svg>
-        {namespace ? (
-          namespaceParts.map((part, index, arr) => (
-            <span
-              key={index}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <a
-                href={`/namespaces/${arr.slice(0, index + 1).join('.')}`}
+          {namespace ? (
+            namespaceParts.map((part, index, arr) => (
+              <span
+                key={index}
                 style={{
-                  fontWeight: '400',
-                  color: '#1e293b',
-                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
               >
-                {part}
-              </a>
-              {index < arr.length - 1 && (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="12"
-                  height="12"
-                  fill="#94a3b8"
-                  viewBox="0 0 16 16"
+                <a
+                  href={`/namespaces/${arr.slice(0, index + 1).join('.')}`}
+                  style={{
+                    fontWeight: '400',
+                    color: '#1e293b',
+                    textDecoration: 'none',
+                  }}
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-                  />
-                </svg>
-              )}
+                  {part}
+                </a>
+                {index < arr.length - 1 && (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="12"
+                    height="12"
+                    fill="#94a3b8"
+                    viewBox="0 0 16 16"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
+                    />
+                  </svg>
+                )}
+              </span>
+            ))
+          ) : (
+            <span style={{ fontWeight: '600', color: '#1e293b' }}>
+              All Namespaces
             </span>
-          ))
-        ) : (
-          <span style={{ fontWeight: '600', color: '#1e293b' }}>
-            All Namespaces
-          </span>
-        )}
+          )}
 
-        {/* Branch indicator */}
-        {isBranchNamespace && (
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
-              backgroundColor: '#dbeafe',
-              borderRadius: '12px',
-              fontSize: '11px',
-              color: '#1e40af',
-              marginLeft: '4px',
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
-            Branch of{' '}
-            <a
-              href={`/namespaces/${gitConfig.parent_namespace}`}
-              style={{ color: '#1e40af', textDecoration: 'underline' }}
-            >
-              {gitConfig.parent_namespace}
-            </a>
-          </span>
-        )}
-
-        {/* Git-only (read-only) indicator */}
-        {gitConfig?.git_only && (
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
-              backgroundColor: '#fef3c7',
-              borderRadius: '12px',
-              fontSize: '11px',
-              color: '#92400e',
-              marginLeft: '4px',
-            }}
-            title="This namespace is git-only. Changes must be made via git and deployed."
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            Read-only
-          </span>
-        )}
-
-        {/* Deployment badge + dropdown (existing functionality) */}
-        {sources && sources.total_deployments > 0 && (
-          <div
-            style={{ position: 'relative', marginLeft: '8px' }}
-            ref={dropdownRef}
-          >
-            <button
-              onClick={() =>
-                setDeploymentsDropdownOpen(!deploymentsDropdownOpen)
-              }
+          {/* Branch indicator */}
+          {isBranchNamespace && (
+            <span
               style={{
-                height: '32px',
-                padding: '0 12px',
-                fontSize: '12px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: '#ffffff',
-                color: '#0b3d91',
-                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                whiteSpace: 'nowrap',
+                padding: '2px 8px',
+                backgroundColor: '#dbeafe',
+                borderRadius: '12px',
+                fontSize: '11px',
+                color: '#1e40af',
+                marginLeft: '4px',
               }}
             >
-              {sources.primary_source?.type === 'git' ? (
-                <>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="6" y1="3" x2="6" y2="15"></line>
-                    <circle cx="18" cy="6" r="3"></circle>
-                    <circle cx="6" cy="18" r="3"></circle>
-                    <path d="M18 9a9 9 0 0 1-9 9"></path>
-                  </svg>
-                  Deployed from Git
-                </>
-              ) : (
-                <>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="7" r="4" />
-                    <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
-                  </svg>
-                  Local Deploy
-                </>
-              )}
-              <span style={{ fontSize: '8px' }}>
-                {deploymentsDropdownOpen ? '▲' : '▼'}
-              </span>
-            </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="6" y1="3" x2="6" y2="15" />
+                <circle cx="18" cy="6" r="3" />
+                <circle cx="6" cy="18" r="3" />
+                <path d="M18 9a9 9 0 0 1-9 9" />
+              </svg>
+              Branch of{' '}
+              <a
+                href={`/namespaces/${gitConfig.parent_namespace}`}
+                style={{ color: '#1e40af', textDecoration: 'underline' }}
+              >
+                {gitConfig.parent_namespace}
+              </a>
+            </span>
+          )}
 
-            {deploymentsDropdownOpen && (
-              <div
+          {/* Git-only (read-only) indicator */}
+          {gitConfig?.git_only && (
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                backgroundColor: '#fef3c7',
+                borderRadius: '12px',
+                fontSize: '11px',
+                color: '#92400e',
+                marginLeft: '4px',
+              }}
+              title="This namespace is git-only. Changes must be made via git and deployed."
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Read-only
+            </span>
+          )}
+
+          {/* Deployment badge + dropdown (existing functionality) */}
+          {sources && sources.total_deployments > 0 && (
+            <div
+              style={{ position: 'relative', marginLeft: '8px' }}
+              ref={dropdownRef}
+            >
+              <button
+                onClick={() =>
+                  setDeploymentsDropdownOpen(!deploymentsDropdownOpen)
+                }
                 style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: '4px',
-                  padding: '12px',
-                  backgroundColor: 'white',
-                  border: '1px solid #ddd',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: 'max-content',
+                  height: '32px',
+                  padding: '0 12px',
+                  fontSize: '12px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  backgroundColor: '#ffffff',
+                  color: '#0b3d91',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {sources.primary_source?.type === 'git' ? (
-                  <a
-                    href={
-                      sources.primary_source.repository?.startsWith('http')
-                        ? sources.primary_source.repository
-                        : `https://${sources.primary_source.repository}`
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '13px',
-                      fontWeight: 400,
-                      textDecoration: 'none',
-                      marginBottom: '12px',
-                    }}
-                  >
+                  <>
                     <svg
-                      width="16"
-                      height="16"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -456,30 +397,19 @@ export default function NamespaceHeader({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <line x1="6" y1="3" x2="6" y2="15" />
-                      <circle cx="18" cy="6" r="3" />
-                      <circle cx="6" cy="18" r="3" />
-                      <path d="M18 9a9 9 0 0 1-9 9" />
+                      <line x1="6" y1="3" x2="6" y2="15"></line>
+                      <circle cx="18" cy="6" r="3"></circle>
+                      <circle cx="6" cy="18" r="3"></circle>
+                      <path d="M18 9a9 9 0 0 1-9 9"></path>
                     </svg>
-                    {sources.primary_source.repository}
-                    {sources.primary_source.branch &&
-                      ` (${sources.primary_source.branch})`}
-                  </a>
+                    Deployed from Git
+                  </>
                 ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: '#0b3d91',
-                      marginBottom: '12px',
-                    }}
-                  >
+                  <>
                     <svg
-                      width="16"
-                      height="16"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -490,202 +420,268 @@ export default function NamespaceHeader({
                       <circle cx="12" cy="7" r="4" />
                       <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
                     </svg>
-                    {recentDeployments?.[0]?.created_by
-                      ? `Local deploys by ${recentDeployments[0].created_by}`
-                      : 'Local/adhoc deployments'}
-                  </div>
+                    Local Deploy
+                  </>
                 )}
+                <span style={{ fontSize: '8px' }}>
+                  {deploymentsDropdownOpen ? '▲' : '▼'}
+                </span>
+              </button>
 
-                {/* Separator */}
+              {deploymentsDropdownOpen && (
                 <div
                   style={{
-                    height: '1px',
-                    backgroundColor: '#e2e8f0',
-                    marginBottom: '8px',
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '4px',
+                    padding: '12px',
+                    backgroundColor: 'white',
+                    border: '1px solid #ddd',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    minWidth: 'max-content',
                   }}
-                />
-
-                {/* Recent deployments list */}
-                {recentDeployments?.length > 0 ? (
-                  recentDeployments.map((d, idx) => {
-                    const isGit = d.source?.type === 'git';
-                    const statusColor =
-                      d.status === 'success'
-                        ? '#22c55e'
-                        : d.status === 'failed'
-                        ? '#ef4444'
-                        : '#94a3b8';
-
-                    const commitUrl =
-                      isGit && d.source?.repository && d.source?.commit_sha
-                        ? `${
-                            d.source.repository.startsWith('http')
-                              ? d.source.repository
-                              : `https://${d.source.repository}`
-                          }/commit/${d.source.commit_sha}`
-                        : null;
-
-                    const detail = isGit
-                      ? d.source?.branch || 'main'
-                      : d.source?.reason || d.source?.hostname || 'adhoc';
-
-                    const shortSha = d.source?.commit_sha?.slice(0, 7);
-
-                    return (
-                      <div
-                        key={`${d.uuid}-${idx}`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '18px 1fr auto',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '6px 0',
-                          borderBottom:
-                            idx === recentDeployments.length - 1
-                              ? 'none'
-                              : '1px solid #f1f5f9',
-                          fontSize: '12px',
-                        }}
+                >
+                  {sources.primary_source?.type === 'git' ? (
+                    <a
+                      href={
+                        sources.primary_source.repository?.startsWith('http')
+                          ? sources.primary_source.repository
+                          : `https://${sources.primary_source.repository}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        fontWeight: 400,
+                        textDecoration: 'none',
+                        marginBottom: '12px',
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        {/* Status dot */}
-                        <div
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            borderRadius: '50%',
-                            backgroundColor: statusColor,
-                          }}
-                          title={d.status}
-                        />
+                        <line x1="6" y1="3" x2="6" y2="15" />
+                        <circle cx="18" cy="6" r="3" />
+                        <circle cx="6" cy="18" r="3" />
+                        <path d="M18 9a9 9 0 0 1-9 9" />
+                      </svg>
+                      {sources.primary_source.repository}
+                      {sources.primary_source.branch &&
+                        ` (${sources.primary_source.branch})`}
+                    </a>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: '#0b3d91',
+                        marginBottom: '12px',
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="7" r="4" />
+                        <path d="M5.5 21a6.5 6.5 0 0 1 13 0Z" />
+                      </svg>
+                      {recentDeployments?.[0]?.created_by
+                        ? `Local deploys by ${recentDeployments[0].created_by}`
+                        : 'Local/adhoc deployments'}
+                    </div>
+                  )}
 
-                        {/* User + detail */}
+                  {/* Separator */}
+                  <div
+                    style={{
+                      height: '1px',
+                      backgroundColor: '#e2e8f0',
+                      marginBottom: '8px',
+                    }}
+                  />
+
+                  {/* Recent deployments list */}
+                  {recentDeployments?.length > 0 ? (
+                    recentDeployments.map((d, idx) => {
+                      const isGit = d.source?.type === 'git';
+                      const statusColor =
+                        d.status === 'success'
+                          ? '#22c55e'
+                          : d.status === 'failed'
+                          ? '#ef4444'
+                          : '#94a3b8';
+
+                      const commitUrl =
+                        isGit && d.source?.repository && d.source?.commit_sha
+                          ? `${
+                              d.source.repository.startsWith('http')
+                                ? d.source.repository
+                                : `https://${d.source.repository}`
+                            }/commit/${d.source.commit_sha}`
+                          : null;
+
+                      const detail = isGit
+                        ? d.source?.branch || 'main'
+                        : d.source?.reason || d.source?.hostname || 'adhoc';
+
+                      const shortSha = d.source?.commit_sha?.slice(0, 7);
+
+                      return (
                         <div
+                          key={`${d.uuid}-${idx}`}
                           style={{
-                            display: 'flex',
+                            display: 'grid',
+                            gridTemplateColumns: '18px 1fr auto',
                             alignItems: 'center',
-                            gap: '6px',
-                            minWidth: 0,
+                            gap: '8px',
+                            padding: '6px 0',
+                            borderBottom:
+                              idx === recentDeployments.length - 1
+                                ? 'none'
+                                : '1px solid #f1f5f9',
+                            fontSize: '12px',
                           }}
                         >
-                          <span
+                          {/* Status dot */}
+                          <div
                             style={{
-                              fontWeight: 500,
-                              color: '#0f172a',
-                              whiteSpace: 'nowrap',
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: statusColor,
+                            }}
+                            title={d.status}
+                          />
+
+                          {/* User + detail */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              minWidth: 0,
                             }}
                           >
-                            {d.created_by || 'unknown'}
-                          </span>
-                          <span style={{ color: '#cbd5e1' }}>—</span>
-                          {isGit ? (
-                            <>
+                            <span
+                              style={{
+                                fontWeight: 500,
+                                color: '#0f172a',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {d.created_by || 'unknown'}
+                            </span>
+                            <span style={{ color: '#cbd5e1' }}>—</span>
+                            {isGit ? (
+                              <>
+                                <span
+                                  style={{
+                                    color: '#64748b',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {detail}
+                                </span>
+                                {shortSha && (
+                                  <>
+                                    <span style={{ color: '#cbd5e1' }}>@</span>
+                                    {commitUrl ? (
+                                      <a
+                                        href={commitUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                          fontFamily: 'monospace',
+                                          fontSize: '11px',
+                                          color: '#3b82f6',
+                                          textDecoration: 'none',
+                                        }}
+                                      >
+                                        {shortSha}
+                                      </a>
+                                    ) : (
+                                      <span
+                                        style={{
+                                          fontFamily: 'monospace',
+                                          fontSize: '11px',
+                                          color: '#64748b',
+                                        }}
+                                      >
+                                        {shortSha}
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </>
+                            ) : (
                               <span
                                 style={{
                                   color: '#64748b',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
                                 }}
                               >
                                 {detail}
                               </span>
-                              {shortSha && (
-                                <>
-                                  <span style={{ color: '#cbd5e1' }}>@</span>
-                                  {commitUrl ? (
-                                    <a
-                                      href={commitUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{
-                                        fontFamily: 'monospace',
-                                        fontSize: '11px',
-                                        color: '#3b82f6',
-                                        textDecoration: 'none',
-                                      }}
-                                    >
-                                      {shortSha}
-                                    </a>
-                                  ) : (
-                                    <span
-                                      style={{
-                                        fontFamily: 'monospace',
-                                        fontSize: '11px',
-                                        color: '#64748b',
-                                      }}
-                                    >
-                                      {shortSha}
-                                    </span>
-                                  )}
-                                </>
-                              )}
-                            </>
-                          ) : (
-                            <span
-                              style={{
-                                color: '#64748b',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {detail}
-                            </span>
-                          )}
+                            )}
+                          </div>
+
+                          {/* Timestamp */}
+                          <span
+                            style={{
+                              color: '#94a3b8',
+                              fontSize: '11px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {new Date(d.created_at).toLocaleDateString()}
+                          </span>
                         </div>
+                      );
+                    })
+                  ) : (
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+                      No recent deployments
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-                        {/* Timestamp */}
-                        <span
-                          style={{
-                            color: '#94a3b8',
-                            fontSize: '11px',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {new Date(d.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                    No recent deployments
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Right side: git actions + children */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {/* Git controls for non-branch namespaces */}
-        {namespace && !isBranchNamespace && !gitConfigLoading && (
-          <>
-            <button
-              style={buttonStyle}
-              onClick={() => setShowGitSettings(true)}
-              title="Git Settings"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              Git Settings
-            </button>
-            {hasGitConfig ? (
+        {/* Right side: git actions + children */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Git controls for non-branch namespaces */}
+          {namespace && !isBranchNamespace && !gitConfigLoading && (
+            <>
               <button
-                style={primaryButtonStyle}
-                onClick={() => setShowCreateBranch(true)}
+                style={buttonStyle}
+                onClick={() => setShowGitSettings(true)}
+                title="Git Settings"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -698,98 +694,69 @@ export default function NamespaceHeader({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                 </svg>
-                New Branch
+                Git Settings
               </button>
-            ) : (
-              <></>
-            )}
-          </>
-        )}
+              {canCreateBranches ? (
+                <button
+                  style={primaryButtonStyle}
+                  onClick={() => setShowCreateBranch(true)}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  New Branch
+                </button>
+              ) : (
+                <></>
+              )}
+            </>
+          )}
 
-        {/* Git controls for branch namespaces */}
-        {isBranchNamespace && hasGitConfig && (
-          <>
-            <button
-              style={buttonStyle}
-              onClick={() => setShowGitSettings(true)}
-              title="Git Settings"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          {/* Git controls for branch namespaces */}
+          {isBranchNamespace && hasGitConfig && (
+            <>
+              <button
+                style={buttonStyle}
+                onClick={() => setShowGitSettings(true)}
+                title="Git Settings"
               >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              Git Settings
-            </button>
-
-            {/* Sync to Git and Create PR only for editable branches (git_only = false) */}
-            {!gitConfig?.git_only && (
-              <>
-                <button
-                  style={buttonStyle}
-                  onClick={() => setShowSyncToGit(true)}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9" />
-                  </svg>
-                  Sync to Git
-                </button>
-                {existingPR ? (
-                  <a
-                    href={existingPR.pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      ...primaryButtonStyle,
-                      textDecoration: 'none',
-                      backgroundColor: '#16a34a',
-                      borderColor: '#16a34a',
-                    }}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="18" cy="18" r="3" />
-                      <circle cx="6" cy="6" r="3" />
-                      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                      <line x1="6" y1="9" x2="6" y2="21" />
-                    </svg>
-                    View PR #{existingPR.pr_number}
-                  </a>
-                ) : (
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+                Git Settings
+              </button>
+
+              {/* Sync to Git and Create PR only for editable branches (git_only = false) */}
+              {!gitConfig?.git_only && (
+                <>
                   <button
-                    style={primaryButtonStyle}
-                    onClick={() => setShowCreatePR(true)}
+                    style={buttonStyle}
+                    onClick={() => setShowSyncToGit(true)}
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -802,95 +769,174 @@ export default function NamespaceHeader({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <circle cx="18" cy="18" r="3" />
-                      <circle cx="6" cy="6" r="3" />
-                      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                      <line x1="6" y1="9" x2="6" y2="21" />
+                      <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9" />
                     </svg>
-                    Create PR
+                    Sync to Git
                   </button>
-                )}
+                  {prLoading ? (
+                    <button
+                      style={{
+                        ...buttonStyle,
+                        cursor: 'default',
+                        opacity: 0.6,
+                      }}
+                      disabled
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ animation: 'spin 1s linear infinite' }}
+                      >
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      Checking PR...
+                    </button>
+                  ) : existingPR ? (
+                    <a
+                      href={existingPR.pr_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        ...primaryButtonStyle,
+                        textDecoration: 'none',
+                        backgroundColor: '#16a34a',
+                        borderColor: '#16a34a',
+                      }}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="18" cy="18" r="3" />
+                        <circle cx="6" cy="6" r="3" />
+                        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                        <line x1="6" y1="9" x2="6" y2="21" />
+                      </svg>
+                      View PR #{existingPR.pr_number}
+                    </a>
+                  ) : (
+                    <button
+                      style={primaryButtonStyle}
+                      onClick={() => setShowCreatePR(true)}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="18" cy="18" r="3" />
+                        <circle cx="6" cy="6" r="3" />
+                        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                        <line x1="6" y1="9" x2="6" y2="21" />
+                      </svg>
+                      Create PR
+                    </button>
+                  )}
 
-                {/* Delete Branch - only for editable branches */}
-                <button
-                  style={{
-                    ...buttonStyle,
-                    color: '#dc2626',
-                    borderColor: '#fecaca',
-                  }}
-                  onClick={() => setShowDeleteBranch(true)}
-                  title="Delete Branch"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                  {/* Delete Branch - only for editable branches */}
+                  <button
+                    style={{
+                      ...buttonStyle,
+                      color: '#dc2626',
+                      borderColor: '#fecaca',
+                    }}
+                    onClick={() => setShowDeleteBranch(true)}
+                    title="Delete Branch"
                   >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
-              </>
-            )}
-          </>
-        )}
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </>
+          )}
 
-        {/* Additional actions passed as children */}
-        {children}
+          {/* Additional actions passed as children */}
+          {children}
+        </div>
+
+        {/* Modals */}
+        <GitSettingsModal
+          isOpen={showGitSettings}
+          onClose={() => setShowGitSettings(false)}
+          onSave={handleSaveGitConfig}
+          onRemove={handleRemoveGitConfig}
+          currentConfig={gitConfig}
+          namespace={namespace}
+        />
+
+        <CreateBranchModal
+          isOpen={showCreateBranch}
+          onClose={() => setShowCreateBranch(false)}
+          onCreate={handleCreateBranch}
+          namespace={namespace}
+          gitBranch={gitConfig?.git_branch || gitConfig?.default_branch}
+          isGitRoot={isGitRoot}
+        />
+
+        <SyncToGitModal
+          isOpen={showSyncToGit}
+          onClose={() => setShowSyncToGit(false)}
+          onSync={handleSyncToGit}
+          namespace={namespace}
+          gitBranch={gitConfig?.git_branch}
+          repoPath={gitConfig?.github_repo_path}
+        />
+
+        <CreatePRModal
+          isOpen={showCreatePR}
+          onClose={() => setShowCreatePR(false)}
+          onCreate={handleCreatePR}
+          namespace={namespace}
+          gitBranch={gitConfig?.git_branch}
+          parentBranch={
+            parentGitConfig?.git_branch || parentGitConfig?.default_branch
+          }
+          repoPath={gitConfig?.github_repo_path}
+        />
+
+        <DeleteBranchModal
+          isOpen={showDeleteBranch}
+          onClose={() => setShowDeleteBranch(false)}
+          onDelete={handleDeleteBranch}
+          namespace={namespace}
+          gitBranch={gitConfig?.git_branch}
+          parentNamespace={gitConfig?.parent_namespace}
+        />
       </div>
-
-      {/* Modals */}
-      <GitSettingsModal
-        isOpen={showGitSettings}
-        onClose={() => setShowGitSettings(false)}
-        onSave={handleSaveGitConfig}
-        onRemove={handleRemoveGitConfig}
-        currentConfig={gitConfig}
-        namespace={namespace}
-      />
-
-      <CreateBranchModal
-        isOpen={showCreateBranch}
-        onClose={() => setShowCreateBranch(false)}
-        onCreate={handleCreateBranch}
-        namespace={namespace}
-        gitBranch={gitConfig?.git_branch}
-      />
-
-      <SyncToGitModal
-        isOpen={showSyncToGit}
-        onClose={() => setShowSyncToGit(false)}
-        onSync={handleSyncToGit}
-        namespace={namespace}
-        gitBranch={gitConfig?.git_branch}
-        repoPath={gitConfig?.github_repo_path}
-      />
-
-      <CreatePRModal
-        isOpen={showCreatePR}
-        onClose={() => setShowCreatePR(false)}
-        onCreate={handleCreatePR}
-        namespace={namespace}
-        gitBranch={gitConfig?.git_branch}
-        parentBranch={parentGitConfig?.git_branch}
-        repoPath={gitConfig?.github_repo_path}
-      />
-
-      <DeleteBranchModal
-        isOpen={showDeleteBranch}
-        onClose={() => setShowDeleteBranch(false)}
-        onDelete={handleDeleteBranch}
-        namespace={namespace}
-        gitBranch={gitConfig?.git_branch}
-        parentNamespace={gitConfig?.parent_namespace}
-      />
-    </div>
+    </>
   );
 }

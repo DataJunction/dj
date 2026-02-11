@@ -53,6 +53,12 @@ class NodeNamespace(Base):
         default=None,
     )  # e.g., "definitions/" - subdirectory within repo
 
+    default_branch: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        default=None,
+    )  # Default branch for git root namespaces (e.g., "main") - used as source when creating new branches
+
     parent_namespace: Mapped[Optional[str]] = mapped_column(
         ForeignKey("nodenamespace.namespace", ondelete="RESTRICT"),
         nullable=True,

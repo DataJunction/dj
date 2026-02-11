@@ -551,9 +551,9 @@ describe('<NamespaceHeader />', () => {
       listDeployments: jest.fn().mockResolvedValue([]),
       getNamespaceGitConfig: jest.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
-        git_branch: 'main',
         git_path: 'nodes/',
-        git_only: false,
+        default_branch: 'main',
+        // No git_branch or parent_namespace - this is a git root with default_branch
       }),
     };
 
@@ -565,7 +565,7 @@ describe('<NamespaceHeader />', () => {
       </MemoryRouter>,
     );
 
-    // For non-branch namespaces, button is labeled "New Branch"
+    // For git root namespaces with default_branch, button is labeled "New Branch"
     await waitFor(() => {
       expect(screen.getByText('New Branch')).toBeInTheDocument();
     });
@@ -627,9 +627,9 @@ describe('<NamespaceHeader />', () => {
       listDeployments: jest.fn().mockResolvedValue([]),
       getNamespaceGitConfig: jest.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
-        git_branch: 'main',
         git_path: 'nodes/',
-        git_only: false,
+        default_branch: 'main',
+        // No git_branch or parent_namespace - this is a git root with default_branch
       }),
     };
 
@@ -763,13 +763,13 @@ describe('<NamespaceHeader />', () => {
       listDeployments: jest.fn().mockResolvedValue([]),
       getNamespaceGitConfig: jest.fn().mockResolvedValue({
         github_repo_path: 'test/repo',
-        git_branch: 'main',
         git_path: 'nodes/',
-        git_only: false,
+        default_branch: 'main',
+        // No git_branch or parent_namespace - this is a git root
       }),
       createBranch: jest.fn().mockResolvedValue({
         branch: {
-          namespace: 'test.feature_xyz',
+          namespace: 'test.namespace.feature_xyz',
           git_branch: 'feature-xyz',
           parent_namespace: 'test.namespace',
         },

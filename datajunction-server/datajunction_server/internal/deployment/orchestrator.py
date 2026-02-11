@@ -1800,7 +1800,11 @@ class DeploymentOrchestrator:
         ):
             new_revision.query = result.spec.rendered_query
             new_revision.columns = [
-                self._create_column_from_spec(col, pk_columns, order=idx)
+                self._create_column_from_spec(
+                    col,
+                    pk_columns,
+                    order=col.order if col.order is not None else idx,
+                )
                 for idx, col in enumerate(result.inferred_columns)
             ]
 
@@ -1814,7 +1818,11 @@ class DeploymentOrchestrator:
             new_revision.schema_ = schema
             new_revision.table = table
             new_revision.columns = [
-                self._create_column_from_spec(col, pk_columns, order=idx)
+                self._create_column_from_spec(
+                    col,
+                    pk_columns,
+                    order=col.order if col.order is not None else idx,
+                )
                 for idx, col in enumerate(result.spec.columns)
             ]
 
