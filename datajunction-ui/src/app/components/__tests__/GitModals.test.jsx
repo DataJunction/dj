@@ -771,8 +771,8 @@ describe('<GitSettingsModal />', () => {
     expect(screen.getByText('Git Configuration')).toBeInTheDocument();
     expect(screen.getByLabelText(/Repository/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Path/)).toBeInTheDocument();
-    // Branch field should NOT be present in git root mode
-    expect(screen.queryByLabelText(/Branch/)).not.toBeInTheDocument();
+    // Branch field (from branch mode) should NOT be present in git root mode
+    expect(screen.queryByLabelText(/^Branch \*/)).not.toBeInTheDocument();
   });
 
   it('should pre-fill form with git root config', () => {
@@ -785,8 +785,8 @@ describe('<GitSettingsModal />', () => {
 
     expect(screen.getByLabelText(/Repository/)).toHaveValue('myorg/repo');
     expect(screen.getByLabelText(/Path/)).toHaveValue('definitions/');
-    // Branch field should NOT be present in git root mode
-    expect(screen.queryByLabelText(/Branch/)).not.toBeInTheDocument();
+    // Branch field (from branch mode) should NOT be present in git root mode
+    expect(screen.queryByLabelText(/^Branch \*/)).not.toBeInTheDocument();
   });
 
   it('should pre-fill git_only checkbox from branch namespace config', () => {
@@ -831,6 +831,7 @@ describe('<GitSettingsModal />', () => {
 
     await waitFor(() => {
       expect(defaultProps.onSave).toHaveBeenCalledWith({
+        default_branch: 'main',
         github_repo_path: 'myorg/repo',
         git_path: 'nodes/',
       });
