@@ -73,7 +73,10 @@ class ColumnSpec(BaseModel):
     description: str | None = None
     attributes: list[str] = Field(default_factory=list)
     partition: PartitionSpec | None = None
-    order: int | None = None  # Column order for consistent output
+    order: int | None = Field(
+        default=None,
+        exclude=True,
+    )  # Internal use only, not serialized
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, ColumnSpec):

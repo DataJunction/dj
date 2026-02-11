@@ -430,6 +430,9 @@ async def get_pull_request(
     """
     Check if a pull request exists for this branch namespace.
 
+    If the parent is a git root (has default_branch), searches for a PR targeting
+    the parent's default_branch namespace (e.g., parent.main).
+
     Returns the PR info if one exists, or null if no PR exists.
     """
     access_checker.add_namespace(namespace, ResourceAction.READ)
@@ -446,11 +449,19 @@ async def get_pull_request(
         return None  # No git configured
 
     # Resolve parent's git branch
+    # If parent is a git root (has default_branch but no git_branch), target the default_branch namespace
+    parent_ns_obj = await get_node_namespace(session, namespace_obj.parent_namespace)
+    target_namespace = namespace_obj.parent_namespace
+
+    if parent_ns_obj.default_branch and not parent_ns_obj.git_branch:
+        # Parent is a git root - target the default_branch namespace (e.g., "demo.metrics.main")
+        target_namespace = f"{namespace_obj.parent_namespace}{SEPARATOR}{parent_ns_obj.default_branch.replace('-', '_').replace('/', '_')}"
+
     _, _, parent_git_branch = await resolve_git_config(
         session,
-        namespace_obj.parent_namespace,
+        target_namespace,
     )
-    if not parent_git_branch:  # Parent has no git branch
+    if not parent_git_branch:  # Target namespace has no git branch
         return None  # pragma: no cover
 
     try:

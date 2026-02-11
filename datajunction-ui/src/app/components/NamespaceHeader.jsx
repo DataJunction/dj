@@ -24,6 +24,7 @@ export default function NamespaceHeader({
   const [gitConfigLoading, setGitConfigLoading] = useState(true);
   const [parentGitConfig, setParentGitConfig] = useState(null);
   const [existingPR, setExistingPR] = useState(null);
+  const [prLoading, setPrLoading] = useState(false);
 
   // Modal states
   const [showGitSettings, setShowGitSettings] = useState(false);
@@ -35,6 +36,8 @@ export default function NamespaceHeader({
   useEffect(() => {
     // Reset loading state when namespace changes
     setGitConfigLoading(true);
+    setPrLoading(false);
+    setExistingPR(null);
 
     const fetchData = async () => {
       if (namespace) {
@@ -74,12 +77,15 @@ export default function NamespaceHeader({
             }
 
             // Check for existing PR
+            setPrLoading(true);
             try {
               const pr = await djClient.getPullRequest(namespace);
               setExistingPR(pr);
             } catch (e) {
               // No PR or error - that's fine
               setExistingPR(null);
+            } finally {
+              setPrLoading(false);
             }
           }
         } catch (e) {
@@ -191,18 +197,27 @@ export default function NamespaceHeader({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 12px 12px 20px',
-        marginBottom: '16px',
-        borderTop: '1px solid #e2e8f0',
-        borderBottom: '1px solid #e2e8f0',
-        background: '#ffffff',
-      }}
-    >
+    <>
+      <style>
+        {`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 12px 12px 20px',
+          marginBottom: '16px',
+          borderTop: '1px solid #e2e8f0',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#ffffff',
+        }}
+      >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center' }}>
           <svg
@@ -758,7 +773,32 @@ export default function NamespaceHeader({
                   </svg>
                   Sync to Git
                 </button>
-                {existingPR ? (
+                {prLoading ? (
+                  <button
+                    style={{
+                      ...buttonStyle,
+                      cursor: 'default',
+                      opacity: 0.6,
+                    }}
+                    disabled
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ animation: 'spin 1s linear infinite' }}
+                    >
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    Checking PR...
+                  </button>
+                ) : existingPR ? (
                   <a
                     href={existingPR.pr_url}
                     target="_blank"
@@ -896,6 +936,7 @@ export default function NamespaceHeader({
         gitBranch={gitConfig?.git_branch}
         parentNamespace={gitConfig?.parent_namespace}
       />
-    </div>
+      </div>
+    </>
   );
 }
