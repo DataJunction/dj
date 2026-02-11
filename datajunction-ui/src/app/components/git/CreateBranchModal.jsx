@@ -9,6 +9,7 @@ export function CreateBranchModal({
   onCreate,
   namespace,
   gitBranch,
+  isGitRoot,
 }) {
   const [branchName, setBranchName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -16,10 +17,22 @@ export function CreateBranchModal({
   const [result, setResult] = useState(null);
 
   // Convert branch name to expected namespace suffix for preview
+  // If creating from git root (e.g., "demo.metrics"), use full namespace as prefix: "demo.metrics.rr"
+  // If creating from branch namespace (e.g., "demo.main"), use parent prefix: "demo.rr"
   const previewNamespace = branchName
-    ? `${namespace.split('.').slice(0, -1).join('.') || namespace}.${branchName
-        .replace(/-/g, '_')
-        .replace(/\//g, '_')}`
+    ? (() => {
+        const branchSuffix = branchName.replace(/-/g, '_').replace(/\//g, '_');
+        if (isGitRoot) {
+          // Git root: use full namespace as prefix
+          return `${namespace}.${branchSuffix}`;
+        } else {
+          // Branch namespace: remove last segment to get parent prefix
+          const parts = namespace.split('.');
+          const prefix =
+            parts.length > 1 ? parts.slice(0, -1).join('.') : namespace;
+          return `${prefix}.${branchSuffix}`;
+        }
+      })()
     : '';
 
   const handleSubmit = async e => {

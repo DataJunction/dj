@@ -615,6 +615,7 @@ async def get_namespace_git_config(
         github_repo_path=resolved_repo,
         git_path=resolved_path,
         git_branch=resolved_branch,
+        default_branch=node_namespace.default_branch,
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,
     )
@@ -783,6 +784,8 @@ async def update_namespace_git_config(
         node_namespace.git_branch = config.git_branch or None
     if config.git_path is not None:
         node_namespace.git_path = config.git_path or None
+    if config.default_branch is not None:
+        node_namespace.default_branch = config.default_branch or None
     if config.parent_namespace is not None:
         node_namespace.parent_namespace = config.parent_namespace or None
     if config.git_only is not None:
@@ -810,6 +813,7 @@ async def update_namespace_git_config(
         github_repo_path=resolved_repo,
         git_path=resolved_path,
         git_branch=resolved_branch,
+        default_branch=node_namespace.default_branch,
         parent_namespace=node_namespace.parent_namespace,
         git_only=node_namespace.git_only,
     )
@@ -833,6 +837,7 @@ async def delete_namespace_git_config(
     node_namespace.git_branch = None
     node_namespace.github_repo_path = None
     node_namespace.git_path = None
+    node_namespace.default_branch = None
     node_namespace.parent_namespace = None
     node_namespace.git_only = False
 

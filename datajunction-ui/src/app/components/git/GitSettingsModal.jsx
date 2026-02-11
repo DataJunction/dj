@@ -20,6 +20,7 @@ export function GitSettingsModal({
   const [repoPath, setRepoPath] = useState('');
   const [branch, setBranch] = useState('');
   const [path, setPath] = useState('');
+  const [defaultBranch, setDefaultBranch] = useState('main');
   const [gitOnly, setGitOnly] = useState(true);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -43,6 +44,7 @@ export function GitSettingsModal({
       setRepoPath(currentConfig.github_repo_path || '');
       setBranch(currentConfig.git_branch || '');
       setPath(currentConfig.git_path || 'nodes/');
+      setDefaultBranch(currentConfig.default_branch || 'main');
 
       // git_only is only relevant for branch namespaces
       // Default to true (read-only) for new branch configs, use existing value if set
@@ -103,9 +105,10 @@ export function GitSettingsModal({
               git_only: gitOnly,
             }
           : {
-              // Git root mode: only send repo and path (no branch, no git_only)
+              // Git root mode: only send repo, path, and default_branch (no git_branch, no git_only)
               github_repo_path: repoPath.trim() || null,
               git_path: path.trim() || null,
+              default_branch: defaultBranch.trim() || null,
             };
 
       const result = await onSave(config);
@@ -332,6 +335,22 @@ export function GitSettingsModal({
                   />
                   <span className="form-hint">
                     Subdirectory within the repo for node YAML files
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="default-branch">Default Branch</label>
+                  <input
+                    id="default-branch"
+                    type="text"
+                    placeholder="main"
+                    value={defaultBranch}
+                    onChange={e => setDefaultBranch(e.target.value)}
+                    disabled={saving}
+                  />
+                  <span className="form-hint">
+                    Default branch to use when creating new branches (e.g.,
+                    "main")
                   </span>
                 </div>
               </>
