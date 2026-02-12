@@ -43,7 +43,7 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
 
     # Instrumentation and monitoring
-    "opentelemetry-instrumentation-fastapi==0.38b0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
     "line-profiler>=4.0.3",
 
     # Task queues
