@@ -6,6 +6,7 @@ import time
 from typing import Coroutine, cast
 from collections import Counter
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v2 import FullColumnName
@@ -16,8 +17,10 @@ from datajunction_server.api.helpers import (
     map_dimensions_to_roles,
 )
 from datajunction_server.database.attributetype import AttributeType
-from datajunction_server.database.partition import Partition
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import NodeRelationship
+from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.user import User, OAuthProvider
@@ -1288,12 +1291,119 @@ class DeploymentOrchestrator:
         )
         return node_revision
 
+    async def _validate_node_deletion(
+        self,
+        to_delete: list[NodeSpec],
+    ) -> dict[str, list[str]]:
+        """
+        Check if nodes being deleted are referenced by other nodes.
+        Checks both within the namespace and across all namespaces.
+        Returns a dict mapping node names to lists of nodes that reference them.
+        Empty dict means all nodes can be safely deleted.
+        """
+        if not to_delete:
+            return {}
+
+        nodes_to_delete = {node_spec.rendered_name for node_spec in to_delete}
+        # Map of deleted_node to a list of nodes that reference it
+        references: dict[str, list[str]] = {}
+
+        # Query just IDs and names of nodes being deleted (more efficient than loading full objects)
+        stmt = select(Node.id, Node.name).where(Node.name.in_(list(nodes_to_delete)))
+        result = await self.session.execute(stmt)
+        id_to_name = {node_id: node_name for node_id, node_name in result}
+        deleted_node_ids = set(id_to_name.keys())
+        if not deleted_node_ids:
+            return {}  # No nodes found to delete
+
+        # Find nodes that have any of the to-delete nodes as parents
+        # NodeRelationship: parent_id -> Node.id, child_id -> NodeRevision.id
+        # We need to find NodeRevisions that depend on deleted nodes, then get their Node
+        from datajunction_server.database.node import NodeRevision
+
+        stmt = (
+            select(NodeRevision, NodeRelationship)
+            .join(
+                NodeRelationship,
+                NodeRevision.id == NodeRelationship.child_id,
+            )
+            .where(NodeRelationship.parent_id.in_(deleted_node_ids))
+        )
+        result = await self.session.execute(stmt)
+        for child_revision, relationship in result:
+            # Get the node that owns this revision
+            child_node = child_revision.node
+            # Only count if this is the current revision of the node
+            if child_node.current != child_revision:
+                continue  # pragma: no cover
+            if child_node.name in nodes_to_delete:
+                continue
+            # Get the parent node name from id_to_name mapping
+            parent_name = id_to_name.get(relationship.parent_id)
+            if parent_name:  # pragma: no branch
+                if parent_name not in references:
+                    references[parent_name] = []
+                references[parent_name].append(child_node.name)
+
+        # Find dimension links that reference any of the to-delete nodes
+        # DimensionLink: node_revision_id -> NodeRevision.id, dimension_id -> Node.id
+        stmt = (
+            select(NodeRevision, DimensionLink)
+            .join(
+                DimensionLink,
+                NodeRevision.id == DimensionLink.node_revision_id,
+            )
+            .where(DimensionLink.dimension_id.in_(deleted_node_ids))
+        )
+        result = await self.session.execute(stmt)
+        for node_revision, link in result:
+            # Get the node that owns this revision
+            node = node_revision.node
+            # Only count if this is the current revision of the node
+            if node.current != node_revision:
+                continue  # pragma: no cover
+            if node.name in nodes_to_delete:
+                continue  # pragma: no cover
+            # Get the dimension node name from id_to_name mapping
+            dim_name = id_to_name.get(link.dimension_id)
+            if dim_name:  # pragma: no branch
+                if dim_name not in references:
+                    references[dim_name] = []
+                references[dim_name].append(f"{node.name} (dimension link)")
+
+        return references
+
     async def _delete_nodes(self, to_delete: list[NodeSpec]) -> list[DeploymentResult]:
         logger.info("Starting deletion of %d nodes", len(to_delete))
-        return [
-            await self._deploy_delete_node(node_spec.rendered_name)
-            for node_spec in to_delete
-        ]
+
+        # Check which nodes have references that would prevent deletion
+        references = await self._validate_node_deletion(to_delete)
+
+        results = []
+        for node_spec in to_delete:
+            node_name = node_spec.rendered_name
+            if node_name in references:
+                # Node has references - skip deletion and return FAILED result
+                referencing_nodes = references[node_name]
+                error_msg = (
+                    f"Cannot delete '{node_name}' - referenced by: "
+                    f"{', '.join(referencing_nodes)}"
+                )
+                logger.warning(error_msg)
+                results.append(
+                    DeploymentResult(
+                        name=node_name,
+                        deploy_type=DeploymentResult.Type.NODE,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message=error_msg,
+                    ),
+                )
+            else:
+                # Node can be safely deleted
+                results.append(await self._deploy_delete_node(node_name))
+
+        return results
 
     async def _deploy_delete_node(self, name: str) -> DeploymentResult:
         async def add_history(event, session):
@@ -1406,18 +1516,6 @@ class DeploymentOrchestrator:
                     name.startswith(dep + SEPARATOR) for name in found_dep_names
                 ):
                     continue  # pragma: no cover
-
-                # Allow missing dependencies within the namespace being deployed
-                # This supports branch creation and iterative development where nodes
-                # reference other nodes in the same namespace that haven't been created yet
-                if dep.startswith(self.deployment_spec.namespace + SEPARATOR):
-                    logger.info(
-                        "Allowing missing dependency '%s' (within namespace '%s')",
-                        dep,
-                        self.deployment_spec.namespace,
-                    )
-                    continue
-
                 missing_nodes.append(dep)
 
             if missing_nodes:
