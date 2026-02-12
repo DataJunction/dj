@@ -36,17 +36,51 @@ async def common_dimensions(
     """
     Return a list of common dimensions for a set of nodes.
     """
-    nodes = await find_nodes_by(info, nodes)  # type: ignore
-    dimensions = await get_common_dimensions(info.context["session"], nodes)  # type: ignore
-    return [
-        DimensionAttribute(  # type: ignore
-            name=dim.name,
-            attribute=dim.name.split(SEPARATOR)[-1],
-            properties=dim.properties,  # type: ignore
-            type=dim.type,  # type: ignore
+    from sqlalchemy.orm import joinedload
+    from datajunction_server.database.node import Node as DBNode
+    from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+    from datajunction_server.api.graphql.utils import extract_fields
+    from datajunction_server.utils import session_context
+
+    # Use a fresh session to avoid concurrent access issues with the shared context session
+    async with session_context(info.context["request"]) as session:
+        # Manually call DBNode.find_by with explicit eager loading of 'current' relationship
+        # This prevents concurrent session access errors when get_common_dimensions
+        # needs to access node.current later
+        nodes_list = await DBNode.find_by(
+            session,
+            names=nodes,
+            options=[joinedload(DBNode.current)],
         )
-        for dim in dimensions
-    ]
+
+        dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
+
+        # Eagerly load dimension nodes to prevent concurrent session access
+        # when the dimensionNode field resolver is called
+        fields = extract_fields(info)
+        dimension_node_fields = fields.get("dimensionNode") if "dimensionNode" in fields else None
+
+        result = []
+        for dim in dimensions:
+            dim_attr = DimensionAttribute(  # type: ignore
+                name=dim.name,
+                attribute=dim.name.split(SEPARATOR)[-1],
+                properties=dim.properties,  # type: ignore
+                type=dim.type,  # type: ignore
+            )
+
+            # If dimensionNode field is requested, pre-load it to avoid concurrent queries
+            if dimension_node_fields:
+                dimension_node_name = dim.name.rsplit(".", 1)[0]
+                dim_attr._dimension_node = await get_node_by_name(
+                    session=session,
+                    fields=dimension_node_fields,
+                    name=dimension_node_name,
+                )
+
+            result.append(dim_attr)
+
+        return result
 
 
 async def downstream_nodes(
