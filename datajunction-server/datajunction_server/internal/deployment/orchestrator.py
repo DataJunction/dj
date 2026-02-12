@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 import re
 import time
-from typing import Coroutine, cast
+from typing import Coroutine, Dict, List, cast
 from collections import Counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1374,18 +1374,38 @@ class DeploymentOrchestrator:
             for link in node.dimension_links
         ]
 
-        deps_not_in_deployment = {
-            dep
-            for deps in list(node_graph.values())
-            for dep in deps
-            if dep not in node_graph
-        }.union({dep for dep in dimension_link_deps if dep not in node_graph})
+        # Build reverse mapping: dependency -> nodes that depend on it
+        dep_to_nodes: Dict[str, List[str]] = {}
+        for node_name, deps in node_graph.items():
+            for dep in deps:
+                if dep not in node_graph:
+                    if dep not in dep_to_nodes:
+                        dep_to_nodes[dep] = []
+                    dep_to_nodes[dep].append(node_name)
+
+        # Also track dimension link dependencies
+        for dep in dimension_link_deps:
+            if dep not in node_graph:
+                if dep not in dep_to_nodes:
+                    dep_to_nodes[dep] = []
+                # Note: dimension links don't have a specific "from node" in this context
+                if "dimension_links" not in dep_to_nodes[dep]:
+                    dep_to_nodes[dep].append("dimension_links")
+
+        deps_not_in_deployment = set(dep_to_nodes.keys())
         if deps_not_in_deployment:
             logger.warning(
                 "The following dependencies are not defined in the deployment: %s. "
                 "They must pre-exist in the system before this deployment can succeed.",
                 deps_not_in_deployment,
             )
+            # Log which nodes depend on each missing dependency
+            for dep, nodes in dep_to_nodes.items():
+                logger.info(
+                    "Dependency '%s' is referenced by: %s",
+                    dep,
+                    ", ".join(nodes),
+                )
             external_node_deps = await Node.get_by_names(
                 self.session,
                 list(deps_not_in_deployment),
@@ -1406,6 +1426,18 @@ class DeploymentOrchestrator:
                     name.startswith(dep + SEPARATOR) for name in found_dep_names
                 ):
                     continue  # pragma: no cover
+
+                # Allow missing dependencies within the namespace being deployed
+                # This supports branch creation and iterative development where nodes
+                # reference other nodes in the same namespace that haven't been created yet
+                if dep.startswith(self.deployment_spec.namespace + SEPARATOR):
+                    logger.info(
+                        "Allowing missing dependency '%s' (within namespace '%s')",
+                        dep,
+                        self.deployment_spec.namespace,
+                    )
+                    continue
+
                 missing_nodes.append(dep)
 
             if missing_nodes:
