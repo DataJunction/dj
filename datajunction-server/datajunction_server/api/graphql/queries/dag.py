@@ -58,7 +58,16 @@ async def common_dimensions(
         # Eagerly load dimension nodes to prevent concurrent session access
         # when the dimensionNode field resolver is called
         fields = extract_fields(info)
-        dimension_node_fields = fields.get("dimensionNode") if "dimensionNode" in fields else None
+
+        # Check if dimensionNode field is requested in the GraphQL query
+        # We need to check both the direct fields and nested structures
+        has_dimension_node_field = "dimensionNode" in fields or (
+            "edges" in fields and "node" in fields.get("edges", {}) and "dimensionNode" in fields["edges"]["node"]
+        )
+
+        dimension_node_fields = fields.get("dimensionNode") or (
+            fields.get("edges", {}).get("node", {}).get("dimensionNode") if "edges" in fields else None
+        )
 
         result = []
         for dim in dimensions:
@@ -70,11 +79,12 @@ async def common_dimensions(
             )
 
             # If dimensionNode field is requested, pre-load it to avoid concurrent queries
-            if dimension_node_fields:
+            # Always pre-load if we detect the field is requested, even if we can't extract sub-fields
+            if has_dimension_node_field:
                 dimension_node_name = dim.name.rsplit(".", 1)[0]
                 dim_attr._dimension_node = await get_node_by_name(
                     session=session,
-                    fields=dimension_node_fields,
+                    fields=dimension_node_fields or {"name": None},  # At minimum load name
                     name=dimension_node_name,
                 )
 

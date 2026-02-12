@@ -121,14 +121,18 @@ class DimensionAttribute:
             return self._dimension_node
 
         from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
+        from datajunction_server.utils import session_context
 
         dimension_node_name = self.name.rsplit(".", 1)[0]
         fields = extract_fields(info)
-        return await get_node_by_name(  # type: ignore
-            session=info.context["session"],
-            fields=fields,
-            name=dimension_node_name,
-        )
+
+        # Use a fresh session to avoid concurrent access issues
+        async with session_context(info.context["request"]) as session:
+            return await get_node_by_name(  # type: ignore
+                session=session,
+                fields=fields,
+                name=dimension_node_name,
+            )
 
 
 @strawberry.type

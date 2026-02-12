@@ -41,13 +41,18 @@ class DJGraphQLClient:
         # Otherwise, try to login with username/password to get a JWT token
         if self.settings.dj_username and self.settings.dj_password:
             try:
-                async with httpx.AsyncClient(timeout=self.settings.request_timeout) as client:
+                async with httpx.AsyncClient(
+                    timeout=self.settings.request_timeout,
+                    follow_redirects=True
+                ) as client:
+                    # Use form-encoded data as expected by OAuth2PasswordRequestForm
                     response = await client.post(
                         f"{self.settings.dj_api_url.rstrip('/')}/basic/login/",
                         data={
                             "username": self.settings.dj_username,
                             "password": self.settings.dj_password,
                         },
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
                     )
                     response.raise_for_status()
 
@@ -58,6 +63,11 @@ class DJGraphQLClient:
                         logger.info("Successfully obtained JWT token via login")
                     else:
                         logger.warning("Login successful but no JWT token in response")
+                        logger.debug(f"Available cookies: {list(cookies.keys())}")
+                        logger.debug(f"Response status: {response.status_code}")
+                        logger.debug(f"Response body: {response.text[:200]}")
+            except httpx.HTTPStatusError as e:
+                logger.error(f"Login failed with status {e.response.status_code}: {e.response.text[:200]}")
             except Exception as e:
                 logger.error(f"Failed to login and obtain JWT token: {str(e)}")
 
