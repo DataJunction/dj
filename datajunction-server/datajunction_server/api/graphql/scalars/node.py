@@ -241,7 +241,7 @@ class NodeRevision:
         functions = [func.function() for func in query_ast.find_all(ast.Function)]
         return MetricMetadata(  # type: ignore
             direction=root.metric_metadata.direction if root.metric_metadata else None,
-            unit=root.metric_metadata.unit if root.metric_metadata else None,
+            unit=root.metric_metadata.unit.value if root.metric_metadata and root.metric_metadata.unit else None,
             significant_digits=root.metric_metadata.significant_digits
             if root.metric_metadata
             else None,
