@@ -1,7 +1,7 @@
 """
 Formatters to convert GraphQL responses into AI-friendly formats
 """
-import json
+
 from typing import Any, Dict, List
 
 
@@ -38,7 +38,9 @@ def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
             result.append(f"  Tags: {', '.join(tag_names)}")
 
         if node.get("owners"):
-            owners = [o.get("username", o.get("email", "unknown")) for o in node["owners"]]
+            owners = [
+                o.get("username", o.get("email", "unknown")) for o in node["owners"]
+            ]
             result.append(f"  Owners: {', '.join(owners)}")
 
         result.append("")  # Blank line between nodes
@@ -46,7 +48,10 @@ def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
     return "\n".join(result)
 
 
-def format_node_details(node: Dict[str, Any], dimensions: List[Dict[str, Any]] = None) -> str:
+def format_node_details(
+    node: Dict[str, Any],
+    dimensions: List[Dict[str, Any]] = None,
+) -> str:
     """
     Format detailed node information for AI
 
@@ -58,12 +63,7 @@ def format_node_details(node: Dict[str, Any], dimensions: List[Dict[str, Any]] =
         Formatted detailed description
     """
     current = node.get("current", {})
-    result = [
-        f"Node: {node['name']}",
-        f"Type: {node['type']}",
-        f"{'=' * 60}",
-        ""
-    ]
+    result = [f"Node: {node['name']}", f"Type: {node['type']}", f"{'=' * 60}", ""]
 
     # Basic info
     if current.get("displayName"):
@@ -142,7 +142,7 @@ def format_node_details(node: Dict[str, Any], dimensions: List[Dict[str, Any]] =
 
 def format_dimensions_compatibility(
     metrics: List[str],
-    common_dims: List[Dict[str, Any]]
+    common_dims: List[Dict[str, Any]],
 ) -> str:
     """
     Format dimension compatibility information
@@ -155,10 +155,10 @@ def format_dimensions_compatibility(
         Formatted compatibility report
     """
     result = [
-        f"Dimension Compatibility Analysis",
+        "Dimension Compatibility Analysis",
         f"Metrics: {', '.join(metrics)}",
         f"{'=' * 60}",
-        ""
+        "",
     ]
 
     if not common_dims:
@@ -180,7 +180,9 @@ def format_dimensions_compatibility(
 
         result.append("")
 
-    result.append(f"\nYou can query these metrics together using the dimensions listed above.")
+    result.append(
+        "\nYou can query these metrics together using the dimensions listed above.",
+    )
 
     return "\n".join(result)
 
@@ -224,7 +226,9 @@ def format_sql_response(sql_results: List[Dict[str, Any]]) -> str:
         if columns:
             result.append(f"Output Columns ({len(columns)}):")
             for col in columns:
-                result.append(f"  • {col.get('name', 'unknown')} ({col.get('type', 'unknown')})")
+                result.append(
+                    f"  • {col.get('name', 'unknown')} ({col.get('type', 'unknown')})",
+                )
             result.append("")
 
         # Upstream tables

@@ -1,6 +1,7 @@
 """
 CLI entry point for DataJunction MCP Server
 """
+
 import asyncio
 import logging
 import sys
@@ -24,7 +25,7 @@ async def main():
     """Main entry point for MCP server"""
     settings = get_mcp_settings()
 
-    logger.info(f"Starting DataJunction MCP Server")
+    logger.info("Starting DataJunction MCP Server")
     logger.info(f"Connecting to DJ API at: {settings.dj_api_url}")
 
     # Run the MCP server using stdio transport

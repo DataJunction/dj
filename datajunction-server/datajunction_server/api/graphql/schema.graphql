@@ -107,7 +107,7 @@ type DimensionAttribute {
   DimensionNode: Node
 
   """The dimension node this attribute belongs to"""
-  dimensionNode: Node!
+  dimensionNode: Node
 }
 
 type DimensionLink {

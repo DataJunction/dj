@@ -1,7 +1,9 @@
 """
 MCP Tool implementations that call DJ GraphQL API via HTTP
 """
+
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -12,10 +14,20 @@ from datajunction_server.mcp.formatters import (
     format_error,
     format_node_details,
     format_nodes_list,
-    format_sql_response,
 )
 
 logger = logging.getLogger(__name__)
+
+# Add file handler for debugging
+_log_file = os.path.expanduser("~/.dj_mcp_debug.log")
+_file_handler = logging.FileHandler(_log_file)
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
+)
+logger.addHandler(_file_handler)
+logger.setLevel(logging.DEBUG)
+logger.info(f"DJ MCP logging to: {_log_file}")
 
 
 class DJGraphQLClient:
@@ -30,48 +42,71 @@ class DJGraphQLClient:
     async def _ensure_token(self):
         """Ensure we have a valid JWT token for authentication"""
         if self._token_initialized:
+            logger.debug(
+                f"Token already initialized. Has token: {self._token is not None}",
+            )
             return
+
+        logger.info("=== Initializing DJ API authentication ===")
+        logger.info(f"API URL: {self.settings.dj_api_url}")
+        logger.info(f"Has API token: {bool(self.settings.dj_api_token)}")
+        logger.info(f"Has username: {bool(self.settings.dj_username)}")
+        logger.info(f"Has password: {bool(self.settings.dj_password)}")
 
         # If API token is explicitly provided, use it
         if self.settings.dj_api_token:
             self._token = self.settings.dj_api_token
             self._token_initialized = True
+            logger.info("✓ Using provided API token")
             return
 
         # Otherwise, try to login with username/password to get a JWT token
         if self.settings.dj_username and self.settings.dj_password:
+            logger.info(f"Attempting login for user: {self.settings.dj_username}")
             try:
+                login_url = f"{self.settings.dj_api_url.rstrip('/')}/basic/login/"
+                logger.info(f"Login URL: {login_url}")
+
                 async with httpx.AsyncClient(
                     timeout=self.settings.request_timeout,
-                    follow_redirects=True
+                    follow_redirects=True,
                 ) as client:
                     # Use form-encoded data as expected by OAuth2PasswordRequestForm
                     response = await client.post(
-                        f"{self.settings.dj_api_url.rstrip('/')}/basic/login/",
+                        login_url,
                         data={
                             "username": self.settings.dj_username,
                             "password": self.settings.dj_password,
                         },
                         headers={"Content-Type": "application/x-www-form-urlencoded"},
                     )
+                    logger.info(f"Login response status: {response.status_code}")
                     response.raise_for_status()
 
                     # Extract JWT token from cookie
                     cookies = response.cookies
-                    if "dj_auth" in cookies:
-                        self._token = cookies["dj_auth"]
-                        logger.info("Successfully obtained JWT token via login")
+                    logger.info(f"Available cookies: {list(cookies.keys())}")
+
+                    if "__dj" in cookies:
+                        self._token = cookies["__dj"]
+                        logger.info(
+                            f"✓ Successfully obtained JWT token (length: {len(self._token)})",
+                        )
                     else:
-                        logger.warning("Login successful but no JWT token in response")
-                        logger.debug(f"Available cookies: {list(cookies.keys())}")
-                        logger.debug(f"Response status: {response.status_code}")
-                        logger.debug(f"Response body: {response.text[:200]}")
+                        logger.error(
+                            "✗ Login successful but no JWT token in '__dj' cookie",
+                        )
+                        logger.error(f"Response body: {response.text[:500]}")
             except httpx.HTTPStatusError as e:
-                logger.error(f"Login failed with status {e.response.status_code}: {e.response.text[:200]}")
+                logger.error(f"✗ Login failed with HTTP {e.response.status_code}")
+                logger.error(f"Response: {e.response.text[:500]}")
             except Exception as e:
-                logger.error(f"Failed to login and obtain JWT token: {str(e)}")
+                logger.error(f"✗ Login exception: {type(e).__name__}: {str(e)}")
 
         self._token_initialized = True
+        logger.info(
+            f"=== Authentication initialization complete. Has token: {self._token is not None} ===",
+        )
 
     def _get_headers(self) -> Dict[str, str]:
         """Build request headers with authentication"""
@@ -79,6 +114,11 @@ class DJGraphQLClient:
 
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+            logger.debug(
+                f"Added Authorization header with token (length: {len(self._token)})",
+            )
+        else:
+            logger.warning("No token available - request will be unauthenticated")
 
         return headers
 
@@ -86,7 +126,11 @@ class DJGraphQLClient:
         """Get basic auth - not used anymore, we use JWT tokens"""
         return None
 
-    async def query(self, query: str, variables: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def query(
+        self,
+        query: str,
+        variables: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
         """
         Execute a GraphQL query
 
@@ -103,7 +147,9 @@ class DJGraphQLClient:
         await self._ensure_token()
 
         try:
-            async with httpx.AsyncClient(timeout=self.settings.request_timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self.settings.request_timeout,
+            ) as client:
                 response = await client.post(
                     self.graphql_url,
                     json={"query": query, "variables": variables or {}},
@@ -113,7 +159,9 @@ class DJGraphQLClient:
                 result = response.json()
 
                 if "errors" in result:
-                    error_messages = [e.get("message", "Unknown error") for e in result["errors"]]
+                    error_messages = [
+                        e.get("message", "Unknown error") for e in result["errors"]
+                    ]
                     raise Exception(f"GraphQL errors: {'; '.join(error_messages)}")
 
                 return result.get("data", {})
@@ -164,7 +212,10 @@ async def list_namespaces() -> str:
 
         # Count nodes per namespace
         from collections import Counter
-        namespace_counts = Counter(node["namespace"] for node in nodes if node.get("namespace"))
+
+        namespace_counts = Counter(
+            node["namespace"] for node in nodes if node.get("namespace")
+        )
 
         # Format output
         lines = ["Available Namespaces:", ""]
@@ -415,7 +466,9 @@ async def build_metric_sql(
             params["dialect"] = dialect
 
         # Call v3 SQL metrics endpoint via REST
-        async with httpx.AsyncClient(timeout=client.settings.request_timeout) as http_client:
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
             response = await http_client.get(
                 f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3/",
                 params=params,
@@ -434,15 +487,15 @@ async def build_metric_sql(
             "",
             "SQL:",
             "-" * 60,
-            result.get('sql', 'No SQL generated'),
+            result.get("sql", "No SQL generated"),
             "",
             "Output Columns:",
             "-" * 60,
         ]
 
-        for col in result.get('columns', []):
+        for col in result.get("columns", []):
             semantic_info = ""
-            if col.get('semantic_name'):
+            if col.get("semantic_name"):
                 semantic_info = f" (semantic: {col['semantic_name']})"
             lines.append(f"  • {col['name']}: {col['type']}{semantic_info}")
 
@@ -501,7 +554,9 @@ async def get_metric_data(
             params["limit"] = limit
 
         # Call /data/ endpoint via REST
-        async with httpx.AsyncClient(timeout=client.settings.request_timeout) as http_client:
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
             response = await http_client.get(
                 f"{client.settings.dj_api_url.rstrip('/')}/data/",
                 params=params,
@@ -518,14 +573,14 @@ async def get_metric_data(
         ]
 
         # Add query state info
-        state = result.get('state', 'unknown')
+        state = result.get("state", "unknown")
         lines.append(f"Query State: {state}")
 
-        if result.get('id'):
+        if result.get("id"):
             lines.append(f"Query ID: {result['id']}")
 
         # Add result info
-        results_data = result.get('results', [])
+        results_data = result.get("results", [])
         if results_data:
             lines.append(f"Row Count: {len(results_data)}")
             lines.append("")
@@ -535,7 +590,7 @@ async def get_metric_data(
             # Format as table (show first 10 rows)
             max_rows = min(len(results_data), 10)
             for i, row in enumerate(results_data[:max_rows]):
-                lines.append(f"Row {i+1}:")
+                lines.append(f"Row {i + 1}:")
                 for key, value in row.items():
                     lines.append(f"  {key}: {value}")
                 lines.append("")
@@ -546,10 +601,10 @@ async def get_metric_data(
             lines.append("No results returned")
 
         # Add any errors
-        if result.get('errors'):
+        if result.get("errors"):
             lines.append("")
             lines.append("Errors:")
-            for error in result['errors']:
+            for error in result["errors"]:
                 lines.append(f"  • {error}")
 
         return "\n".join(lines)
@@ -566,4 +621,3 @@ async def get_metric_data(
             str(e),
             f"Getting data for metrics: {', '.join(metrics)}",
         )
-
