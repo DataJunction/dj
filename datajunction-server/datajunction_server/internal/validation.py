@@ -221,7 +221,9 @@ async def validate_node_data(
                 name=column_name.lower()
                 if validated_node.type != NodeType.METRIC
                 else column_name,
-                display_name=labelize(column_name),
+                display_name=existing_column.display_name
+                if existing_column and existing_column.display_name
+                else labelize(column_name),
                 type=column_type,
                 attributes=[
                     ColumnAttribute(
