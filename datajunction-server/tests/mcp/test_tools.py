@@ -1,6 +1,7 @@
 """
 Tests for MCP tool implementations
 """
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -24,8 +25,8 @@ async def test_search_nodes_success():
                 },
                 "tags": [{"name": "finance", "tagType": "category"}],
                 "owners": [{"username": "admin", "email": "admin@example.com"}],
-            }
-        ]
+            },
+        ],
     }
 
     with patch.object(tools, "get_client") as mock_get_client:
@@ -83,7 +84,7 @@ async def test_get_node_details_success():
                 },
                 "tags": [],
                 "owners": [],
-            }
+            },
         ],
         "commonDimensions": [
             {
@@ -96,7 +97,7 @@ async def test_get_node_details_success():
                         "displayName": "Date",
                     },
                 },
-            }
+            },
         ],
     }
 
@@ -140,7 +141,7 @@ async def test_get_common_dimensions_success():
                     },
                 },
             },
-        ]
+        ],
     }
 
     with patch.object(tools, "get_client") as mock_get_client:
@@ -149,7 +150,7 @@ async def test_get_common_dimensions_success():
         mock_get_client.return_value = mock_client
 
         result = await tools.get_common_dimensions(
-            metric_names=["finance.revenue", "growth.users"]
+            metric_names=["finance.revenue", "growth.users"],
         )
 
         assert "Found 2 common dimensions" in result
@@ -173,8 +174,8 @@ async def test_build_metric_sql_success():
                 ],
                 "upstreamTables": ["finance.transactions"],
                 "errors": [],
-            }
-        ]
+            },
+        ],
     }
 
     with patch.object(tools, "get_client") as mock_get_client:

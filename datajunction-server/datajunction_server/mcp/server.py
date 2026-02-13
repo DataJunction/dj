@@ -4,6 +4,7 @@ DataJunction MCP Server
 Main MCP server implementation using the official MCP Python SDK.
 Exposes DJ semantic layer to AI agents.
 """
+
 import logging
 
 import mcp.types as types

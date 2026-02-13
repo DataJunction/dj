@@ -1,6 +1,7 @@
 """
 Configuration for DataJunction MCP Server
 """
+
 import os
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -19,9 +20,6 @@ class MCPSettings(BaseSettings):
 
     # Request timeout
     request_timeout: int = 30
-
-    class Config:
-        env_prefix = "DJ_MCP_"
 
 
 def get_mcp_settings() -> MCPSettings:
