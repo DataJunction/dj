@@ -1110,6 +1110,17 @@ def _merge_list_with_key(existing_list, new_list, match_key="name"):
                 # Use existing_item directly to preserve all ca attributes (including ca.items)
                 # Update with new values
                 for k, v in new_item.items():
+                    # Special handling for attributes: preserve order if the set is unchanged
+                    if k == "attributes" and "attributes" in existing_item:
+                        existing_attrs = (
+                            set(existing_item["attributes"])
+                            if isinstance(existing_item["attributes"], list)
+                            else set()
+                        )
+                        new_attrs = set(v) if isinstance(v, list) else set()
+                        if existing_attrs == new_attrs:  # pragma: no branch
+                            # Same attributes, keep existing order
+                            continue
                     existing_item[k] = v
                 # Remove keys that no longer exist
                 for k in list(existing_item.keys()):

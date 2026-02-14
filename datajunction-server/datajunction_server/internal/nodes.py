@@ -916,7 +916,6 @@ async def copy_nodes_to_namespace(
 
     # Get all node specs from source namespace with ${prefix} injection
     node_specs = await get_node_specs_for_export(session, source_namespace)
-    print("node_specs!", node_specs)
 
     if not node_specs:
         return []
@@ -2835,12 +2834,19 @@ async def revalidate_node(
 
     # Check if any columns have been updated
     updated_columns = False
-    for col in node_validator.columns:
+    for idx, col in enumerate(node_validator.columns):
         if existing_col := existing_columns.get(col.name):
+            # Update type if changed
             if existing_col.type != col.type:
                 existing_col.type = col.type
                 updated_columns = True
+            # Set order if not already set (based on position in validated columns)
+            if existing_col.order is None:  # pragma: no branch
+                existing_col.order = idx
+                updated_columns = True
         else:
+            # New column - add with order
+            col.order = idx
             node.current.columns.append(col)  # type: ignore  # pragma: no cover
             updated_columns = True  # pragma: no cover
 
