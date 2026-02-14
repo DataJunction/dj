@@ -89,6 +89,11 @@ async def get_context(
     """
     Provides the context for graphql requests
     """
+    # Attach test session to request.state so DataLoaders can use it
+    # This ensures DataLoaders use the same test session in tests
+    if not hasattr(request.state, "test_session"):
+        request.state.test_session = db_session
+
     return {
         "session": db_session,  # Keep for backward compatibility with existing code
         "node_loader": create_node_by_name_loader(request),
