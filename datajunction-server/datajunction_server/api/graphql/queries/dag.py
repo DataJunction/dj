@@ -8,10 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from datajunction_server.database.node import Node
-from datajunction_server.api.graphql.resolvers.nodes import (
-    find_nodes_by,
-    load_node_options,
-)
+from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.sql.dag import (
@@ -20,7 +17,7 @@ from datajunction_server.sql.dag import (
     get_upstream_nodes,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, session_context
 
 
 async def common_dimensions(
@@ -35,18 +32,59 @@ async def common_dimensions(
 ) -> list[DimensionAttribute]:
     """
     Return a list of common dimensions for a set of nodes.
+
+    Uses a fresh session per request to avoid concurrent session access issues.
+    Dimension nodes are batch-loaded using DataLoader if the dimensionNode field is requested.
     """
-    nodes = await find_nodes_by(info, nodes)  # type: ignore
-    dimensions = await get_common_dimensions(info.context["session"], nodes)  # type: ignore
-    return [
-        DimensionAttribute(  # type: ignore
-            name=dim.name,
-            attribute=dim.name.split(SEPARATOR)[-1],
-            properties=dim.properties,  # type: ignore
-            type=dim.type,  # type: ignore
+    # Use a fresh session to avoid concurrent access issues
+    async with session_context(info.context["request"]) as session:
+        # Load the input nodes
+        nodes_list = await Node.find_by(
+            session,
+            names=nodes,
         )
-        for dim in dimensions
-    ]
+
+        # Get common dimensions
+        dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
+
+        # Convert to DimensionAttribute objects
+        result = [
+            DimensionAttribute(  # type: ignore
+                name=dim.name,
+                attribute=dim.name.split(SEPARATOR)[-1],
+                properties=dim.properties,  # type: ignore
+                type=dim.type,  # type: ignore
+            )
+            for dim in dimensions
+        ]
+
+        # Check if dimensionNode field is requested
+        fields = extract_fields(info)
+        has_dimension_node_field = "dimensionNode" in fields
+
+        if has_dimension_node_field:
+            # Extract all unique dimension node names
+            dimension_node_names = list(
+                {dim.name.rsplit(".", 1)[0] for dim in dimensions},
+            )
+
+            # Batch load all dimension nodes using DataLoader
+            node_loader = info.context["node_loader"]
+            loaded_nodes = await node_loader.load_many(dimension_node_names)
+
+            # Create lookup map
+            node_map = {
+                name: node
+                for name, node in zip(dimension_node_names, loaded_nodes)
+                if node is not None
+            }
+
+            # Pre-populate the _dimension_node on each DimensionAttribute
+            for dim_attr in result:
+                dimension_node_name = dim_attr.name.rsplit(".", 1)[0]
+                dim_attr._dimension_node = node_map.get(dimension_node_name)
+
+        return result
 
 
 async def downstream_nodes(
