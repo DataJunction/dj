@@ -290,3 +290,30 @@ class TestValidateQuery:
                     error.code != ErrorCode.INVALID_SQL_QUERY
                     or "No columns could be inferred" in error.message
                 )
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_with_skip_validation(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """Test that specs with _skip_validation preserve their columns without re-inferring"""
+        # Create a spec with _skip_validation flag set and pre-defined columns
+        spec = TransformSpec(
+            name="transform_from_git",
+            query="SELECT id, name FROM test.parent",
+            description="Transform copied from validated namespace",
+            mode="published",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        spec._skip_validation = True  # Set the private flag
+
+        parsed_ast = parse(spec.query)
+        validator = NodeSpecBulkValidator(validation_context)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        # Should use the spec's columns directly without re-inference
+        assert result.inferred_columns == spec.columns
+        assert result.errors == []

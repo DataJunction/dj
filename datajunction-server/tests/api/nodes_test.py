@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database import Catalog
@@ -5097,6 +5097,107 @@ class TestValidateNodes:
                 ],
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_revalidate_sets_column_order_when_missing(
+        self,
+        session: AsyncSession,
+        client_with_roads: AsyncClient,
+    ):
+        """Test that revalidation sets order on columns that don't have it
+
+        This test exercises the code path in revalidate_node where:
+        - existing_col.order is None
+        - The order is set based on the column's position
+        """
+        # Create a transform node
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_order",
+                "query": "SELECT repair_order_id, dispatcher_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Clear order on columns to simulate legacy data without order field populated
+        await session.execute(
+            text(
+                """
+            UPDATE "column"
+            SET "order" = NULL
+            WHERE node_revision_id IN (
+                SELECT id FROM noderevision WHERE name = 'default.test_order'
+            )
+            """,
+            ),
+        )
+        await session.commit()
+        # Expire all cached objects so SQLAlchemy reloads fresh data from the database
+        session.expire_all()
+
+        # Revalidate - this should succeed and set order on columns
+        result = await client_with_roads.post("/nodes/default.test_order/validate/")
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        # Verify the node is accessible and has the correct columns
+        node_data = (await client_with_roads.get("/nodes/default.test_order/")).json()
+        assert len(node_data["columns"]) == 2
+        assert {col["name"] for col in node_data["columns"]} == {
+            "repair_order_id",
+            "dispatcher_id",
+        }
+
+    @pytest.mark.asyncio
+    async def test_revalidate_adds_new_columns_with_order(
+        self,
+        client_with_roads: AsyncClient,
+        session: AsyncSession,
+    ):
+        """
+        Test that revalidation adds new columns with proper order
+        """
+        # Create a transform node
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_new_cols",
+                "query": "SELECT repair_order_id, dispatcher_id FROM default.repair_orders",
+                "description": "Test transform",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+        # Delete all columns from this node to simulate a state where columns need to be added
+        await session.execute(
+            text(
+                """
+                DELETE FROM "column"
+                WHERE node_revision_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_new_cols'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        # Expire all cached objects so SQLAlchemy reloads fresh data from the database
+        session.expire_all()
+
+        # Revalidate - this should discover columns and add them with the correct order
+        result = await client_with_roads.post("/nodes/default.test_new_cols/validate/")
+        assert result.status_code == 200
+
+        # Verify the node now has the columns with proper order
+        node_data = (
+            await client_with_roads.get("/nodes/default.test_new_cols/")
+        ).json()
+        assert len(node_data["columns"]) == 2
+        column_names = [col["name"] for col in node_data["columns"]]
+        assert set(column_names) == {"repair_order_id", "dispatcher_id"}
 
 
 @pytest.mark.asyncio
