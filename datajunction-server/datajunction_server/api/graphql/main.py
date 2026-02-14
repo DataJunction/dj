@@ -10,6 +10,7 @@ from strawberry.types import Info
 
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
+from datajunction_server.api.graphql.dataloaders import create_node_by_name_loader
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.dag import (
     common_dimensions,
@@ -89,7 +90,8 @@ async def get_context(
     Provides the context for graphql requests
     """
     return {
-        "session": db_session,
+        "session": db_session,  # Keep for backward compatibility with existing code
+        "node_loader": create_node_by_name_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,
