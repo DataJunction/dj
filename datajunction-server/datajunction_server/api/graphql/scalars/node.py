@@ -115,9 +115,6 @@ class DimensionAttribute:
     async def dimension_node(self, info: Info) -> "Node":
         """
         Lazy load the dimension node when queried.
-
-        Uses DataLoader to batch multiple dimension node lookups within a single
-        GraphQL request, preventing N+1 query problems.
         """
         if self._dimension_node:
             return self._dimension_node

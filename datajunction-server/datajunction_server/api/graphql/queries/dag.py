@@ -32,23 +32,17 @@ async def common_dimensions(
 ) -> list[DimensionAttribute]:
     """
     Return a list of common dimensions for a set of nodes.
-
-    Uses DataLoader for loading nodes and fresh sessions only for complex operations.
-    Dimension nodes are batch-loaded using DataLoader if the dimensionNode field is requested.
     """
     # Use DataLoader to batch load input nodes
     node_loader = info.context["node_loader"]
     nodes_list = await node_loader.load_many(nodes)
 
-    # Filter out None values (nodes that don't exist)
+    # Filter out nodes that don't exist
     nodes_list = [node for node in nodes_list if node is not None]
 
-    # Create fresh session only for get_common_dimensions (complex operation that needs session)
     async with session_context(info.context["request"]) as session:
-        # Get common dimensions
         dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
 
-    # Convert to DimensionAttribute objects
     result = [
         DimensionAttribute(  # type: ignore
             name=dim.name,
@@ -65,23 +59,15 @@ async def common_dimensions(
     has_dimension_node_field = "dimension_node" in fields
 
     if has_dimension_node_field:
-        # Extract all unique dimension node names
         dimension_node_names = list(
             {dim.name.rsplit(".", 1)[0] for dim in dimensions},
         )
-
-        # Get the requested fields for dimensionNode to load the right data
         dimension_node_fields = fields.get("dimension_node", {})
 
         # Load dimension nodes with proper field selection using a fresh session
         # We can't use the simple DataLoader here because we need custom field loading
         async with session_context(info.context["request"]) as session:
-            from datajunction_server.api.graphql.resolvers.nodes import (
-                load_node_options,
-            )
-            from datajunction_server.database.node import Node as DBNode
-
-            loaded_nodes = await DBNode.find_by(
+            loaded_nodes = await Node.find_by(
                 session,
                 names=dimension_node_names,
                 options=load_node_options(dimension_node_fields),
