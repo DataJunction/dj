@@ -37,6 +37,9 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
+from datajunction_server.models.node import (
+    GitRepositoryInfo as PydanticGitRepositoryInfo,
+)
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -382,10 +385,6 @@ class Node:
         """
         Git repository information for this node's namespace
         """
-        from datajunction_server.models.node import (
-            GitRepositoryInfo as PydanticGitRepositoryInfo,
-        )
-
         git_info_dict = root.git_info
         if git_info_dict:
             return GitRepositoryInfo.from_pydantic(  # type: ignore

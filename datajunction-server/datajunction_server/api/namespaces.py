@@ -11,10 +11,11 @@ from typing import Callable, Dict, List, Optional
 import yaml
 from fastapi import Depends, Query, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.service_clients import QueryServiceClient
+
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
+from datajunction_server.database.node import Node
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
@@ -26,6 +27,7 @@ from datajunction_server.models.deployment import (
     NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
+from datajunction_server.models.node import GitRepositoryInfo
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -53,6 +55,7 @@ from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
 from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
@@ -135,10 +138,6 @@ async def list_namespaces(
     """
     List namespaces with node counts and git repository information
     """
-    from sqlalchemy import func
-    from datajunction_server.database.node import Node
-    from datajunction_server.models.node import GitRepositoryInfo
-
     # Get namespaces with node counts and git info
     statement = (
         select(NodeNamespace, func.count(Node.id).label("num_nodes"))
