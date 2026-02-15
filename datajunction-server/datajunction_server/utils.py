@@ -244,6 +244,19 @@ async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
 
 @asynccontextmanager
 async def session_context(request: Request = None) -> AsyncIterator[AsyncSession]:
+    """
+    Create a session context, using a test session if available.
+
+    In tests, the session may be attached to request.state.test_session.
+    This allows DataLoaders to work correctly in test environments.
+    """
+    # Check if there's a test session attached to the request
+    if request and hasattr(request.state, "test_session"):
+        # Use the test session without creating a new one
+        yield request.state.test_session
+        return
+
+    # Normal path: create a new session
     gen = get_session(request)
     session = await gen.__anext__()
     try:

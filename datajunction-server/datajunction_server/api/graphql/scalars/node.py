@@ -26,7 +26,6 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
     MetricMetadata,
 )
 from datajunction_server.api.graphql.scalars.user import User
-from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -120,15 +119,13 @@ class DimensionAttribute:
         if self._dimension_node:
             return self._dimension_node
 
-        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
-
+        # Extract dimension node name from the full attribute name
+        # e.g., "default.us_state.state_name" -> "default.us_state"
         dimension_node_name = self.name.rsplit(".", 1)[0]
-        fields = extract_fields(info)
-        return await get_node_by_name(  # type: ignore
-            session=info.context["session"],
-            fields=fields,
-            name=dimension_node_name,
-        )
+
+        # Use the DataLoader from context to batch this lookup with other concurrent lookups
+        node_loader = info.context["node_loader"]
+        return await node_loader.load(dimension_node_name)  # type: ignore
 
 
 @strawberry.type
