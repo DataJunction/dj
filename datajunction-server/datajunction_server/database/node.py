@@ -363,8 +363,8 @@ class Node(Base):
     def git_info(self) -> Optional[dict]:
         """
         Get git repository information for this node's namespace.
-        For child namespaces (e.g., ads.main, ads.feature), follows parent_namespace
-        to get the git repo configuration from the parent (e.g., ads).
+        For child namespaces (e.g., prefix.main, prefix.feature), follows parent_namespace
+        to get the git repo configuration from the parent (e.g., prefix).
         Returns None if no git configuration is found.
         """
         if not self.namespace_obj:
@@ -373,7 +373,7 @@ class Node(Base):
         # Determine which namespace has the git config
         git_namespace = self.namespace_obj
         if not git_namespace.github_repo_path and git_namespace.parent_namespace_obj:
-            # This is a child namespace (e.g., ads.main), use parent for git config
+            # This is a child namespace (e.g., prefix.main), use parent for git config
             git_namespace = git_namespace.parent_namespace_obj
 
         # If still no git config, return None
