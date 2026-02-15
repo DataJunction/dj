@@ -4,7 +4,14 @@ from typing import List, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, joinedload, load_only, mapped_column, selectinload
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    load_only,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 from sqlalchemy.sql.operators import is_, or_
 
 from datajunction_server.database.base import Base
@@ -64,6 +71,13 @@ class NodeNamespace(Base):
         nullable=True,
         default=None,
     )  # Links myproject.feature_x -> myproject.main for PR targeting
+
+    parent_namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
+        "NodeNamespace",
+        foreign_keys=[parent_namespace],
+        remote_side="NodeNamespace.namespace",
+        lazy="joined",
+    )
 
     git_only: Mapped[bool] = mapped_column(
         Boolean,

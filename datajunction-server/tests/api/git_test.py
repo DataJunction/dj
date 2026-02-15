@@ -2239,6 +2239,174 @@ class TestPullRequest:
                 == "Validation failed: head and base must be different"
             )
 
+    @pytest.mark.asyncio
+    async def test_find_nodes_with_git_info_graphql(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test finding nodes with git_info via GraphQL."""
+        # Create namespace with git config
+        await client_with_service_setup.post("/namespaces/gql_test.main")
+        await client_with_service_setup.patch(
+            "/namespaces/gql_test.main/git",
+            json={
+                "github_repo_path": "myorg/metrics-repo",
+                "git_branch": "main",
+                "default_branch": "main",
+                "git_path": "definitions/",
+                "git_only": False,
+            },
+        )
+
+        # Create a transform node in this namespace
+        await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "gql_test.main.revenue",
+                "description": "Revenue metric",
+                "query": "SELECT SUM(amount) as revenue FROM sales",
+                "mode": "draft",
+            },
+        )
+
+        # Query with GraphQL
+        query = """
+        {
+            findNodes(names: ["gql_test.main.revenue"]) {
+                name
+                type
+                gitInfo {
+                    repo
+                    branch
+                    defaultBranch
+                    isDefaultBranch
+                    path
+                    parentNamespace
+                    gitOnly
+                }
+            }
+        }
+        """
+
+        response = await client_with_service_setup.post(
+            "/graphql",
+            json={"query": query},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Validate git_info is present and correct
+        nodes = data["data"]["findNodes"]
+        assert len(nodes) == 1
+        node = nodes[0]
+        assert node["name"] == "gql_test.main.revenue"
+        assert node["type"] == "TRANSFORM"
+
+        git_info = node["gitInfo"]
+        assert git_info is not None
+        assert git_info["repo"] == "myorg/metrics-repo"
+        assert git_info["branch"] == "main"
+        assert git_info["defaultBranch"] == "main"
+        assert git_info["isDefaultBranch"] is True
+        assert git_info["path"] == "definitions/"
+        assert git_info["parentNamespace"] is None
+        assert git_info["gitOnly"] is False
+
+    @pytest.mark.asyncio
+    async def test_find_nodes_with_git_info_feature_branch_graphql(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test finding nodes in feature branch with git_info via GraphQL."""
+        # Create parent namespace with git config
+        await client_with_service_setup.post("/namespaces/gql_branch_test.main")
+        await client_with_service_setup.patch(
+            "/namespaces/gql_branch_test.main/git",
+            json={
+                "github_repo_path": "myorg/metrics-repo",
+                "git_branch": "main",
+                "default_branch": "main",
+                "git_path": "definitions/",
+            },
+        )
+
+        # Create a child namespace (feature branch)
+        # Mock GitHub service for branch creation
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/feature-new-metric",
+                    "object": {"sha": "def456"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/gql_branch_test.main/branches",
+                json={"branch_name": "feature-new-metric"},
+            )
+
+        # Create a node in the feature branch namespace
+        await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "gql_branch_test.feature_new_metric.revenue",
+                "description": "Revenue metric in feature branch",
+                "query": "SELECT SUM(amount) as revenue FROM sales",
+                "mode": "draft",
+            },
+        )
+
+        # Query with GraphQL
+        query = """
+        {
+            findNodes(names: ["gql_branch_test.feature_new_metric.revenue"]) {
+                name
+                type
+                gitInfo {
+                    repo
+                    branch
+                    defaultBranch
+                    isDefaultBranch
+                    path
+                    parentNamespace
+                    gitOnly
+                }
+            }
+        }
+        """
+
+        response = await client_with_service_setup.post(
+            "/graphql",
+            json={"query": query},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Validate git_info is present and correct
+        nodes = data["data"]["findNodes"]
+        assert len(nodes) == 1
+        node = nodes[0]
+        assert node["name"] == "gql_branch_test.feature_new_metric.revenue"
+
+        git_info = node["gitInfo"]
+        assert git_info is not None
+        # Repo info comes from parent namespace
+        assert git_info["repo"] == "myorg/metrics-repo"
+        # Branch comes from child namespace
+        assert git_info["branch"] == "feature-new-metric"
+        # Default branch comes from parent
+        assert git_info["defaultBranch"] == "main"
+        # Not on default branch
+        assert git_info["isDefaultBranch"] is False
+        # Path comes from parent
+        assert git_info["path"] == "definitions/"
+        # Parent namespace is set
+        assert git_info["parentNamespace"] == "gql_branch_test"
+
 
 class TestGetPullRequest:
     """Tests for GET /namespaces/{namespace}/pull-request endpoint."""

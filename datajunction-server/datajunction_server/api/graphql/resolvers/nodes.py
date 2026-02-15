@@ -147,6 +147,18 @@ def load_node_options(fields):
     else:
         options.append(noload(DBNode.tags))
 
+    if "git_info" in fields:
+        from datajunction_server.database.namespace import NodeNamespace
+
+        # Load namespace and its parent for git_info
+        options.append(
+            joinedload(DBNode.namespace_obj).joinedload(
+                NodeNamespace.parent_namespace_obj,
+            ),
+        )
+    else:
+        options.append(noload(DBNode.namespace_obj))
+
     # Always noload children - not exposed in GraphQL
     options.append(noload(DBNode.children))
 

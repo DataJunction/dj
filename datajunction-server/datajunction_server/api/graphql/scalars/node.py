@@ -18,6 +18,7 @@ from datajunction_server.api.graphql.scalars.column import (
     NodeNameVersion,
     Partition,
 )
+from datajunction_server.api.graphql.scalars.git_info import GitRepositoryInfo
 from datajunction_server.api.graphql.scalars.materialization import (
     MaterializationConfig,
 )
@@ -375,3 +376,19 @@ class Node:
         The users who edited this node
         """
         return root.edited_by
+
+    @strawberry.field
+    def git_info(self, root: "DBNode") -> Optional[GitRepositoryInfo]:
+        """
+        Git repository information for this node's namespace
+        """
+        from datajunction_server.models.node import (
+            GitRepositoryInfo as PydanticGitRepositoryInfo,
+        )
+
+        git_info_dict = root.git_info
+        if git_info_dict:
+            return GitRepositoryInfo.from_pydantic(  # type: ignore
+                PydanticGitRepositoryInfo(**git_info_dict),
+            )
+        return None

@@ -261,6 +261,37 @@ class AvailabilityTracker:
         return final_partitions
 
 
+class GitRepositoryInfo(BaseModel):
+    """
+    Git repository information for a namespace
+    """
+
+    repo: str = Field(description="GitHub repository path (e.g., 'owner/repo')")
+    branch: Optional[str] = Field(
+        default=None,
+        description="Current git branch for this namespace (e.g., 'feature-x', 'main')",
+    )
+    default_branch: Optional[str] = Field(
+        default=None,
+        description="Default/canonical branch (e.g., 'main')",
+    )
+    path: Optional[str] = Field(
+        default=None,
+        description="Subdirectory within repo (e.g., 'definitions/')",
+    )
+    is_default_branch: bool = Field(
+        description="True if this is the default branch namespace (production/canonical)",
+    )
+    parent_namespace: Optional[str] = Field(
+        default=None,
+        description="Parent namespace for feature branches (e.g., 'myproject' for 'myproject.feature_x')",
+    )
+    git_only: bool = Field(
+        default=False,
+        description="If true, UI edits are blocked; must edit via git",
+    )
+
+
 class AvailabilityStateBase(TemporalPartitionRange):
     """
     An availability state base
@@ -933,6 +964,7 @@ class NodeOutput(GenericNodeOutputModel):
     """
 
     namespace: str
+    git_info: Optional[GitRepositoryInfo] = None
     id: int = Field(alias="node_revision_id")
     node_id: int
     type: NodeType
@@ -968,6 +1000,7 @@ class NodeOutput(GenericNodeOutputModel):
         """
         ORM options to successfully load this object
         """
+        from datajunction_server.database.namespace import NodeNamespace
         from datajunction_server.database.node import (
             Node,
             NodeRevision,
@@ -978,6 +1011,10 @@ class NodeOutput(GenericNodeOutputModel):
             joinedload(Node.tags),
             selectinload(Node.created_by),
             selectinload(Node.owners),
+            # Load namespace and its parent for git_info
+            joinedload(Node.namespace_obj).joinedload(
+                NodeNamespace.parent_namespace_obj,
+            ),
         ]
 
 
@@ -1071,11 +1108,15 @@ LineageColumn.model_rebuild()
 
 class NamespaceOutput(BaseModel):
     """
-    Output for a namespace that includes the number of nodes
+    Output for a namespace that includes the number of nodes and git repository information
     """
 
     namespace: str
     num_nodes: int
+    git_info: Optional[GitRepositoryInfo] = Field(
+        default=None,
+        description="Git repository configuration, if any",
+    )
 
 
 class NodeIndegreeOutput(BaseModel):
