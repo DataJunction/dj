@@ -158,16 +158,23 @@ class NodeSpecBulkValidator:
             )
             parsed_ast.select.add_aliases_to_unnamed_columns()
 
-            inferred_columns = self._infer_columns(spec, parsed_ast)
-            errors = [
-                err
-                for err in [
-                    self._check_inferred_columns(inferred_columns),
-                    self._check_primary_key(inferred_columns, spec),
-                    self._check_metric_query(spec, parsed_ast),
+            # If _skip_validation is set (e.g., copying from validated source),
+            # preserve the spec's columns to keep metadata like order
+            skip_validation = getattr(spec, "_skip_validation", False)
+            if skip_validation and spec.columns:
+                inferred_columns = spec.columns
+                errors = []
+            else:
+                inferred_columns = self._infer_columns(spec, parsed_ast)
+                errors = [
+                    err
+                    for err in [
+                        self._check_inferred_columns(inferred_columns),
+                        self._check_primary_key(inferred_columns, spec),
+                        self._check_metric_query(spec, parsed_ast),
+                    ]
+                    if err is not None
                 ]
-                if err is not None
-            ]
             return NodeValidationResult(
                 spec=spec,
                 status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
