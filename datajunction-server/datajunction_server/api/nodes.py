@@ -85,6 +85,7 @@ from datajunction_server.models.node import (
     CreateSourceNode,
     DAGNodeOutput,
     DimensionAttributeOutput,
+    GitRepositoryInfo,
     LineageColumn,
     NodeIndexItem,
     NodeMode,
@@ -330,7 +331,12 @@ async def get_node(
         options=NodeOutput.load_options(),
         raise_if_not_exists=True,
     )
-    return NodeOutput.model_validate(node)
+    assert node is not None  # raise_if_not_exists=True ensures this
+    # Create NodeOutput and explicitly populate git_info from the Node property
+    output = NodeOutput.model_validate(node)
+    if node.git_info:
+        output.git_info = GitRepositoryInfo(**node.git_info)
+    return output
 
 
 @router.delete("/nodes/{name}/")
