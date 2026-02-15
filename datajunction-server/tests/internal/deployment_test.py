@@ -638,3 +638,996 @@ async def test_virtual_catalog_fallback_for_parentless_nodes(
     # The catalog should have a valid name (configured in settings)
     assert virtual_catalog.name is not None
     assert len(virtual_catalog.name) > 0
+
+
+async def test_validate_node_deletion_no_references(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node with no references succeeds.
+    """
+    await default_attribute_types(session)
+
+    # Create a simple node
+    source_node = Node(
+        name="test.source",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(source_node)
+    source_revision = NodeRevision(
+        name="test.source",
+        node=source_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(source_revision)
+    source_node.current = source_revision
+    await session.commit()
+
+    # Create orchestrator and validate deletion (should not raise)
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    node_spec = SourceSpec(
+        name="source",
+        namespace="test",
+        catalog="cat",
+        schema="sch",
+        table="tbl",
+    )
+    await orchestrator._validate_node_deletion([node_spec])  # Should not raise
+
+
+async def test_validate_node_deletion_with_parent_reference(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node that is referenced as a parent fails.
+    """
+    await default_attribute_types(session)
+
+    # Create parent node
+    parent_node = Node(
+        name="test.parent",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_node)
+    parent_revision = NodeRevision(
+        name="test.parent",
+        node=parent_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_revision)
+    parent_node.current = parent_revision
+
+    # Create child node that depends on parent
+    child_node = Node(
+        name="test.child",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(child_node)
+    child_revision = NodeRevision(
+        name="test.child",
+        node=child_node,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT * FROM test.parent",
+        parents=[parent_node],
+        created_by_id=current_user.id,
+    )
+    session.add(child_revision)
+    child_node.current = child_revision
+    await session.commit()
+
+    # Try to delete parent node
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    parent_spec = SourceSpec(
+        name="parent",
+        namespace="test",
+        catalog="cat",
+        schema="sch",
+        table="tbl",
+    )
+
+    # Validate node deletion returns references dict
+    references = await orchestrator._validate_node_deletion([parent_spec])
+    assert "test.parent" in references
+    assert "test.child" in references["test.parent"]
+
+    # _delete_nodes should return FAILED result for referenced node
+    results = await orchestrator._delete_nodes([parent_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    assert "test.parent" in results[0].message
+    assert "test.child" in results[0].message
+
+
+async def test_validate_node_deletion_with_dimension_link(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node that is referenced as a dimension link fails.
+    """
+    await default_attribute_types(session)
+
+    # Create dimension node
+    dim_node = Node(
+        name="test.user_dim",
+        namespace="test",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(dim_node)
+    dim_revision = NodeRevision(
+        name="test.user_dim",
+        node=dim_node,
+        type=NodeType.DIMENSION,
+        version="1",
+        query="SELECT user_id FROM users",
+        created_by_id=current_user.id,
+    )
+    dim_revision.columns = [
+        Column(name="user_id", type=IntegerType(), order=0),
+    ]
+    session.add(dim_revision)
+    dim_node.current = dim_revision
+
+    # Create source node with dimension link
+    source_node = Node(
+        name="test.events",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(source_node)
+    source_revision = NodeRevision(
+        name="test.events",
+        node=source_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT event_id, user_id FROM events",
+        created_by_id=current_user.id,
+    )
+    session.add(source_revision)
+    source_node.current = source_revision
+
+    # Add dimension link
+    from datajunction_server.database.dimensionlink import DimensionLink
+
+    dim_link = DimensionLink(
+        node_revision=source_revision,
+        dimension=dim_node,
+        join_sql="events.user_id = test.user_dim.user_id",
+        role=None,
+    )
+    session.add(dim_link)
+    await session.commit()
+
+    # Try to delete dimension node
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    dim_spec = DimensionSpec(
+        name="user_dim",
+        namespace="test",
+        query="SELECT user_id FROM users",
+    )
+
+    # Validate node deletion returns references dict
+    references = await orchestrator._validate_node_deletion([dim_spec])
+    assert "test.user_dim" in references
+    assert any("test.events" in ref for ref in references["test.user_dim"])
+    assert any("dimension link" in ref for ref in references["test.user_dim"])
+
+    # _delete_nodes should return FAILED result
+    results = await orchestrator._delete_nodes([dim_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    assert "dimension link" in results[0].message
+
+
+async def test_validate_node_deletion_cross_namespace_reference(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node fails if referenced from another namespace.
+    """
+    await default_attribute_types(session)
+
+    # Create node in namespace 'shared'
+    shared_node = Node(
+        name="shared.common_dim",
+        namespace="shared",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(shared_node)
+    shared_revision = NodeRevision(
+        name="shared.common_dim",
+        node=shared_node,
+        type=NodeType.DIMENSION,
+        version="1",
+        query="SELECT id FROM common",
+        created_by_id=current_user.id,
+    )
+    session.add(shared_revision)
+    shared_node.current = shared_revision
+
+    # Create node in namespace 'app' that references 'shared'
+    app_node = Node(
+        name="app.metric",
+        namespace="app",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(app_node)
+    app_revision = NodeRevision(
+        name="app.metric",
+        node=app_node,
+        type=NodeType.METRIC,
+        version="1",
+        query="SELECT COUNT(*) FROM shared.common_dim",
+        parents=[shared_node],
+        created_by_id=current_user.id,
+    )
+    session.add(app_revision)
+    app_node.current = app_revision
+    await session.commit()
+
+    # Try to delete shared node from shared namespace deployment
+    deployment_spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    shared_spec = DimensionSpec(
+        name="common_dim",
+        namespace="shared",
+        query="SELECT id FROM common",
+    )
+
+    # Validate node deletion returns cross-namespace references
+    references = await orchestrator._validate_node_deletion([shared_spec])
+    assert "shared.common_dim" in references
+    assert "app.metric" in references["shared.common_dim"]
+
+    # _delete_nodes should return FAILED result
+    results = await orchestrator._delete_nodes([shared_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    assert "app.metric" in results[0].message
+
+
+async def test_validate_node_deletion_multiple_nodes_self_reference(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting multiple nodes that reference each other succeeds.
+    """
+    await default_attribute_types(session)
+
+    # Create two nodes that reference each other (being deleted together)
+    node_a = Node(
+        name="test.node_a",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_a)
+    node_a_revision = NodeRevision(
+        name="test.node_a",
+        node=node_a,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_a_revision)
+    node_a.current = node_a_revision
+
+    node_b = Node(
+        name="test.node_b",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_b)
+    node_b_revision = NodeRevision(
+        name="test.node_b",
+        node=node_b,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT * FROM test.node_a",
+        parents=[node_a],
+        created_by_id=current_user.id,
+    )
+    session.add(node_b_revision)
+    node_b.current = node_b_revision
+    await session.commit()
+
+    # Delete both nodes together (should succeed)
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    spec_a = SourceSpec(
+        name="node_a",
+        namespace="test",
+        catalog="cat",
+        schema="sch",
+        table="tbl",
+    )
+    spec_b = TransformSpec(
+        name="node_b",
+        namespace="test",
+        query="SELECT * FROM test.node_a",
+    )
+
+    # Should not raise because both are being deleted
+    await orchestrator._validate_node_deletion([spec_a, spec_b])
+
+
+async def test_validate_node_deletion_empty_list(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that validating an empty deletion list returns early without error.
+    """
+    await default_attribute_types(session)
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    # Should return early without error
+    await orchestrator._validate_node_deletion([])
+
+
+async def test_validate_node_deletion_nonexistent_node(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node that doesn't exist in the database returns early.
+    """
+    await default_attribute_types(session)
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    # Try to delete a node that doesn't exist
+    fake_spec = SourceSpec(
+        name="nonexistent",
+        namespace="test",
+        catalog="cat",
+        schema="sch",
+        table="tbl",
+    )
+
+    # Should return early without error (no nodes found to delete)
+    await orchestrator._validate_node_deletion([fake_spec])
+
+
+async def test_validate_node_deletion_multiple_references_to_same_node(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a node referenced by multiple other nodes shows all references.
+    """
+    await default_attribute_types(session)
+
+    # Create a parent node
+    parent_node = Node(
+        name="test.parent",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_node)
+    parent_revision = NodeRevision(
+        name="test.parent",
+        node=parent_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_revision)
+    parent_node.current = parent_revision
+
+    # Create three children that all depend on parent
+    for child_name in ["child_a", "child_b", "child_c"]:
+        child_node = Node(
+            name=f"test.{child_name}",
+            namespace="test",
+            type=NodeType.TRANSFORM,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        session.add(child_node)
+        child_revision = NodeRevision(
+            name=f"test.{child_name}",
+            node=child_node,
+            type=NodeType.TRANSFORM,
+            version="1",
+            query="SELECT * FROM test.parent",
+            parents=[parent_node],
+            created_by_id=current_user.id,
+        )
+        session.add(child_revision)
+        child_node.current = child_revision
+
+    await session.commit()
+
+    # Try to delete parent node
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    parent_spec = SourceSpec(
+        name="parent",
+        namespace="test",
+        catalog="cat",
+        schema="sch",
+        table="tbl",
+    )
+
+    # Validate node deletion returns all references
+    references = await orchestrator._validate_node_deletion([parent_spec])
+    assert "test.parent" in references
+    # All three children should be listed
+    assert "test.child_a" in references["test.parent"]
+    assert "test.child_b" in references["test.parent"]
+    assert "test.child_c" in references["test.parent"]
+
+    # _delete_nodes should return FAILED result with all references
+    results = await orchestrator._delete_nodes([parent_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    error_message = results[0].message
+    assert "test.child_a" in error_message
+    assert "test.child_b" in error_message
+    assert "test.child_c" in error_message
+
+
+async def test_validate_node_deletion_both_parent_and_dimension_link(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that a node referenced as both parent and dimension link shows both types.
+    """
+    await default_attribute_types(session)
+
+    # Create a dimension/source node that will be referenced in two ways
+    shared_node = Node(
+        name="test.shared",
+        namespace="test",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(shared_node)
+    shared_revision = NodeRevision(
+        name="test.shared",
+        node=shared_node,
+        type=NodeType.DIMENSION,
+        version="1",
+        query="SELECT id FROM shared_table",
+        created_by_id=current_user.id,
+    )
+    shared_revision.columns = [
+        Column(name="id", type=IntegerType(), order=0),
+    ]
+    session.add(shared_revision)
+    shared_node.current = shared_revision
+
+    # Create a transform that uses it as a parent
+    transform_node = Node(
+        name="test.transform",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(transform_node)
+    transform_revision = NodeRevision(
+        name="test.transform",
+        node=transform_node,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT * FROM test.shared",
+        parents=[shared_node],
+        created_by_id=current_user.id,
+    )
+    session.add(transform_revision)
+    transform_node.current = transform_revision
+
+    # Create a source that uses it as a dimension link
+    source_node = Node(
+        name="test.source",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(source_node)
+    source_revision = NodeRevision(
+        name="test.source",
+        node=source_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT event_id FROM events",
+        created_by_id=current_user.id,
+    )
+    session.add(source_revision)
+    source_node.current = source_revision
+
+    from datajunction_server.database.dimensionlink import DimensionLink
+
+    dim_link = DimensionLink(
+        node_revision=source_revision,
+        dimension=shared_node,
+        join_sql="test.source.event_id = test.shared.id",
+        role=None,
+    )
+    session.add(dim_link)
+    await session.commit()
+
+    # Try to delete shared node
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    shared_spec = DimensionSpec(
+        name="shared",
+        namespace="test",
+        query="SELECT id FROM shared_table",
+    )
+
+    # Validate node deletion returns both types of references
+    references = await orchestrator._validate_node_deletion([shared_spec])
+    assert "test.shared" in references
+    # Should show both types of references
+    assert "test.transform" in references["test.shared"]
+    assert any("test.source" in ref for ref in references["test.shared"])
+    assert any("dimension link" in ref for ref in references["test.shared"])
+
+    # _delete_nodes should return FAILED result with both types
+    results = await orchestrator._delete_nodes([shared_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    error_message = results[0].message
+    assert "test.transform" in error_message
+    assert "test.source" in error_message
+    assert "dimension link" in error_message
+
+
+async def test_validate_node_deletion_mixed_scenarios(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test deleting multiple nodes where some have references and some don't.
+    """
+    await default_attribute_types(session)
+
+    # Create standalone node (no references)
+    standalone_node = Node(
+        name="test.standalone",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(standalone_node)
+    standalone_revision = NodeRevision(
+        name="test.standalone",
+        node=standalone_node,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(standalone_revision)
+    standalone_node.current = standalone_revision
+
+    # Create referenced node A
+    node_a = Node(
+        name="test.referenced_a",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_a)
+    node_a_revision = NodeRevision(
+        name="test.referenced_a",
+        node=node_a,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_a_revision)
+    node_a.current = node_a_revision
+
+    # Create referenced node B
+    node_b = Node(
+        name="test.referenced_b",
+        namespace="test",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_b)
+    node_b_revision = NodeRevision(
+        name="test.referenced_b",
+        node=node_b,
+        type=NodeType.SOURCE,
+        version="1",
+        query="SELECT 1",
+        created_by_id=current_user.id,
+    )
+    session.add(node_b_revision)
+    node_b.current = node_b_revision
+
+    # Create external nodes that reference A and B
+    child_of_a = Node(
+        name="test.child_of_a",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(child_of_a)
+    child_of_a_revision = NodeRevision(
+        name="test.child_of_a",
+        node=child_of_a,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT * FROM test.referenced_a",
+        parents=[node_a],
+        created_by_id=current_user.id,
+    )
+    session.add(child_of_a_revision)
+    child_of_a.current = child_of_a_revision
+
+    child_of_b = Node(
+        name="test.child_of_b",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(child_of_b)
+    child_of_b_revision = NodeRevision(
+        name="test.child_of_b",
+        node=child_of_b,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="SELECT * FROM test.referenced_b",
+        parents=[node_b],
+        created_by_id=current_user.id,
+    )
+    session.add(child_of_b_revision)
+    child_of_b.current = child_of_b_revision
+
+    await session.commit()
+
+    # Try to delete all three: standalone (ok), referenced_a (fail), referenced_b (fail)
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    specs = [
+        SourceSpec(
+            name="standalone",
+            namespace="test",
+            catalog="cat",
+            schema="sch",
+            table="tbl",
+        ),
+        SourceSpec(
+            name="referenced_a",
+            namespace="test",
+            catalog="cat",
+            schema="sch",
+            table="tbl",
+        ),
+        SourceSpec(
+            name="referenced_b",
+            namespace="test",
+            catalog="cat",
+            schema="sch",
+            table="tbl",
+        ),
+    ]
+
+    # Validate shows references for both referenced nodes
+    references = await orchestrator._validate_node_deletion(specs)
+    assert "test.referenced_a" in references
+    assert "test.child_of_a" in references["test.referenced_a"]
+    assert "test.referenced_b" in references
+    assert "test.child_of_b" in references["test.referenced_b"]
+    assert "test.standalone" not in references
+
+    # Delete nodes - should have mixed results
+    results = await orchestrator._delete_nodes(specs)
+    assert len(results) == 3
+
+    # Find results by name
+    standalone_result = next(r for r in results if r.name == "test.standalone")
+    ref_a_result = next(r for r in results if r.name == "test.referenced_a")
+    ref_b_result = next(r for r in results if r.name == "test.referenced_b")
+
+    # Standalone should succeed
+    assert standalone_result.status == DeploymentResult.Status.SUCCESS
+
+    # Referenced nodes should fail
+    assert ref_a_result.status == DeploymentResult.Status.FAILED
+    assert "test.child_of_a" in ref_a_result.message
+    assert ref_b_result.status == DeploymentResult.Status.FAILED
+    assert "test.child_of_b" in ref_b_result.message
+
+
+async def test_validate_node_deletion_self_referential(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that deleting a self-referential node succeeds (edge case).
+    """
+    await default_attribute_types(session)
+
+    # Create a self-referential node (recursive CTE)
+    recursive_node = Node(
+        name="test.recursive",
+        namespace="test",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(recursive_node)
+
+    # Node references itself as a parent
+    recursive_revision = NodeRevision(
+        name="test.recursive",
+        node=recursive_node,
+        type=NodeType.TRANSFORM,
+        version="1",
+        query="WITH RECURSIVE cte AS (SELECT 1) SELECT * FROM cte",
+        created_by_id=current_user.id,
+    )
+    session.add(recursive_revision)
+    recursive_node.current = recursive_revision
+
+    # Add self as parent
+    recursive_revision.parents = [recursive_node]
+    await session.commit()
+
+    # Delete the self-referential node (should succeed)
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    recursive_spec = TransformSpec(name="recursive", namespace="test", query="SELECT 1")
+
+    # Should not raise - self-reference is allowed when deleting the node
+    await orchestrator._validate_node_deletion([recursive_spec])
+
+
+async def test_validate_node_deletion_many_references_formatting(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test that error message is readable when a node has many references.
+    """
+    await default_attribute_types(session)
+
+    # Create a parent node
+    parent_node = Node(
+        name="test.popular_dim",
+        namespace="test",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_node)
+    parent_revision = NodeRevision(
+        name="test.popular_dim",
+        node=parent_node,
+        type=NodeType.DIMENSION,
+        version="1",
+        query="SELECT id FROM popular",
+        created_by_id=current_user.id,
+    )
+    session.add(parent_revision)
+    parent_node.current = parent_revision
+
+    # Create 15 children that all depend on parent
+    for i in range(15):
+        child_node = Node(
+            name=f"test.child_{i:02d}",
+            namespace="test",
+            type=NodeType.TRANSFORM,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        session.add(child_node)
+        child_revision = NodeRevision(
+            name=f"test.child_{i:02d}",
+            node=child_node,
+            type=NodeType.TRANSFORM,
+            version="1",
+            query="SELECT * FROM test.popular_dim",
+            parents=[parent_node],
+            created_by_id=current_user.id,
+        )
+        session.add(child_revision)
+        child_node.current = child_revision
+
+    await session.commit()
+
+    # Try to delete parent node
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+    )
+    context = DeploymentContext(current_user=current_user)
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        session=session,
+        deployment_spec=deployment_spec,
+        context=context,
+    )
+
+    parent_spec = DimensionSpec(
+        name="popular_dim",
+        namespace="test",
+        query="SELECT id FROM popular",
+    )
+
+    # Validate node deletion returns all 15 references
+    references = await orchestrator._validate_node_deletion([parent_spec])
+    assert "test.popular_dim" in references
+    assert len(references["test.popular_dim"]) == 15
+
+    # Verify all 15 children are listed
+    for i in range(15):
+        assert f"test.child_{i:02d}" in references["test.popular_dim"]
+
+    # _delete_nodes should return FAILED result with all references
+    results = await orchestrator._delete_nodes([parent_spec])
+    assert len(results) == 1
+    assert results[0].status == DeploymentResult.Status.FAILED
+    error_message = results[0].message
+
+    # Verify all 15 children are in the error message
+    for i in range(15):
+        assert f"test.child_{i:02d}" in error_message
+
+    # Verify error message is properly formatted (uses commas)
+    assert ", " in error_message
