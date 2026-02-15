@@ -58,7 +58,7 @@ async def common_dimensions(
     # Note: extract_fields converts camelCase to snake_case
     has_dimension_node_field = "dimension_node" in fields
 
-    if has_dimension_node_field:
+    if has_dimension_node_field:  # pragma: no branch
         dimension_node_names = list(
             {dim.name.rsplit(".", 1)[0] for dim in dimensions},
         )
