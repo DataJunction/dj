@@ -104,7 +104,7 @@ const Explorer = ({
           onMouseEnter={() => setShowAddButton(true)}
           onMouseLeave={() => setShowAddButton(false)}
           style={{
-            display: 'inline-flex',
+            display: 'flex',
             alignItems: 'center',
             width: '100%',
             position: 'relative',
@@ -116,6 +116,8 @@ const Explorer = ({
                 fontSize: '10px',
                 color: '#94a3b8',
                 width: '12px',
+                minWidth: '12px',
+                flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
               }}
@@ -123,9 +125,20 @@ const Explorer = ({
               {!expand ? <CollapsedIcon /> : <ExpandedIcon />}
             </span>
           ) : (
-            <span style={{ width: '12px' }} />
+            <span style={{ width: '12px', minWidth: '12px', flexShrink: 0 }} />
           )}
-          <a href={`/namespaces/${items.path}`}>{items.namespace}</a>
+          <a
+            href={`/namespaces/${items.path}`}
+            title={items.namespace}
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+            }}
+          >
+            {items.namespace}
+          </a>
           {/* Deployment source badge */}
           {namespaceSources[items.path] &&
             namespaceSources[items.path].total_deployments > 0 &&
@@ -201,7 +214,7 @@ const Explorer = ({
           {isCreatingChild && (
             <div
               style={{
-                paddingLeft: '0.55rem',
+                paddingLeft: '0.25rem',
                 marginLeft: '0.25rem',
                 borderLeft: '1px solid #e2e8f0',
                 marginTop: '2px',
@@ -262,7 +275,7 @@ const Explorer = ({
             items.children.map((item, index) => (
               <div
                 style={{
-                  paddingLeft: '0.55rem',
+                  paddingLeft: '0.25rem',
                   marginLeft: '0.25rem',
                   borderLeft: '1px solid #e2e8f0',
                 }}
