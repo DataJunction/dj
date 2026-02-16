@@ -1409,6 +1409,34 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
         ],
         errors=[],
     ),
+    # v3 API query for avg_repair_price with city dimension (for failing tests)
+    "WITHdefault_hard_hatAS(SELECThard_hat_id,\tcityFROMdefault.roads.hard_hats),"
+    "default_repair_orderAS(SELECTrepair_order_idFROMdefault.repair_orders),"
+    "repair_order_details_0AS(SELECTt3.city,\tCOUNT(t1.price)price_count_252381cf,"
+    "\tSUM(t1.price)price_sum_252381cfFROMdefault.roads.repair_order_detailst1"
+    "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
+    "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.city)"
+    "SELECTrepair_order_details_0.cityAScity,\tSUM(repair_order_details_0."
+    "price_sum_252381cf)/SUM(repair_order_details_0.price_count_252381cf)AS"
+    "avg_repair_priceFROMrepair_order_details_0GROUPBYrepair_order_details_0.city": QueryWithResults(
+        id="v3-avg-repair-price-city",
+        submitted_query="...",
+        state=QueryState.FINISHED,
+        results=[
+            {
+                "columns": [
+                    {"name": "city", "type": "str"},
+                    {"name": "avg_repair_price", "type": "float"},
+                ],
+                "rows": [
+                    ("Jersey City", 63.0),
+                    ("Billerica", 68.0),
+                ],
+                "sql": "",
+            },
+        ],
+        errors=[],
+    ),
     # v3 API query for avg_repair_price with state dimension (no data test)
     "WITHdefault_hard_hatAS(SELECThard_hat_id,\tstateFROMdefault.roads.hard_hats),"
     "default_repair_orderAS(SELECTrepair_order_idFROMdefault.repair_orders),"
