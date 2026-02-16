@@ -1429,8 +1429,8 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                     {"name": "avg_repair_price", "type": "float"},
                 ],
                 "rows": [
-                    ("Jersey City", 63.0),
-                    ("Billerica", 68.0),
+                    ("Foo", 1.0),
+                    ("Bar", 2.0),
                 ],
                 "sql": "",
             },

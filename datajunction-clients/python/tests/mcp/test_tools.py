@@ -995,3 +995,260 @@ async def test_client_query_success_with_data():
         result = await client.query("query { test }")
 
         assert result == {"findNodes": []}
+
+
+# ============================================================================
+# Edge Case Tests for Better Coverage
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_client_token_already_initialized():
+    """Test that _ensure_token returns early when token is already initialized"""
+    with patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings:
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="existing_token",
+            dj_username=None,
+            dj_password=None,
+        )
+
+        client = tools.DJGraphQLClient()
+        # First initialization
+        await client._ensure_token()
+        assert client._token == "existing_token"
+
+        # Mark as initialized
+        client._token_initialized = True
+
+        # Second call should return early (covers lines 45-48)
+        await client._ensure_token()
+
+        # Token should remain the same
+        assert client._token == "existing_token"
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_api_error():
+    """Test build_metric_sql when API returns error"""
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+    mock_response.text = "Internal Server Error"
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Server error",
+        request=MagicMock(),
+        response=mock_response,
+    )
+
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        client = tools.DJGraphQLClient()
+
+        # Should raise exception (covers error path lines 498->500)
+        with pytest.raises(Exception):
+            await client.build_metric_sql(
+                metrics=["default.revenue"],
+            )
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_with_error_response():
+    """Test build_metric_sql when SQL contains errors"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "sql": [
+            {
+                "sql": "SELECT * FROM table",
+                "errors": [
+                    {"message": "Table not found"},
+                ],
+            },
+        ],
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+        result = await tools.build_metric_sql(metrics=["test.metric"])
+
+        assert "Error occurred" in result
+        assert "Context: Building SQL for metrics: test.metric" in result
+
+
+@pytest.mark.asyncio
+async def test_get_metric_data_query_failed():
+    """Test get_metric_data when query execution fails"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "state": "FAILED",
+        "errors": ["Query execution failed: timeout"],
+        "results": [],
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        result = await tools.get_metric_data(metrics=["test.metric"])
+
+        # Should handle failed state (covers lines 579->583)
+        assert "FAILED" in result or "failed" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_metric_data_network_error():
+    """Test get_metric_data when network error occurs"""
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        client = tools.DJGraphQLClient()
+
+        # Should raise exception
+        with pytest.raises(Exception):
+            await client.get_metric_data(metrics=["test.metric"])
+
+
+@pytest.mark.asyncio
+async def test_graphql_query_with_http_error():
+    """Test GraphQL query when HTTP error occurs"""
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = "Not Found"
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found",
+        request=MagicMock(),
+        response=mock_response,
+    )
+
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        client = tools.DJGraphQLClient()
+
+        with pytest.raises(Exception):
+            await client.query("{ nodes { name } }")
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_empty_response():
+    """Test build_metric_sql with empty SQL response"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"sql": []}
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch("datajunction.mcp.tools.get_mcp_settings") as mock_settings,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_settings.return_value = MagicMock(
+            dj_api_url="http://localhost:8000",
+            dj_api_token="test_token",
+            request_timeout=30.0,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+        result = await tools.build_metric_sql(metrics=["test.metric"])
+        assert "❌ Error occurred" in result
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_columns_with_semantic_name():
+    """Test build_metric_sql explicitly with columns that have semantic_name"""
+    mock_response_json = {
+        "sql": "SELECT city, count FROM table",
+        "dialect": "spark",
+        "columns": [
+            {"name": "city", "type": "STRING", "semantic_name": "location.city"},
+            {"name": "count", "type": "INTEGER"},  # No semantic_name
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = mock_response_json
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.build_metric_sql(metrics=["test.metric"])
+
+        # Verify both columns are in output
+        assert "city: STRING (semantic: location.city)" in result
+        assert "count: INTEGER" in result
+        assert "(semantic: location.city)" in result  # Explicit check for semantic info
