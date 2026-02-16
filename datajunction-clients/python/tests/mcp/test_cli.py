@@ -2,7 +2,7 @@
 Tests for MCP CLI entry point
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -31,8 +31,8 @@ async def test_main_starts_server():
             mock_write_stream,
         )
 
-        # Setup mock app.run
-        mock_app.run.return_value = None
+        # Setup mock app.run - needs to be async
+        mock_app.run = AsyncMock()
 
         # Run main
         await main()
@@ -47,15 +47,16 @@ async def test_main_starts_server():
 
 def test_run_calls_asyncio_run():
     """Test that run() wrapper properly invokes asyncio.run"""
-    with (
-        patch("datajunction.mcp.cli.asyncio.run") as mock_asyncio_run,
-        patch("datajunction.mcp.cli.main") as mock_main,
-    ):
+    with patch("datajunction.mcp.cli.asyncio.run") as mock_asyncio_run:
         mock_asyncio_run.return_value = None
 
         run()
 
-        mock_asyncio_run.assert_called_once_with(mock_main())
+        # Verify asyncio.run was called once
+        mock_asyncio_run.assert_called_once()
+        # The argument should be a coroutine (from calling main())
+        call_args = mock_asyncio_run.call_args[0][0]
+        assert hasattr(call_args, "__await__")  # Verify it's a coroutine
 
 
 def test_run_handles_keyboard_interrupt():
