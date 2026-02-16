@@ -79,6 +79,7 @@ from datajunction_server.utils import SEPARATOR, execute_with_retry
 if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
     from datajunction_server.database.measure import FrozenMeasure
+    from datajunction_server.database.namespace import NodeNamespace
 
 
 _logger = logging.getLogger(__name__)
@@ -310,6 +311,14 @@ class Node(Base):
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
     )
 
+    namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
+        "NodeNamespace",
+        foreign_keys=[namespace],
+        primaryjoin="Node.namespace == foreign(NodeNamespace.namespace)",
+        viewonly=True,
+        lazy="select",  # Use select to avoid conflicts with FOR UPDATE queries
+    )
+
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
     history: Mapped[List[History]] = relationship(
@@ -329,6 +338,58 @@ class Node(Base):
         return list(  # pragma: no cover
             {entry.user for entry in self.history if entry.user},
         )
+
+    @property
+    def is_default_branch(self) -> bool:
+        """
+        Check if this node is from the default branch namespace.
+        Returns True for non-git namespaces or when on the default branch.
+        """
+        if not self.namespace_obj:  # pragma: no cover
+            return True  # Non-git namespaces are considered "default"
+
+        # Get the git config namespace (could be parent)
+        git_namespace = self.namespace_obj
+        if not git_namespace.github_repo_path and git_namespace.parent_namespace_obj:
+            git_namespace = git_namespace.parent_namespace_obj
+
+        if not git_namespace.default_branch:
+            return True  # No git config means default
+
+        # Compare branch from actual namespace with default from git config namespace
+        return self.namespace_obj.git_branch == git_namespace.default_branch
+
+    @property
+    def git_info(self) -> Optional[dict]:
+        """
+        Get git repository information for this node's namespace.
+        For child namespaces (e.g., prefix.main, prefix.feature), follows parent_namespace
+        to get the git repo configuration from the parent (e.g., prefix).
+        Returns None if no git configuration is found.
+        """
+        if not self.namespace_obj:  # pragma: no cover
+            return None
+
+        # Determine which namespace has the git config
+        git_namespace = self.namespace_obj
+        if not git_namespace.github_repo_path and git_namespace.parent_namespace_obj:
+            # This is a child namespace (e.g., prefix.main), use parent for git config
+            git_namespace = git_namespace.parent_namespace_obj
+
+        # If still no git config, return None
+        if not git_namespace.github_repo_path:
+            return None
+
+        # Use branch info from the actual namespace, repo info from git_namespace
+        return {
+            "repo": git_namespace.github_repo_path,
+            "branch": self.namespace_obj.git_branch,  # Branch from actual namespace
+            "default_branch": git_namespace.default_branch,
+            "path": git_namespace.git_path,
+            "is_default_branch": self.is_default_branch,
+            "parent_namespace": self.namespace_obj.parent_namespace,
+            "git_only": git_namespace.git_only,
+        }
 
     def upstream_cache_key(self, node_type: NodeType | None = None) -> str:
         base = f"upstream:{self.name}@{self.current_version}"

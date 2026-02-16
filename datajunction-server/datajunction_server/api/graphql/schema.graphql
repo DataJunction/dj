@@ -180,6 +180,31 @@ type GeneratedSQL {
   errors: [DJError!]!
 }
 
+type GitRepositoryInfo {
+  """GitHub repository path (e.g., 'owner/repo')"""
+  repo: String!
+
+  """Current git branch for this namespace (e.g., 'feature-x', 'main')"""
+  branch: String
+
+  """Default/canonical branch (e.g., 'main')"""
+  defaultBranch: String
+
+  """Subdirectory within repo (e.g., 'definitions/')"""
+  path: String
+
+  """True if this is the default branch namespace (production/canonical)"""
+  isDefaultBranch: Boolean!
+
+  """
+  Parent namespace for feature branches (e.g., 'myproject' for 'myproject.feature_x')
+  """
+  parentNamespace: String
+
+  """If true, UI edits are blocked; must edit via git"""
+  gitOnly: Boolean!
+}
+
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf).
 """
@@ -258,6 +283,7 @@ type Node {
   createdBy: User!
   owners: [User!]!
   editedBy: [String!]!
+  gitInfo: GitRepositoryInfo
 }
 
 type NodeConnection {
