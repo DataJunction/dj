@@ -3,9 +3,6 @@
 @import url('https://fonts.googleapis.com/css?family=Lato');
 @import url('https://fonts.googleapis.com/css?family=Consolas');
 
-/* Import modal and settings styles globally */
-@import './settings.css';
-
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
@@ -1009,7 +1006,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 12px 8px 4px;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
