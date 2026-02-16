@@ -1011,8 +1011,9 @@ class NodeOutput(GenericNodeOutputModel):
             joinedload(Node.tags),
             selectinload(Node.created_by),
             selectinload(Node.owners),
-            # Load namespace and its parent for git_info
-            joinedload(Node.namespace_obj).joinedload(
+            # Load namespace and its parent for git_info using selectinload
+            # to avoid conflicts with FOR UPDATE queries (can't use joinedload)
+            selectinload(Node.namespace_obj).selectinload(
                 NodeNamespace.parent_namespace_obj,
             ),
         ]

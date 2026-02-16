@@ -149,9 +149,10 @@ def load_node_options(fields):
         options.append(noload(DBNode.tags))
 
     if "git_info" in fields:
-        # Load namespace and its parent for git_info
+        # Load namespace and its parent for git_info using selectinload
+        # to avoid conflicts with FOR UPDATE queries (can't use joinedload)
         options.append(
-            joinedload(DBNode.namespace_obj).joinedload(
+            selectinload(DBNode.namespace_obj).selectinload(
                 DBNodeNamespace.parent_namespace_obj,
             ),
         )

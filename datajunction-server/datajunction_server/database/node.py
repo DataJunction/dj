@@ -316,7 +316,7 @@ class Node(Base):
         foreign_keys=[namespace],
         primaryjoin="Node.namespace == foreign(NodeNamespace.namespace)",
         viewonly=True,
-        lazy="joined",
+        lazy="select",  # Use select to avoid conflicts with FOR UPDATE queries
     )
 
     missing_table: Mapped[bool] = mapped_column(sa.Boolean, default=False)

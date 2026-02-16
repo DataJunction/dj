@@ -76,7 +76,7 @@ class NodeNamespace(Base):
         "NodeNamespace",
         foreign_keys=[parent_namespace],
         remote_side="NodeNamespace.namespace",
-        lazy="joined",
+        lazy="select",  # Use select to avoid conflicts with FOR UPDATE queries
     )
 
     git_only: Mapped[bool] = mapped_column(
