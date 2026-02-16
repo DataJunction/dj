@@ -193,6 +193,17 @@ async def list_namespaces() -> str:
 
     Returns:
         Formatted list of namespaces with node counts
+
+    Note on Git-Backed Namespaces:
+        Some namespaces may be backed by a git repository, following the pattern: {prefix}.{branch}
+
+        Examples:
+            - "xyz.main" = prefix "xyz" with branch "main" (production)
+            - "xyz.feature1" = prefix "xyz" with branch "feature1" (development)
+
+        When you see multiple namespaces sharing a prefix (e.g., xyz.main, xyz.feature1, xyz.feature2),
+        they represent different git branches of the same repository. The ".main" branch typically
+        contains production-grade nodes, while other branches contain development or experimental versions.
     """
     graphql_query = """
     query ListNamespaces {
@@ -246,6 +257,22 @@ async def search_nodes(
 
     Returns:
         Formatted list of matching nodes
+
+    Note on Git-Backed Namespaces:
+        Certain namespaces may be backed by a git repository. In these cases, the namespace
+        follows a pattern of: {prefix}.{branch}
+
+        Examples:
+            - For prefix "xyz" with branch "main":
+              namespace = "xyz.main"
+
+            - For prefix "xyz" with feature branch "feature1":
+              namespace = "xyz.feature1"
+
+        This means if you find a node like "xyz.feature1.node_name", the production-grade
+        version of that node would be "xyz.main.node_name". When working with git-backed
+        namespaces, you may need to query across branches to compare development vs
+        production versions of nodes.
     """
     graphql_query = """
     query SearchNodes(
