@@ -2240,11 +2240,11 @@ class TestPullRequest:
             )
 
     @pytest.mark.asyncio
-    async def test_find_nodes_with_git_info_graphql(
+    async def test_find_nodes_with_git_info(
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test finding nodes with git_info via GraphQL."""
+        """Test finding nodes with git_info via both REST and GraphQL."""
         # Create namespace with git config
         await client_with_service_setup.post("/namespaces/gql_test.main")
         await client_with_service_setup.patch(
@@ -2269,7 +2269,27 @@ class TestPullRequest:
             },
         )
 
-        # Query with GraphQL
+        # Test REST API
+        rest_response = await client_with_service_setup.get(
+            "/nodes/gql_test.main.revenue/",
+        )
+        assert rest_response.status_code == 200
+        rest_data = rest_response.json()
+
+        # Validate git_info in REST response
+        assert rest_data["name"] == "gql_test.main.revenue"
+        assert rest_data["type"] == "transform"
+        rest_git_info = rest_data["git_info"]
+        assert rest_git_info is not None
+        assert rest_git_info["repo"] == "myorg/metrics-repo"
+        assert rest_git_info["branch"] == "main"
+        assert rest_git_info["default_branch"] == "main"
+        assert rest_git_info["is_default_branch"] is True
+        assert rest_git_info["path"] == "definitions/"
+        assert rest_git_info["parent_namespace"] is None
+        assert rest_git_info["git_only"] is False
+
+        # Test GraphQL API
         query = """
         {
             findNodes(names: ["gql_test.main.revenue"]) {
@@ -2288,36 +2308,36 @@ class TestPullRequest:
         }
         """
 
-        response = await client_with_service_setup.post(
+        gql_response = await client_with_service_setup.post(
             "/graphql",
             json={"query": query},
         )
-        assert response.status_code == 200
-        data = response.json()
+        assert gql_response.status_code == 200
+        gql_data = gql_response.json()
 
-        # Validate git_info is present and correct
-        nodes = data["data"]["findNodes"]
+        # Validate git_info in GraphQL response
+        nodes = gql_data["data"]["findNodes"]
         assert len(nodes) == 1
         node = nodes[0]
         assert node["name"] == "gql_test.main.revenue"
         assert node["type"] == "TRANSFORM"
 
-        git_info = node["gitInfo"]
-        assert git_info is not None
-        assert git_info["repo"] == "myorg/metrics-repo"
-        assert git_info["branch"] == "main"
-        assert git_info["defaultBranch"] == "main"
-        assert git_info["isDefaultBranch"] is True
-        assert git_info["path"] == "definitions/"
-        assert git_info["parentNamespace"] is None
-        assert git_info["gitOnly"] is False
+        gql_git_info = node["gitInfo"]
+        assert gql_git_info is not None
+        assert gql_git_info["repo"] == "myorg/metrics-repo"
+        assert gql_git_info["branch"] == "main"
+        assert gql_git_info["defaultBranch"] == "main"
+        assert gql_git_info["isDefaultBranch"] is True
+        assert gql_git_info["path"] == "definitions/"
+        assert gql_git_info["parentNamespace"] is None
+        assert gql_git_info["gitOnly"] is False
 
     @pytest.mark.asyncio
-    async def test_find_nodes_with_git_info_feature_branch_graphql(
+    async def test_find_nodes_with_git_info_feature_branch(
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test finding nodes in feature branch with git_info via GraphQL."""
+        """Test finding nodes in feature branch with git_info via REST and GraphQL."""
         # Create parent namespace with git config
         await client_with_service_setup.post("/namespaces/gql_branch_test.main")
         await client_with_service_setup.patch(
@@ -2360,7 +2380,31 @@ class TestPullRequest:
             },
         )
 
-        # Query with GraphQL
+        # Test REST API
+        rest_response = await client_with_service_setup.get(
+            "/nodes/gql_branch_test.feature_new_metric.revenue/",
+        )
+        assert rest_response.status_code == 200
+        rest_data = rest_response.json()
+
+        # Validate git_info in REST response
+        assert rest_data["name"] == "gql_branch_test.feature_new_metric.revenue"
+        rest_git_info = rest_data["git_info"]
+        assert rest_git_info is not None
+        # Repo info comes from parent namespace
+        assert rest_git_info["repo"] == "myorg/metrics-repo"
+        # Branch comes from child namespace
+        assert rest_git_info["branch"] == "feature-new-metric"
+        # Default branch comes from parent
+        assert rest_git_info["default_branch"] == "main"
+        # Not on default branch
+        assert rest_git_info["is_default_branch"] is False
+        # Path comes from parent
+        assert rest_git_info["path"] == "definitions/"
+        # Parent namespace is set
+        assert rest_git_info["parent_namespace"] == "gql_branch_test"
+
+        # Test GraphQL API
         query = """
         {
             findNodes(names: ["gql_branch_test.feature_new_metric.revenue"]) {
@@ -2379,33 +2423,33 @@ class TestPullRequest:
         }
         """
 
-        response = await client_with_service_setup.post(
+        gql_response = await client_with_service_setup.post(
             "/graphql",
             json={"query": query},
         )
-        assert response.status_code == 200
-        data = response.json()
+        assert gql_response.status_code == 200
+        gql_data = gql_response.json()
 
-        # Validate git_info is present and correct
-        nodes = data["data"]["findNodes"]
+        # Validate git_info in GraphQL response
+        nodes = gql_data["data"]["findNodes"]
         assert len(nodes) == 1
         node = nodes[0]
         assert node["name"] == "gql_branch_test.feature_new_metric.revenue"
 
-        git_info = node["gitInfo"]
-        assert git_info is not None
+        gql_git_info = node["gitInfo"]
+        assert gql_git_info is not None
         # Repo info comes from parent namespace
-        assert git_info["repo"] == "myorg/metrics-repo"
+        assert gql_git_info["repo"] == "myorg/metrics-repo"
         # Branch comes from child namespace
-        assert git_info["branch"] == "feature-new-metric"
+        assert gql_git_info["branch"] == "feature-new-metric"
         # Default branch comes from parent
-        assert git_info["defaultBranch"] == "main"
+        assert gql_git_info["defaultBranch"] == "main"
         # Not on default branch
-        assert git_info["isDefaultBranch"] is False
+        assert gql_git_info["isDefaultBranch"] is False
         # Path comes from parent
-        assert git_info["path"] == "definitions/"
+        assert gql_git_info["path"] == "definitions/"
         # Parent namespace is set
-        assert git_info["parentNamespace"] == "gql_branch_test"
+        assert gql_git_info["parentNamespace"] == "gql_branch_test"
 
 
 class TestGetPullRequest:
