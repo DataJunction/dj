@@ -2451,6 +2451,40 @@ class TestPullRequest:
         # Parent namespace is set
         assert gql_git_info["parentNamespace"] == "gql_branch_test"
 
+    @pytest.mark.asyncio
+    async def test_find_nodes_without_git_info(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test finding nodes without git_info returns null in GraphQL."""
+        # Query a node in the default namespace (no git config)
+        query = """
+        {
+            findNodes(names: ["default.repair_orders"]) {
+                name
+                type
+                gitInfo {
+                    repo
+                    branch
+                }
+            }
+        }
+        """
+
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # Validate git_info is null for nodes without git config
+        nodes = data["data"]["findNodes"]
+        assert len(nodes) == 1
+        node = nodes[0]
+        assert node["name"] == "default.repair_orders"
+        assert node["gitInfo"] is None
+
 
 class TestGetPullRequest:
     """Tests for GET /namespaces/{namespace}/pull-request endpoint."""

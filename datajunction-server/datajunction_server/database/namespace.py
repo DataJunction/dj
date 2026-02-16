@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     Mapped,
@@ -84,29 +84,6 @@ class NodeNamespace(Base):
         nullable=False,
         default=False,
     )  # If True, UI edits are blocked; must edit via git and deploy
-
-    @classmethod
-    async def get_all_with_node_count(cls, session: AsyncSession):
-        """
-        Get all namespaces with the number of nodes in that namespaces.
-        """
-        statement = (
-            select(
-                NodeNamespace.namespace,
-                func.count(Node.id).label("num_nodes"),
-            )
-            .join(
-                Node,
-                onclause=NodeNamespace.namespace == Node.namespace,
-                isouter=True,
-            )
-            .where(
-                is_(NodeNamespace.deactivated_at, None),
-            )
-            .group_by(NodeNamespace.namespace)
-        )
-        result = await session.execute(statement)
-        return result.all()
 
     @classmethod
     async def get(

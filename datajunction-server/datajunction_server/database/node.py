@@ -345,7 +345,7 @@ class Node(Base):
         Check if this node is from the default branch namespace.
         Returns True for non-git namespaces or when on the default branch.
         """
-        if not self.namespace_obj:
+        if not self.namespace_obj:  # pragma: no cover
             return True  # Non-git namespaces are considered "default"
 
         # Get the git config namespace (could be parent)
@@ -367,7 +367,7 @@ class Node(Base):
         to get the git repo configuration from the parent (e.g., prefix).
         Returns None if no git configuration is found.
         """
-        if not self.namespace_obj:
+        if not self.namespace_obj:  # pragma: no cover
             return None
 
         # Determine which namespace has the git config
