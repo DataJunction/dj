@@ -214,7 +214,7 @@ const Explorer = ({
           {isCreatingChild && (
             <div
               style={{
-                paddingLeft: '1.25rem',
+                paddingLeft: '0.25rem',
                 marginLeft: '0.25rem',
                 borderLeft: '1px solid #e2e8f0',
                 marginTop: '2px',
@@ -275,7 +275,7 @@ const Explorer = ({
             items.children.map((item, index) => (
               <div
                 style={{
-                  paddingLeft: '1.25rem',
+                  paddingLeft: '0.25rem',
                   marginLeft: '0.25rem',
                   borderLeft: '1px solid #e2e8f0',
                 }}
