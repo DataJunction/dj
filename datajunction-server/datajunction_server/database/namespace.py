@@ -2,9 +2,16 @@
 
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, joinedload, load_only, mapped_column, selectinload
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    load_only,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 from sqlalchemy.sql.operators import is_, or_
 
 from datajunction_server.database.base import Base
@@ -65,34 +72,18 @@ class NodeNamespace(Base):
         default=None,
     )  # Links myproject.feature_x -> myproject.main for PR targeting
 
+    parent_namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
+        "NodeNamespace",
+        foreign_keys=[parent_namespace],
+        remote_side="NodeNamespace.namespace",
+        lazy="select",  # Use select to avoid conflicts with FOR UPDATE queries
+    )
+
     git_only: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,
     )  # If True, UI edits are blocked; must edit via git and deploy
-
-    @classmethod
-    async def get_all_with_node_count(cls, session: AsyncSession):
-        """
-        Get all namespaces with the number of nodes in that namespaces.
-        """
-        statement = (
-            select(
-                NodeNamespace.namespace,
-                func.count(Node.id).label("num_nodes"),
-            )
-            .join(
-                Node,
-                onclause=NodeNamespace.namespace == Node.namespace,
-                isouter=True,
-            )
-            .where(
-                is_(NodeNamespace.deactivated_at, None),
-            )
-            .group_by(NodeNamespace.namespace)
-        )
-        result = await session.execute(statement)
-        return result.all()
 
     @classmethod
     async def get(
