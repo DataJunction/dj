@@ -30,12 +30,18 @@ classifiers = [
 
 [project.optional-dependencies]
 pandas = ["pandas>=2.0.2"]
+mcp = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.10.1",
+]
 
 [tool.hatch.version]
 path = "datajunction/__about__.py"
 
 [project.scripts]
 dj = "datajunction.cli:main"
+dj-mcp = "datajunction.mcp.cli:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction"]
@@ -82,4 +88,5 @@ test = [
     "nbformat>=5.10.4",
     "sqlglot>=18.0.1",
     "pydantic-settings>=2.11.0",
+    "mcp>=1.0.0",  # For MCP tests
 ]
