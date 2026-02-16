@@ -41,30 +41,13 @@ By parsing each node's SQL into an AST and through dimensional links between col
 DJ can infer a graph of dependencies between nodes, which allows it to find the
 appropriate join paths between nodes to generate queries for metrics.
 
-## AI Integration: MCP Server
+## AI Integration
 
-DataJunction includes an MCP (Model Context Protocol) server that enables AI assistants like Claude to interact with your semantic layer. With the MCP server, you can:
+DataJunction provides an MCP (Model Context Protocol) client that enables AI assistants like Claude to interact with your semantic layer.
 
-- Ask natural language questions about your metrics and dimensions
-- Generate SQL queries for complex metric combinations
-- Explore your data model and discover available metrics
-- Query actual data through conversational interfaces
+The MCP client is part of the [DataJunction Python client package](../datajunction-clients/python/).
 
-### Quick Start
-
-Install DataJunction with MCP support:
-
-```bash
-pip install datajunction-server
-```
-
-Start the MCP server:
-
-```bash
-dj-mcp
-```
-
-For detailed setup instructions and Claude Desktop configuration, see [MCP Installation Guide](docs/MCP_INSTALLATION.md).
+For installation and setup, see the [MCP documentation in the client package](../datajunction-clients/python/README_MCP.md).
 
 ## Documentation
 

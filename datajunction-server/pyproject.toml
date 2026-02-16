@@ -84,9 +84,6 @@ dependencies = [
 
     # JWT for GitHub App authentication
     "pyjwt[crypto]>=2.8.0",
-
-    # MCP (Model Context Protocol) server
-    "mcp>=1.0.0",
 ]
 requires-python = ">=3.10,<3.12"
 readme = "README.md"
@@ -115,9 +112,6 @@ all = [
     "snowflake-connector-python>=3.0.0",
 ]
 
-
-[project.scripts]
-dj-mcp = "datajunction_server.mcp.cli:run"
 
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'
