@@ -1813,6 +1813,121 @@ mode: published
             assert call_kwargs["sha"] == "existing-file-sha"
 
     @pytest.mark.asyncio
+    async def test_sync_cube_preserves_metrics_dimensions_order(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """Test that syncing a cube preserves the order of metrics and dimensions from existing YAML."""
+        # First, create a cube to sync
+        cube_response = await client_with_roads.post(
+            "/nodes/cube/",
+            json={
+                "name": "default.test_order_cube",
+                "description": "Test cube for order preservation",
+                "mode": "published",
+                "metrics": [
+                    "default.num_repair_orders",
+                    "default.avg_repair_price",
+                    "default.total_repair_cost",
+                ],
+                "dimensions": [
+                    "default.hard_hat.country",
+                    "default.dispatcher.company_name",
+                    "default.hard_hat.city",
+                ],
+            },
+        )
+        assert cube_response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        await client_with_roads.patch(
+            "/namespaces/default/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Existing cube YAML with metrics and dimensions in a DIFFERENT order
+        # This simulates what would be in git already
+        existing_cube_yaml = """node_type: cube
+name: ${prefix}test_order_cube
+description: Test cube for order preservation
+metrics:
+  - ${prefix}total_repair_cost
+  - ${prefix}num_repair_orders
+  - ${prefix}avg_repair_price
+dimensions:
+  - ${prefix}hard_hat.city
+  - ${prefix}dispatcher.company_name
+  - ${prefix}hard_hat.country
+"""
+
+        encoded_content = base64.b64encode(
+            existing_cube_yaml.encode("utf-8"),
+        ).decode("utf-8")
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_file = AsyncMock(
+                return_value={
+                    "sha": "existing-cube-sha",
+                    "content": encoded_content,
+                },
+            )
+            mock_github.commit_file = AsyncMock(
+                return_value={
+                    "commit": {
+                        "sha": "newcubesha",
+                        "html_url": "https://github.com/myorg/myrepo/commit/cube1",
+                    },
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            # Sync the cube
+            response = await client_with_roads.post(
+                "/nodes/default.test_order_cube/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+
+            # Verify the YAML content passed to commit_file preserved order from existing YAML
+            assert mock_github.commit_file.called
+            committed_yaml = mock_github.commit_file.call_args.kwargs["content"]
+
+            # Parse the committed YAML to check order
+            from ruamel.yaml import YAML
+
+            yaml = YAML()
+            committed_data = yaml.load(committed_yaml)
+
+            # The order should be preserved from the existing YAML, NOT from the database order
+            assert "metrics" in committed_data
+            assert "dimensions" in committed_data
+
+            # Expected order is from existing_cube_yaml, not from the POST request
+            expected_metrics_order = [
+                "${prefix}total_repair_cost",
+                "${prefix}num_repair_orders",
+                "${prefix}avg_repair_price",
+            ]
+            expected_dimensions_order = [
+                "${prefix}hard_hat.city",
+                "${prefix}dispatcher.company_name",
+                "${prefix}hard_hat.country",
+            ]
+
+            assert committed_data["metrics"] == expected_metrics_order, (
+                f"Expected {expected_metrics_order}, got {committed_data['metrics']}"
+            )
+            assert committed_data["dimensions"] == expected_dimensions_order, (
+                f"Expected {expected_dimensions_order}, got {committed_data['dimensions']}"
+            )
+
+    @pytest.mark.asyncio
     async def test_sync_namespace_empty(
         self,
         client_with_service_setup: AsyncClient,

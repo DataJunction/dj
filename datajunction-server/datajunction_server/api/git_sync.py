@@ -35,6 +35,7 @@ from datajunction_server.internal.namespaces import (
     resolve_git_config,
 )
 from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     SEPARATOR,
     get_current_user,
@@ -146,6 +147,16 @@ async def sync_node_to_git(
     node_spec.name = inject_prefixes(node_spec.name, node.namespace)
     if hasattr(node_spec, "query") and node_spec.query:
         node_spec.query = inject_prefixes(node_spec.query, node.namespace)
+
+    # For cubes, also inject ${prefix} into metrics and dimensions
+    if node.type == NodeType.CUBE and hasattr(node_spec, "metrics"):
+        node_spec.metrics = [
+            inject_prefixes(metric, node.namespace) for metric in node_spec.metrics
+        ]
+    if node.type == NodeType.CUBE and hasattr(node_spec, "dimensions"):
+        node_spec.dimensions = [
+            inject_prefixes(dim, node.namespace) for dim in node_spec.dimensions
+        ]
 
     # File path uses short name (strip namespace prefix)
     # e.g., "demo.main.orders" with namespace "demo.main" -> "orders.yaml"
