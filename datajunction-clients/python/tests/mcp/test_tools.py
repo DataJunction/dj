@@ -1839,3 +1839,101 @@ async def test_get_node_dimensions_general_exception():
 
         assert "❌ Error occurred" in result
         assert "Type error" in result
+
+
+@pytest.mark.asyncio
+async def test_list_namespaces_with_none_names():
+    """Test list_namespaces with nodes that have None names"""
+    mock_response = {
+        "findNodes": [
+            {"name": None},  # None name - should be skipped
+            {"name": ""},  # Empty name - should be skipped
+            {"name": "default.metric1"},
+        ],
+    }
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        result = await tools.list_namespaces()
+
+        # Should only count "default" namespace
+        assert "default (1 nodes)" in result
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_namespace_no_main_branch():
+    """Test namespace resolution when .main branch doesn't exist"""
+    search_response = {
+        "findNodes": [
+            {
+                "name": "finance.revenue",
+                "type": "metric",
+                "currentVersion": {"status": "valid", "mode": "published"},
+                "tags": [],
+            },
+        ],
+    }
+
+    with (
+        patch("datajunction.mcp.tools.list_namespaces") as mock_list,
+        patch.object(tools, "get_client") as mock_get_client,
+    ):
+        # Return namespaces without .main variant
+        mock_list.return_value = (
+            "  • finance.dev (1 nodes)\n  • finance.staging (1 nodes)"
+        )
+        mock_client = AsyncMock()
+        mock_client.query.return_value = search_response
+        mock_get_client.return_value = mock_client
+
+        result = await tools.search_nodes(
+            query="revenue",
+            namespace="finance",
+            prefer_main_branch=True,
+        )
+
+        # Should use original namespace when .main doesn't exist
+        assert "finance.revenue" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_dimensions_without_type_but_with_path():
+    """Test get_node_dimensions with dimension that has path but no type"""
+    dimensions_response = MagicMock()
+    dimensions_response.status_code = 200
+    dimensions_response.json.return_value = [
+        {
+            "name": "region",
+            # No type field
+            "path": ["orders", "location", "region"],
+        },
+    ]
+    dimensions_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = dimensions_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_dimensions(node_name="test.metric")
+
+        # Should show dimension name and path, but not type
+        assert "region" in result
+        assert "orders → location → region" in result
+        # Should not have type in parentheses
+        assert "region (" not in result
