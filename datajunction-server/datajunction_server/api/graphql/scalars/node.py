@@ -331,7 +331,8 @@ class NodeRevision:
                     ),
                     attribute=element.name,
                     role=dimension_to_roles.get(element.name, ""),
-                    _dimension_node=node_revision,
+                    # Don't pre-populate _dimension_node - let the DataLoader handle it
+                    # This ensures proper batching and loading of requested fields
                     type=element.type,
                     properties=element.attribute_names(),
                 )

@@ -178,11 +178,6 @@ def build_cube_metrics_node_revision_options(requested_fields):
         noload(DBNodeRevision.created_by),
         noload(DBNodeRevision.missing_parents),
         noload(DBNodeRevision.cube_elements),
-        noload(DBNodeRevision.required_dimensions),
-        noload(DBNodeRevision.parents),
-        noload(DBNodeRevision.dimension_links),
-        noload(DBNodeRevision.availability),
-        noload(DBNodeRevision.materializations),
     ]
 
     # Only load relationships if they're requested
@@ -208,6 +203,45 @@ def build_cube_metrics_node_revision_options(requested_fields):
         options.append(selectinload(DBNodeRevision.metric_metadata))
     else:
         options.append(noload(DBNodeRevision.metric_metadata))
+
+    # Load parents if requested
+    if requested_fields and "parents" in requested_fields:
+        options.append(selectinload(DBNodeRevision.parents))
+    else:
+        options.append(noload(DBNodeRevision.parents))
+
+    # Load dimension_links if requested
+    if requested_fields and "dimension_links" in requested_fields:
+        from datajunction_server.database.dimensionlink import DimensionLink
+        from datajunction_server.database.node import Node as DBNode
+
+        options.append(
+            selectinload(DBNodeRevision.dimension_links).options(
+                joinedload(DimensionLink.dimension).options(
+                    selectinload(DBNode.current),
+                ),
+            ),
+        )
+    else:
+        options.append(noload(DBNodeRevision.dimension_links))
+
+    # Load availability if requested
+    if requested_fields and "availability" in requested_fields:
+        options.append(selectinload(DBNodeRevision.availability))
+    else:
+        options.append(noload(DBNodeRevision.availability))
+
+    # Load materializations if requested
+    if requested_fields and "materializations" in requested_fields:
+        options.append(selectinload(DBNodeRevision.materializations))
+    else:
+        options.append(noload(DBNodeRevision.materializations))
+
+    # Load required_dimensions if requested
+    if requested_fields and "required_dimensions" in requested_fields:
+        options.append(selectinload(DBNodeRevision.required_dimensions))
+    else:
+        options.append(noload(DBNodeRevision.required_dimensions))
 
     return options
 

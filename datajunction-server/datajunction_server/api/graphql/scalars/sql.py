@@ -83,15 +83,14 @@ class GeneratedSQL:
         """
         Loads a strawberry GeneratedSQL from the original pydantic model.
         """
-        from datajunction_server.api.graphql.resolvers.nodes import get_node_by_name
-
         fields = extract_fields(info)
+
+        # Use DataLoader to batch node lookups
+        node_loader = info.context["node_loader"]
+        node = await node_loader.load(obj.node.name)
+
         return GeneratedSQL(  # type: ignore
-            node=await get_node_by_name(
-                session=info.context["session"],
-                fields=fields.get("node"),
-                name=obj.node.name,
-            ),
+            node=node,
             sql=obj.sql,
             columns=[
                 ColumnMetadata(  # type: ignore
