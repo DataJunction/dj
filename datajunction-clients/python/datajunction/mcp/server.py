@@ -75,6 +75,15 @@ async def list_tools() -> list[types.Tool]:
                         "maximum": 1000,
                         "description": "Maximum number of results to return (default: 100, max: 1000)",
                     },
+                    "prefer_main_branch": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "When true and namespace is provided, automatically searches the .main branch "
+                            "(e.g., 'finance' becomes 'finance.main'). Set to false to search all branches."
+                            "Default: true."
+                        ),
+                    },
                 },
                 "required": ["query"],
             },
@@ -206,6 +215,52 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["metrics"],
             },
         ),
+        types.Tool(
+            name="get_node_lineage",
+            description=(
+                "Get lineage information for a node, showing upstream dependencies (what this node depends on) "
+                "and/or downstream dependencies (what depends on this node). "
+                "Use this for impact analysis, understanding data flow, and debugging."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_name": {
+                        "type": "string",
+                        "description": "Full node name including namespace (e.g., 'default.avg_repair_price')",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["upstream", "downstream", "both"],
+                        "default": "both",
+                        "description": "Direction to traverse: 'upstream' (dependencies), 'downstream' (dependents), or 'both' (default)",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Optional: Maximum depth to traverse (omit for unlimited, -1 for all)",
+                    },
+                },
+                "required": ["node_name"],
+            },
+        ),
+        types.Tool(
+            name="get_node_dimensions",
+            description=(
+                "Get all dimensions available for a specific node. "
+                "Shows which dimensions can be used to group/filter this node, "
+                "useful for building queries and understanding dimension relationships."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "node_name": {
+                        "type": "string",
+                        "description": "Full node name including namespace (e.g., 'default.avg_repair_price')",
+                    },
+                },
+                "required": ["node_name"],
+            },
+        ),
     ]
 
 
@@ -233,6 +288,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 node_type=arguments.get("node_type"),
                 namespace=arguments.get("namespace"),
                 limit=arguments.get("limit", 100),
+                prefer_main_branch=arguments.get("prefer_main_branch", True),
             )
 
         elif name == "get_node_details":
@@ -264,6 +320,18 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 orderby=arguments.get("orderby"),
                 limit=arguments.get("limit"),
                 use_materialized=arguments.get("use_materialized", True),
+            )
+
+        elif name == "get_node_lineage":
+            result = await tools.get_node_lineage(
+                node_name=arguments["node_name"],
+                direction=arguments.get("direction", "both"),
+                max_depth=arguments.get("max_depth"),
+            )
+
+        elif name == "get_node_dimensions":
+            result = await tools.get_node_dimensions(
+                node_name=arguments["node_name"],
             )
 
         else:
