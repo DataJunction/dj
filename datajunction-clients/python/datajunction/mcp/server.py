@@ -153,7 +153,10 @@ async def list_tools() -> list[types.Tool]:
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: Columns to order by (e.g., ['date DESC', 'revenue DESC'])",
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "Must use complete node names: 'default.revenue DESC', 'core.date ASC', etc."
+                        ),
                     },
                     "limit": {
                         "type": "integer",
@@ -177,7 +180,9 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Execute a query and get actual data for metrics with specified dimensions and filters. "
                 "Returns query results with data rows. Recommend setting a limit to avoid large result sets. "
-                "Use this when you want to see actual data values, not just the SQL."
+                "Use this when you want to see actual data values, not just the SQL. "
+                "IMPORTANT: This tool ALWAYS checks for materialized cubes first and REFUSES to run "
+                "expensive ad-hoc queries. Only queries with materialized cubes will execute."
             ),
             inputSchema={
                 "type": "object",
@@ -200,16 +205,14 @@ async def list_tools() -> list[types.Tool]:
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: Columns to order by (e.g., ['date DESC', 'revenue DESC'])",
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "Must use complete node names: 'default.revenue DESC', 'core.date ASC', etc."
+                        ),
                     },
                     "limit": {
                         "type": "integer",
                         "description": "RECOMMENDED: Maximum number of rows to return (default: unlimited, use with caution)",
-                    },
-                    "use_materialized": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Optional: Whether to use materialized tables when available (default: true)",
                     },
                 },
                 "required": ["metrics"],
@@ -259,6 +262,69 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["node_name"],
+            },
+        ),
+        types.Tool(
+            name="visualize_metrics",
+            description=(
+                "Query metrics and generate a text-based ASCII chart visualization. "
+                "Fetches data for the specified metrics and dimensions, then creates a terminal-friendly chart using plotext. "
+                "Perfect for CLI environments - renders directly in the terminal. "
+                "Supports line charts, bar charts, and scatter plots. "
+                "IMPORTANT: This tool REQUIRES a materialized cube and will refuse to run expensive ad-hoc queries. "
+                "Automatically switches to bar charts for categorical x-axis data."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of metric node names to visualize (e.g., ['finance.daily_revenue'])",
+                    },
+                    "dimensions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: List of dimensions to group by (e.g., ['core.date', 'core.region']). First dimension is used for x-axis.",
+                    },
+                    "filters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: SQL filter conditions (e.g., ['date >= \\'2024-01-01\\'', 'region = \\'US\\''])",
+                    },
+                    "orderby": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "CRITICAL: Must use complete node names, NOT short column names. "
+                            "For metrics: 'default.revenue DESC' or 'finance.daily_revenue ASC'. "
+                            "For dimensions: 'core.date DESC' or 'core.region ASC'. "
+                            "Examples: ['default.revenue DESC'], ['core.date ASC', 'default.revenue DESC']"
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional: Maximum number of data points to visualize (default: 100)",
+                        "default": 100,
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["line", "bar", "scatter"],
+                        "description": "Type of chart to generate (default: line)",
+                        "default": "line",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional: Chart title (auto-generated if not provided)",
+                    },
+                    "y_min": {
+                        "type": ["number", "null"],
+                        "description": "Optional: Minimum value for y-axis (default: null for auto-scale). Set to 0 to start at zero.",
+                        "default": None,
+                    },
+                },
+                "required": ["metrics"],
             },
         ),
     ]
@@ -319,7 +385,6 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 filters=arguments.get("filters"),
                 orderby=arguments.get("orderby"),
                 limit=arguments.get("limit"),
-                use_materialized=arguments.get("use_materialized", True),
             )
 
         elif name == "get_node_lineage":
@@ -332,6 +397,19 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "get_node_dimensions":
             result = await tools.get_node_dimensions(
                 node_name=arguments["node_name"],
+            )
+
+        elif name == "visualize_metrics":
+            # This returns a list of content (text + image)
+            return await tools.visualize_metrics(
+                metrics=arguments["metrics"],
+                dimensions=arguments.get("dimensions"),
+                filters=arguments.get("filters"),
+                orderby=arguments.get("orderby"),
+                limit=arguments.get("limit", 100),
+                chart_type=arguments.get("chart_type", "line"),
+                title=arguments.get("title"),
+                y_min=arguments.get("y_min"),
             )
 
         else:

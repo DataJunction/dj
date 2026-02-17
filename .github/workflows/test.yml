@@ -86,7 +86,7 @@ jobs:
           if [ "${{ matrix.library }}" = "server" ]; then
             uv sync --group test --extra transpilation --python ${{ matrix.python-version }}
           elif [ "${{ matrix.library }}" = "client" ]; then
-            uv sync --group test --extra pandas --python ${{ matrix.python-version }}
+            uv sync --group test --extra pandas --extra mcp --python ${{ matrix.python-version }}
           else
             uv sync --group test --python ${{ matrix.python-version }}
           fi
