@@ -23,8 +23,13 @@ def format_nodes_list(nodes: List[Dict[str, Any]]) -> str:
     for node in nodes:
         current = node.get("current", {})
         tags = node.get("tags", [])
+        git_info = node.get("gitInfo", {})
 
-        result.append(f"• {node['name']} ({node['type']})")
+        # Format node name with git branch info if available
+        node_line = f"• {node['name']} ({node['type']})"
+        if git_info and git_info.get("branch"):
+            node_line += f" [git: {git_info['repo']} @ {git_info['branch']}]"
+        result.append(node_line)
 
         if current.get("displayName"):
             result.append(f"  Display Name: {current['displayName']}")
