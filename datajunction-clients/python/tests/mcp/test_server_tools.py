@@ -47,6 +47,7 @@ async def test_call_tool_search_nodes():
             node_type="metric",
             namespace="default",
             limit=10,
+            prefer_main_branch=True,
         )
 
 
@@ -64,6 +65,7 @@ async def test_call_tool_search_nodes_minimal_args():
             node_type=None,
             namespace=None,
             limit=100,  # default
+            prefer_main_branch=True,
         )
 
 
@@ -304,7 +306,7 @@ async def test_list_tools_handler():
 
     # Verify we get the expected tools
     assert isinstance(tools, list)
-    assert len(tools) == 6  # Should have 6 tools
+    assert len(tools) == 8  # Should have 8 tools
     tool_names = [tool.name for tool in tools]
     assert "list_namespaces" in tool_names
     assert "search_nodes" in tool_names
@@ -312,3 +314,87 @@ async def test_list_tools_handler():
     assert "get_common_dimensions" in tool_names
     assert "build_metric_sql" in tool_names
     assert "get_metric_data" in tool_names
+    assert "get_node_lineage" in tool_names
+    assert "get_node_dimensions" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_node_lineage():
+    """Test calling get_node_lineage tool"""
+    with patch("datajunction.mcp.server.tools.get_node_lineage") as mock_lineage:
+        mock_lineage.return_value = (
+            "Lineage for: test.node\n"
+            "Upstream Dependencies (2 nodes):\n"
+            "  • upstream1 (source)\n"
+            "Downstream Dependencies (1 nodes):\n"
+            "  • downstream1 (metric)"
+        )
+
+        result = await call_tool(
+            "get_node_lineage",
+            {
+                "node_name": "test.node",
+                "direction": "both",
+                "max_depth": 5,
+            },
+        )
+
+        assert len(result) == 1
+        assert result[0].type == "text"
+        assert "Lineage for: test.node" in result[0].text
+        assert "Upstream Dependencies" in result[0].text
+        assert "Downstream Dependencies" in result[0].text
+        mock_lineage.assert_called_once_with(
+            node_name="test.node",
+            direction="both",
+            max_depth=5,
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_node_lineage_defaults():
+    """Test calling get_node_lineage tool with defaults"""
+    with patch("datajunction.mcp.server.tools.get_node_lineage") as mock_lineage:
+        mock_lineage.return_value = "Lineage data"
+
+        result = await call_tool(
+            "get_node_lineage",
+            {
+                "node_name": "test.node",
+            },
+        )
+
+        assert len(result) == 1
+        mock_lineage.assert_called_once_with(
+            node_name="test.node",
+            direction="both",  # default
+            max_depth=None,  # default
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_node_dimensions():
+    """Test calling get_node_dimensions tool"""
+    with patch("datajunction.mcp.server.tools.get_node_dimensions") as mock_dims:
+        mock_dims.return_value = (
+            "Dimensions for: test.metric\n"
+            "Total: 3 dimensions\n"
+            "  • dim1.attr1 (dimension)\n"
+            "  • dim2.attr2 (dimension)\n"
+            "  • dim3.attr3 (dimension)"
+        )
+
+        result = await call_tool(
+            "get_node_dimensions",
+            {
+                "node_name": "test.metric",
+            },
+        )
+
+        assert len(result) == 1
+        assert result[0].type == "text"
+        assert "Dimensions for: test.metric" in result[0].text
+        assert "Total: 3 dimensions" in result[0].text
+        mock_dims.assert_called_once_with(
+            node_name="test.metric",
+        )

@@ -208,7 +208,7 @@ async def list_namespaces() -> str:
     graphql_query = """
     query ListNamespaces {
         findNodes(limit: 1000) {
-            namespace
+            name
         }
     }
     """
@@ -221,12 +221,17 @@ async def list_namespaces() -> str:
         if not nodes:
             return "No namespaces found."
 
-        # Count nodes per namespace
+        # Extract namespace from node name (everything before the last dot)
         from collections import Counter
 
-        namespace_counts = Counter(
-            node["namespace"] for node in nodes if node.get("namespace")
-        )
+        namespaces = []
+        for node in nodes:
+            if node.get("name"):
+                parts = node["name"].rsplit(".", 1)
+                if len(parts) > 1:
+                    namespaces.append(parts[0])
+
+        namespace_counts = Counter(namespaces)
 
         # Format output
         lines = ["Available Namespaces:", ""]
@@ -245,6 +250,7 @@ async def search_nodes(
     node_type: Optional[str] = None,
     namespace: Optional[str] = None,
     limit: int = 100,
+    prefer_main_branch: bool = True,
 ) -> str:
     """
     Search for nodes (metrics, dimensions, cubes, etc.)
@@ -254,6 +260,7 @@ async def search_nodes(
         node_type: Optional filter by type (metric, dimension, cube, source, transform)
         namespace: Optional filter by namespace (highly recommended for narrowing results)
         limit: Maximum number of results (default: 100, max: 1000)
+        prefer_main_branch: If True and namespace provided, automatically uses .main branch (default: True)
 
     Returns:
         Formatted list of matching nodes
@@ -269,11 +276,46 @@ async def search_nodes(
             - For prefix "xyz" with feature branch "feature1":
               namespace = "xyz.feature1"
 
-        This means if you find a node like "xyz.feature1.node_name", the production-grade
-        version of that node would be "xyz.main.node_name". When working with git-backed
-        namespaces, you may need to query across branches to compare development vs
-        production versions of nodes.
+        When prefer_main_branch=True (default), searching with namespace="finance" will automatically
+        query "finance.main" if that namespace exists. To query all branches, set prefer_main_branch=False.
     """
+    # Resolve namespace to .main branch if needed
+    actual_namespace = namespace
+    if (
+        prefer_main_branch
+        and namespace
+        and namespace.split(".")[-1]
+        not in (
+            "main",
+            "dev",
+            "prod",
+            "master",
+        )
+    ):
+        # Get all namespaces to find the .main version
+        try:
+            all_namespaces_str = await list_namespaces()
+            # Parse namespace names from the output (format: "namespace (N nodes)")
+            import re
+
+            namespace_pattern = r"^(.+?)\s+\(\d+ nodes\)$"
+            all_namespaces = []
+            for line in all_namespaces_str.split("\n"):
+                match = re.match(namespace_pattern, line.strip())
+                if match:
+                    all_namespaces.append(match.group(1))
+
+            # Look for namespace.main
+            main_namespace = f"{namespace}.main"
+            if main_namespace in all_namespaces:
+                actual_namespace = main_namespace
+                logger.info(
+                    f"Resolved namespace '{namespace}' to '{actual_namespace}'",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to resolve namespace to main branch: {e}")
+            # Continue with original namespace if resolution fails
+
     graphql_query = """
     query SearchNodes(
         $fragment: String,
@@ -290,6 +332,11 @@ async def search_nodes(
             name
             type
             createdAt
+            gitInfo {
+                repo
+                branch
+                defaultBranch
+            }
             current {
                 displayName
                 description
@@ -315,7 +362,7 @@ async def search_nodes(
             {
                 "fragment": query,
                 "nodeTypes": [node_type.upper()] if node_type else None,
-                "namespace": namespace,
+                "namespace": actual_namespace,
                 "limit": limit,
             },
         )
@@ -356,11 +403,6 @@ async def get_node_details(name: str) -> str:
                         name
                         label
                     }
-                }
-                columns {
-                    name
-                    type
-                    displayName
                 }
                 parents {
                     name
@@ -647,4 +689,159 @@ async def get_metric_data(
         return format_error(
             str(e),
             f"Getting data for metrics: {', '.join(metrics)}",
+        )
+
+
+async def get_node_lineage(
+    node_name: str,
+    direction: str = "both",
+    max_depth: Optional[int] = None,
+) -> str:
+    """
+    Get lineage information for a node (upstream/downstream dependencies)
+
+    Args:
+        node_name: Full node name (e.g., 'default.avg_repair_price')
+        direction: Lineage direction - "upstream", "downstream", or "both" (default)
+        max_depth: Maximum depth to traverse (None = unlimited, -1 = all)
+
+    Returns:
+        Formatted lineage information with node dependencies
+    """
+    try:
+        client = get_client()
+        await client._ensure_token()
+
+        lines = [f"Lineage for: {node_name}", "=" * 60, ""]
+
+        # Fetch lineage based on direction
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
+            if direction in ("upstream", "both"):
+                params = {}
+                if max_depth is not None:
+                    params["max_depth"] = max_depth
+
+                response = await http_client.get(
+                    f"{client.settings.dj_api_url.rstrip('/')}/nodes/{node_name}/upstream/",
+                    params=params,
+                    headers=client._get_headers(),
+                )
+                response.raise_for_status()
+                upstream_nodes = response.json()
+
+                lines.append(f"Upstream Dependencies ({len(upstream_nodes)} nodes):")
+                lines.append("-" * 60)
+                if upstream_nodes:
+                    for node in upstream_nodes:
+                        lines.append(
+                            f"  • {node['name']} ({node['type']}) - {node.get('status', 'N/A')}",
+                        )
+                else:
+                    lines.append("  (none)")
+                lines.append("")
+
+            if direction in ("downstream", "both"):
+                params = {}
+                if max_depth is not None:
+                    params["max_depth"] = max_depth
+
+                response = await http_client.get(
+                    f"{client.settings.dj_api_url.rstrip('/')}/nodes/{node_name}/downstream/",
+                    params=params,
+                    headers=client._get_headers(),
+                )
+                response.raise_for_status()
+                downstream_nodes = response.json()
+
+                lines.append(
+                    f"Downstream Dependencies ({len(downstream_nodes)} nodes):",
+                )
+                lines.append("-" * 60)
+                if downstream_nodes:
+                    for node in downstream_nodes:
+                        lines.append(
+                            f"  • {node['name']} ({node['type']}) - {node.get('status', 'N/A')}",
+                        )
+                else:
+                    lines.append("  (none)")
+
+        return "\n".join(lines)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+        return format_error(
+            f"API request failed: {e.response.status_code} - {e.response.text}",
+            f"Getting lineage for node: {node_name}",
+        )
+    except Exception as e:
+        logger.error(f"Error getting lineage: {str(e)}")
+        return format_error(
+            str(e),
+            f"Getting lineage for node: {node_name}",
+        )
+
+
+async def get_node_dimensions(node_name: str) -> str:
+    """
+    Get all available dimensions for a specific node
+
+    Args:
+        node_name: Full node name (e.g., 'default.avg_repair_price')
+
+    Returns:
+        Formatted list of dimensions available for the node
+    """
+    try:
+        client = get_client()
+        await client._ensure_token()
+
+        # Call the REST API to get dimensions
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
+            response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/nodes/{node_name}/dimensions/",
+                headers=client._get_headers(),
+            )
+            response.raise_for_status()
+            dimensions = response.json()
+
+        # Format the response
+        lines = [
+            f"Dimensions for: {node_name}",
+            "=" * 60,
+            "",
+            f"Total: {len(dimensions)} dimensions",
+            "",
+            "Available Dimensions:",
+            "-" * 60,
+        ]
+
+        if dimensions:
+            # Group by dimension type if available
+            for dim in dimensions:
+                dim_info = f"  • {dim['name']}"
+                if dim.get("type"):
+                    dim_info += f" ({dim['type']})"
+                if dim.get("path"):
+                    dim_info += f" - via: {' → '.join(dim['path'])}"
+                lines.append(dim_info)
+        else:
+            lines.append("  (no dimensions available)")
+
+        return "\n".join(lines)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+        return format_error(
+            f"API request failed: {e.response.status_code} - {e.response.text}",
+            f"Getting dimensions for node: {node_name}",
+        )
+    except Exception as e:
+        logger.error(f"Error getting dimensions: {str(e)}")
+        return format_error(
+            str(e),
+            f"Getting dimensions for node: {node_name}",
         )
