@@ -1594,8 +1594,9 @@ async def test_search_nodes_namespace_resolution_to_main():
         patch("datajunction.mcp.tools.list_namespaces") as mock_list,
         patch.object(tools, "get_client") as mock_get_client,
     ):
+        # Return format that matches the regex pattern (without bullet points at line start)
         mock_list.return_value = (
-            "  • finance.main (1 nodes)\n  • finance.feature (1 nodes)"
+            "Available Namespaces:\n\nfinance.main (1 nodes)\nfinance.feature (1 nodes)"
         )
         mock_client = AsyncMock()
         mock_client.query.return_value = search_response
