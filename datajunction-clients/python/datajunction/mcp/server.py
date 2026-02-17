@@ -261,6 +261,61 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["node_name"],
             },
         ),
+        types.Tool(
+            name="visualize_metrics",
+            description=(
+                "Query metrics and generate a text-based ASCII chart visualization. "
+                "Fetches data for the specified metrics and dimensions, then creates a terminal-friendly chart using plotext. "
+                "Perfect for CLI environments - renders directly in the terminal. "
+                "Supports line charts, bar charts, and scatter plots."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of metric node names to visualize (e.g., ['finance.daily_revenue'])",
+                    },
+                    "dimensions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: List of dimensions to group by (e.g., ['core.date', 'core.region']). First dimension is used for x-axis.",
+                    },
+                    "filters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: SQL filter conditions (e.g., ['date >= \\'2024-01-01\\'', 'region = \\'US\\''])",
+                    },
+                    "orderby": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: Columns to order by (e.g., ['date ASC'])",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional: Maximum number of data points to visualize (default: 100)",
+                        "default": 100,
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["line", "bar", "scatter"],
+                        "description": "Type of chart to generate (default: line)",
+                        "default": "line",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional: Chart title (auto-generated if not provided)",
+                    },
+                    "y_min": {
+                        "type": ["number", "null"],
+                        "description": "Optional: Minimum value for y-axis (default: null for auto-scale). Set to 0 to start at zero.",
+                        "default": None,
+                    },
+                },
+                "required": ["metrics"],
+            },
+        ),
     ]
 
 
@@ -332,6 +387,19 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "get_node_dimensions":
             result = await tools.get_node_dimensions(
                 node_name=arguments["node_name"],
+            )
+
+        elif name == "visualize_metrics":
+            # This returns a list of content (text + image)
+            return await tools.visualize_metrics(
+                metrics=arguments["metrics"],
+                dimensions=arguments.get("dimensions"),
+                filters=arguments.get("filters"),
+                orderby=arguments.get("orderby"),
+                limit=arguments.get("limit", 100),
+                chart_type=arguments.get("chart_type", "line"),
+                title=arguments.get("title"),
+                y_min=arguments.get("y_min"),
             )
 
         else:
