@@ -40,3 +40,15 @@ metrics logic, and even selections of metrics, dimensions, and filters (**cube n
 By parsing each node's SQL into an AST and through dimensional links between columns,
 DJ can infer a graph of dependencies between nodes, which allows it to find the
 appropriate join paths between nodes to generate queries for metrics.
+
+## AI Integration
+
+DataJunction provides an MCP (Model Context Protocol) client that enables AI assistants like Claude to interact with your semantic layer.
+
+The MCP client is part of the [DataJunction Python client package](../datajunction-clients/python/).
+
+For installation and setup, see the [MCP documentation in the client package](../datajunction-clients/python/README_MCP.md).
+
+## Documentation
+
+For more detailed documentation, visit [datajunction.io](https://datajunction.io).
