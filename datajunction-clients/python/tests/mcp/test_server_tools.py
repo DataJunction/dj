@@ -5,7 +5,9 @@ Tests for MCP server tool execution
 from unittest.mock import patch
 
 import pytest
+import mcp.types as types
 
+from datajunction.mcp import server
 from datajunction.mcp.server import call_tool, list_resources, read_resource
 
 
@@ -288,8 +290,6 @@ async def test_call_tool_with_none_values():
 @pytest.mark.asyncio
 async def test_list_tools_handler():
     """Test the list_tools handler returns correct tool definitions"""
-    from datajunction.mcp import server
-
     # Find and call the list_tools decorated function directly
     # The @app.list_tools() decorator registers the function, but we can still call it
     list_tools_func = None
@@ -306,7 +306,7 @@ async def test_list_tools_handler():
 
     # Verify we get the expected tools
     assert isinstance(tools, list)
-    assert len(tools) == 8  # Should have 8 tools
+    assert len(tools) == 9  # Should have 8 tools
     tool_names = [tool.name for tool in tools]
     assert "list_namespaces" in tool_names
     assert "search_nodes" in tool_names
@@ -316,6 +316,7 @@ async def test_list_tools_handler():
     assert "get_metric_data" in tool_names
     assert "get_node_lineage" in tool_names
     assert "get_node_dimensions" in tool_names
+    assert "visualize_metrics" in tool_names
 
 
 @pytest.mark.asyncio
@@ -397,4 +398,67 @@ async def test_call_tool_get_node_dimensions():
         assert "Total: 3 dimensions" in result[0].text
         mock_dims.assert_called_once_with(
             node_name="test.metric",
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_visualize_metrics():
+    """Test calling visualize_metrics tool"""
+    with patch("datajunction.mcp.server.tools.visualize_metrics") as mock_viz:
+        mock_viz.return_value = [
+            types.TextContent(type="text", text="Chart\n📊 metric | 10 points | line"),
+        ]
+
+        result = await call_tool(
+            "visualize_metrics",
+            {
+                "metrics": ["demo.metric"],
+                "dimensions": ["common.date"],
+                "limit": 10,
+                "chart_type": "line",
+            },
+        )
+
+        assert len(result) == 1
+        assert result[0].type == "text"
+        assert "Chart" in result[0].text
+        mock_viz.assert_called_once_with(
+            metrics=["demo.metric"],
+            dimensions=["common.date"],
+            filters=None,
+            orderby=None,
+            limit=10,
+            chart_type="line",
+            title=None,
+            y_min=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_visualize_metrics_with_y_min():
+    """Test calling visualize_metrics tool with y_min parameter"""
+    with patch("datajunction.mcp.server.tools.visualize_metrics") as mock_viz:
+        mock_viz.return_value = [
+            types.TextContent(type="text", text="Chart\n📊 metric | 5 points | bar"),
+        ]
+
+        result = await call_tool(
+            "visualize_metrics",
+            {
+                "metrics": ["demo.metric"],
+                "y_min": 0,
+                "chart_type": "bar",
+            },
+        )
+
+        assert len(result) == 1
+        mock_viz.assert_called_once_with(
+            metrics=["demo.metric"],
+            dimensions=None,
+            filters=None,
+            orderby=None,
+            limit=100,  # default
+            chart_type="bar",
+            title=None,
+            y_min=0,
         )

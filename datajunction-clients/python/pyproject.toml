@@ -34,6 +34,7 @@ mcp = [
     "mcp>=1.0.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.10.1",
+    "plotext>=5.2.8",
 ]
 
 [tool.hatch.version]

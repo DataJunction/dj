@@ -4,9 +4,11 @@ MCP Tool implementations that call DJ GraphQL API via HTTP
 
 import logging
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
+import mcp.types as types
 
 from datajunction.mcp.config import get_mcp_settings
 from datajunction.mcp.formatters import (
@@ -590,10 +592,12 @@ async def get_metric_data(
     filters: Optional[List[str]] = None,
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
-    use_materialized: bool = True,
 ) -> str:
     """
-    Execute a query to get actual data for metrics with dimensions and filters
+    Execute a query to get actual data for metrics with dimensions and filters.
+
+    IMPORTANT: This function ONLY works with materialized cubes and will refuse
+    to execute expensive ad-hoc queries.
 
     Args:
         metrics: List of metric node names to query
@@ -601,7 +605,6 @@ async def get_metric_data(
         filters: Optional list of SQL filter conditions
         orderby: Optional list of columns to order by
         limit: Optional row limit (recommended to set a reasonable limit)
-        use_materialized: Whether to use materialized tables when available (default: True)
 
     Returns:
         Formatted data results with rows
@@ -610,25 +613,55 @@ async def get_metric_data(
         client = get_client()
         await client._ensure_token()
 
-        # Build query parameters for /data/ endpoint
-        params = {
+        # Build query parameters
+        params: dict[str, Any] = {
             "metrics": metrics,
             "dimensions": dimensions or [],
             "filters": filters or [],
             "orderby": orderby or [],
-            "use_materialized": use_materialized,
-            "async_": False,  # Get results synchronously
         }
         if limit:
             params["limit"] = limit
 
-        # Call /data/ endpoint via REST
         async with httpx.AsyncClient(
             timeout=client.settings.request_timeout,
         ) as http_client:
+            # STEP 1: Check for materialization first (ALWAYS)
+            logger.info("Checking for materialized cube availability...")
+            sql_response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3",
+                params=params,
+                headers=client._get_headers(),
+            )
+            sql_response.raise_for_status()
+            sql_result = sql_response.json()
+
+            # Check if materialized tables are used
+            generated_sql = sql_result.get("sql", "")
+            is_materialized = any(
+                indicator in generated_sql.lower()
+                for indicator in ["preagg", "materialized", "_cube_", "druid"]
+            )
+
+            if not is_materialized:
+                return format_error(
+                    "⚠️  No materialized cube available for this query.\n\n"
+                    "This query would require an expensive ad-hoc computation.\n"
+                    "Please ensure:\n"
+                    "  • A cube exists for these metrics\n"
+                    "  • The cube has been materialized\n"
+                    "  • The query matches the cube's grain\n\n"
+                    f"Attempted query:\n  Metrics: {', '.join(metrics)}\n"
+                    f"  Dimensions: {', '.join(dimensions or ['none'])}",
+                )
+
+            logger.info("✓ Materialized cube found, executing query...")
+
+            # STEP 2: Call /data/ endpoint via REST (always with use_materialized=True)
+            data_params = {**params, "use_materialized": True, "async_": False}
             response = await http_client.get(
                 f"{client.settings.dj_api_url.rstrip('/')}/data/",
-                params=params,
+                params=data_params,
                 headers=client._get_headers(),
             )
             response.raise_for_status()
@@ -845,3 +878,381 @@ async def get_node_dimensions(node_name: str) -> str:
             str(e),
             f"Getting dimensions for node: {node_name}",
         )
+
+
+async def visualize_metrics(
+    metrics: List[str],
+    dimensions: Optional[List[str]] = None,
+    filters: Optional[List[str]] = None,
+    orderby: Optional[List[str]] = None,
+    limit: int = 100,
+    chart_type: str = "line",
+    title: Optional[str] = None,
+    y_min: Optional[float] = None,
+) -> list[types.TextContent]:
+    """
+    Query metrics and generate a text-based terminal visualization
+
+    Args:
+        metrics: List of metric node names to visualize (e.g., ["default.revenue", "default.orders"])
+        dimensions: Optional list of dimensions to group by (first used for x-axis)
+                   (e.g., ["default.customer.country", "default.date_dim.dateint"])
+        filters: Optional list of SQL filter conditions (e.g., ["country = 'US'", "revenue > 1000"])
+        orderby: Optional list of columns to order by. Must use FULL node names:
+                 - For metrics: "default.revenue" or "default.revenue DESC"
+                 - For dimensions: "default.customer.country" or "default.date_dim.dateint ASC"
+                 - NOT short names like "revenue" or "country"
+        limit: Maximum number of data points (default: 100)
+        chart_type: Type of chart - 'line', 'bar', or 'scatter' (default: 'line')
+                   Note: Automatically switches to 'bar' for categorical x-axis data
+        title: Optional chart title
+        y_min: Optional minimum value for y-axis (default: auto-scale). Set to 0 to start at zero.
+
+    Returns:
+        List containing TextContent with ASCII chart and metadata
+
+    Note:
+        This tool requires a materialized cube for performance. It will check if
+        materialized tables are available before executing the query. If no
+        materialized cube exists for the requested metrics/dimensions, it will
+        return an error instead of running an expensive ad-hoc query.
+    """
+    try:
+        # Import plotext here to avoid requiring it for other tools
+        import plotext as plt
+
+        logger.info(
+            f"visualize_metrics called with y_min={y_min} (type: {type(y_min)})",
+        )
+
+        client = get_client()
+        await client._ensure_token()
+
+        # Build query parameters
+        params: dict[str, Any] = {
+            "metrics": metrics,
+            "dimensions": dimensions or [],
+            "filters": filters or [],
+            "orderby": orderby or [],
+            "limit": limit,
+        }
+
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
+            # STEP 1: Call /sql/metrics/v3 to generate SQL WITHOUT executing
+            logger.info("Checking for materialized cube availability...")
+            sql_response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3",
+                params=params,
+                headers=client._get_headers(),
+            )
+            sql_response.raise_for_status()
+            sql_result = sql_response.json()
+
+            # Check if materialized tables are used
+            generated_sql = sql_result.get("sql", "")
+            is_materialized = any(
+                indicator in generated_sql.lower()
+                for indicator in ["preagg", "materialized", "_cube_", "druid"]
+            )
+
+            if not is_materialized:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=format_error(
+                            "⚠️  No materialized cube available for this query.\n\n"
+                            "Visualization requires a materialized cube for performance.\n"
+                            "Please ensure:\n"
+                            "  • A cube exists for these metrics\n"
+                            "  • The cube has been materialized\n"
+                            "  • The query matches the cube's grain\n\n"
+                            f"Attempted query:\n  Metrics: {', '.join(metrics)}\n"
+                            f"  Dimensions: {', '.join(dimensions or ['none'])}",
+                        ),
+                    ),
+                ]
+
+            logger.info("✓ Materialized cube found, executing query...")
+
+            # STEP 2: Now safe to execute - call /data/ endpoint
+            data_params = {**params, "use_materialized": True, "async_": False}
+            response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/data/",
+                params=data_params,
+                headers=client._get_headers(),
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        # Extract data - DJ API returns results as list with one query result object
+        results_list = result.get("results", [])
+
+        if not results_list:
+            return [
+                types.TextContent(
+                    type="text",
+                    text="No results returned from query. Cannot generate visualization.",
+                ),
+            ]
+
+        # Get the first (and typically only) query result
+        query_result = results_list[0]
+
+        # Extract rows and columns from the query result
+        rows_data = query_result.get("rows", [])
+        columns_info = query_result.get("columns", [])
+
+        logger.info(f"Found {len(rows_data)} data rows")
+        logger.info(f"Columns: {[col['name'] for col in columns_info]}")
+
+        # Convert array rows to dictionaries
+        if not rows_data:
+            return [
+                types.TextContent(
+                    type="text",
+                    text="No data rows returned from query. Cannot generate visualization.",
+                ),
+            ]
+
+        # Convert rows (arrays) to dictionaries
+        column_names = [col["name"] for col in columns_info]
+        results_data = []
+        for row in rows_data:
+            row_dict = dict(zip(column_names, row))
+            results_data.append(row_dict)
+
+        logger.info(f"Converted {len(results_data)} rows to dict format")
+        logger.info(f"First row: {results_data[0]}")
+
+        # Prepare data for plotting
+        # Try to find x-axis (first dimension or first column)
+        if dimensions and len(dimensions) > 0:
+            x_key = dimensions[0].split(".")[-1]  # Get just the dimension name
+        else:
+            # Use first non-metric column as x-axis
+            metric_names = [m.split(".")[-1] for m in metrics]
+            x_key = next(
+                (k for k in results_data[0].keys() if k not in metric_names),
+                list(results_data[0].keys())[0],
+            )
+
+        # Extract x and y values
+        x_values = []
+        for i, row in enumerate(results_data):
+            x_val = row.get(x_key, i)
+            # Handle different x-axis value types
+            if x_val is None:
+                x_val = i
+            x_values.append(x_val)
+
+        # Convert x_values to datetime objects, then to day offsets
+        x_dates: List[Optional[datetime]] = []
+        x_numeric: List[float] = []
+
+        for i, x in enumerate(x_values):
+            try:
+                if isinstance(x, str) and len(x) == 8:
+                    # Parse dateint format YYYYMMDD
+                    date_obj = datetime.strptime(x, "%Y%m%d")
+                    x_dates.append(date_obj)
+                elif isinstance(x, (int, float)) and x > 19000000:
+                    # Looks like a dateint as number
+                    date_obj = datetime.strptime(str(int(x)), "%Y%m%d")
+                    x_dates.append(date_obj)
+                else:
+                    # Not a date, use None as placeholder
+                    x_dates.append(None)
+            except (ValueError, TypeError):
+                x_dates.append(None)
+                logger.warning(f"Could not parse date: {x}")
+
+        # Detect data type and handle accordingly
+        x_labels: List[str] = []
+        is_categorical = False
+
+        # Convert dates to day offsets from first date
+        if x_dates and any(d is not None for d in x_dates):
+            first_date: datetime = next(d for d in x_dates if d is not None)  # type: ignore[assignment]
+            for i, date_obj in enumerate(x_dates):  # type: ignore[assignment]
+                if date_obj is not None:
+                    days_offset = (date_obj - first_date).days
+                    x_numeric.append(days_offset)
+                    x_labels.append(date_obj.strftime("%Y-%m-%d"))
+                else:
+                    # Fallback to index if no date
+                    x_numeric.append(float(i))
+                    x_labels.append(str(x_values[i]))
+        else:
+            # No valid dates - check if numeric or categorical
+            numeric_conversion_failed = False
+            temp_numeric = []
+            for i, x in enumerate(x_values):
+                try:
+                    temp_numeric.append(float(x))
+                except (ValueError, TypeError):
+                    # Not numeric - this is categorical data
+                    numeric_conversion_failed = True
+                    break
+
+            if numeric_conversion_failed:
+                # Categorical data - use indices and create labels
+                is_categorical = True
+                x_numeric = list(range(len(x_values)))
+                # Truncate long category names to 15 chars
+                x_labels = [
+                    str(x)[:15] + ("..." if len(str(x)) > 15 else "") for x in x_values
+                ]
+
+                # Auto-switch to bar chart for categorical data
+                if chart_type == "line":
+                    chart_type = "bar"
+                    logger.info(
+                        "Auto-switched to bar chart for categorical x-axis data",
+                    )
+            else:
+                # Numeric data
+                x_numeric = temp_numeric
+                x_labels = [str(x) for x in x_values]
+
+        logger.info(f"Parsed {len([d for d in x_dates if d])} dates")
+        logger.info(f"X numeric values (first 5): {x_numeric[:5]}")
+        logger.info(f"X numeric values (last 5): {x_numeric[-5:]}")
+        logger.info(f"X range: {min(x_numeric)} to {max(x_numeric)}")
+
+        # Clear any previous plot
+        plt.clear_figure()
+
+        # Debug: log data ranges
+        logger.info(f"X values range: {len(x_numeric)} points")
+        logger.info(f"X numeric sample: {x_numeric[:5]}")
+
+        # Plot each metric
+        for metric in metrics:
+            metric_name = metric.split(".")[-1]
+            y_values = [row.get(metric_name) for row in results_data]
+
+            # Convert to float, preserving None for gaps
+            y_numeric: List[Optional[float]] = []
+            has_valid_data = False
+            for y in y_values:
+                if y is None:
+                    y_numeric.append(None)  # Keep as None to create gap in plot
+                elif isinstance(y, (int, float)):
+                    y_numeric.append(float(y))
+                    has_valid_data = True
+                else:
+                    try:
+                        y_numeric.append(float(y))
+                        has_valid_data = True
+                    except (ValueError, TypeError):
+                        y_numeric.append(None)
+
+            # Debug: log y values
+            valid_y = [y for y in y_numeric if y is not None]
+            logger.info(
+                f"Metric {metric_name}: {len(y_numeric)} total, {len(valid_y)} valid values",
+            )
+            logger.info(f"Y numeric sample: {y_numeric[:5]}")
+            logger.info(
+                f"Y range: {min(valid_y) if valid_y else 'N/A'} to {max(valid_y) if valid_y else 'N/A'}",
+            )
+
+            # Only plot if we have valid data
+            if not has_valid_data:
+                logger.warning(f"No valid data for metric {metric_name}")
+                continue
+
+            if chart_type == "line":
+                plt.plot(x_numeric, y_numeric, label=metric_name, marker="dot")
+            elif chart_type == "bar":
+                plt.bar(x_numeric, y_numeric, label=metric_name)
+            elif chart_type == "scatter":  # pragma: no branch
+                plt.scatter(x_numeric, y_numeric, label=metric_name, marker="dot")
+
+        # Set title and labels
+        if title:
+            plt.title(title)
+        else:
+            plt.title(f"{', '.join([m.split('.')[-1] for m in metrics])}")
+
+        plt.xlabel(x_key)
+        plt.ylabel("Value")
+
+        # Set y-axis minimum if specified
+        if y_min is not None:
+            plt.ylim(y_min, None)  # Set min, let max auto-scale
+
+        # Set custom x-axis labels
+        if is_categorical:
+            # For categorical data, show all labels (already truncated)
+            plt.xticks(x_numeric, x_labels)
+        elif len(x_numeric) > 10 and x_dates and any(d is not None for d in x_dates):
+            # For dates, show every Nth value to avoid crowding
+            label_frequency = max(1, len(x_numeric) // 10)  # Show ~10 labels
+            x_tick_positions = [
+                x_numeric[i] for i in range(0, len(x_numeric), label_frequency)
+            ]
+            # Format dates nicely (MM/DD)
+            x_tick_labels = []
+            for i in range(0, len(x_dates), label_frequency):
+                date_val = x_dates[i]
+                if date_val is not None:
+                    x_tick_labels.append(date_val.strftime("%m/%d"))
+                else:
+                    x_tick_labels.append(str(x_values[i]))
+            plt.xticks(x_tick_positions, x_tick_labels)
+
+        # Show legend if multiple metrics
+        if len(metrics) > 1:
+            plt.legend()
+
+        # Set plot size for better readability
+        plt.plot_size(100, 30)
+
+        # Build the chart as a string
+        chart_output = plt.build()
+
+        # Clear the figure
+        plt.clear_figure()
+
+        # Create output - chart first, then compact metadata
+        output_lines = [
+            chart_output,
+            "",
+            f"📊 {', '.join([m.split('.')[-1] for m in metrics])} | {len(results_data)} points | {chart_type}",
+        ]
+
+        return [types.TextContent(type="text", text="\n".join(output_lines))]
+
+    except ImportError:
+        error_msg = (
+            "plotext is not installed. Please install it with:\n"
+            "pip install 'datajunction[mcp]' or pip install plotext"
+        )
+        logger.error(error_msg)
+        return [types.TextContent(type="text", text=f"Error: {error_msg}")]
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+        return [
+            types.TextContent(
+                type="text",
+                text=format_error(
+                    f"API request failed: {e.response.status_code} - {e.response.text}",
+                    f"Visualizing metrics: {', '.join(metrics)}",
+                ),
+            ),
+        ]
+    except Exception as e:
+        logger.error(f"Error generating visualization: {str(e)}", exc_info=True)
+        return [
+            types.TextContent(
+                type="text",
+                text=format_error(
+                    str(e),
+                    f"Generating visualization for metrics: {', '.join(metrics)}",
+                ),
+            ),
+        ]
