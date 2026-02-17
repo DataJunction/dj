@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "datajunction": {
+      "command": "dj-mcp",
+      "env": {
+        "DJ_API_URL": "http://localhost:8000",
+        "DJ_USERNAME": "admin",
+        "DJ_PASSWORD": "admin"
+      }
+    }
+  }
+}

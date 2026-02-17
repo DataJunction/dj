@@ -188,12 +188,12 @@ async def test_list_namespaces_success():
     """Test successful namespace listing"""
     mock_response = {
         "findNodes": [
-            {"namespace": "finance.metrics"},
-            {"namespace": "finance.metrics"},
-            {"namespace": "finance.dimensions"},
-            {"namespace": "core.dimensions"},
-            {"namespace": "core.dimensions"},
-            {"namespace": "core.dimensions"},
+            {"name": "finance.metrics.revenue"},
+            {"name": "finance.metrics.cost"},
+            {"name": "finance.dimensions.date"},
+            {"name": "core.dimensions.region"},
+            {"name": "core.dimensions.country"},
+            {"name": "core.dimensions.city"},
         ],
     }
 
@@ -1252,3 +1252,266 @@ async def test_build_metric_sql_columns_with_semantic_name():
         assert "city: STRING (semantic: location.city)" in result
         assert "count: INTEGER" in result
         assert "(semantic: location.city)" in result  # Explicit check for semantic info
+
+
+# ============================================================================
+# get_node_lineage Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_node_lineage_both_directions():
+    """Test get_node_lineage with both upstream and downstream"""
+    upstream_response = MagicMock()
+    upstream_response.status_code = 200
+    upstream_response.json.return_value = [
+        {"name": "upstream1", "type": "source", "status": "valid"},
+        {"name": "upstream2", "type": "transform", "status": "valid"},
+    ]
+    upstream_response.raise_for_status = MagicMock()
+
+    downstream_response = MagicMock()
+    downstream_response.status_code = 200
+    downstream_response.json.return_value = [
+        {"name": "downstream1", "type": "metric", "status": "valid"},
+    ]
+    downstream_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = [upstream_response, downstream_response]
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_lineage(
+            node_name="test.node",
+            direction="both",
+        )
+
+        assert "Upstream Dependencies (2 nodes)" in result
+        assert "upstream1 (source)" in result
+        assert "upstream2 (transform)" in result
+        assert "Downstream Dependencies (1 nodes)" in result
+        assert "downstream1 (metric)" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_lineage_upstream_only():
+    """Test get_node_lineage with upstream only"""
+    upstream_response = MagicMock()
+    upstream_response.status_code = 200
+    upstream_response.json.return_value = [
+        {"name": "upstream1", "type": "source", "status": "valid"},
+    ]
+    upstream_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = upstream_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_lineage(
+            node_name="test.node",
+            direction="upstream",
+        )
+
+        assert "Upstream Dependencies" in result
+        assert "upstream1 (source)" in result
+        assert "Downstream Dependencies" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_lineage_with_max_depth():
+    """Test get_node_lineage with max_depth parameter"""
+    upstream_response = MagicMock()
+    upstream_response.status_code = 200
+    upstream_response.json.return_value = []
+    upstream_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = upstream_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_lineage(
+            node_name="test.node",
+            direction="upstream",
+            max_depth=2,
+        )
+
+        # Verify max_depth is passed in params
+        mock_http_client.get.assert_called_once()
+        call_kwargs = mock_http_client.get.call_args
+        assert call_kwargs[1]["params"]["max_depth"] == 2
+        assert "Upstream Dependencies" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_lineage_error():
+    """Test get_node_lineage handles errors gracefully"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = httpx.HTTPStatusError(
+            "404 Not Found",
+            request=MagicMock(),
+            response=MagicMock(status_code=404, text="Node not found"),
+        )
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_lineage(node_name="nonexistent.node")
+
+        assert "❌ Error occurred" in result
+        assert "Getting lineage for node: nonexistent.node" in result
+
+
+# ============================================================================
+# get_node_dimensions Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_node_dimensions_success():
+    """Test get_node_dimensions returns formatted dimension list"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [
+        {"name": "dim1.attr1", "type": "dimension", "path": ["node1", "dim1"]},
+        {"name": "dim2.attr2", "type": "dimension", "path": ["node1", "node2", "dim2"]},
+        {"name": "dim3.attr3", "type": "dimension"},
+    ]
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_dimensions(node_name="test.node")
+
+        assert "Dimensions for: test.node" in result
+        assert "Total: 3 dimensions" in result
+        assert "dim1.attr1 (dimension)" in result
+        assert "via: node1 → dim1" in result
+        assert "dim2.attr2 (dimension)" in result
+        assert "via: node1 → node2 → dim2" in result
+        assert "dim3.attr3 (dimension)" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_dimensions_empty():
+    """Test get_node_dimensions with no dimensions available"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = []
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_dimensions(node_name="test.source")
+
+        assert "Total: 0 dimensions" in result
+        assert "(no dimensions available)" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_dimensions_error():
+    """Test get_node_dimensions handles errors gracefully"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = httpx.HTTPStatusError(
+            "404 Not Found",
+            request=MagicMock(),
+            response=MagicMock(status_code=404, text="Node not found"),
+        )
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_node_dimensions(node_name="nonexistent.node")
+
+        assert "❌ Error occurred" in result
+        assert "Getting dimensions for node: nonexistent.node" in result
