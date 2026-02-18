@@ -71,12 +71,10 @@ class V3ColumnMetadata(BaseModel):
 
     name: str  # SQL alias in output (e.g., "category", "total_revenue")
     type: str  # SQL type (e.g., "string", "number", "int")
-    # Internal field name is semantic_name (matches build_v3)
-    # Serializes to 'semantic_entity' for API backwards compatibility
-    # Accepts both 'semantic_name' and 'semantic_entity' on deserialization
+    # Field name is semantic_name (matches build_v3)
+    # Accepts both 'semantic_name' and 'semantic_entity' on deserialization for compatibility
     semantic_name: str = Field(
         validation_alias=AliasChoices("semantic_name", "semantic_entity"),
-        serialization_alias="semantic_entity",
     )
     semantic_type: str  # "dimension" or "metric"
 

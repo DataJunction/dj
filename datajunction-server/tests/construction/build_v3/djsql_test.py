@@ -394,13 +394,13 @@ class TestDJSQLFilterOnlyDimensions:
             {
                 "name": "status",
                 "type": "string",
-                "semantic_entity": "v3.order_details.status",
+                "semantic_name": "v3.order_details.status",
                 "semantic_type": "dimension",
             },
             {
                 "name": "total_revenue",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
+                "semantic_name": "v3.total_revenue",
                 "semantic_type": "metric",
             },
         ]
@@ -461,13 +461,13 @@ class TestDJSQLFilterOnlyDimensions:
             {
                 "name": "status",
                 "type": "string",
-                "semantic_entity": "v3.order_details.status",
+                "semantic_name": "v3.order_details.status",
                 "semantic_type": "dimension",
             },
             {
                 "name": "total_revenue",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
+                "semantic_name": "v3.total_revenue",
                 "semantic_type": "metric",
             },
         ]
@@ -501,7 +501,7 @@ class TestDJSQLFilterOnlyDimensions:
             {
                 "name": "total_revenue",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
+                "semantic_name": "v3.total_revenue",
                 "semantic_type": "metric",
             },
         ]
@@ -543,13 +543,13 @@ class TestDJSQLFilterOnlyDimensions:
             {
                 "name": "status",
                 "type": "string",
-                "semantic_entity": "v3.order_details.status",
+                "semantic_name": "v3.order_details.status",
                 "semantic_type": "dimension",
             },
             {
                 "name": "total_revenue",
                 "type": "double",
-                "semantic_entity": "v3.total_revenue",
+                "semantic_name": "v3.total_revenue",
                 "semantic_type": "metric",
             },
         ]
