@@ -259,7 +259,10 @@ class DJClient:
             renamed_columns = [
                 col.get("semantic_name") or col.get("semantic_entity")
                 if col["semantic_type"] != "metric"
-                else col.get("semantic_name") or col.get("node") or col["name"]
+                else col.get("semantic_name")
+                or col.get("semantic_entity")
+                or col.get("node")
+                or col["name"]
                 for col in columns
             ]
             try:

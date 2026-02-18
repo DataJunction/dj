@@ -1212,7 +1212,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                             "name": "default_DOT_avg_repair_price",
                             "type": "float",
                             "semantic_type": "metric",
-                            "node": "default.avg_repair_price",
+                            "semantic_entity": "default.avg_repair_price",
                         },
                     ],
                     "rows": [
@@ -1348,7 +1348,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                             "name": "default_DOT_avg_repair_price",
                             "type": "float",
                             "semantic_type": "metric",
-                            "node": "default.avg_repair_price",
+                            "semantic_entity": "default.avg_repair_price",
                         },
                     ],
                     "rows": [
@@ -1418,8 +1418,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                         name="avg_repair_price",
                         type="float",
                         semantic_type="metric",
-                        semantic_name="default.avg_repair_price",
-                        node="default.avg_repair_price",
+                        semantic_entity="default.avg_repair_price",
                     ),
                 ],
                 rows=[
@@ -1456,7 +1455,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                         "name": "avg_repair_price",
                         "type": "float",
                         "semantic_type": "metric",
-                        "semantic_name": "default.avg_repair_price",
+                        "semantic_entity": "default.avg_repair_price",
                     },
                 ],
                 "rows": [
