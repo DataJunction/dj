@@ -1,50 +1,34 @@
 import asyncio
 import logging
-from dataclasses import dataclass, field
 import re
 import time
-from typing import Coroutine, cast
 from collections import Counter
+from dataclasses import dataclass, field
+from typing import Coroutine, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload, defer
 
-from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_namespace,
     COLUMN_NAME_REGEX,
     map_dimensions_to_roles,
 )
+from datajunction_server.construction.build_v2 import FullColumnName
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.attributetype import AttributeType
-from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+from datajunction_server.database.history import History
+from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import NodeRelationship
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
-from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.database.node import Node
-from datajunction_server.models.node import NodeType
-from datajunction_server.internal.deployment.validation import (
-    NodeValidationResult,
-    CubeValidationData,
-)
-from dataclasses import dataclass
-from datajunction_server.internal.nodes import (
-    hard_delete_node,
-    validate_complex_dimension_link,
-)
-from datajunction_server.models.deployment import (
-    ColumnSpec,
-    CubeSpec,
-    DeploymentResult,
-    DeploymentSpec,
-    DimensionReferenceLinkSpec,
-    LinkableNodeSpec,
-    NodeSpec,
-    TagSpec,
-)
 from datajunction_server.errors import (
     DJError,
     DJInvalidDeploymentConfig,
@@ -52,59 +36,56 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.models.base import labelize
+from datajunction_server.internal.catalogs import (
+    introspect_table_schema,
+    parse_source_node_name,
+)
 from datajunction_server.internal.deployment.utils import (
     extract_node_graph,
     topological_levels,
-)
-from datajunction_server.internal.deployment.utils import DeploymentContext
-from datajunction_server.database.user import User
-from datajunction_server.database import Node, NodeRevision
-from datajunction_server.database.metricmetadata import MetricMetadata
-from datajunction_server.api.helpers import get_attribute_type
-from datajunction_server.models.base import labelize
-from datajunction_server.models.node import (
-    DEFAULT_DRAFT_VERSION,
-    DEFAULT_PUBLISHED_VERSION,
-    NodeMode,
+    DeploymentContext,
 )
 from datajunction_server.internal.deployment.validation import (
+    NodeValidationResult,
+    CubeValidationData,
     bulk_validate_node_data,
 )
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.column import Column, ColumnAttribute
-from datajunction_server.database.dimensionlink import DimensionLink, JoinType
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.tag import Tag
+from datajunction_server.internal.history import EntityType
+from datajunction_server.internal.nodes import (
+    hard_delete_node,
+    validate_complex_dimension_link,
+)
 from datajunction_server.models.attribute import ColumnAttributes
+from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
+    ColumnSpec,
     CubeSpec,
     DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     LinkableNodeSpec,
     MetricSpec,
-    SourceSpec,
     NodeSpec,
+    SourceSpec,
+    TagSpec,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
 )
 from datajunction_server.models.history import ActivityType
-from datajunction_server.database.history import History
-from datajunction_server.internal.history import EntityType
 from datajunction_server.models.node import (
+    DEFAULT_DRAFT_VERSION,
+    DEFAULT_PUBLISHED_VERSION,
+    NodeMode,
     NodeStatus,
     NodeType,
 )
-from datajunction_server.errors import (
-    DJInvalidDeploymentConfig,
-)
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR, Version, get_namespace_from_name
-
-from sqlalchemy.orm import joinedload, selectinload, defer
 
 
 logger = logging.getLogger(__name__)
@@ -200,6 +181,7 @@ class DeploymentOrchestrator:
         )
         await self._setup_deployment_resources()
         await self._validate_deployment_resources()
+        await self._auto_register_sources()
 
         deployment_plan = await self._create_deployment_plan()
         if deployment_plan.is_empty():
@@ -262,6 +244,148 @@ class DeploymentOrchestrator:
         if self.errors:
             raise DJInvalidDeploymentConfig(
                 message="Invalid deployment configuration",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    async def _auto_register_sources(self):
+        """
+        Auto-register missing source nodes by introspecting catalog tables.
+
+        This method:
+        1. Parses all node queries to find missing dependencies
+        2. For each missing dependency that matches catalog.schema.table pattern:
+           - Introspects the catalog to get table schema
+           - Creates a SourceSpec with discovered columns
+           - Adds it to the deployment spec
+        """
+        if not self.deployment_spec.auto_register_sources:
+            return
+
+        logger.info("Auto-registering missing sources...")
+        auto_registered_sources: list[SourceSpec] = []
+        missing_nodes_to_check: set[str] = set()
+
+        # Extract all missing dependencies from node queries
+        for node_spec in self.deployment_spec.nodes:
+            if not hasattr(node_spec, "query") or not node_spec.query:
+                continue
+
+            try:
+                # Parse the query to extract table references
+                parsed_query = parse(node_spec.query)
+
+                # Find all table references in the query
+                for table in parsed_query.find_all(parsed_query.Table):
+                    table_name = table.identifier(quotes=False)
+
+                    # Only consider tables that:
+                    # 1. Look like catalog.schema.table (3+ parts after splitting by .)
+                    # 2. Are not already in the deployment spec
+                    parts = table_name.split(".")
+                    if "source" in parts[0]:
+                        parts = parts[1:]  # Strip "source." prefix if present
+
+                    if len(parts) >= 3:
+                        canonical_name = ".".join(parts[:3])  # Take first 3 parts
+                        # Check if this node is already in the deployment
+                        if not any(
+                            n.rendered_name == canonical_name
+                            or n.rendered_name == f"source.{canonical_name}"
+                            for n in self.deployment_spec.nodes
+                        ):
+                            missing_nodes_to_check.add(canonical_name)
+
+            except DJParseException:
+                # Skip nodes with parse errors - they'll fail in validation later
+                continue
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "Failed to extract dependencies from %s: %s",
+                    node_spec.rendered_name,
+                    exc,
+                )
+                continue
+
+        if not missing_nodes_to_check:
+            logger.info("No missing sources to auto-register")
+            return
+
+        logger.info(
+            "Found %d potential sources to auto-register: %s",
+            len(missing_nodes_to_check),
+            ", ".join(sorted(missing_nodes_to_check)),
+        )
+
+        # Try to introspect and create SourceSpec for each missing node
+        for missing_node_name in missing_nodes_to_check:
+            try:
+                # Parse the node name to extract catalog/schema/table
+                catalog_name, schema_name, table_name = parse_source_node_name(
+                    missing_node_name,
+                )
+
+                # Introspect the table schema from the catalog
+                columns = await introspect_table_schema(
+                    self.session,
+                    catalog_name,
+                    schema_name,
+                    table_name,
+                )
+
+                # Create SourceSpec with introspected columns
+                source_spec = SourceSpec(
+                    name=missing_node_name,  # Use canonical name (no "source." prefix)
+                    namespace=self.deployment_spec.namespace,
+                    catalog=catalog_name,
+                    schema_=schema_name,
+                    table=table_name,
+                    columns=[
+                        ColumnSpec(name=col.name, type=col.type) for col in columns
+                    ],
+                    description=(
+                        f"Auto-registered source from {catalog_name}.{schema_name}.{table_name}"
+                    ),
+                )
+
+                auto_registered_sources.append(source_spec)
+                logger.info(
+                    "Auto-registered source %s with %d columns",
+                    missing_node_name,
+                    len(columns),
+                )
+
+            except Exception as exc:
+                # If introspection fails, add an error
+                # This will cause deployment to fail with a clear message
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.UNKNOWN_ERROR,
+                        message=(
+                            f"Failed to auto-register source `{missing_node_name}`: {str(exc)}"
+                        ),
+                    ),
+                )
+                logger.error(
+                    "Failed to auto-register source %s: %s",
+                    missing_node_name,
+                    exc,
+                )
+
+        # Add auto-registered sources to the deployment spec (prepend so they're created first)
+        if auto_registered_sources:
+            self.deployment_spec.nodes = (
+                auto_registered_sources + self.deployment_spec.nodes
+            )
+            logger.info(
+                "Successfully auto-registered %d sources",
+                len(auto_registered_sources),
+            )
+
+        # Fail if there were any errors during auto-registration
+        if self.errors:
+            raise DJInvalidDeploymentConfig(
+                message="Failed to auto-register sources",
                 errors=self.errors,
                 warnings=self.warnings,
             )

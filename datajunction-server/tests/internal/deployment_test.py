@@ -1631,3 +1631,302 @@ async def test_validate_node_deletion_many_references_formatting(
 
     # Verify error message is properly formatted (uses commas)
     assert ", " in error_message
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_success(session: AsyncSession):
+    """
+    Test successful auto-registration of missing sources
+    """
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+    from unittest.mock import patch, MagicMock
+
+    # Setup: Create a test catalog with an engine
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    # Link engine to catalog
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment spec with a transform that references a missing source
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id, name FROM testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    # Mock the introspection to return fake columns
+    with patch(
+        "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
+    ) as mock_introspect:
+        mock_introspect.return_value = [
+            MagicMock(name="id", type="int"),
+            MagicMock(name="name", type="string"),
+        ]
+
+        # Create orchestrator and run auto-registration
+        context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id=str(uuid4()),
+            session=session,
+            context=context,
+        )
+
+        await orchestrator._setup_deployment_resources()
+        await orchestrator._validate_deployment_resources()
+        await orchestrator._auto_register_sources()
+
+        # Verify introspection was called
+        mock_introspect.assert_called_once_with(
+            session,
+            "testcatalog",
+            "myschema",
+            "mytable",
+        )
+
+        # Verify source was added to deployment spec
+        assert len(deployment_spec.nodes) == 2  # original + auto-registered
+
+        # First node should be the auto-registered source
+        auto_source = deployment_spec.nodes[0]
+        assert isinstance(auto_source, SourceSpec)
+        assert auto_source.name == "testcatalog.myschema.mytable"
+        assert auto_source.catalog == "testcatalog"
+        assert auto_source.schema_ == "myschema"
+        assert auto_source.table == "mytable"
+        assert auto_source.columns is not None
+        assert len(auto_source.columns) == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_disabled(session: AsyncSession):
+    """
+    Test that auto-registration is skipped when flag is False
+    """
+    # Create deployment spec without auto_register_sources flag
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=False,  # Explicitly disabled
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+    await orchestrator._auto_register_sources()
+
+    # Verify no sources were added
+    assert len(deployment_spec.nodes) == 1
+    assert isinstance(deployment_spec.nodes[0], TransformSpec)
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
+    """
+    Test that auto-registration fails gracefully when catalog doesn't exist
+    """
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM nonexistent.myschema.mytable",
+            ),
+        ],
+    )
+
+    context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+
+    # Should raise DJInvalidDeploymentConfig with error about missing catalog
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        await orchestrator._auto_register_sources()
+
+    assert "nonexistent.myschema.mytable" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_backward_compat_with_source_prefix(
+    session: AsyncSession,
+):
+    """
+    Test that source. prefix is handled correctly (stripped to canonical form)
+    """
+    from unittest.mock import patch
+
+    # Setup catalog
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment with transform referencing source.catalog.schema.table
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM source.testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    with patch(
+        "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
+    ) as mock_introspect:
+        mock_introspect.return_value = [
+            MagicMock(name="id", type="int"),
+        ]
+
+        context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id=str(uuid4()),
+            session=session,
+            context=context,
+        )
+
+        await orchestrator._setup_deployment_resources()
+        await orchestrator._validate_deployment_resources()
+        await orchestrator._auto_register_sources()
+
+        # Verify source was registered with canonical name (no source. prefix)
+        assert len(deployment_spec.nodes) == 2
+        auto_source = deployment_spec.nodes[0]
+        assert isinstance(auto_source, SourceSpec)
+        assert auto_source.name == "testcatalog.myschema.mytable"
+        assert "source." not in auto_source.name
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_no_duplication(session: AsyncSession):
+    """
+    Test that same source referenced by multiple transforms is only registered once
+    """
+    from unittest.mock import patch
+
+    # Setup catalog
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment with TWO transforms referencing the SAME source
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.transform1",
+                query="SELECT id FROM testcatalog.myschema.shared_table",
+            ),
+            TransformSpec(
+                name="test.transform2",
+                query="SELECT name FROM testcatalog.myschema.shared_table",
+            ),
+        ],
+    )
+
+    with patch(
+        "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
+    ) as mock_introspect:
+        mock_introspect.return_value = [
+            MagicMock(name="id", type="int"),
+            MagicMock(name="name", type="string"),
+        ]
+
+        context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id=str(uuid4()),
+            session=session,
+            context=context,
+        )
+
+        await orchestrator._setup_deployment_resources()
+        await orchestrator._validate_deployment_resources()
+        await orchestrator._auto_register_sources()
+
+        # Should have 3 nodes: 1 auto-registered source + 2 original transforms
+        assert len(deployment_spec.nodes) == 3
+
+        # First should be the auto-registered source
+        assert isinstance(deployment_spec.nodes[0], SourceSpec)
+        assert deployment_spec.nodes[0].name == "testcatalog.myschema.shared_table"
+
+        # Introspection should only be called once (no duplication)
+        assert mock_introspect.call_count == 1

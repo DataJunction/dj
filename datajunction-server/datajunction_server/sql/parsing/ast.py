@@ -134,6 +134,74 @@ def to_sql(query: "Query", dialect: Optional["Dialect"] = None) -> str:
         return str(query)
 
 
+def canonicalize_node_name(node_name: str) -> str:
+    """
+    Canonicalize a node name by removing the 'source.' prefix if present.
+
+    This allows nodes to be referenced in SQL queries without the 'source.' prefix,
+    while maintaining backward compatibility with existing nodes that use the prefix.
+
+    Examples:
+        source.catalog.schema.table -> catalog.schema.table
+        catalog.schema.table -> catalog.schema.table
+    """
+    if node_name.startswith("source."):
+        return node_name[7:]  # len("source.") = 7
+    return node_name
+
+
+async def get_dj_node_with_fallback(
+    session: AsyncSession,
+    node_name: str,
+    kinds: Optional[Set["DJNodeType"]] = None,
+) -> "DJNode":
+    """
+    Look up a DJ node by name, with fallback to try 'source.' prefix for backward compatibility.
+
+    This function first tries to find a node with the exact name provided. If not found,
+    it tries again with 'source.' prefix prepended. This supports:
+    1. New nodes without 'source.' prefix (canonical form)
+    2. Legacy nodes with 'source.' prefix (backward compatibility)
+
+    Args:
+        session: Database session
+        node_name: Node name to look up
+        kinds: Optional set of node types to filter by
+
+    Returns:
+        NodeRevision object
+
+    Raises:
+        DJErrorException: If node not found with either name variant
+    """
+    # Try canonical name first (without source. prefix)
+    canonical_name = canonicalize_node_name(node_name)
+
+    try:
+        return await get_dj_node(session, canonical_name, kinds)
+    except DJErrorException:
+        pass  # Try with source. prefix next
+
+    # Backward compatibility: try with source. prefix if not already present
+    if not node_name.startswith("source."):
+        try:
+            return await get_dj_node(session, f"source.{canonical_name}", kinds)
+        except DJErrorException:
+            pass  # Fall through to raise original error
+
+    # Neither worked - raise error with canonical name
+    raise DJErrorException(
+        http_status_code=404,
+        message=f"Node `{canonical_name}` not found",
+        errors=[
+            DJError(
+                code=ErrorCode.NODE_NOT_FOUND,
+                message=f"Node `{canonical_name}` not found",
+            ),
+        ],
+    )
+
+
 def flatten(maybe_iterables: Any) -> Iterator:
     """
     Flattens `maybe_iterables` by descending into items that are Iterable
@@ -1588,7 +1656,14 @@ class Table(TableExpression, Named):
 
         try:
             if not self.dj_node:
-                db_node = ctx.dependencies_cache.get(table_name)
+                # First check canonical name in cache
+                canonical_name = canonicalize_node_name(table_name)
+                db_node = ctx.dependencies_cache.get(canonical_name)
+
+                # Also check with source. prefix for backward compat
+                if not db_node and not table_name.startswith("source."):
+                    db_node = ctx.dependencies_cache.get(f"source.{canonical_name}")
+
                 if db_node:
                     await refresh_if_needed(ctx.session, db_node, ["current"])
                     await refresh_if_needed(ctx.session, db_node.current, ["columns"])
@@ -1596,7 +1671,8 @@ class Table(TableExpression, Named):
                 else:
                     # Include METRIC nodes to support derived metrics (metrics that reference
                     # other metrics). This allows metric references in FROM clauses.
-                    dj_node = await get_dj_node(
+                    # Use fallback lookup to support both canonical and source. prefixed nodes
+                    dj_node = await get_dj_node_with_fallback(
                         ctx.session,
                         table_name,
                         {
@@ -1606,8 +1682,8 @@ class Table(TableExpression, Named):
                             DJNodeType.METRIC,
                         },
                     )
-                    # Cache successful lookups in context
-                    ctx.dependencies_cache[table_name] = dj_node
+                    # Cache successful lookups using canonical name
+                    ctx.dependencies_cache[canonical_name] = dj_node
                 self.set_dj_node(dj_node)
             self._columns = [
                 Column(Name(col.name), _type=col.type, _table=self)
@@ -3262,8 +3338,10 @@ class Query(TableExpression, UnNamed):
                     deps[node].append(table)
                 else:
                     name = table.identifier(quotes=False)
-                    danglers[name] = danglers.get(name, [])
-                    danglers[name].append(table)
+                    # Store canonical name (without source. prefix) for consistency
+                    canonical_name = canonicalize_node_name(name)
+                    danglers[canonical_name] = danglers.get(canonical_name, [])
+                    danglers[canonical_name].append(table)
         else:
             # No FROM clause (derived metric): look for Column references with namespaces
             # These are node references like default.metric_a, default.metric_b
@@ -3321,7 +3399,9 @@ class Query(TableExpression, UnNamed):
                             pass  # Not a dimension either
 
                     # Neither a metric nor a valid dimension attribute - add to danglers
-                    danglers[node_name] = danglers.get(node_name, [])
+                    # Store canonical name (without source. prefix) for consistency
+                    canonical_name = canonicalize_node_name(node_name)
+                    danglers[canonical_name] = danglers.get(canonical_name, [])
 
             # Also compile the query to resolve column types for derived metrics
             # This triggers Column.compile which handles metric reference type resolution
