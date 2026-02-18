@@ -1678,9 +1678,11 @@ async def test_auto_register_sources_success(session: AsyncSession):
     with patch(
         "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
     ) as mock_introspect:
+        from datajunction_server.internal.catalogs import IntrospectedColumn
+
         mock_introspect.return_value = [
-            MagicMock(name="id", type="int"),
-            MagicMock(name="name", type="string"),
+            IntrospectedColumn(name="id", type="int"),
+            IntrospectedColumn(name="name", type="string"),
         ]
 
         # Create orchestrator and run auto-registration
@@ -1832,8 +1834,10 @@ async def test_auto_register_sources_backward_compat_with_source_prefix(
     with patch(
         "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
     ) as mock_introspect:
+        from datajunction_server.internal.catalogs import IntrospectedColumn
+
         mock_introspect.return_value = [
-            MagicMock(name="id", type="int"),
+            IntrospectedColumn(name="id", type="int"),
         ]
 
         context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
@@ -1904,9 +1908,11 @@ async def test_auto_register_sources_no_duplication(session: AsyncSession):
     with patch(
         "datajunction_server.internal.deployment.orchestrator.introspect_table_schema",
     ) as mock_introspect:
+        from datajunction_server.internal.catalogs import IntrospectedColumn
+
         mock_introspect.return_value = [
-            MagicMock(name="id", type="int"),
-            MagicMock(name="name", type="string"),
+            IntrospectedColumn(name="id", type="int"),
+            IntrospectedColumn(name="name", type="string"),
         ]
 
         context = DeploymentContext(current_user=MagicMock(id=1, username="test"))

@@ -83,6 +83,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.sql.parsing.ast import Table
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR, Version, get_namespace_from_name
@@ -276,7 +277,7 @@ class DeploymentOrchestrator:
                 parsed_query = parse(node_spec.query)
 
                 # Find all table references in the query
-                for table in parsed_query.find_all(parsed_query.Table):
+                for table in parsed_query.find_all(Table):
                     table_name = table.identifier(quotes=False)
 
                     # Only consider tables that:
