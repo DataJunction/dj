@@ -369,13 +369,13 @@ class TestBuildCombinerSql:
             columns=[
                 {
                     "name": "date_id",
-                    "semantic_name": "v3.date_dim.date_id",
+                    "semantic_entity": "v3.date_dim.date_id",
                     "type": "int",
                     "semantic_type": "dimension",
                 },
                 {
                     "name": "revenue",
-                    "semantic_name": "v3.total_revenue",
+                    "semantic_entity": "v3.total_revenue",
                     "type": "double",
                     "semantic_type": "metric_component",
                 },
@@ -388,13 +388,13 @@ class TestBuildCombinerSql:
             columns=[
                 {
                     "name": "date_id",
-                    "semantic_name": "v3.date_dim.date_id",
+                    "semantic_entity": "v3.date_dim.date_id",
                     "type": "int",
                     "semantic_type": "dimension",
                 },
                 {
                     "name": "orders",
-                    "semantic_name": "v3.order_count",
+                    "semantic_entity": "v3.order_count",
                     "type": "bigint",
                     "semantic_type": "metric_component",
                 },

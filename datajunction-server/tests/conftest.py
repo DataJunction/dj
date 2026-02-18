@@ -669,7 +669,7 @@ def query_service_client(
             {
                 "name": col,
                 "type": str(type_).lower(),
-                "semantic_name": col,  # Use column name as semantic name
+                "semantic_entity": col,  # Use column name as semantic name
                 "semantic_type": "dimension",  # Default to dimension
             }
             for col, type_ in zip(result.columns, result.types)
@@ -2123,7 +2123,7 @@ def module__query_service_client(
             {
                 "name": col,
                 "type": str(type_).lower(),
-                "semantic_name": col,  # Use column name as semantic name
+                "semantic_entity": col,  # Use column name as semantic name
                 "semantic_type": "dimension",  # Default to dimension
             }
             for col, type_ in zip(result.columns, result.types)

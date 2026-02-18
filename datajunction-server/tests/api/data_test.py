@@ -470,19 +470,19 @@ class TestDataForNode:
                     "columns": [
                         {
                             "name": "company_name",
-                            "semantic_name": "default.dispatcher.company_name",
+                            "semantic_entity": "default.dispatcher.company_name",
                             "type": "string",
                             "semantic_type": "dimension",
                         },
                         {
                             "name": "num_repair_orders",
-                            "semantic_name": "default.num_repair_orders",
+                            "semantic_entity": "default.num_repair_orders",
                             "type": "bigint",
                             "semantic_type": "metric",
                         },
                         {
                             "name": "avg_repair_price",
-                            "semantic_name": "default.avg_repair_price",
+                            "semantic_entity": "default.avg_repair_price",
                             "type": "double",
                             "semantic_type": "metric",
                         },

@@ -462,13 +462,13 @@ async def test_get_djsql_with_orderby_and_limit(
         {
             "name": "country",
             "type": "string",
-            "semantic_name": "default.hard_hat.country",
+            "semantic_entity": "default.hard_hat.country",
             "semantic_type": "dimension",
         },
         {
             "name": "avg_repair_price",
             "type": "double",
-            "semantic_name": "default.avg_repair_price",
+            "semantic_entity": "default.avg_repair_price",
             "semantic_type": "metric",
         },
     ]
