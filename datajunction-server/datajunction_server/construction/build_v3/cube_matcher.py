@@ -33,6 +33,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
@@ -89,7 +90,11 @@ async def find_matching_cube(
                 ),
                 joinedload(NodeRevision.availability),
                 selectinload(NodeRevision.materializations),
-                selectinload(NodeRevision.columns),
+                selectinload(NodeRevision.columns)
+                .selectinload(Column.partition)
+                .selectinload(
+                    Partition.column,
+                ),
             ),
         )
     )

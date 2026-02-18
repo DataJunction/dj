@@ -20,6 +20,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
     from datajunction_server.database.node import NodeRevision
+    from datajunction_server.database.partition import Partition
     from datajunction_server.database.preaggregation import PreAggregation
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,9 @@ class BuildContext:
     use_materialized: bool = True
 
     # Temporal filter settings for incremental materialization
-    # When True, adds DJ_LOGICAL_TIMESTAMP() filters on temporal partition columns
-    include_temporal_filters: bool = False
+    # Dict mapping column refs to partition objects from cube (e.g., {"v3.date.date_id": partition_obj})
+    # When provided, temporal filters are pushed down to parent nodes via dimension links
+    temporal_partition_columns: dict[str, "Partition"] = field(default_factory=dict)
     lookback_window: str | None = None
 
     # Loaded data (populated by load_nodes)
