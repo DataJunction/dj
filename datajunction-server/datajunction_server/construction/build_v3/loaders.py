@@ -339,6 +339,10 @@ async def load_nodes(ctx: BuildContext) -> None:
                     ),
                 ),
                 joinedload(NodeRevision.availability),  # For materialization support
+                selectinload(NodeRevision.dimension_links).options(
+                    # Load dimension node for link matching in temporal filters
+                    joinedload(DimensionLink.dimension),
+                ),
             ),
         )
     )

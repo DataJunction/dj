@@ -39,12 +39,51 @@ from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
 )
+from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 logger = logging.getLogger(__name__)
+
+
+async def extract_temporal_partition_columns(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+) -> dict[str, Partition] | None:
+    """
+    Extract temporal partition columns from a matching cube.
+
+    Finds a cube that matches the given metrics and dimensions, and extracts
+    any columns marked as temporal partitions along with their partition metadata.
+
+    Args:
+        session: Database session
+        metrics: List of metric node names
+        dimensions: List of dimension names
+
+    Returns:
+        Dict mapping column names to partition objects, or None if no cube found or no temporal partitions
+    """
+    matching_cube = await find_matching_cube(
+        session,
+        metrics,
+        dimensions,
+        require_availability=False,
+    )
+
+    if not matching_cube:
+        return None
+
+    temporal_partition_columns = {}
+    for column in matching_cube.columns:
+        if column.partition and column.partition.type_ == PartitionType.TEMPORAL:
+            temporal_partition_columns[column.name] = column.partition
+
+    return temporal_partition_columns if temporal_partition_columns else None
 
 
 def apply_orderby_limit(
@@ -143,12 +182,21 @@ async def setup_build_context(
         filters: Optional list of filter expressions
         dialect: SQL dialect for output
         use_materialized: Whether to use materialized tables
-        include_temporal_filters: Whether to add temporal filters
+        include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
 
     Returns:
         Fully initialized BuildContext
     """
+    # Extract temporal partition columns from matching cube if requested
+    temporal_partition_columns = None
+    if include_temporal_filters:
+        temporal_partition_columns = await extract_temporal_partition_columns(
+            session,
+            metrics,
+            dimensions,
+        )
+
     ctx = BuildContext(
         session=session,
         metrics=metrics,
@@ -156,7 +204,7 @@ async def setup_build_context(
         filters=filters or [],
         dialect=dialect,
         use_materialized=use_materialized,
-        include_temporal_filters=include_temporal_filters,
+        temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
     )
 
@@ -211,9 +259,10 @@ async def build_measures_sql(
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
-        include_temporal_filters: If True, adds DJ_LOGICAL_TIMESTAMP() filters on
-            temporal partition columns of source nodes. Used for incremental
-            materialization to ensure partition pruning.
+        include_temporal_filters: If True, finds a matching cube and applies temporal
+            partition filters from that cube. Filters are pushed down to parent nodes
+            that have dimension links to the temporal partition columns. Used for
+            incremental materialization and partition pruning.
         lookback_window: Lookback window for temporal filters (e.g., "3 DAY").
             If not provided, filters to exactly the logical timestamp partition.
 
