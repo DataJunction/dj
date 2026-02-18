@@ -2331,17 +2331,53 @@ class TestTemporalFilters:
 
     @pytest.fixture
     async def setup_temporal_partition(self, client_with_build_v3):
-        """Set up temporal partition on order_date column."""
-        # Ensure the temporal partition is configured (may already exist in template)
+        """Set up cube-based temporal partition for testing."""
+        # Step 1: Add temporal partition to v3.date dimension
         response = await client_with_build_v3.post(
-            "/nodes/v3.order_details/columns/order_date/partition",
+            "/nodes/v3.date/columns/date_id/partition",
             json={
                 "type_": "temporal",
-                "granularity": "day",
                 "format": "yyyyMMdd",
+                "granularity": "day",
             },
         )
-        assert response.status_code in (200, 201, 409)  # 409 = already exists
+        assert response.status_code in (200, 201, 422, 409)
+
+        # Step 2: Create dimension link between order_details and date
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.order_details.order_date = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201, 400, 409, 422)
+
+        # Step 3: Create a cube with metrics and date dimension
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_temporal_cube",
+                "display_name": "Test Temporal Cube",
+                "description": "Cube for temporal filtering tests",
+                "mode": "published",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201, 409)
+
+        # Step 4: Set partition on the cube's date column
+        response = await client_with_build_v3.post(
+            "/nodes/v3.test_temporal_cube/columns/v3.date.date_id/partition",
+            json={
+                "type_": "temporal",
+                "format": "yyyyMMdd",
+                "granularity": "day",
+            },
+        )
+        assert response.status_code in (200, 201, 422, 409)
 
     @pytest.mark.asyncio
     async def test_temporal_filter_exact_partition(
@@ -2353,13 +2389,14 @@ class TestTemporalFilters:
         """
         Test that include_temporal_filters=True adds exact partition filter.
 
-        Uses v3.order_details which has order_date configured as a temporal partition.
-        The filter should be: order_date = CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)
+        Uses cube with v3.date.date_id dimension configured as a temporal partition.
+        The filter should be pushed down to parent node through dimension link:
+        date_id = CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            dimensions=["v3.date.date_id"],
             include_temporal_filters=True,
         )
 
@@ -2368,14 +2405,14 @@ class TestTemporalFilters:
             result.grain_groups[0].sql,
             """
             WITH v3_order_details AS (
-                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
-            GROUP BY t1.status
+            GROUP BY t1.order_date
             """,
         )
 
@@ -2389,14 +2426,14 @@ class TestTemporalFilters:
         """
         Test that lookback_window generates BETWEEN filter.
 
-        The filter should be:
-        order_date BETWEEN CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP() - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
+        The filter should be pushed down through dimension link:
+        date_id BETWEEN CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP() - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
                     AND CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            dimensions=["v3.date.date_id"],
             include_temporal_filters=True,
             lookback_window="3 DAY",
         )
@@ -2406,15 +2443,15 @@ class TestTemporalFilters:
             result.grain_groups[0].sql,
             """
             WITH v3_order_details AS (
-                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '3' DAY, 'yyyyMMdd') AS INT)
                                     AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
-            GROUP BY t1.status
+            GROUP BY t1.order_date
             """,
         )
 
@@ -2423,14 +2460,18 @@ class TestTemporalFilters:
         self,
         session,
         client_with_build_v3,
+        setup_temporal_partition,
     ):
         """
         Test that temporal filters are NOT added when include_temporal_filters=False.
+
+        Even though a cube with temporal partitions exists, filters should not be applied
+        when include_temporal_filters=False.
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
+            dimensions=["v3.date.date_id"],
             include_temporal_filters=False,  # Default, but explicit
         )
 
@@ -2439,13 +2480,13 @@ class TestTemporalFilters:
             result.grain_groups[0].sql,
             """
             WITH v3_order_details AS (
-                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            GROUP BY t1.status
+            GROUP BY t1.order_date
             """,
         )
 
@@ -2459,32 +2500,225 @@ class TestTemporalFilters:
         """
         Test that temporal filter is combined with user filters.
 
-        The filter should be:
-        (order_date = CAST(DATE_FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS INT)) AND (status = 'active')
+        The temporal filter should be combined with the user filter using AND.
         """
         result = await build_measures_sql(
             session=session,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.order_details.status"],
-            filters=["status = 'active'"],
+            dimensions=["v3.date.date_id"],
+            filters=["v3.date.date_id > 20200101"],
             include_temporal_filters=True,
         )
 
         # Should have AND between temporal and user filters
+        # The filter on v3.date.date_id is rewritten to use the parent's FK column (order_date)
         assert_sql_equal(
             result.grain_groups[0].sql,
             """
             WITH v3_order_details AS (
-                SELECT o.order_date, o.status, oi.quantity * oi.unit_price AS line_total
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            WHERE t1.status = 'active' AND t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
-            GROUP BY t1.status
+            WHERE t1.order_date > 20200101 AND t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.order_date
             """,
         )
+
+
+class TestCubeBasedTemporalFiltering:
+    """Tests for cube-based temporal filtering via REST API."""
+
+    @pytest.mark.asyncio
+    async def test_temporal_filters_applied_when_cube_exists(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that temporal filters are applied when metrics+dimensions resolve to a cube.
+
+        Steps:
+        1. Set up temporal partition on date dimension
+        2. Create a cube with multiple metrics and the date dimension
+        3. Set partition on the cube's date column
+        4. Request measures SQL with various metric+dimension combos from that cube
+        5. Verify temporal filters are applied
+        """
+        # Step 1: Add temporal partition to v3.date dimension
+        response = await client_with_build_v3.post(
+            "/nodes/v3.date/columns/date_id/partition",
+            json={
+                "type_": "temporal",
+                "format": "yyyyMMdd",
+                "granularity": "day",
+            },
+        )
+        assert response.status_code in (200, 201, 422)
+
+        # Create dimension link between order_details and date
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.order_details.order_date = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201, 400, 409, 422)
+
+        # Step 2: Create a cube with multiple metrics and date dimension
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_orders_by_date_cube",
+                "display_name": "Test Orders by Date Cube",
+                "description": "Test cube for temporal filtering with multiple metrics",
+                "mode": "published",
+                "metrics": ["v3.total_revenue", "v3.total_quantity", "v3.order_count"],
+                "dimensions": ["v3.date.date_id"],  # Only include date dimension
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        # Step 3: Set partition on the cube's date column
+        response = await client_with_build_v3.post(
+            "/nodes/v3.test_orders_by_date_cube/columns/v3.date.date_id/partition",
+            json={
+                "type_": "temporal",
+                "format": "yyyyMMdd",
+                "granularity": "day",
+            },
+        )
+        assert response.status_code in (200, 201, 422)
+
+        # Step 4c: Test with multiple metrics from the cube
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.total_quantity"],
+                "dimensions": ["v3.date.date_id"],
+                "include_temporal_filters": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have temporal filter in the SQL
+        assert_sql_equal(
+            data["grain_groups"][0]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, oi.quantity, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.order_date date_id,
+                   SUM(t1.line_total) line_total_sum_e1f61696,
+                   SUM(t1.quantity) quantity_sum_06b64d2e
+            FROM v3_order_details t1
+            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.order_date
+            """,
+        )
+
+        # Step 4d: Test with all three metrics
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.total_quantity", "v3.order_count"],
+                "dimensions": ["v3.date.date_id"],
+                "include_temporal_filters": True,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have temporal filter in the SQL
+        assert_sql_equal(
+            data["grain_groups"][0]["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.order_date,
+                oi.quantity,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.order_date date_id,
+              t1.order_id,
+              SUM(t1.line_total) line_total_sum_e1f61696,
+              SUM(t1.quantity) quantity_sum_06b64d2e
+            FROM v3_order_details t1
+            WHERE  t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY  t1.order_date, t1.order_id
+            """,
+        )
+
+        # Step 4e: Test with lookback window
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.date_id"],
+                "include_temporal_filters": True,
+                "lookback_window": "7 DAY",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have BETWEEN filter for lookback
+        assert_sql_equal(
+            data["grain_groups"][0]["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.order_date date_id,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.order_date BETWEEN CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP) - INTERVAL '7' DAY, 'yyyyMMdd') AS INT)
+                                    AND CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.order_date
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_temporal_filters_when_no_cube_match(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that temporal filters are NOT applied when metrics+dimensions don't resolve to a cube.
+
+        Even if include_temporal_filters=True, filters should not be applied if there's no matching cube.
+        """
+        # Request measures SQL with include_temporal_filters=True but no matching cube
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "include_temporal_filters": True,  # Request temporal filters
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should NOT have temporal filter since no cube matches
+        sql = data["grain_groups"][0]["sql"]
+        assert "DJ_LOGICAL_TIMESTAMP()" not in sql
 
 
 class TestNonDecomposableMetrics:

@@ -183,6 +183,20 @@ async def get_measures_sql_v3(
         Dialect.SPARK,
         description="SQL dialect for the generated query.",
     ),
+    include_temporal_filters: bool = Query(
+        False,
+        description=(
+            "Whether to include temporal partition filters. Only applies if "
+            "the metrics and dimensions resolve to a cube with temporal partitions."
+        ),
+    ),
+    lookback_window: Optional[str] = Query(
+        None,
+        description=(
+            "Lookback window for temporal filters (e.g., '3 DAY', '1 WEEK'). "
+            "Only applicable when include_temporal_filters is True."
+        ),
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -209,6 +223,9 @@ async def get_measures_sql_v3(
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
+        include_temporal_filters: If True, checks if metrics+dimensions resolve to
+            a cube with temporal partitions, and applies partition filters if so.
+        lookback_window: Lookback window for temporal filters when applicable.
 
     See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
     """
@@ -219,6 +236,8 @@ async def get_measures_sql_v3(
         filters=filters,
         dialect=dialect,
         use_materialized=use_materialized,
+        include_temporal_filters=include_temporal_filters,
+        lookback_window=lookback_window,
     )
 
     # Build a unified component_aliases map from all grain groups
