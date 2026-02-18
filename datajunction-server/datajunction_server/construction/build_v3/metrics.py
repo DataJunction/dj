@@ -35,7 +35,6 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.construction.build_v3.types import (
     BaseMetricsResult,
     BuildContext,
-    ColumnMetadata,
     ColumnRef,
     ColumnResolver,
     ColumnType,
