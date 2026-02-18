@@ -190,15 +190,12 @@ async def get_dj_node_with_fallback(
             pass  # Fall through to raise original error
 
     # Neither worked - raise error with canonical name
+    kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
     raise DJErrorException(
-        http_status_code=404,
-        message=f"Node `{canonical_name}` not found",
-        errors=[
-            DJError(
-                code=ErrorCode.NODE_NOT_FOUND,
-                message=f"Node `{canonical_name}` not found",
-            ),
-        ],
+        DJError(
+            code=ErrorCode.UNKNOWN_NODE,
+            message=f"No node `{canonical_name}` exists{' of kind ' + kind_msg if kind_msg else ''}.",
+        ),
     )
 
 
