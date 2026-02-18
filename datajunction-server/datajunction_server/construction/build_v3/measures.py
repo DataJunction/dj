@@ -167,11 +167,55 @@ def infer_component_type(
         return metric_type
 
 
+def _get_filter_column_name_for_dimension(
+    resolved_dim: ResolvedDimension,
+    parent_node: Node,
+) -> str | None:
+    """
+    Get the column name to use for a dimension in filters.
+
+    For local dimensions that reference other dimension nodes (e.g., v3.date.date_id
+    accessed via parent's order_date column), returns the parent's FK column name.
+    Otherwise returns None to indicate no rewriting needed.
+
+    Args:
+        resolved_dim: The resolved dimension
+        parent_node: The parent node to look up dimension links on
+
+    Returns:
+        The FK column name if this is a local dimension reference, None otherwise
+    """
+    # Only rewrite for local dimensions
+    if not resolved_dim.is_local:
+        return None
+
+    # Parse the original_ref to get the actual dimension node name
+    parsed_ref = parse_dimension_ref(resolved_dim.original_ref)
+    dim_node_name = parsed_ref.node_name
+
+    # Check if this is a dimension reference (not a local column on parent)
+    if not dim_node_name or dim_node_name == parent_node.name:
+        return None
+
+    # Look up the dimension link on the parent node to find the FK column
+    if not parent_node.current or not parent_node.current.dimension_links:
+        return None  # pragma: no cover
+
+    for link in parent_node.current.dimension_links:
+        if link.dimension.name == dim_node_name:
+            fk_columns = link.foreign_key_column_names
+            if fk_columns:  # pragma: no branch
+                return next(iter(fk_columns))
+
+    return None  # pragma: no cover
+
+
 def _add_table_prefixes_to_filter(
     filter_ast: ast.Expression,
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
     dim_aliases: dict[tuple[str, Optional[str]], str],
+    parent_node: Node,
 ) -> None:
     """
     Add table prefixes to column references in a filter AST.
@@ -185,16 +229,22 @@ def _add_table_prefixes_to_filter(
         resolved_dimensions: List of resolved dimensions with join info
         main_alias: Alias for the main (fact) table
         dim_aliases: Map from (dim_name, role) to table alias
+        parent_node: Parent node to look up dimension links
     """
     # Build a map from column alias to table alias
     col_to_table: dict[str, str] = {}
 
     for resolved_dim in resolved_dimensions:
-        col_alias = resolved_dim.column_name
+        # Get the column name to use (parent's FK for local dimension refs, else dimension's column)
+        col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
+        if not col_alias:
+            col_alias = resolved_dim.column_name
+
+        # Map to appropriate table alias
         if resolved_dim.is_local:
             col_to_table[col_alias] = main_alias
         elif resolved_dim.join_path:  # pragma: no branch
-            # Get the dimension's table alias
+            # Get the dimension's table alias for joined dimensions
             for link in resolved_dim.join_path.links:  # pragma: no branch
                 dim_key = (link.dimension.name, resolved_dim.role)
                 if dim_key in dim_aliases:  # pragma: no branch
@@ -462,12 +512,19 @@ def build_select_ast(
                         extract_join_columns_for_node(link.join_sql, parent_node.name),
                     )
 
-    # Add temporal partition column if temporal filtering is enabled
-    # This ensures the column is available in the CTE for the WHERE clause
-    if ctx.include_temporal_filters and parent_node.current:
-        temporal_cols = parent_node.current.temporal_partition_columns()
-        if temporal_cols:  # pragma: no branch
-            parent_needed_cols.add(temporal_cols[0].name)
+    # Add temporal partition columns from cube if linked to this parent
+    # This ensures the columns are available in the CTE for the WHERE clause
+    if ctx.temporal_partition_columns and parent_node.current:
+        for partition_col_ref in ctx.temporal_partition_columns:
+            dimension_ref = parse_dimension_ref(partition_col_ref)
+
+            # Check if this parent has a dimension link to the partition column's node
+            if parent_node.current.dimension_links:  # pragma: no branch
+                for link in parent_node.current.dimension_links:  # pragma: no branch
+                    if link.dimension.name == dimension_ref.node_name:
+                        # Found link - ensure the column is included
+                        parent_needed_cols.add(dimension_ref.column_name)
+                        break
 
     # Parent node needs CTE if it's not a source
     if parent_node.type != NodeType.SOURCE:  # pragma: no branch
@@ -544,16 +601,21 @@ def build_select_ast(
                 main_alias,
                 dim_aliases,
             )
-            # Map the original ref (e.g., "v3.product.category") to "category"
-            # The table alias is handled by resolve_filter_references
-            col_alias = ctx.alias_registry.get_alias(resolved_dim.original_ref)
-            if col_alias:  # pragma: no branch
-                filter_column_aliases[resolved_dim.original_ref] = col_alias
-            else:
+
+            # For dimensions marked as "local" (no join needed), we need to map to the
+            # parent's FK column, not the dimension's column name.
+            # E.g., for filter "v3.date.date_id > X", if the parent has local column order_date,
+            # we should map to "order_date" not "date_id"
+            col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
+
+            # Fallback to registered alias or column name
+            if not col_alias:
+                col_alias = ctx.alias_registry.get_alias(resolved_dim.original_ref)
+            if not col_alias:
                 # Defensive: dimensions should always be registered
-                filter_column_aliases[resolved_dim.original_ref] = (  # pragma: no cover
-                    resolved_dim.column_name
-                )
+                col_alias = resolved_dim.column_name  # pragma: no cover
+
+            filter_column_aliases[resolved_dim.original_ref] = col_alias
 
         # Add local columns from the parent node (for simple column refs like "status")
         if parent_node.current and parent_node.current.columns:  # pragma: no branch
@@ -577,6 +639,7 @@ def build_select_ast(
                 resolved_dimensions,
                 main_alias,
                 dim_aliases,
+                parent_node,
             )
 
     # Combine user filters with temporal filter
@@ -617,51 +680,73 @@ def build_temporal_filter(
     table_alias: str,
 ) -> Optional[ast.Expression]:
     """
-    Build temporal filter expression based on partition metadata.
+    Build temporal filter expression based on cube's temporal partition columns.
+
+    Checks if the parent node has dimension links to any of the cube's temporal
+    partition columns, and generates filters for those columns.
 
     Returns:
         - BinaryOp (col = expr) for exact partition match
         - Between (col BETWEEN start AND end) for lookback window
-        - None if temporal filtering not enabled or no partition configured
+        - None if no temporal partition columns from cube are linked to this parent
     """
-    if not ctx.include_temporal_filters or not parent_node.current:
+    if not ctx.temporal_partition_columns or not parent_node.current:
         return None
 
-    temporal_cols = parent_node.current.temporal_partition_columns()
-    if not temporal_cols:
-        return None  # pragma: no cover
+    # For each temporal partition column specified by the cube
+    for partition_col_ref, partition_metadata in ctx.temporal_partition_columns.items():
+        # Parse "v3.date.date_id" -> dimension node and column
+        parsed = parse_dimension_ref(partition_col_ref)
 
-    # Use the first temporal partition column
-    temporal_col = temporal_cols[0]
-    if not temporal_col.partition:
-        return None  # pragma: no cover
+        # Check if this parent has a dimension link to the partition column's node
+        if not parent_node.current.dimension_links:
+            continue  # pragma: no cover
 
-    # Generate the temporal expression using partition metadata
-    # For exact partition: dateint = CAST(DATE_FORMAT(...), 'yyyyMMdd') AS INT)
-    # For lookback: dateint BETWEEN start_expr AND end_expr
-    col_ref = make_column_ref(temporal_col.name, table_alias)
+        for link in parent_node.current.dimension_links:  # pragma: no branch
+            if link.dimension.name == parsed.node_name:
+                # Found a dimension link to the temporal partition dimension
+                # Find the column on the dimension (cube already declared this as temporal)
+                temporal_col = None
+                for col in link.dimension.current.columns:  # pragma: no branch
+                    if col.name == parsed.column_name:  # pragma: no branch
+                        temporal_col = col
+                        break
 
-    # Get the end expression (current logical timestamp)
-    end_expr = temporal_col.partition.temporal_expression(interval=None)
+                if not temporal_col:
+                    continue  # pragma: no cover
 
-    if ctx.lookback_window and end_expr:
-        # For lookback, generate BETWEEN filter
-        # Start = DJ_LOGICAL_TIMESTAMP() - interval
-        if start_expr := temporal_col.partition.temporal_expression(
-            interval=ctx.lookback_window,
-        ):
-            return ast.Between(
-                expr=col_ref,
-                low=start_expr,
-                high=end_expr,
-            )
-    elif end_expr:
-        # No lookback - exact partition match
-        return ast.BinaryOp(
-            left=col_ref,
-            right=end_expr,
-            op=ast.BinaryOpKind.Eq,
-        )
+                # Get the parent's foreign key column that joins to this dimension
+                # e.g., if dimension is v3.date.date_id, we need the parent's column like "order_date"
+                fk_columns = link.foreign_key_column_names
+                if not fk_columns:
+                    continue  # pragma: no cover
+
+                # Use the first foreign key column (typically there's only one for temporal dimensions)
+                parent_col_name = next(iter(fk_columns))
+
+                # Generate the temporal filter expression using the parent's column
+                col_ref = make_column_ref(parent_col_name, table_alias)
+
+                # Get the end expression (current logical timestamp) from cube's partition metadata
+                end_expr = partition_metadata.temporal_expression(interval=None)
+
+                if ctx.lookback_window and end_expr:
+                    # For lookback, generate BETWEEN filter using cube's partition metadata
+                    if start_expr := partition_metadata.temporal_expression(
+                        interval=ctx.lookback_window,
+                    ):  # pragma: no branch
+                        return ast.Between(
+                            expr=col_ref,
+                            low=start_expr,
+                            high=end_expr,
+                        )
+                elif end_expr:  # pragma: no branch
+                    # No lookback - exact partition match
+                    return ast.BinaryOp(
+                        left=col_ref,
+                        right=end_expr,
+                        op=ast.BinaryOpKind.Eq,
+                    )
 
     return None  # pragma: no cover
 
