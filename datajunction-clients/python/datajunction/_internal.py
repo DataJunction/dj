@@ -259,9 +259,11 @@ class DJClient:
             renamed_columns = [
                 col.get("semantic_name") or col.get("semantic_entity")
                 if col["semantic_type"] != "metric"
+                # For metrics, prefer 'node' field (v2 format) over 'semantic_entity'
+                # because v2 builder concatenates node+name into semantic_entity
                 else col.get("semantic_name")
-                or col.get("semantic_entity")
                 or col.get("node")
+                or col.get("semantic_entity")
                 or col["name"]
                 for col in columns
             ]

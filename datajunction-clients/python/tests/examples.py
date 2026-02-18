@@ -1298,8 +1298,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "results": [
                 {
                     "columns": [
-                        {"name": "default_DOT_avg_repair_price", "type": "float"},
-                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
+                        {
+                            "name": "default_DOT_avg_repair_price",
+                            "type": "float",
+                            "semantic_type": "metric",
+                            "semantic_entity": "default.avg_repair_price",
+                        },
+                        {
+                            "name": "default_DOT_hard_hat_DOT_city",
+                            "type": "str",
+                            "semantic_entity": "default.hard_hat.city",
+                            "semantic_type": "dimension",
+                        },
                     ],
                     "rows": [
                         (1.0, "Foo"),
@@ -1378,8 +1388,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "results": [
                 {
                     "columns": [
-                        {"name": "default_DOT_avg_repair_price", "type": "float"},
-                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
+                        {
+                            "name": "default_DOT_avg_repair_price",
+                            "type": "float",
+                            "semantic_type": "metric",
+                            "semantic_entity": "default.avg_repair_price",
+                        },
+                        {
+                            "name": "default_DOT_hard_hat_DOT_city",
+                            "type": "str",
+                            "semantic_entity": "default.hard_hat.city",
+                            "semantic_type": "dimension",
+                        },
                     ],
                     "rows": [
                         (1.0, "Foo"),
