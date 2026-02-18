@@ -1202,8 +1202,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "results": [
                 {
                     "columns": [
-                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
-                        {"name": "default_DOT_avg_repair_price", "type": "float"},
+                        {
+                            "name": "default_DOT_hard_hat_DOT_city",
+                            "type": "str",
+                            "semantic_entity": "default.hard_hat.city",
+                            "semantic_type": "dimension",
+                        },
+                        {
+                            "name": "default_DOT_avg_repair_price",
+                            "type": "float",
+                            "semantic_type": "metric",
+                            "node": "default.avg_repair_price",
+                        },
                     ],
                     "rows": [
                         ("Foo", 1.0),
@@ -1328,8 +1338,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "results": [
                 {
                     "columns": [
-                        {"name": "default_DOT_hard_hat_DOT_city", "type": "str"},
-                        {"name": "default_DOT_avg_repair_price", "type": "float"},
+                        {
+                            "name": "default_DOT_hard_hat_DOT_city",
+                            "type": "str",
+                            "semantic_entity": "default.hard_hat.city",
+                            "semantic_type": "dimension",
+                        },
+                        {
+                            "name": "default_DOT_avg_repair_price",
+                            "type": "float",
+                            "semantic_type": "metric",
+                            "node": "default.avg_repair_price",
+                        },
                     ],
                     "rows": [
                         ("Foo", 1.0),
@@ -1398,6 +1418,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                         name="avg_repair_price",
                         type="float",
                         semantic_type="metric",
+                        semantic_name="default.avg_repair_price",
                         node="default.avg_repair_price",
                     ),
                 ],
@@ -1425,8 +1446,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
         results=[
             {
                 "columns": [
-                    {"name": "city", "type": "str"},
-                    {"name": "avg_repair_price", "type": "float"},
+                    {
+                        "name": "city",
+                        "type": "str",
+                        "semantic_entity": "default.hard_hat.city",
+                        "semantic_type": "dimension",
+                    },
+                    {
+                        "name": "avg_repair_price",
+                        "type": "float",
+                        "semantic_type": "metric",
+                        "semantic_name": "default.avg_repair_price",
+                    },
                 ],
                 "rows": [
                     ("Foo", 1.0),
