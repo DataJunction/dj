@@ -360,7 +360,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         expected_df = pandas.DataFrame.from_dict(
             {
                 "default.hard_hat.city": ["Foo", "Bar"],
-                "default.avg_repair_price": [1.0, 2.0],
+                "avg_repair_price": [1.0, 2.0],
             },
         )
 
