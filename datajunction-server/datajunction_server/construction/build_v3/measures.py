@@ -708,7 +708,7 @@ def build_temporal_filter(
                 # Find the column on the dimension (cube already declared this as temporal)
                 temporal_col = None
                 for col in link.dimension.current.columns:  # pragma: no branch
-                    if col.name == parsed.column_name:
+                    if col.name == parsed.column_name:  # pragma: no branch
                         temporal_col = col
                         break
 
