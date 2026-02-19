@@ -267,7 +267,9 @@ async def list_tools() -> list[types.Tool]:
                 "Query metrics and generate a text-based ASCII chart visualization. "
                 "Fetches data for the specified metrics and dimensions, then creates a terminal-friendly chart using plotext. "
                 "Perfect for CLI environments - renders directly in the terminal. "
-                "Supports line charts, bar charts, and scatter plots."
+                "Supports line charts, bar charts, and scatter plots. "
+                "IMPORTANT: This tool REQUIRES a materialized cube and will refuse to run expensive ad-hoc queries. "
+                "Automatically switches to bar charts for categorical x-axis data."
             ),
             inputSchema={
                 "type": "object",
@@ -290,7 +292,13 @@ async def list_tools() -> list[types.Tool]:
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: Columns to order by (e.g., ['date ASC'])",
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "CRITICAL: Must use complete node names, NOT short column names. "
+                            "For metrics: 'default.revenue DESC' or 'finance.daily_revenue ASC'. "
+                            "For dimensions: 'core.date DESC' or 'core.region ASC'. "
+                            "Examples: ['default.revenue DESC'], ['core.date ASC', 'default.revenue DESC']"
+                        ),
                     },
                     "limit": {
                         "type": "integer",
