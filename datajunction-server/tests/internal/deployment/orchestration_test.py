@@ -5,6 +5,18 @@ Unit tests for DeploymentOrchestrator
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
+from datajunction_server.internal.deployment.orchestrator import (
+    DeploymentOrchestrator,
+)
+from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.internal.deployment.validation import (
+    CubeValidationData,
+)
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.column import Column
+from datajunction_server.models.partition import Granularity
+
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
@@ -727,3 +739,161 @@ class TestCubeDeployment:
         assert len(revisions) == 0
         assert len(results) == 1
         assert results[0].status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_cube_column_partition_applied_from_spec(
+        self,
+        session,
+        current_user,
+    ):
+        """Test that partitions from cube spec columns are applied during deployment"""
+        # Create a cube spec with column partition
+        cube_spec = CubeSpec(
+            name="test.sales_cube",
+            node_type="cube",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            namespace="test",
+            columns=[
+                ColumnSpec(
+                    name="test.date.dateint",
+                    display_name="Date",
+                    attributes=["primary_key"],
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+
+        # Create actual catalog in the database
+        catalog = Catalog(name="test_catalog")
+        session.add(catalog)
+
+        # Create actual date dimension node
+        date_node = Node(
+            name="test.date",
+            type="dimension",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(date_node)
+
+        date_revision = NodeRevision(
+            name="test.date",
+            display_name="Date",
+            type="dimension",
+            node=date_node,
+            version="v1.0",
+            query="SELECT dateint FROM dates",
+            created_by_id=current_user.id,
+        )
+        session.add(date_revision)
+
+        # Create actual revenue metric node
+        revenue_node = Node(
+            name="test.revenue",
+            type="metric",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(revenue_node)
+
+        revenue_revision = NodeRevision(
+            name="test.revenue",
+            display_name="Revenue",
+            type="metric",
+            node=revenue_node,
+            version="v1.0",
+            query="SELECT SUM(amount) FROM sales",
+            created_by_id=current_user.id,
+        )
+        session.add(revenue_revision)
+
+        await session.commit()
+
+        # Create columns on the node revisions
+        date_column = Column(
+            name="dateint",
+            type="int",
+            node_revision_id=date_revision.id,
+            node_revision=date_revision,
+            attributes=[],  # Empty attributes list
+        )
+        session.add(date_column)
+
+        revenue_column = Column(
+            name="revenue",
+            type="bigint",
+            node_revision_id=revenue_revision.id,
+            node_revision=revenue_revision,
+            attributes=[],  # Empty attributes list
+        )
+        session.add(revenue_column)
+        await session.commit()
+
+        # Refresh to load relationships
+        await session.refresh(date_column, ["node_revision", "attributes"])
+        await session.refresh(revenue_column, ["node_revision", "attributes"])
+
+        # Create validation data
+        validation_data = CubeValidationData(
+            metric_columns=[revenue_column],
+            dimension_columns=[date_column],
+            metric_nodes=[revenue_node],
+            dimension_nodes=[date_node],
+            catalog=catalog,
+        )
+
+        # Create new cube node
+        new_node = Node(
+            name="test.sales_cube",
+            type="cube",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(new_node)
+        await session.commit()
+
+        # Create orchestrator
+        context = DeploymentContext(
+            current_user=current_user,
+            request=Mock(),
+            query_service_client=Mock(),
+            background_tasks=Mock(),
+            cache=Mock(),
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_id="test-deployment",
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            session=session,
+            context=context,
+        )
+
+        # Call the method that creates the node revision
+        node_revision = (
+            await orchestrator._create_cube_node_revision_from_validation_data(
+                cube_spec=cube_spec,
+                validation_data=validation_data,
+                new_node=new_node,
+            )
+        )
+
+        session.add(node_revision)
+        await session.commit()
+
+        # Verify partition was applied
+        assert len(node_revision.columns) == 2  # revenue + date
+        date_cube_column = [
+            col for col in node_revision.columns if "dateint" in col.name
+        ][0]
+
+        # Check that partition was added to the session
+        # Note: We need to refresh to get the partition relationship
+        await session.refresh(date_cube_column, ["partition"])
+        assert date_cube_column.partition is not None
+        assert date_cube_column.partition.type_ == PartitionType.TEMPORAL
+        assert date_cube_column.partition.granularity == Granularity.DAY
+        assert date_cube_column.partition.format == "yyyyMMdd"
