@@ -863,17 +863,28 @@ async def visualize_metrics(
     Query metrics and generate a text-based terminal visualization
 
     Args:
-        metrics: List of metric node names to visualize
+        metrics: List of metric node names to visualize (e.g., ["default.revenue", "default.orders"])
         dimensions: Optional list of dimensions to group by (first used for x-axis)
-        filters: Optional list of SQL filter conditions
-        orderby: Optional list of columns to order by
+                   (e.g., ["default.customer.country", "default.date_dim.dateint"])
+        filters: Optional list of SQL filter conditions (e.g., ["country = 'US'", "revenue > 1000"])
+        orderby: Optional list of columns to order by. Must use FULL node names:
+                 - For metrics: "default.revenue" or "default.revenue DESC"
+                 - For dimensions: "default.customer.country" or "default.date_dim.dateint ASC"
+                 - NOT short names like "revenue" or "country"
         limit: Maximum number of data points (default: 100)
         chart_type: Type of chart - 'line', 'bar', or 'scatter' (default: 'line')
+                   Note: Automatically switches to 'bar' for categorical x-axis data
         title: Optional chart title
         y_min: Optional minimum value for y-axis (default: auto-scale). Set to 0 to start at zero.
 
     Returns:
         List containing TextContent with ASCII chart and metadata
+
+    Note:
+        This tool requires a materialized cube for performance. It will check if
+        materialized tables are available before executing the query. If no
+        materialized cube exists for the requested metrics/dimensions, it will
+        return an error instead of running an expensive ad-hoc query.
     """
     try:
         # Import plotext here to avoid requiring it for other tools
