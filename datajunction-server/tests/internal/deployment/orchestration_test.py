@@ -12,7 +12,8 @@ from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.deployment.validation import (
     CubeValidationData,
 )
-from datajunction_server.database.node import Node
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.column import Column
 from datajunction_server.models.partition import Granularity
 
@@ -768,9 +769,6 @@ class TestCubeDeployment:
         )
 
         # Create actual catalog in the database
-        from datajunction_server.database.catalog import Catalog
-        from datajunction_server.database.node import NodeRevision
-
         catalog = Catalog(name="test_catalog")
         session.add(catalog)
 
