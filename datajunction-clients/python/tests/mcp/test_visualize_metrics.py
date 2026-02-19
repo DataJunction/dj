@@ -1446,3 +1446,46 @@ async def test_visualize_metrics_mixed_valid_invalid_dates(mock_plotext):
         assert len(result) == 1
         # Should format x-axis with mix of dates and fallback strings
         assert mock_plotext.xticks.called
+
+
+@pytest.mark.asyncio
+async def test_visualize_metrics_no_materialized_cube(mock_plotext):
+    """Test visualize_metrics when no materialized cube is available"""
+    # Mock SQL response without materialization indicators
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM raw_table",  # No "preagg", "materialized", "_cube_", or "druid"
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        # Only return SQL response, no data response since it should fail early
+        mock_http_client.get.return_value = mock_sql_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.visualize_metrics(
+            metrics=["test.metric"],
+            dimensions=["test.dimension"],
+        )
+
+        # Should return error about no materialized cube
+        assert len(result) == 1
+        assert "No materialized cube available" in result[0].text
+        assert "Visualization requires a materialized cube" in result[0].text
+        assert "test.metric" in result[0].text
