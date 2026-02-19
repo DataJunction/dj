@@ -598,6 +598,7 @@ dependencies = [
 [package.optional-dependencies]
 mcp = [
     { name = "mcp" },
+    { name = "plotext" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
@@ -635,6 +636,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0.2" },
+    { name = "plotext", marker = "extra == 'mcp'", specifier = ">=5.2.8" },
     { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2.0" },
     { name = "pydantic-settings", marker = "extra == 'mcp'", specifier = ">=2.10.1" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
@@ -2030,6 +2032,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cf/86/0248f086a84f01b37aaec0fa567b397df1a119f73c16f6c7a9aac73ea309/platformdirs-4.5.1.tar.gz", hash = "sha256:61d5cdcc6065745cdd94f0f878977f8de9437be93de97c1c12f853c9c0cdcbda", size = 21715, upload-time = "2025-12-05T13:52:58.638Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/28/3bfe2fa5a7b9c46fe7e13c97bda14c895fb10fa2ebf1d0abb90e0cea7ee1/platformdirs-4.5.1-py3-none-any.whl", hash = "sha256:d03afa3963c806a9bed9d5125c8f4cb2fdaf74a55ab60e5d59b3fde758104d31", size = 18731, upload-time = "2025-12-05T13:52:56.823Z" },
+]
+
+[[package]]
+name = "plotext"
+version = "5.3.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/d7/f75f397af966fe252d0d34ffd3cae765317fce2134f925f95e7d6725d1ce/plotext-5.3.2.tar.gz", hash = "sha256:52d1e932e67c177bf357a3f0fe6ce14d1a96f7f7d5679d7b455b929df517068e", size = 61967, upload-time = "2024-09-24T15:13:37.728Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f6/1e/12fe7c40cd2099a1f454518754ed229b01beaf3bbb343127f0cc13ce6c22/plotext-5.3.2-py3-none-any.whl", hash = "sha256:394362349c1ddbf319548cfac17ca65e6d5dfc03200c40dfdc0503b3e95a2283", size = 64047, upload-time = "2024-09-24T15:13:36.296Z" },
 ]
 
 [[package]]
