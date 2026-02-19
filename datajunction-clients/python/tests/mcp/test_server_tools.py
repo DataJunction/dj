@@ -166,7 +166,6 @@ async def test_call_tool_get_metric_data():
                 "filters": ["region = 'US'"],
                 "orderby": ["date"],
                 "limit": 50,
-                "use_materialized": False,
             },
         )
 
@@ -178,7 +177,6 @@ async def test_call_tool_get_metric_data():
             filters=["region = 'US'"],
             orderby=["date"],
             limit=50,
-            use_materialized=False,
         )
 
 
@@ -197,7 +195,6 @@ async def test_call_tool_get_metric_data_minimal():
             filters=None,
             orderby=None,
             limit=None,
-            use_materialized=True,  # default
         )
 
 
