@@ -991,6 +991,10 @@ async def visualize_metrics(
                 x_dates.append(None)
                 logger.warning(f"Could not parse date: {x}")
 
+        # Detect data type and handle accordingly
+        x_labels: List[str] = []
+        is_categorical = False
+
         # Convert dates to day offsets from first date
         if x_dates and any(d is not None for d in x_dates):
             first_date: datetime = next(d for d in x_dates if d is not None)  # type: ignore[assignment]
@@ -998,12 +1002,38 @@ async def visualize_metrics(
                 if date_obj is not None:
                     days_offset = (date_obj - first_date).days
                     x_numeric.append(days_offset)
+                    x_labels.append(date_obj.strftime("%Y-%m-%d"))
                 else:
                     # Fallback to index if no date
                     x_numeric.append(float(i))
+                    x_labels.append(str(x_values[i]))
         else:
-            # No valid dates, use indices
-            x_numeric = list(range(len(x_values)))
+            # No valid dates - check if numeric or categorical
+            numeric_conversion_failed = False
+            temp_numeric = []
+            for i, x in enumerate(x_values):
+                try:
+                    temp_numeric.append(float(x))
+                except (ValueError, TypeError):
+                    # Not numeric - this is categorical data
+                    numeric_conversion_failed = True
+                    break
+
+            if numeric_conversion_failed:
+                # Categorical data - use indices and create labels
+                is_categorical = True
+                x_numeric = list(range(len(x_values)))
+                # Truncate long category names to 15 chars
+                x_labels = [str(x)[:15] + ("..." if len(str(x)) > 15 else "") for x in x_values]
+
+                # Auto-switch to bar chart for categorical data
+                if chart_type == "line":
+                    chart_type = "bar"
+                    logger.info("Auto-switched to bar chart for categorical x-axis data")
+            else:
+                # Numeric data
+                x_numeric = temp_numeric
+                x_labels = [str(x) for x in x_values]
 
         logger.info(f"Parsed {len([d for d in x_dates if d])} dates")
         logger.info(f"X numeric values (first 5): {x_numeric[:5]}")
@@ -1073,8 +1103,12 @@ async def visualize_metrics(
         if y_min is not None:
             plt.ylim(y_min, None)  # Set min, let max auto-scale
 
-        # Set custom x-axis labels - show every Nth value to avoid crowding
-        if len(x_numeric) > 10 and x_dates and any(d is not None for d in x_dates):
+        # Set custom x-axis labels
+        if is_categorical:
+            # For categorical data, show all labels (already truncated)
+            plt.xticks(x_numeric, x_labels)
+        elif len(x_numeric) > 10 and x_dates and any(d is not None for d in x_dates):
+            # For dates, show every Nth value to avoid crowding
             label_frequency = max(1, len(x_numeric) // 10)  # Show ~10 labels
             x_tick_positions = [
                 x_numeric[i] for i in range(0, len(x_numeric), label_frequency)
