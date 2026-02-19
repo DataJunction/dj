@@ -48,7 +48,6 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -303,7 +302,7 @@ def build_dimension_projection(
     dim_info: list[tuple[str, str]],
     cte_aliases: list[str],
     dim_types: dict[str, str],
-) -> tuple[list[Any], list[V3ColumnMetadata]]:
+) -> tuple[list[Any], list[ColumnMetadata]]:
     """
     Build COALESCE projection for dimensions across grain groups.
 
@@ -311,7 +310,7 @@ def build_dimension_projection(
     COALESCE(gg0.dim, gg1.dim, ...) AS dim expressions.
     """
     projection: list[Any] = []
-    columns_metadata: list[V3ColumnMetadata] = []
+    columns_metadata: list[ColumnMetadata] = []
 
     for original_dim_ref, dim_col in dim_info:
         # Build column reference(s) for this dimension
@@ -333,7 +332,7 @@ def build_dimension_projection(
         col_type = dim_types.get(original_dim_ref, "string")
 
         columns_metadata.append(
-            V3ColumnMetadata(
+            ColumnMetadata(
                 name=dim_col,
                 semantic_name=original_dim_ref,  # Preserve original dimension reference
                 type=col_type,
@@ -597,7 +596,7 @@ def rebuild_projection_for_window_metrics(
     dim_info: list[tuple[str, str]],
     dim_types: dict[str, str],
     window_metrics_cte_alias: str,
-) -> tuple[list[Any], list[V3ColumnMetadata]]:
+) -> tuple[list[Any], list[ColumnMetadata]]:
     """
     Rebuild dimension projection to reference base_metrics CTE directly.
 
@@ -614,7 +613,7 @@ def rebuild_projection_for_window_metrics(
         Tuple of (projection, columns_metadata)
     """
     projection: list[Any] = []
-    columns_metadata: list[V3ColumnMetadata] = []
+    columns_metadata: list[ColumnMetadata] = []
 
     for original_dim_ref, dim_col in dim_info:
         col_ref = make_column_ref(dim_col, window_metrics_cte_alias)
@@ -624,7 +623,7 @@ def rebuild_projection_for_window_metrics(
 
         col_type = dim_types.get(original_dim_ref, "string")
         columns_metadata.append(
-            V3ColumnMetadata(
+            ColumnMetadata(
                 name=dim_col,
                 semantic_name=original_dim_ref,
                 type=col_type,
@@ -704,7 +703,7 @@ def rebuild_projection_for_window_metrics(
 def build_metric_projection(
     ctx: BuildContext,
     metric_expr_asts: dict[str, MetricExprInfo],
-) -> tuple[list[Any], list[V3ColumnMetadata]]:
+) -> tuple[list[Any], list[ColumnMetadata]]:
     """
     Build metric projection items in requested order.
 
@@ -716,7 +715,7 @@ def build_metric_projection(
         Tuple of (projection_items, columns_metadata) for metrics
     """
     projection_items: list[Any] = []
-    columns_metadata: list[V3ColumnMetadata] = []
+    columns_metadata: list[ColumnMetadata] = []
 
     for metric_name in ctx.metrics:
         if metric_name not in metric_expr_asts:  # pragma: no cover
@@ -731,7 +730,7 @@ def build_metric_projection(
         metric_node = ctx.nodes[metric_name]
         metric_type = str(metric_node.current.columns[0].type)
         columns_metadata.append(
-            V3ColumnMetadata(
+            ColumnMetadata(
                 name=info.short_name,
                 semantic_name=metric_name,
                 type=metric_type,

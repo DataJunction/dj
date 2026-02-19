@@ -13,7 +13,6 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import MetricComponent, Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -277,7 +276,7 @@ class GeneratedSQL:
     """
 
     query: ast.Query  # AST object - only convert to string at API boundary
-    columns: list[V3ColumnMetadata]
+    columns: list[ColumnMetadata]
     dialect: Dialect
 
     # If a cube was used to generate this SQL, contains the cube name
