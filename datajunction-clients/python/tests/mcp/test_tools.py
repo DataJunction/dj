@@ -633,6 +633,17 @@ async def test_build_metric_sql_generic_error():
 @pytest.mark.asyncio
 async def test_get_metric_data_success():
     """Test getting metric data"""
+    # Mock SQL response for materialization check
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_response_json = {
         "id": "query_123",
         "state": "FINISHED",
@@ -662,7 +673,7 @@ async def test_get_metric_data_success():
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.get_metric_data(
@@ -682,6 +693,17 @@ async def test_get_metric_data_success():
 @pytest.mark.asyncio
 async def test_get_metric_data_many_rows():
     """Test getting metric data with more than 10 rows (shows truncation)"""
+    # Mock SQL response for materialization check
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_results = [
         {"date": f"2024-01-{i:02d}", "revenue": i * 1000} for i in range(1, 21)
     ]
@@ -710,7 +732,7 @@ async def test_get_metric_data_many_rows():
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.get_metric_data(metrics=["finance.revenue"])
@@ -722,6 +744,17 @@ async def test_get_metric_data_many_rows():
 @pytest.mark.asyncio
 async def test_get_metric_data_no_results():
     """Test getting metric data with no results"""
+    # Mock SQL response for materialization check
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_response_json = {
         "id": "query_789",
         "state": "FINISHED",
@@ -747,7 +780,7 @@ async def test_get_metric_data_no_results():
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.get_metric_data(metrics=["finance.revenue"])
@@ -758,6 +791,17 @@ async def test_get_metric_data_no_results():
 @pytest.mark.asyncio
 async def test_get_metric_data_with_errors():
     """Test getting metric data with errors in response"""
+    # Mock SQL response for materialization check
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_response_json = {
         "id": "query_error",
         "state": "FAILED",
@@ -784,7 +828,7 @@ async def test_get_metric_data_with_errors():
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.get_metric_data(metrics=["finance.revenue"])
@@ -1102,6 +1146,17 @@ async def test_build_metric_sql_with_error_response():
 @pytest.mark.asyncio
 async def test_get_metric_data_query_failed():
     """Test get_metric_data when query execution fails"""
+    # Mock SQL response for materialization check
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response with FAILED state
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
@@ -1122,7 +1177,7 @@ async def test_get_metric_data_query_failed():
         )
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.get.side_effect = [mock_sql_response, mock_response]
         mock_client_class.return_value.__aenter__.return_value = mock_client
 
         result = await tools.get_metric_data(metrics=["test.metric"])
@@ -1938,3 +1993,45 @@ async def test_get_node_dimensions_without_type_but_with_path():
         assert "orders → location → region" in result
         # Should not have type in parentheses
         assert "region (" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_metric_data_no_materialized_cube():
+    """Test get_metric_data when no materialized cube is available"""
+    # Mock SQL response without materialization indicators
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM raw_table",  # No "preagg", "materialized", "_cube_", or "druid"
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        # Only return SQL response, no data response since it should fail early
+        mock_http_client.get.return_value = mock_sql_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_metric_data(
+            metrics=["test.metric"],
+            dimensions=["test.dimension"],
+        )
+
+        # Should return error about no materialized cube
+        assert "No materialized cube available" in result
+        assert "expensive ad-hoc computation" in result
+        assert "test.metric" in result
