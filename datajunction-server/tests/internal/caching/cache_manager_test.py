@@ -183,3 +183,88 @@ async def test_background_refresh_updates_cache():
     # After refresh, the cache should be updated with fresh value
     stored = cache.get(key)
     assert stored["fresh"] is True
+
+
+class FailingCache:
+    """Mock cache that always raises exceptions."""
+
+    def get(self, key):
+        raise Exception("Cache backend unavailable")
+
+    def set(self, key, value, timeout=300):
+        raise Exception("Cache backend unavailable")
+
+    def delete(self, key):
+        raise Exception("Cache backend unavailable")
+
+
+@pytest.mark.asyncio
+async def test_get_or_load_handles_cache_get_failure():
+    """
+    When cache.get() fails, should fall back to computing fresh value
+    instead of propagating the exception.
+    """
+    cache = FailingCache()
+    cm = ExampleCacheManager(cache)
+    params = {"test": "value"}
+    request = DummyRequest()
+    background = BackgroundTasks()
+
+    # Should not raise exception, should compute fresh value
+    result = await cm.get_or_load(background, request, params)
+
+    assert result["fresh"] is True
+    assert result["params"] == params
+
+
+@pytest.mark.asyncio
+async def test_set_cache_with_error_handling():
+    """
+    When cache.set() fails in background task, should log error
+    but not raise exception that would crash the background task.
+    """
+    cache = FailingCache()
+    cm = ExampleCacheManager(cache)
+
+    # Should not raise exception
+    cm._set_cache_with_error_handling("test_key", {"data": "value"}, 300)
+
+
+@pytest.mark.asyncio
+async def test_refresh_cache_handles_set_failure():
+    """
+    When cache.set() fails during refresh, should log error
+    but not raise exception.
+    """
+    cache = FailingCache()
+    cm = ExampleCacheManager(cache)
+    request = DummyRequest()
+    params = {"test": "refresh"}
+
+    # Should not raise exception
+    await cm._refresh_cache("test_key", request, params)
+
+
+@pytest.mark.asyncio
+async def test_cache_failure_still_stores_in_background():
+    """
+    When cache get fails but fallback succeeds, should still attempt
+    to store result in background (even if that fails too).
+    """
+    cache = FailingCache()
+    cm = ExampleCacheManager(cache)
+    params = {"test": "store"}
+    request = DummyRequest()
+    background = BackgroundTasks()
+
+    result = await cm.get_or_load(background, request, params)
+
+    # Should have computed fresh value
+    assert result["fresh"] is True
+
+    # Background task should be added (for attempting to set cache)
+    assert len(background.tasks) == 1
+
+    # Running background task should not raise exception
+    for task in background.tasks:
+        await task()

@@ -86,6 +86,9 @@ class RefreshAheadCacheManager(CacheManager):
         Respects Cache-Control headers:
           - no-cache: does not use cache when present, always computes fresh value
           - no-store: skips storing fresh values into the cache
+
+        Cache operations are wrapped in try-except to gracefully handle cache backend failures
+        and ensure the request continues by computing the value via fallback.
         """
         cache_control = request.headers.get("Cache-Control", "").lower()
         no_store = "no-store" in cache_control
@@ -93,15 +96,28 @@ class RefreshAheadCacheManager(CacheManager):
 
         key: str = await self.build_cache_key(request, params)
         if not no_cache:
-            if cached := self.cache.get(key):
-                if not no_store:
-                    background_tasks.add_task(self._refresh_cache, key, request, params)
-                return cached
-            self.logger.info(
-                "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
-                key,
-                params,
-            )
+            try:
+                if cached := self.cache.get(key):
+                    if not no_store:
+                        background_tasks.add_task(
+                            self._refresh_cache,
+                            key,
+                            request,
+                            params,
+                        )
+                    return cached
+                self.logger.info(
+                    "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
+                    key,
+                    params,
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Cache backend error when getting key=%s: %s. Falling back to computing fresh value.",
+                    key,
+                    str(e),
+                    exc_info=True,
+                )
         else:
             self.logger.info(
                 "no-cache header present for request with parameters=%s, computing fresh value.",
@@ -112,13 +128,34 @@ class RefreshAheadCacheManager(CacheManager):
 
         if not no_store:
             background_tasks.add_task(
-                self.cache.set,
+                self._set_cache_with_error_handling,
                 key,
                 result,
-                timeout=self.default_timeout,
+                self.default_timeout,
             )
 
         return result
+
+    def _set_cache_with_error_handling(
+        self,
+        key: str,
+        value: ResultType,
+        timeout: int,
+    ) -> None:
+        """
+        Wrapper to set cache value with error handling to prevent cache write
+        failures from affecting the request.
+        """
+        try:
+            self.cache.set(key, value, timeout=timeout)
+            self.logger.info("Successfully cached value for key=%s", key)
+        except Exception as e:
+            self.logger.error(
+                "Cache backend error when setting key=%s: %s. Continuing without caching.",
+                key,
+                str(e),
+                exc_info=True,
+            )
 
     async def _refresh_cache(
         self,
@@ -128,8 +165,17 @@ class RefreshAheadCacheManager(CacheManager):
     ) -> None:
         """
         Async cache refresher that re-runs fallback and updates the cache.
+        Gracefully handles cache backend failures to prevent background task errors.
         """
-        self.logger.info("Refreshing cache for key=%s", key)
-        result = await self.fallback(request, params)
-        self.cache.set(key, result, timeout=self.default_timeout)
-        self.logger.info("Successfully refreshed cache for key=%s", key)
+        try:
+            self.logger.info("Refreshing cache for key=%s", key)
+            result = await self.fallback(request, params)
+            self.cache.set(key, result, timeout=self.default_timeout)
+            self.logger.info("Successfully refreshed cache for key=%s", key)
+        except Exception as e:
+            self.logger.error(
+                "Error refreshing cache for key=%s: %s",
+                key,
+                str(e),
+                exc_info=True,
+            )
