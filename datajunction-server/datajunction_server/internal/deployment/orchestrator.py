@@ -1241,6 +1241,12 @@ class DeploymentOrchestrator:
             cube_spec.rendered_dimensions or [],
         )
 
+        # Build a mapping from column name to column spec for partition lookups
+        column_spec_map = {}
+        if cube_spec.columns:
+            for col_spec in cube_spec.rendered_columns:
+                column_spec_map[col_spec.name] = col_spec
+
         for idx, col in enumerate(
             validation_data.metric_columns + validation_data.dimension_columns,
         ):
@@ -1267,6 +1273,19 @@ class DeploymentOrchestrator:
                 node_column.dimension_column = dimension_to_roles_mapping[
                     full_element_name
                 ]
+
+            # Apply partition from column spec if specified
+            if full_element_name in column_spec_map:
+                col_spec = column_spec_map[full_element_name]
+                if col_spec.partition:  # pragma: no branch
+                    partition = Partition(
+                        column=node_column,
+                        type_=col_spec.partition.type,
+                        granularity=col_spec.partition.granularity,
+                        format=col_spec.partition.format,
+                    )
+                    self.session.add(partition)
+
             node_columns.append(node_column)
 
         node_revision = NodeRevision(
