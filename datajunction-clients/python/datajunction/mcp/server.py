@@ -153,7 +153,10 @@ async def list_tools() -> list[types.Tool]:
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: Columns to order by (e.g., ['date DESC', 'revenue DESC'])",
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "Must use complete node names: 'default.revenue DESC', 'core.date ASC', etc."
+                        ),
                     },
                     "limit": {
                         "type": "integer",
@@ -177,7 +180,10 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Execute a query and get actual data for metrics with specified dimensions and filters. "
                 "Returns query results with data rows. Recommend setting a limit to avoid large result sets. "
-                "Use this when you want to see actual data values, not just the SQL."
+                "Use this when you want to see actual data values, not just the SQL. "
+                "IMPORTANT: By default (use_materialized=True), this tool checks for materialized cubes first "
+                "and REFUSES to run expensive ad-hoc queries. Only queries with materialized cubes will execute. "
+                "Set use_materialized=False to override (not recommended)."
             ),
             inputSchema={
                 "type": "object",
@@ -200,7 +206,10 @@ async def list_tools() -> list[types.Tool]:
                     "orderby": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional: Columns to order by (e.g., ['date DESC', 'revenue DESC'])",
+                        "description": (
+                            "Optional: Columns to order by using FULL node names. "
+                            "Must use complete node names: 'default.revenue DESC', 'core.date ASC', etc."
+                        ),
                     },
                     "limit": {
                         "type": "integer",
