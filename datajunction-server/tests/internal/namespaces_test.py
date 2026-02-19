@@ -182,3 +182,122 @@ columns:
 
         # Should preserve the original attribute order since the set is unchanged
         assert result["columns"][0]["attributes"] == ["primary_key", "dimension"]
+
+    def test_merge_yaml_preserves_cube_metrics_dimensions_order(self):
+        """Test that cube metrics and dimensions order is preserved from existing YAML"""
+        yaml = YAML()
+
+        # Create existing cube YAML with specific order
+        existing_yaml = """
+node_type: cube
+name: my_cube
+description: A cube
+metrics:
+  - metric_z
+  - metric_a
+  - metric_m
+dimensions:
+  - dim_y
+  - dim_b
+  - dim_x
+"""
+        existing = yaml.load(existing_yaml)
+
+        # Create new YAML with same items but different order (simulating DB order)
+        new_yaml = """
+node_type: cube
+name: my_cube
+description: A cube updated
+metrics:
+  - metric_a
+  - metric_m
+  - metric_z
+dimensions:
+  - dim_b
+  - dim_x
+  - dim_y
+"""
+        new_data = yaml.load(new_yaml)
+
+        # Merge the YAML structures
+        result = _merge_yaml_preserving_comments(existing, new_data, yaml)
+
+        # Should preserve the original order from existing YAML
+        assert result["metrics"] == ["metric_z", "metric_a", "metric_m"]
+        assert result["dimensions"] == ["dim_y", "dim_b", "dim_x"]
+        # Description should be updated though
+        assert result["description"] == "A cube updated"
+
+    def test_merge_yaml_cube_adds_new_metrics_at_end(self):
+        """Test that new metrics/dimensions are added at the end when preserving order"""
+        yaml = YAML()
+
+        # Create existing cube YAML
+        existing_yaml = """
+node_type: cube
+name: my_cube
+metrics:
+  - metric_a
+  - metric_b
+dimensions:
+  - dim_x
+"""
+        existing = yaml.load(existing_yaml)
+
+        # Create new YAML with additional items
+        new_yaml = """
+node_type: cube
+name: my_cube
+metrics:
+  - metric_a
+  - metric_b
+  - metric_c
+dimensions:
+  - dim_x
+  - dim_y
+"""
+        new_data = yaml.load(new_yaml)
+
+        # Merge the YAML structures
+        result = _merge_yaml_preserving_comments(existing, new_data, yaml)
+
+        # Should preserve existing order and add new items at end
+        assert result["metrics"] == ["metric_a", "metric_b", "metric_c"]
+        assert result["dimensions"] == ["dim_x", "dim_y"]
+
+    def test_merge_yaml_cube_removes_deleted_metrics(self):
+        """Test that removed metrics/dimensions are not included in result"""
+        yaml = YAML()
+
+        # Create existing cube YAML
+        existing_yaml = """
+node_type: cube
+name: my_cube
+metrics:
+  - metric_a
+  - metric_b
+  - metric_c
+dimensions:
+  - dim_x
+  - dim_y
+"""
+        existing = yaml.load(existing_yaml)
+
+        # Create new YAML with some items removed
+        new_yaml = """
+node_type: cube
+name: my_cube
+metrics:
+  - metric_a
+  - metric_c
+dimensions:
+  - dim_x
+"""
+        new_data = yaml.load(new_yaml)
+
+        # Merge the YAML structures
+        result = _merge_yaml_preserving_comments(existing, new_data, yaml)
+
+        # Should only include items that are in new data, in original order
+        assert result["metrics"] == ["metric_a", "metric_c"]
+        assert result["dimensions"] == ["dim_x"]

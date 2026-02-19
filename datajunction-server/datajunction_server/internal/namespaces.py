@@ -1210,6 +1210,15 @@ def _merge_yaml_preserving_comments(existing, new_data, yaml_handler):
                     else:  # pragma: no cover
                         # Fallback: replace entirely
                         result[key] = new_value  # pragma: no cover
+                elif key in ("metrics", "dimensions"):
+                    # For cube metrics/dimensions, preserve order from existing YAML
+                    # Only include items that are in the new list (in case some were removed)
+                    new_value_set = set(new_value)
+                    preserved_order = [v for v in old_value if v in new_value_set]
+                    # Add any new items that weren't in the old list
+                    result[key] = preserved_order + [
+                        v for v in new_value if v not in preserved_order
+                    ]
                 else:  # pragma: no cover
                     # Other lists: replace entirely
                     result[key] = new_value  # pragma: no cover
