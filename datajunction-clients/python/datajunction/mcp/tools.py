@@ -886,24 +886,59 @@ async def visualize_metrics(
         client = get_client()
         await client._ensure_token()
 
-        # Build query parameters for /data/ endpoint
+        # Build query parameters
         params = {
             "metrics": metrics,
             "dimensions": dimensions or [],
             "filters": filters or [],
             "orderby": orderby or [],
-            "use_materialized": True,
-            "async_": False,
             "limit": limit,
         }
 
-        # Call /data/ endpoint to get results
         async with httpx.AsyncClient(
             timeout=client.settings.request_timeout,
         ) as http_client:
+            # STEP 1: Call /sql/metrics/v3 to generate SQL WITHOUT executing
+            logger.info("Checking for materialized cube availability...")
+            sql_response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3",
+                params=params,
+                headers=client._get_headers(),
+            )
+            sql_response.raise_for_status()
+            sql_result = sql_response.json()
+
+            # Check if materialized tables are used
+            generated_sql = sql_result.get("sql", "")
+            is_materialized = any(
+                indicator in generated_sql.lower()
+                for indicator in ["preagg", "materialized", "_cube_", "druid"]
+            )
+
+            if not is_materialized:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=format_error(
+                            "⚠️  No materialized cube available for this query.\n\n"
+                            "Visualization requires a materialized cube for performance.\n"
+                            "Please ensure:\n"
+                            "  • A cube exists for these metrics\n"
+                            "  • The cube has been materialized\n"
+                            "  • The query matches the cube's grain\n\n"
+                            f"Attempted query:\n  Metrics: {', '.join(metrics)}\n"
+                            f"  Dimensions: {', '.join(dimensions or ['none'])}"
+                        ),
+                    ),
+                ]
+
+            logger.info("✓ Materialized cube found, executing query...")
+
+            # STEP 2: Now safe to execute - call /data/ endpoint
+            data_params = {**params, "use_materialized": True, "async_": False}
             response = await http_client.get(
                 f"{client.settings.dj_api_url.rstrip('/')}/data/",
-                params=params,
+                params=data_params,
                 headers=client._get_headers(),
             )
             response.raise_for_status()
