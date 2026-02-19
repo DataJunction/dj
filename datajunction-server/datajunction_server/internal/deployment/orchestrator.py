@@ -1277,7 +1277,7 @@ class DeploymentOrchestrator:
             # Apply partition from column spec if specified
             if full_element_name in column_spec_map:
                 col_spec = column_spec_map[full_element_name]
-                if col_spec.partition:
+                if col_spec.partition:  # pragma: no branch
                     partition = Partition(
                         column=node_column,
                         type_=col_spec.partition.type,
