@@ -592,10 +592,12 @@ async def get_metric_data(
     filters: Optional[List[str]] = None,
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
-    use_materialized: bool = True,
 ) -> str:
     """
-    Execute a query to get actual data for metrics with dimensions and filters
+    Execute a query to get actual data for metrics with dimensions and filters.
+
+    IMPORTANT: This function ONLY works with materialized cubes and will refuse
+    to execute expensive ad-hoc queries.
 
     Args:
         metrics: List of metric node names to query
@@ -603,7 +605,6 @@ async def get_metric_data(
         filters: Optional list of SQL filter conditions
         orderby: Optional list of columns to order by
         limit: Optional row limit (recommended to set a reasonable limit)
-        use_materialized: Whether to use materialized tables when available (default: True)
 
     Returns:
         Formatted data results with rows
@@ -625,41 +626,39 @@ async def get_metric_data(
         async with httpx.AsyncClient(
             timeout=client.settings.request_timeout,
         ) as http_client:
-            # STEP 1: Check for materialization first (if use_materialized is True)
-            if use_materialized:
-                logger.info("Checking for materialized cube availability...")
-                sql_response = await http_client.get(
-                    f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3",
-                    params=params,
-                    headers=client._get_headers(),
+            # STEP 1: Check for materialization first (ALWAYS)
+            logger.info("Checking for materialized cube availability...")
+            sql_response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/sql/metrics/v3",
+                params=params,
+                headers=client._get_headers(),
+            )
+            sql_response.raise_for_status()
+            sql_result = sql_response.json()
+
+            # Check if materialized tables are used
+            generated_sql = sql_result.get("sql", "")
+            is_materialized = any(
+                indicator in generated_sql.lower()
+                for indicator in ["preagg", "materialized", "_cube_", "druid"]
+            )
+
+            if not is_materialized:
+                return format_error(
+                    "⚠️  No materialized cube available for this query.\n\n"
+                    "This query would require an expensive ad-hoc computation.\n"
+                    "Please ensure:\n"
+                    "  • A cube exists for these metrics\n"
+                    "  • The cube has been materialized\n"
+                    "  • The query matches the cube's grain\n\n"
+                    f"Attempted query:\n  Metrics: {', '.join(metrics)}\n"
+                    f"  Dimensions: {', '.join(dimensions or ['none'])}"
                 )
-                sql_response.raise_for_status()
-                sql_result = sql_response.json()
 
-                # Check if materialized tables are used
-                generated_sql = sql_result.get("sql", "")
-                is_materialized = any(
-                    indicator in generated_sql.lower()
-                    for indicator in ["preagg", "materialized", "_cube_", "druid"]
-                )
+            logger.info("✓ Materialized cube found, executing query...")
 
-                if not is_materialized:
-                    return format_error(
-                        "⚠️  No materialized cube available for this query.\n\n"
-                        "This query would require an expensive ad-hoc computation.\n"
-                        "Please ensure:\n"
-                        "  • A cube exists for these metrics\n"
-                        "  • The cube has been materialized\n"
-                        "  • The query matches the cube's grain\n\n"
-                        f"Attempted query:\n  Metrics: {', '.join(metrics)}\n"
-                        f"  Dimensions: {', '.join(dimensions or ['none'])}\n\n"
-                        "To force execution anyway, set use_materialized=False (not recommended)"
-                    )
-
-                logger.info("✓ Materialized cube found, executing query...")
-
-            # STEP 2: Call /data/ endpoint via REST
-            data_params = {**params, "use_materialized": use_materialized, "async_": False}
+            # STEP 2: Call /data/ endpoint via REST (always with use_materialized=True)
+            data_params = {**params, "use_materialized": True, "async_": False}
             response = await http_client.get(
                 f"{client.settings.dj_api_url.rstrip('/')}/data/",
                 params=data_params,
