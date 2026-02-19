@@ -44,6 +44,17 @@ def mock_plotext():
 @pytest.mark.asyncio
 async def test_visualize_metrics_success(mock_plotext):
     """Test successful visualization with valid data"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM materialized_table",  # Contains "materialized"
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -80,7 +91,8 @@ async def test_visualize_metrics_success(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        # Return SQL response first, then data response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -99,6 +111,17 @@ async def test_visualize_metrics_success(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_with_y_min(mock_plotext):
     """Test visualization with custom y_min parameter"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -129,7 +152,8 @@ async def test_visualize_metrics_with_y_min(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        # Return SQL response first, then data response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -154,6 +178,17 @@ async def test_visualize_metrics_with_y_min(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_no_data(mock_plotext):
     """Test visualization when no data is returned"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {"results": []}
@@ -173,7 +208,7 @@ async def test_visualize_metrics_no_data(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -185,6 +220,17 @@ async def test_visualize_metrics_no_data(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_empty_rows(mock_plotext):
     """Test visualization when result has no rows"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -214,7 +260,7 @@ async def test_visualize_metrics_empty_rows(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -226,6 +272,17 @@ async def test_visualize_metrics_empty_rows(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_with_nulls(mock_plotext):
     """Test visualization handles null values correctly"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -260,7 +317,7 @@ async def test_visualize_metrics_with_nulls(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -281,6 +338,17 @@ async def test_visualize_metrics_with_nulls(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_bar_chart(mock_plotext):
     """Test bar chart visualization"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -311,7 +379,8 @@ async def test_visualize_metrics_bar_chart(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        # Return SQL response first, then data response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -335,6 +404,17 @@ async def test_visualize_metrics_bar_chart(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_scatter_chart(mock_plotext):
     """Test scatter plot visualization"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -365,7 +445,7 @@ async def test_visualize_metrics_scatter_chart(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -389,6 +469,17 @@ async def test_visualize_metrics_scatter_chart(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_http_error(mock_plotext):
     """Test visualization handles HTTP errors"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 500
     mock_data_response.text = "Internal Server Error"
@@ -412,7 +503,7 @@ async def test_visualize_metrics_http_error(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -478,6 +569,17 @@ async def test_visualize_metrics_plotext_not_installed(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_date_parsing(mock_plotext):
     """Test that dateint values are parsed correctly as dates"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -512,7 +614,7 @@ async def test_visualize_metrics_date_parsing(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -541,6 +643,17 @@ async def test_visualize_metrics_date_parsing(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_multiple_metrics(mock_plotext):
     """Test visualization with multiple metrics shows legend"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -575,7 +688,7 @@ async def test_visualize_metrics_multiple_metrics(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         mock_plotext.clear_figure = MagicMock()
@@ -601,6 +714,17 @@ async def test_visualize_metrics_multiple_metrics(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_numeric_dateint(mock_plotext):
     """Test visualization with numeric dateint values"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -634,7 +758,7 @@ async def test_visualize_metrics_numeric_dateint(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -646,6 +770,17 @@ async def test_visualize_metrics_numeric_dateint(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_invalid_dates(mock_plotext):
     """Test visualization with invalid date values"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -680,7 +815,7 @@ async def test_visualize_metrics_invalid_dates(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -693,6 +828,17 @@ async def test_visualize_metrics_invalid_dates(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_no_valid_dates(mock_plotext):
     """Test visualization when no valid dates can be parsed"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -727,7 +873,7 @@ async def test_visualize_metrics_no_valid_dates(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -740,6 +886,17 @@ async def test_visualize_metrics_no_valid_dates(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_non_numeric_values(mock_plotext):
     """Test visualization with non-numeric y values"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -774,7 +931,7 @@ async def test_visualize_metrics_non_numeric_values(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -787,6 +944,17 @@ async def test_visualize_metrics_non_numeric_values(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_all_invalid_data(mock_plotext):
     """Test visualization when all data is invalid"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -821,7 +989,7 @@ async def test_visualize_metrics_all_invalid_data(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(metrics=["demo.metric"])
@@ -834,6 +1002,17 @@ async def test_visualize_metrics_all_invalid_data(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_custom_title(mock_plotext):
     """Test visualization with custom title"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -864,7 +1043,7 @@ async def test_visualize_metrics_custom_title(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -880,6 +1059,17 @@ async def test_visualize_metrics_custom_title(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_x_value_is_none(mock_plotext):
     """Test when x-axis column exists but has None value (line 970)"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -914,7 +1104,7 @@ async def test_visualize_metrics_x_value_is_none(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -929,6 +1119,17 @@ async def test_visualize_metrics_x_value_is_none(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_string_numbers(mock_plotext):
     """Test with string numbers that can convert to float (line 1037)"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -963,14 +1164,18 @@ async def test_visualize_metrics_string_numbers(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        mock_plotext.bar = MagicMock()
+        mock_plotext.build.return_value = "Bar Chart"
 
         result = await tools.visualize_metrics(metrics=["demo.y"])
 
         assert len(result) == 1
         # Should successfully convert string numbers to floats
-        mock_plotext.plot.assert_called_once()
+        # Note: X-axis is categorical (A, B, C), so it auto-switches to bar chart
+        mock_plotext.bar.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -979,6 +1184,17 @@ async def test_visualize_metrics_many_valid_dates(mock_plotext):
     # Create 15 valid dates in YYYYMMDD format
     rows = [[f"202512{i:02d}", 100.0 + i] for i in range(15, 30)]
 
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -1009,7 +1225,7 @@ async def test_visualize_metrics_many_valid_dates(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -1031,6 +1247,17 @@ async def test_visualize_metrics_many_valid_dates(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_scatter_with_valid_data(mock_plotext):
     """Test scatter plot with valid data to ensure branch coverage (line 1060)"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -1067,7 +1294,7 @@ async def test_visualize_metrics_scatter_with_valid_data(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -1088,6 +1315,17 @@ async def test_visualize_metrics_scatter_with_valid_data(mock_plotext):
 @pytest.mark.asyncio
 async def test_visualize_metrics_scatter_multiple_metrics(mock_plotext):
     """Test scatter plot with multiple metrics to hit loop branch (1060->1021)"""
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",  # Contains "preagg" = materialized
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -1123,7 +1361,7 @@ async def test_visualize_metrics_scatter_multiple_metrics(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
@@ -1156,6 +1394,17 @@ async def test_visualize_metrics_mixed_valid_invalid_dates(mock_plotext):
         ["20251227", 112.0],
     ]
 
+    # Mock SQL response (for materialization check)
+    mock_sql_response = MagicMock()
+    mock_sql_response.status_code = 200
+    mock_sql_response.json.return_value = {
+        "sql": "SELECT * FROM preagg_cube",
+        "columns": [],
+        "dialect": "spark",
+    }
+    mock_sql_response.raise_for_status = MagicMock()
+
+    # Mock data response
     mock_data_response = MagicMock()
     mock_data_response.status_code = 200
     mock_data_response.json.return_value = {
@@ -1186,7 +1435,7 @@ async def test_visualize_metrics_mixed_valid_invalid_dates(mock_plotext):
         mock_get_client.return_value = mock_client
 
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = mock_data_response
+        mock_http_client.get.side_effect = [mock_sql_response, mock_data_response]
         mock_client_class.return_value.__aenter__.return_value = mock_http_client
 
         result = await tools.visualize_metrics(
