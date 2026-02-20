@@ -2404,6 +2404,105 @@ class TestDeployments:
         assert all(res["status"] == "skipped" for res in data["results"])
         assert all(res["operation"] == "noop" for res in data["results"])
 
+    @pytest.mark.asyncio
+    async def test_deploy_nested_namespace_not_treated_as_missing_dependency(
+        self,
+        client,
+    ):
+        """
+        Test that nested namespaces in git branches like analytics.main.metrics.road_count
+        don't cause analytics.main.metrics to be treated as a missing dependency node.
+        This is a regression test for Issue #1775.
+
+        Setup:
+        - Git root: analytics
+        - Branch: analytics.main (read-only)
+        - Subdirectories: metrics/ (creating nodes like analytics.main.metrics.road_count)
+        """
+        # Step 1: Create git root namespace
+        response = await client.post(
+            "/namespaces/analytics/",
+            json={
+                "is_git_root": True,
+                "description": "Analytics git root",
+            },
+        )
+        assert response.status_code == 201
+
+        # Step 2: Create main branch as read-only namespace
+        response = await client.post(
+            "/namespaces/analytics.main/",
+            json={
+                "parent_namespace": "analytics",
+                "description": "Main branch",
+            },
+        )
+        assert response.status_code == 201
+
+        # Step 3: Deploy nodes to analytics.main with subdirectory structure
+        # This simulates having a subdirectory structure like:
+        # sources/
+        #   road_events.source.yaml
+        # metrics/
+        #   road_count.metric.yaml
+
+        source_spec = SourceSpec(
+            name="sources.road_events",
+            description="Road event data",
+            catalog="default",
+            schema="roads",
+            table="road_events",
+            columns=[
+                ColumnSpec(
+                    name="event_id",
+                    type="int",
+                    display_name=None,
+                    description=None,
+                ),
+                ColumnSpec(
+                    name="event_type",
+                    type="string",
+                    display_name=None,
+                    description=None,
+                ),
+            ],
+            dimension_links=[],
+            owners=["dj"],
+        )
+
+        metric_spec = MetricSpec(
+            name="metrics.road_count",
+            description="Count of road events",
+            query="SELECT count(event_id) FROM ${prefix}sources.road_events",
+            dimension_links=[],
+            owners=["dj"],
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="analytics.main",
+                nodes=[source_spec, metric_spec],
+            ),
+        )
+
+        # The deployment should succeed, not fail with missing dependencies for
+        # "analytics.main.metrics" or "analytics.main.sources"
+        assert data["status"] == "success"
+        assert data["namespace"] == "analytics.main"
+
+        # Verify both nodes were created successfully
+        node_results = [r for r in data["results"] if r["deploy_type"] == "node"]
+        assert len(node_results) == 2
+
+        source_result = next(r for r in node_results if "road_events" in r["name"])
+        assert source_result["status"] == "success"
+        assert source_result["name"] == "analytics.main.sources.road_events"
+
+        metric_result = next(r for r in node_results if "road_count" in r["name"])
+        assert metric_result["status"] == "success"
+        assert metric_result["name"] == "analytics.main.metrics.road_count"
+
 
 @pytest.mark.asyncio
 async def test_node_to_spec_source(module__session, module__client_with_roads):
