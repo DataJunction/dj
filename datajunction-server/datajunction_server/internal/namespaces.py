@@ -990,6 +990,15 @@ async def get_node_specs_for_export(
                 )
                 for dim in node_spec.dimensions
             ]
+            # Process cube columns (which may have partitions) to parameterize names
+            if cube_spec.columns:
+                for col_spec in cube_spec.columns:
+                    col_spec.name = _inject_prefix_for_cube_ref(
+                        col_spec.name,
+                        namespace,
+                        parent_namespace,
+                        namespace_suffixes,
+                    )
 
     return node_specs
 
