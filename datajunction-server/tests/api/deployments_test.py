@@ -2410,98 +2410,103 @@ class TestDeployments:
         client,
     ):
         """
-        Test that nested namespaces in git branches like analytics.main.metrics.road_count
-        don't cause analytics.main.metrics to be treated as a missing dependency node.
+        Test that nested namespaces don't cause parent namespace to be treated as missing dependency.
         This is a regression test for Issue #1775.
 
-        Setup:
-        - Git root: analytics
-        - Branch: analytics.main (read-only)
-        - Subdirectories: metrics/ (creating nodes like analytics.main.metrics.road_count)
+        Scenario with nested subdirectory structure:
+        - Node structure: dimension/user_type.yaml, metric/user_count.yaml
+        - Node names: ${prefix}dimension.user_type, ${prefix}metric.user_count
+        - When deployed to 'analytics': analytics.dimension.user_type, analytics.metric.user_count
+        - Cube references: ${prefix}dimension.user_type.user_type_id (dimension.column)
+
+        Bug:
+        - DJ sees 'analytics.dimension.user_type.user_type_id' as dependency (dimension.column ref)
+        - Extracts parent 'analytics.dimension.user_type' via rsplit
+        - Then extracts grandparent 'analytics.dimension' to check if it's a namespace
+        - Checks both database and deployment nodes
         """
-        # Step 1: Create git root namespace
-        response = await client.post(
-            "/namespaces/analytics/",
-            json={
-                "is_git_root": True,
-                "description": "Analytics git root",
-            },
+        namespace = "analytics"
+        dimension_spec = DimensionSpec(
+            name="dimension.user_type",
+            description="User type dimension",
+            query="""
+                SELECT
+                    user_type_id,
+                    user_type_name
+                FROM ${prefix}source.users
+            """,
+            primary_key=["user_type_id"],
+            owners=["dj"],
         )
-        assert response.status_code == 201
-
-        # Step 2: Create main branch as read-only namespace
-        response = await client.post(
-            "/namespaces/analytics.main/",
-            json={
-                "parent_namespace": "analytics",
-                "description": "Main branch",
-            },
-        )
-        assert response.status_code == 201
-
-        # Step 3: Deploy nodes to analytics.main with subdirectory structure
-        # This simulates having a subdirectory structure like:
-        # sources/
-        #   road_events.source.yaml
-        # metrics/
-        #   road_count.metric.yaml
-
         source_spec = SourceSpec(
-            name="sources.road_events",
-            description="Road event data",
+            name="source.users",
+            description="Users source",
             catalog="default",
-            schema="roads",
-            table="road_events",
+            schema="public",
+            table="users",
             columns=[
-                ColumnSpec(
-                    name="event_id",
-                    type="int",
-                    display_name=None,
-                    description=None,
-                ),
-                ColumnSpec(
-                    name="event_type",
-                    type="string",
-                    display_name=None,
-                    description=None,
-                ),
+                ColumnSpec(name="user_id", type="int"),
+                ColumnSpec(name="user_type_id", type="int"),
+                ColumnSpec(name="user_type_name", type="string"),
             ],
             dimension_links=[],
             owners=["dj"],
         )
-
         metric_spec = MetricSpec(
-            name="metrics.road_count",
-            description="Count of road events",
-            query="SELECT count(event_id) FROM ${prefix}sources.road_events",
+            name="metric.user_count",
+            description="Count of users",
+            query="SELECT count(user_id) FROM ${prefix}source.users",
             dimension_links=[],
             owners=["dj"],
         )
 
+        # Cube references dimension.column which triggers the validation code path
+        cube_spec = CubeSpec(
+            name="cube.user_analysis",
+            description="User analysis cube",
+            metrics=["${prefix}metric.user_count"],
+            dimensions=[
+                "${prefix}dimension.user_type.user_type_id",  # <-- This triggers it!
+                "${prefix}dimension.user_type.user_type_name",
+            ],
+            owners=["dj"],
+        )
+
+        # First-time deployment - nothing in database yet
+        # This will trigger the validation code path at line 1554-1558
         data = await deploy_and_wait(
             client,
             DeploymentSpec(
-                namespace="analytics.main",
-                nodes=[source_spec, metric_spec],
+                namespace=namespace,
+                nodes=[source_spec, dimension_spec, metric_spec, cube_spec],
             ),
         )
 
-        # The deployment should succeed, not fail with missing dependencies for
-        # "analytics.main.metrics" or "analytics.main.sources"
+        # Should succeed, not fail with "missing dependency: analytics.main.metrics"
         assert data["status"] == "success"
-        assert data["namespace"] == "analytics.main"
+        assert data["namespace"] == namespace
 
-        # Verify both nodes were created successfully
+        # Verify all nodes were created
         node_results = [r for r in data["results"] if r["deploy_type"] == "node"]
-        assert len(node_results) == 2
+        assert len(node_results) == 4
 
-        source_result = next(r for r in node_results if "road_events" in r["name"])
-        assert source_result["status"] == "success"
-        assert source_result["name"] == "analytics.main.sources.road_events"
-
-        metric_result = next(r for r in node_results if "road_count" in r["name"])
-        assert metric_result["status"] == "success"
-        assert metric_result["name"] == "analytics.main.metrics.road_count"
+        # Check each node was created successfully
+        assert any(
+            "source.users" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
+        assert any(
+            "dimension.user_type" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
+        assert any(
+            "metric.user_count" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
+        assert any(
+            "cube.user_analysis" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
 
 
 @pytest.mark.asyncio

@@ -1549,10 +1549,13 @@ class DeploymentOrchestrator:
 
                 # Check if this is a namespace prefix (some found node starts with dep.)
                 # This happens when rsplit of a metric gives its namespace
+                # Check both: nodes already in DB (found_dep_names) AND nodes in current deployment (node_graph)
+                deployment_node_names = set(node_graph.keys())
                 if dep == self.deployment_spec.namespace or any(
-                    name.startswith(dep + SEPARATOR) for name in found_dep_names
+                    name.startswith(dep + SEPARATOR)
+                    for name in found_dep_names | deployment_node_names
                 ):
-                    continue  # pragma: no cover
+                    continue
                 missing_nodes.append(dep)
 
             if missing_nodes:
