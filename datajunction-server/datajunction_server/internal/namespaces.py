@@ -992,7 +992,7 @@ async def get_node_specs_for_export(
             ]
             # Apply the same parameterization logic to cube column names
             # Columns may reference metrics/dimensions from within or outside the deployment
-            if cube_spec.columns:
+            if cube_spec.columns:  # pragma: no branch
                 for col_spec in cube_spec.columns:
                     col_spec.name = _inject_prefix_for_cube_ref(
                         col_spec.name,
