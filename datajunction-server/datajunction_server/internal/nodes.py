@@ -2872,10 +2872,8 @@ async def revalidate_node(
         # Save the new revision of the child
         node.current_version = new_revision.version  # type: ignore
         new_revision.node_id = node.id  # type: ignore
-
         session.add(node)
         session.add(new_revision)
-
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])

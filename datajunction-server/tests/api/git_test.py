@@ -1362,7 +1362,6 @@ class TestBranchManagement:
                 ],
             },
         )
-        print("dates source response!!", response.json())
         assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
 
         # Create a source table for events with event_date
@@ -1381,7 +1380,6 @@ class TestBranchManagement:
                 ],
             },
         )
-        print("source node response!!", response.json())
         assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
 
         # Create a dimension with a date column
@@ -1394,7 +1392,6 @@ class TestBranchManagement:
                 "primary_key": ["dateint"],
             },
         )
-        print("date_dim response!!", response.json())
         assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
 
         # Link events to date dimension
@@ -1406,7 +1403,6 @@ class TestBranchManagement:
                 "join_on": "analytics.main.events.event_date = analytics.main.date_dim.dateint",
             },
         )
-        print("link events response!!", response.json())
         assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
 
         # Create a metric on events
@@ -1418,7 +1414,6 @@ class TestBranchManagement:
                 "query": "SELECT COUNT(*) FROM analytics.main.events",
             },
         )
-        print("metric response!!", response.json())
         assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
 
         # Create a cube (without partition - will be added separately)
@@ -1431,7 +1426,6 @@ class TestBranchManagement:
                 "dimensions": ["analytics.main.date_dim.dateint"],
             },
         )
-        print("cube response!!", response.json())
         assert response.status_code == HTTPStatus.CREATED
 
         # Add partition to the cube's date dimension column
@@ -1444,7 +1438,6 @@ class TestBranchManagement:
                 "format": "yyyyMMdd",
             },
         )
-        print("partition response!!", response.json())
         assert response.status_code == HTTPStatus.CREATED
 
         # Verify the cube was created with partition
