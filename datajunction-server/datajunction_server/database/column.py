@@ -169,7 +169,7 @@ class Column(Base):  # type: ignore
         """
         Returns a full copy of the column
         """
-        return Column(
+        new_column = Column(
             order=self.order,
             name=self.name,
             display_name=self.display_name,
@@ -185,5 +185,17 @@ class Column(Base):  # type: ignore
                 for attr in self.attributes
             ],
             measure_id=self.measure_id,
-            partition_id=self.partition_id,
+            # Note: partition is deep copied below via relationship, not partition_id
         )
+
+        # Deep copy the partition if it exists
+        if self.partition:
+            from datajunction_server.database.partition import Partition
+
+            new_column.partition = Partition(
+                type_=self.partition.type_,
+                granularity=self.partition.granularity,
+                format=self.partition.format,
+            )
+
+        return new_column

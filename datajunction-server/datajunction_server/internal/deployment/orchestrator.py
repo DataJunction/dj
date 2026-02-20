@@ -1161,37 +1161,45 @@ class DeploymentOrchestrator:
                 else:
                     logger.info("Creating cube node %s", cube_spec.rendered_name)
                     namespace = get_namespace_from_name(cube_spec.rendered_name)
-                    await get_node_namespace(session=self.session, namespace=namespace)
 
-                    new_node = Node(
-                        name=cube_spec.rendered_name,
-                        namespace=namespace,
-                        type=NodeType.CUBE,
-                        display_name=cube_spec.display_name,
-                        current_version=(
-                            str(DEFAULT_DRAFT_VERSION)
-                            if cube_spec.mode == NodeMode.DRAFT
-                            else str(DEFAULT_PUBLISHED_VERSION)
-                        ),
-                        tags=[
-                            self.registry.tags[tag_name] for tag_name in cube_spec.tags
-                        ],
-                        created_by_id=self.context.current_user.id,
-                        owners=[
-                            self.registry.owners[owner_name]
-                            for owner_name in cube_spec.owners
-                            if owner_name in self.registry.owners
-                        ],
-                    )
+                    # Use no_autoflush to prevent premature flushing of columns without node_revision_id
+                    # (columns will be created in _create_cube_node_revision_from_validation_data)
+                    with self.session.no_autoflush:
+                        await get_node_namespace(
+                            session=self.session,
+                            namespace=namespace,
+                        )
 
-                # Create node revision using pre-computed validation data (no re-validation)
-                new_revision = (
-                    await self._create_cube_node_revision_from_validation_data(
-                        cube_spec=cube_spec,
-                        validation_data=result._cube_validation_data,
-                        new_node=new_node,
-                    )
-                )
+                        new_node = Node(
+                            name=cube_spec.rendered_name,
+                            namespace=namespace,
+                            type=NodeType.CUBE,
+                            display_name=cube_spec.display_name,
+                            current_version=(
+                                str(DEFAULT_DRAFT_VERSION)
+                                if cube_spec.mode == NodeMode.DRAFT
+                                else str(DEFAULT_PUBLISHED_VERSION)
+                            ),
+                            tags=[
+                                self.registry.tags[tag_name]
+                                for tag_name in cube_spec.tags
+                            ],
+                            created_by_id=self.context.current_user.id,
+                            owners=[
+                                self.registry.owners[owner_name]
+                                for owner_name in cube_spec.owners
+                                if owner_name in self.registry.owners
+                            ],
+                        )
+
+                        # Create node revision using pre-computed validation data (no re-validation)
+                        new_revision = (
+                            await self._create_cube_node_revision_from_validation_data(
+                                cube_spec=cube_spec,
+                                validation_data=result._cube_validation_data,
+                                new_node=new_node,
+                            )
+                        )
 
                 # Track history for cube create/update operations
                 activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
