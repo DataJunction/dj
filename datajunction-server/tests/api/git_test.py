@@ -1308,6 +1308,199 @@ class TestBranchManagement:
             # Verify cleanup was attempted
             # mock_cleanup.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_create_branch_with_partitioned_columns_in_cube(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that branch creation correctly handles cubes with partitioned columns.
+
+        This is a regression test for a bug where the orchestrator's cube creation
+        would trigger autoflush when creating partitions, causing NOT NULL constraint
+        violations on node_revision_id during branch creation.
+
+        The bug occurred in _create_cube_node_revision_from_validation_data when:
+        1. Creating Column objects for cube elements
+        2. Creating Partition objects with column relationships
+        3. Adding partitions to session (which cascades to add columns)
+        4. Calling get_node_namespace() which triggers autoflush
+        5. Columns try to insert before NodeRevision has an ID
+        """
+        # Create git root namespace
+        await client_with_service_setup.post("/namespaces/analytics")
+        await client_with_service_setup.patch(
+            "/namespaces/analytics/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "default_branch": "main",
+            },
+        )
+
+        # Create main branch namespace
+        await client_with_service_setup.post("/namespaces/analytics.main")
+        await client_with_service_setup.patch(
+            "/namespaces/analytics.main/git",
+            json={
+                "parent_namespace": "analytics",
+                "git_branch": "main",
+            },
+        )
+
+        # Create a source table for dates (required by date dimension)
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "default.dates",
+                "description": "Dates table",
+                "catalog": "default",
+                "schema_": "public",
+                "table": "dates",
+                "columns": [
+                    {"name": "dateint", "type": "int"},
+                    {"name": "month", "type": "int"},
+                    {"name": "year", "type": "int"},
+                ],
+            },
+        )
+        assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+        # Create a source table for events with event_date
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "analytics.main.events",
+                "description": "Events table",
+                "catalog": "default",
+                "schema_": "public",
+                "table": "events",
+                "columns": [
+                    {"name": "event_id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+            },
+        )
+        assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+        # Create a dimension with a date column
+        response = await client_with_service_setup.post(
+            "/nodes/dimension/",
+            json={
+                "name": "analytics.main.date_dim",
+                "description": "Date dimension",
+                "query": "SELECT CAST(dateint AS INT) AS dateint FROM default.dates",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+        # Link events to date dimension
+        response = await client_with_service_setup.post(
+            "/nodes/analytics.main.events/link",
+            json={
+                "dimension_node": "analytics.main.date_dim",
+                "join_type": "left",
+                "join_on": "analytics.main.events.event_date = analytics.main.date_dim.dateint",
+            },
+        )
+        assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+        # Create a metric on events
+        response = await client_with_service_setup.post(
+            "/nodes/metric/",
+            json={
+                "name": "analytics.main.event_count",
+                "description": "Count of events",
+                "query": "SELECT COUNT(*) FROM analytics.main.events",
+            },
+        )
+        assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+        # Create a cube (without partition - will be added separately)
+        response = await client_with_service_setup.post(
+            "/nodes/cube/",
+            json={
+                "name": "analytics.main.events_cube",
+                "description": "Events cube with partitioned date dimension",
+                "metrics": ["analytics.main.event_count"],
+                "dimensions": ["analytics.main.date_dim.dateint"],
+            },
+        )
+        assert response.status_code == HTTPStatus.CREATED
+
+        # Add partition to the cube's date dimension column
+        # This exercises the code path where partitions are created in the orchestrator
+        response = await client_with_service_setup.post(
+            "/nodes/analytics.main.events_cube/columns/analytics.main.date_dim.dateint/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        assert response.status_code == HTTPStatus.CREATED
+
+        # Verify the cube was created with partition
+        response = await client_with_service_setup.get(
+            "/nodes/analytics.main.events_cube/",
+        )
+        assert response.status_code == HTTPStatus.OK
+        cube_data = response.json()
+        date_col = next(
+            c
+            for c in cube_data["columns"]
+            if c["name"] == "analytics.main.date_dim.dateint"
+        )
+        assert date_col["partition"] is not None
+        assert date_col["partition"]["type_"] == "temporal"
+        assert date_col["partition"]["granularity"] == "day"
+        assert date_col["partition"]["format"] == "yyyyMMdd"
+
+        # Mock GitHub service for branch creation
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/feature-partition",
+                    "object": {"sha": "abc123"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            # Create branch - this triggers cube copying through the orchestrator
+            # Previously this would fail with node_revision_id NOT NULL error
+            response = await client_with_service_setup.post(
+                "/namespaces/analytics/branches",
+                json={"branch_name": "feature-partition"},
+            )
+
+            # Should succeed now with the no_autoflush fix in orchestrator
+            assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK)
+
+            data = response.json()
+            assert data["branch"]["namespace"] == "analytics.feature_partition"
+            assert data["branch"]["git_branch"] == "feature-partition"
+
+        # Verify the copied cube in the new branch has the partition preserved
+        response = await client_with_service_setup.get(
+            "/nodes/analytics.feature_partition.events_cube/",
+        )
+        assert response.status_code == HTTPStatus.OK
+        copied_cube_data = response.json()
+
+        # Check that partition was properly copied in the cube
+        copied_date_col = next(
+            c
+            for c in copied_cube_data["columns"]
+            if c["name"] == "analytics.feature_partition.date_dim.dateint"
+        )
+        assert copied_date_col["partition"] is not None
+        assert copied_date_col["partition"]["type_"] == "temporal"
+        assert copied_date_col["partition"]["granularity"] == "day"
+        assert copied_date_col["partition"]["format"] == "yyyyMMdd"
+
 
 class TestGitSync:
     """Tests for git sync endpoints."""

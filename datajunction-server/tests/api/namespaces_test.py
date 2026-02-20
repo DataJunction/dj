@@ -811,19 +811,19 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             {
                 "attributes": [],
                 "display_name": "Num Repair Orders",
-                "name": "default.num_repair_orders",
+                "name": "${prefix}num_repair_orders",
                 "type": "bigint",
             },
             {
                 "attributes": [],
                 "display_name": "City",
-                "name": "default.hard_hat.city",
+                "name": "${prefix}hard_hat.city",
                 "type": "string",
             },
             {
                 "attributes": [],
                 "display_name": "Hire Date",
-                "name": "default.hard_hat.hire_date",
+                "name": "${prefix}hard_hat.hire_date",
                 "type": "timestamp",
                 "partition": {
                     "format": "yyyyMMdd",

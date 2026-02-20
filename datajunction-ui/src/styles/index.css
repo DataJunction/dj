@@ -566,6 +566,7 @@ tbody th {
 .partition_value {
   border: solid #00b368 0.025em;
   background-color: #ccf7e525;
+  color: #00b368;
   margin: 0.25rem;
 }
 
