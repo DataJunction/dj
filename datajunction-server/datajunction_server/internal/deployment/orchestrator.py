@@ -1158,6 +1158,16 @@ class DeploymentOrchestrator:
                     new_node.tags = [
                         self.registry.tags[tag_name] for tag_name in cube_spec.tags
                     ]
+                    # Create new revision for update
+                    # Use no_autoflush to prevent premature flushing of columns without node_revision_id
+                    with self.session.no_autoflush:
+                        new_revision = (
+                            await self._create_cube_node_revision_from_validation_data(
+                                cube_spec=cube_spec,
+                                validation_data=result._cube_validation_data,
+                                new_node=new_node,
+                            )
+                        )
                 else:
                     logger.info("Creating cube node %s", cube_spec.rendered_name)
                     namespace = get_namespace_from_name(cube_spec.rendered_name)

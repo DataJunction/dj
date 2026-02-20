@@ -990,7 +990,8 @@ async def get_node_specs_for_export(
                 )
                 for dim in node_spec.dimensions
             ]
-            # Process cube columns (which may have partitions) to parameterize names
+            # Apply the same parameterization logic to cube column names
+            # Columns may reference metrics/dimensions from within or outside the deployment
             if cube_spec.columns:
                 for col_spec in cube_spec.columns:
                     col_spec.name = _inject_prefix_for_cube_ref(
