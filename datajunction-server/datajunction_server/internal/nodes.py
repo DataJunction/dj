@@ -2914,8 +2914,6 @@ async def hard_delete_node(
 
     await session.delete(node)
     await session.commit()
-    # Expire all objects to clear stale references to deleted entities
-    session.expire_all()
     impact = []  # Aggregate all impact of this deletion to include in response
 
     # Revalidate all downstream nodes
