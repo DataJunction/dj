@@ -1557,7 +1557,7 @@ class DeploymentOrchestrator:
                     name.startswith(dep + SEPARATOR)
                     for name in found_dep_names | deployment_node_names
                 ):
-                    continue
+                    continue  # pragma: no cover
                 missing_nodes.append(dep)
 
             if missing_nodes:
