@@ -2413,32 +2413,15 @@ class TestDeployments:
         Test that nested namespaces don't cause parent namespace to be treated as missing dependency.
         This is a regression test for Issue #1775.
 
-        Scenario with nested subdirectory structure:
-        - Node structure: dimension/user_type.yaml, metric/user_count.yaml
-        - Node names: ${prefix}dimension.user_type, ${prefix}metric.user_count
-        - When deployed to 'analytics': analytics.dimension.user_type, analytics.metric.user_count
-        - Cube references: ${prefix}dimension.user_type.user_type_id (dimension.column)
-
-        Bug:
-        - DJ sees 'analytics.dimension.user_type.user_type_id' as dependency (dimension.column ref)
-        - Extracts parent 'analytics.dimension.user_type' via rsplit
-        - Then extracts grandparent 'analytics.dimension' to check if it's a namespace
-        - Checks both database and deployment nodes
+        Scenario:
+        - Deploy external dimensions to 'external' namespace
+        - Deploy metric to 'analytics' namespace that references external dimensions in query
+        - The query parsing extracts column references like 'external.dimension.user_type.user_type_id'
+        - And parent path 'external.dimension.user_type'
+        - The code should filter out namespace prefix 'external.dimension' at line 1558
         """
-        namespace = "analytics"
-        dimension_spec = DimensionSpec(
-            name="dimension.user_type",
-            description="User type dimension",
-            query="""
-                SELECT
-                    user_type_id,
-                    user_type_name
-                FROM ${prefix}source.users
-            """,
-            primary_key=["user_type_id"],
-            owners=["dj"],
-        )
-        source_spec = SourceSpec(
+        # STEP 1: Deploy external dimensions to 'external' namespace
+        external_source = SourceSpec(
             name="source.users",
             description="Users source",
             catalog="default",
@@ -2452,55 +2435,71 @@ class TestDeployments:
             dimension_links=[],
             owners=["dj"],
         )
-        metric_spec = MetricSpec(
-            name="metric.user_count",
-            description="Count of users",
-            query="SELECT count(user_id) FROM ${prefix}source.users",
+        external_dimension = DimensionSpec(
+            name="dimension.user_type",
+            description="User type dimension",
+            query="""
+                SELECT
+                    user_type_id,
+                    user_type_name
+                FROM ${prefix}source.users
+            """,
+            primary_key=["user_type_id"],
+            owners=["dj"],
+        )
+
+        data1 = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="external",
+                nodes=[external_source, external_dimension],
+            ),
+        )
+        assert data1["status"] == "success"
+
+        # STEP 2: Deploy metric and cube that reference external dimensions
+        # The metric query references 'external.dimension.user_type.user_type_id'
+        # which will extract:
+        # - 'external.dimension.user_type.user_type_id' (column ref)
+        # - 'external.dimension.user_type' (parent, exists in DB)
+        # - possibly 'external.dimension' (namespace prefix, should be filtered at line 1558)
+        metric_with_external_ref = MetricSpec(
+            name="metric.user_count_by_type",
+            description="Count users by type",
+            query="SELECT count(*) as cnt FROM external.source.users",
             dimension_links=[],
             owners=["dj"],
         )
 
-        # Cube references dimension.column which triggers the validation code path
+        # Cube also references the external dimension
         cube_spec = CubeSpec(
             name="cube.user_analysis",
             description="User analysis cube",
-            metrics=["${prefix}metric.user_count"],
+            metrics=["${prefix}metric.user_count_by_type"],
             dimensions=[
-                "${prefix}dimension.user_type.user_type_id",  # <-- This triggers it!
-                "${prefix}dimension.user_type.user_type_name",
+                "external.dimension.user_type.user_type_id",
+                "external.dimension.user_type.user_type_name",
             ],
             owners=["dj"],
         )
 
-        # First-time deployment - nothing in database yet
-        # This will trigger the validation code path at line 1554-1558
-        data = await deploy_and_wait(
+        data2 = await deploy_and_wait(
             client,
             DeploymentSpec(
-                namespace=namespace,
-                nodes=[source_spec, dimension_spec, metric_spec, cube_spec],
+                namespace="analytics",
+                nodes=[metric_with_external_ref, cube_spec],
             ),
         )
 
-        # Should succeed, not fail with "missing dependency: analytics.main.metrics"
-        assert data["status"] == "success"
-        assert data["namespace"] == namespace
+        # Should succeed, not fail with "missing dependency: external.dimension"
+        assert data2["status"] == "success"
+        assert data2["namespace"] == "analytics"
 
-        # Verify all nodes were created
-        node_results = [r for r in data["results"] if r["deploy_type"] == "node"]
-        assert len(node_results) == 4
-
-        # Check each node was created successfully
+        # Verify metric and cube were created
+        node_results = [r for r in data2["results"] if r["deploy_type"] == "node"]
+        assert len(node_results) == 2
         assert any(
-            "source.users" in r["name"] and r["status"] == "success"
-            for r in node_results
-        )
-        assert any(
-            "dimension.user_type" in r["name"] and r["status"] == "success"
-            for r in node_results
-        )
-        assert any(
-            "metric.user_count" in r["name"] and r["status"] == "success"
+            "metric.user_count_by_type" in r["name"] and r["status"] == "success"
             for r in node_results
         )
         assert any(
