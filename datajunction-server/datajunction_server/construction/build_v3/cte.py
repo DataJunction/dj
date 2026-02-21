@@ -858,7 +858,7 @@ def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
     needed_columns_by_node: Optional[dict[str, set[str]]] = None,
-) -> list[tuple[str, ast.Query]]:
+) -> tuple[list[tuple[str, ast.Query]], list[str]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
 
@@ -874,10 +874,15 @@ def collect_node_ctes(
         needed_columns_by_node: Optional dict of node_name -> set of column names
             If provided, CTEs will only select the needed columns.
 
-    Returns list of (cte_name, query_ast) tuples in dependency order.
+    Returns:
+        Tuple of (cte_list, scanned_sources):
+        - cte_list: List of (cte_name, query_ast) tuples in dependency order
+        - scanned_sources: List of source node names encountered during traversal
     """
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
+    # Track source nodes encountered during traversal
+    scanned_source_names: set[str] = set()
     mat_check_time = 0.0
     parse_check_time = 0.0
     ref_extract_time = 0.0
@@ -892,6 +897,8 @@ def collect_node_ctes(
         visited.add(node.name)
 
         if node.type == NodeType.SOURCE:
+            # Track this source node
+            scanned_source_names.add(node.name)
             return  # Sources don't become CTEs
 
         # Skip materialized nodes - they use physical tables, not CTEs
@@ -982,7 +989,7 @@ def collect_node_ctes(
 
         ctes.append((cte_name, query_ast))
 
-    return ctes
+    return ctes, list(scanned_source_names)
 
 
 def process_metric_combiner_expression(

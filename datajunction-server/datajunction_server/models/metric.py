@@ -15,7 +15,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
-from datajunction_server.models.sql import TranspiledSQL
+from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import transpile_sql
@@ -108,6 +108,7 @@ class TranslatedSQL(TranspiledSQL):
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
     dialect: Optional[Dialect] = None
     upstream_tables: Optional[List[str]] = None
+    scan_estimate: Optional[ScanEstimate] = None
 
     @classmethod
     def create(cls, *, dialect: Dialect | None = None, **kwargs):
@@ -134,3 +135,6 @@ class V3TranslatedSQL(BaseModel):
 
     # If a cube was used, contains cube name (fetch details via /cubes/{name}/)
     cube_name: Optional[str] = None
+
+    # Scan estimate (aggregated from all grain groups)
+    scan_estimate: Optional["ScanEstimate"] = None

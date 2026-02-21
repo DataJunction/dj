@@ -7,6 +7,7 @@ which aggregates metric components to the requested dimensional grain.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
     get_preagg_measure_column,
 )
+from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     GrainGroupSQL,
@@ -73,6 +75,9 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.sql.functions import function_registry
 from datajunction_server.sql.parsing import types as ct
 import re
+
+
+_logger = logging.getLogger(__name__)
 
 
 # Mapping from type string to ColumnType instance
@@ -338,7 +343,7 @@ def build_select_ast(
     grain_columns: list[str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
-) -> ast.Query:
+) -> tuple[ast.Query, list[str]]:
     """
     Build a SELECT AST for measures SQL with JOIN support.
 
@@ -357,7 +362,9 @@ def build_select_ast(
                           metrics where raw rows need to be passed through.
 
     Returns:
-        AST Query node
+        Tuple of (query, scanned_sources):
+        - query: AST Query node
+        - scanned_sources: List of source node names accessed during SQL generation
     """
     # Build projection (SELECT clause)
     # Use Any type to satisfy ast.Select.projection which accepts Union[Aliasable, Expression, Column]
@@ -561,7 +568,11 @@ def build_select_ast(
                         needed_columns_by_node[dim_node.name] = dim_cols
 
     # Build CTEs for all non-source nodes with column filtering
-    ctes = collect_node_ctes(ctx, nodes_for_ctes, needed_columns_by_node)
+    ctes, scanned_sources = collect_node_ctes(
+        ctx,
+        nodes_for_ctes,
+        needed_columns_by_node,
+    )
 
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
@@ -623,6 +634,12 @@ def build_select_ast(
                 if col.name not in filter_column_aliases:  # pragma: no branch
                     filter_column_aliases[col.name] = col.name
 
+        # Override aliases for skip-join dimensions
+        # When skip-join optimization is used, the dimension reference maps to a local column
+        # Example: "dimensions.time.date.dateint" -> "utc_date"
+        for dim_ref, local_col in ctx.skip_join_column_mapping.items():
+            filter_column_aliases[dim_ref] = local_col
+
         # Parse and resolve filters
         # Note: We don't pass a cte_alias because the column references are already
         # qualified with their table aliases during dimension resolution
@@ -671,7 +688,7 @@ def build_select_ast(
             cte_list.append(cte_query)
         query.ctes = cte_list
 
-    return query
+    return query, scanned_sources
 
 
 def build_temporal_filter(
@@ -875,7 +892,8 @@ def build_grain_group_from_preagg(  # pragma: no cover
         group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
 
     # Build FROM clause using the helper method
-    from_clause = ast.From.Table(SEPARATOR.join(table_parts))
+    preagg_table = SEPARATOR.join(table_parts)
+    from_clause = ast.From.Table(preagg_table)
 
     # Build SELECT statement
     select = ast.Select(
@@ -887,6 +905,8 @@ def build_grain_group_from_preagg(  # pragma: no cover
     # Build the query
     query = ast.Query(select=select)
 
+    # Pre-aggregation path: no raw sources scanned (uses materialized table)
+    # TODO: Consider tracking the pre-agg table itself as a "materialized source"
     return GrainGroupSQL(
         query=query,
         columns=columns,
@@ -899,6 +919,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
+        scanned_sources=[preagg_table],
     )
 
 
@@ -1079,7 +1100,7 @@ def build_grain_group_sql(
         pass_through_columns = effective_grain_columns + [
             col_name for col_name, _ in non_decomposable_columns
         ]
-        query_ast = build_select_ast(
+        query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
             resolved_dimensions=resolved_dimensions,
@@ -1091,7 +1112,7 @@ def build_grain_group_sql(
     else:
         # Normal case: combine component expressions with non-decomposable columns
         all_metric_expressions = component_expressions + non_decomposable_columns
-        query_ast = build_select_ast(
+        query_ast, scanned_sources = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
             resolved_dimensions=resolved_dimensions,
@@ -1217,6 +1238,7 @@ def build_grain_group_sql(
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
+        scan_estimate=calculate_scan_estimate(scanned_sources, ctx),
     )
 
 

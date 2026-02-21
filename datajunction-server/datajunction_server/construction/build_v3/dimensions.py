@@ -4,6 +4,7 @@ Dimension + join path resolution and building functions
 
 from __future__ import annotations
 
+from http import HTTPStatus
 import logging
 from typing import Optional, cast
 
@@ -11,6 +12,7 @@ from datajunction_server.construction.build_v3.utils import (
     get_short_name,
     make_name,
 )
+from datajunction_server.errors import DJException
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
@@ -152,7 +154,7 @@ def can_skip_join_for_dimension(
     dim_col_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # Check if this dimension column is in the foreign keys mapping
-    if parent_col := link.foreign_keys_reversed.get(dim_col_fqn):  # pragma: no cover
+    if parent_col := link.foreign_keys_reversed.get(dim_col_fqn):
         # Join can be skipped - the FK column on the parent matches the requested dim
         return True, get_short_name(parent_col)
     return False, None
@@ -218,16 +220,24 @@ def resolve_dimensions(
                         dim_ref.role,
                     )
 
+            # Validate that we found a join path
+            if not join_path:
+                raise DJException(  # pragma: no cover
+                    http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    message=f"Cannot find join path from {parent_node.name} to dimension {dim_ref.node_name}. "
+                    f"Please create a dimension link between these nodes.",
+                )
+
             # Optimization: if requesting the join key column, skip the join
             can_skip, local_col = can_skip_join_for_dimension(
                 dim_ref,
                 join_path,
                 parent_node,
             )
-            if can_skip and local_col:  # pragma: no cover
-                logger.info(
-                    f"[BuildV3] Skipping join for {dim} - using local column {local_col}",
-                )
+            if can_skip and local_col:
+                # Store the mapping for filter resolution
+                # This allows filters referencing the dimension name to resolve to the local column
+                ctx.skip_join_column_mapping[dim] = local_col
                 resolved.append(
                     ResolvedDimension(
                         original_ref=dim,

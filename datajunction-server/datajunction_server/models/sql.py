@@ -15,6 +15,48 @@ from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 
 
+class SourceScanInfo(BaseModel):
+    """
+    Information about a source table scan.
+
+    Provides table-level scan metrics. All size/partition fields are optional
+    and only included when availability metadata is available.
+    """
+
+    source_name: str  # Node name (e.g., "source.sales_fact")
+
+    # Physical table location (from availability state)
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None  # underscore to avoid Python keyword
+    table: Optional[str] = None
+
+    # Table size (None if no availability metadata)
+    total_bytes: Optional[int] = None  # Total table size (all partitions)
+
+    # Partition information (None if no availability metadata)
+    partition_columns: List[
+        str
+    ] = []  # Partition columns (e.g., ["utc_date", "region"])
+    total_partition_count: Optional[int] = None  # Total partitions in table
+
+    # Filter-based estimates (optional - only included when accurate)
+    scan_bytes: Optional[int] = None  # Bytes that will be scanned (after filters)
+    scan_percentage: Optional[float] = None  # scan_bytes / total_bytes
+    scanned_partition_count: Optional[int] = None  # Partitions that will be scanned
+
+
+class ScanEstimate(BaseModel):
+    """
+    Estimate of data scan size for a query.
+
+    total_bytes is None if no sources have size metadata available.
+    """
+
+    total_bytes: Optional[int]  # None if no size metadata available for any source
+    sources: List[SourceScanInfo]
+    has_materialization: bool = False  # Whether materialized tables are being used
+
+
 class TranspiledSQL(BaseModel):
     """
     Generated SQL for a given node, the output of a QueryBuilder(...).build() call.
@@ -53,6 +95,7 @@ class GeneratedSQL(TranspiledSQL):
     metrics: dict[str, tuple[list[MetricComponent], str]] | None = None
     spark_conf: dict[str, str] | None = None
     errors: Optional[List[DJQueryBuildError]] = None
+    scan_estimate: Optional[ScanEstimate] = None
 
 
 class ComponentResponse(BaseModel):
@@ -91,6 +134,7 @@ class GrainGroupResponse(BaseModel):
         ComponentResponse
     ]  # Metric components for materialization planning
     parent_name: str  # Source fact/transform node name
+    scan_estimate: Optional[ScanEstimate] = None  # Per-query scan estimate
 
 
 class MeasuresSQLResponse(BaseModel):
