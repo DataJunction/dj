@@ -1538,6 +1538,45 @@ async def test_validate_node_deletion_self_referential(
     await orchestrator._validate_node_deletion([recursive_spec])
 
 
+async def test_check_external_deps_phantom_parent_path_for__metric(
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    When a derived metric references another metric (e.g., `new_namespace.total_clicks`),
+    the parent_path heuristic in _find_upstreams_for_node adds the namespace itself
+    (i.e., `new_namespace`) as a speculative dependency. This phantom dependency is
+    NOT a real node -- it's a namespace. check_external_deps should
+    recognize it as such and not raise.
+    """
+    source = SourceSpec(
+        name="source.clicks",
+        node_type=NodeType.SOURCE,
+        catalog="catalog",
+        schema_="facts",
+        table="clicks",
+    )
+    metric_a = MetricSpec(
+        name="new_namespace.total_clicks",
+        node_type=NodeType.METRIC,
+        query="SELECT COUNT(*) FROM source.clicks",
+    )
+    derived = MetricSpec(
+        name="new_namespace.double_total_clicks",
+        node_type=NodeType.METRIC,
+        query="SELECT new_namespace.total_clicks * 2",
+    )
+    nodes = [source, metric_a, derived]
+    orchestrator = create_orchestrator(session, current_user, nodes)
+    node_graph = extract_node_graph(nodes)
+
+    # The phantom "new_namespace" should be recognized as a namespace prefix
+    # of the in-deployment node "new_namespace.total_clicks", not flagged
+    # as a missing dependency.
+    external_deps = await orchestrator.check_external_deps(node_graph)
+    assert "new_namespace" not in external_deps
+
+
 async def test_validate_node_deletion_many_references_formatting(
     session: AsyncSession,
     current_user: User,
