@@ -2842,4 +2842,16 @@ export function MetricDetailsPanel({ metric, grainGroups, onClose }) {
   );
 }
 
+// Export helper functions for testing
+export {
+  getDimensionNodeName,
+  normalizeGrain,
+  getScheduleSummary,
+  getStatusInfo,
+  inferGranularity,
+  formatBytes,
+  getScanWarningLevel,
+  formatScanEstimate,
+};
+
 export default PreAggDetailsPanel;
