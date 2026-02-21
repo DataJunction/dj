@@ -190,7 +190,7 @@ def add_dimensions_from_metric_expressions(
                 # Skip if this is a metric reference (e.g., in derived metric combiners)
                 # Metrics should not be added as dimensions
                 if full_name in ctx.metrics:
-                    continue
+                    continue  # pragma: no cover
 
                 # Check if any existing dimension already covers this (node, column)
                 dim_ref = parse_dimension_ref(full_name)
