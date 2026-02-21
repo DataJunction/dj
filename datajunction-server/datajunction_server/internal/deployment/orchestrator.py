@@ -1364,6 +1364,7 @@ class DeploymentOrchestrator:
                 NodeRelationship,
                 NodeRevision.id == NodeRelationship.child_id,
             )
+            .options(joinedload(NodeRevision.node).joinedload(Node.current))
             .where(NodeRelationship.parent_id.in_(deleted_node_ids))
         )
         result = await self.session.execute(stmt)
@@ -1390,6 +1391,7 @@ class DeploymentOrchestrator:
                 DimensionLink,
                 NodeRevision.id == DimensionLink.node_revision_id,
             )
+            .options(joinedload(NodeRevision.node).joinedload(Node.current))
             .where(DimensionLink.dimension_id.in_(deleted_node_ids))
         )
         result = await self.session.execute(stmt)
