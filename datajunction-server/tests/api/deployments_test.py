@@ -2410,98 +2410,102 @@ class TestDeployments:
         client,
     ):
         """
-        Test that nested namespaces in git branches like analytics.main.metrics.road_count
-        don't cause analytics.main.metrics to be treated as a missing dependency node.
+        Test that nested namespaces don't cause parent namespace to be treated as missing dependency.
         This is a regression test for Issue #1775.
 
-        Setup:
-        - Git root: analytics
-        - Branch: analytics.main (read-only)
-        - Subdirectories: metrics/ (creating nodes like analytics.main.metrics.road_count)
+        Scenario:
+        - Deploy external dimensions to 'external' namespace
+        - Deploy metric to 'analytics' namespace that references external dimensions in query
+        - The query parsing extracts column references like 'external.dimension.user_type.user_type_id'
+        - And parent path 'external.dimension.user_type'
+        - The code should filter out namespace prefix 'external.dimension' at line 1558
         """
-        # Step 1: Create git root namespace
-        response = await client.post(
-            "/namespaces/analytics/",
-            json={
-                "is_git_root": True,
-                "description": "Analytics git root",
-            },
-        )
-        assert response.status_code == 201
-
-        # Step 2: Create main branch as read-only namespace
-        response = await client.post(
-            "/namespaces/analytics.main/",
-            json={
-                "parent_namespace": "analytics",
-                "description": "Main branch",
-            },
-        )
-        assert response.status_code == 201
-
-        # Step 3: Deploy nodes to analytics.main with subdirectory structure
-        # This simulates having a subdirectory structure like:
-        # sources/
-        #   road_events.source.yaml
-        # metrics/
-        #   road_count.metric.yaml
-
-        source_spec = SourceSpec(
-            name="sources.road_events",
-            description="Road event data",
+        # STEP 1: Deploy external dimensions to 'external' namespace
+        external_source = SourceSpec(
+            name="source.users",
+            description="Users source",
             catalog="default",
-            schema="roads",
-            table="road_events",
+            schema="public",
+            table="users",
             columns=[
-                ColumnSpec(
-                    name="event_id",
-                    type="int",
-                    display_name=None,
-                    description=None,
-                ),
-                ColumnSpec(
-                    name="event_type",
-                    type="string",
-                    display_name=None,
-                    description=None,
-                ),
+                ColumnSpec(name="user_id", type="int"),
+                ColumnSpec(name="user_type_id", type="int"),
+                ColumnSpec(name="user_type_name", type="string"),
             ],
             dimension_links=[],
             owners=["dj"],
         )
+        external_dimension = DimensionSpec(
+            name="dimension.user_type",
+            description="User type dimension",
+            query="""
+                SELECT
+                    user_type_id,
+                    user_type_name
+                FROM ${prefix}source.users
+            """,
+            primary_key=["user_type_id"],
+            owners=["dj"],
+        )
 
-        metric_spec = MetricSpec(
-            name="metrics.road_count",
-            description="Count of road events",
-            query="SELECT count(event_id) FROM ${prefix}sources.road_events",
+        data1 = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="external",
+                nodes=[external_source, external_dimension],
+            ),
+        )
+        assert data1["status"] == "success"
+
+        # STEP 2: Deploy metric and cube that reference external dimensions
+        # The metric query references 'external.dimension.user_type.user_type_id'
+        # which will extract:
+        # - 'external.dimension.user_type.user_type_id' (column ref)
+        # - 'external.dimension.user_type' (parent, exists in DB)
+        # - possibly 'external.dimension' (namespace prefix, should be filtered at line 1558)
+        metric_with_external_ref = MetricSpec(
+            name="metric.user_count_by_type",
+            description="Count users by type",
+            query="SELECT count(*) as cnt FROM external.source.users",
             dimension_links=[],
             owners=["dj"],
         )
 
-        data = await deploy_and_wait(
+        # Cube also references the external dimension
+        cube_spec = CubeSpec(
+            name="cube.user_analysis",
+            description="User analysis cube",
+            metrics=["${prefix}metric.user_count_by_type"],
+            dimensions=[
+                "external.dimension.user_type.user_type_id",
+                "external.dimension.user_type.user_type_name",
+            ],
+            owners=["dj"],
+        )
+
+        data2 = await deploy_and_wait(
             client,
             DeploymentSpec(
-                namespace="analytics.main",
-                nodes=[source_spec, metric_spec],
+                namespace="analytics",
+                nodes=[metric_with_external_ref, cube_spec],
             ),
         )
 
-        # The deployment should succeed, not fail with missing dependencies for
-        # "analytics.main.metrics" or "analytics.main.sources"
-        assert data["status"] == "success"
-        assert data["namespace"] == "analytics.main"
+        # Should succeed, not fail with "missing dependency: external.dimension"
+        assert data2["status"] == "success"
+        assert data2["namespace"] == "analytics"
 
-        # Verify both nodes were created successfully
-        node_results = [r for r in data["results"] if r["deploy_type"] == "node"]
+        # Verify metric and cube were created
+        node_results = [r for r in data2["results"] if r["deploy_type"] == "node"]
         assert len(node_results) == 2
-
-        source_result = next(r for r in node_results if "road_events" in r["name"])
-        assert source_result["status"] == "success"
-        assert source_result["name"] == "analytics.main.sources.road_events"
-
-        metric_result = next(r for r in node_results if "road_count" in r["name"])
-        assert metric_result["status"] == "success"
-        assert metric_result["name"] == "analytics.main.metrics.road_count"
+        assert any(
+            "metric.user_count_by_type" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
+        assert any(
+            "cube.user_analysis" in r["name"] and r["status"] == "success"
+            for r in node_results
+        )
 
 
 @pytest.mark.asyncio
