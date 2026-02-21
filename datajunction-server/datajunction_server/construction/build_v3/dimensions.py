@@ -222,7 +222,7 @@ def resolve_dimensions(
 
             # Validate that we found a join path
             if not join_path:
-                raise DJException(
+                raise DJException(  # pragma: no cover
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                     message=f"Cannot find join path from {parent_node.name} to dimension {dim_ref.node_name}. "
                     f"Please create a dimension link between these nodes.",
