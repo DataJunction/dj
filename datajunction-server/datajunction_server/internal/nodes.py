@@ -1792,6 +1792,7 @@ async def create_new_revision_from_existing(
         # Re-establish column relationships after validation overwrites them
         for col in new_revision.columns:
             col.node_revision = new_revision
+
         if node_validator.errors:
             if new_mode == NodeMode.DRAFT:
                 new_revision.status = NodeStatus.INVALID

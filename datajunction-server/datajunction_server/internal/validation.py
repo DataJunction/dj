@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api.helpers import find_required_dimensions
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.partition import Partition
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -18,6 +19,7 @@ from datajunction_server.errors import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import PartitionType, Granularity
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -37,6 +39,7 @@ class NodeValidator:
     type_inference_failures: List[str] = field(default_factory=list)
     errors: List[DJError] = field(default_factory=list)
     updated_columns: List[str] = field(default_factory=list)
+    inherited_partitions: Set[str] = field(default_factory=set)
 
     def modified_columns(self, node_revision: NodeRevision) -> Set[str]:
         """
@@ -53,6 +56,40 @@ class NodeValidator:
             else:  # pragma: no cover
                 updated_columns.add(column.name)  # pragma: no cover
         return updated_columns
+
+
+def _get_temporal_columns_from_parents(
+    dependencies_map: Dict[NodeRevision, List[ast.Table]],
+) -> Set[str]:
+    """
+    Get temporal partition column names from parent nodes.
+
+    For each parent node:
+    - If SOURCE: check availability.temporal_partitions
+    - If TRANSFORM/DIMENSION: check column.partition for temporal partitions
+
+    Returns set of column names that have temporal partitions in parent nodes.
+    """
+    temporal_columns = set()
+
+    for parent in dependencies_map.keys():
+        if not parent:
+            continue
+
+        # For source nodes: check availability.temporal_partitions
+        if parent.type == NodeType.SOURCE:
+            if parent.availability and parent.availability.temporal_partitions:
+                temporal_columns.update(parent.availability.temporal_partitions)
+        # For transform/dimension nodes: check column partitions
+        elif parent.type in (NodeType.TRANSFORM, NodeType.DIMENSION):
+            for column in parent.columns:
+                if (
+                    column.partition
+                    and column.partition.type_ == PartitionType.TEMPORAL
+                ):
+                    temporal_columns.add(column.name)
+
+    return temporal_columns
 
 
 async def validate_node_data(
@@ -205,6 +242,13 @@ async def validate_node_data(
         )
         node_validator.status = NodeStatus.INVALID
 
+    # Get temporal partition columns from parents for transforms and dimensions
+    temporal_columns_from_parents = set()
+    if validated_node.type in (NodeType.TRANSFORM, NodeType.DIMENSION):
+        temporal_columns_from_parents = _get_temporal_columns_from_parents(
+            node_validator.dependencies_map,
+        )
+
     try:
         column_mapping = {col.name: col for col in validated_node.columns}
     except MissingGreenlet:  # pragma: no cover
@@ -217,10 +261,29 @@ async def validate_node_data(
         existing_column = column_mapping.get(column_name)
         try:
             column_type = str(col.type)  # type: ignore
-            column = Column(
-                name=column_name.lower()
+            normalized_column_name = (
+                column_name.lower()
                 if validated_node.type != NodeType.METRIC
-                else column_name,
+                else column_name
+            )
+
+            # Check if this column should inherit temporal partition
+            partition = None
+            if normalized_column_name in temporal_columns_from_parents:
+                # Inherit from existing column if available and already has partition
+                if existing_column and existing_column.partition:
+                    partition = existing_column.partition
+                else:
+                    # Create new temporal partition
+                    partition = Partition(
+                        type_=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format=None,
+                    )
+                node_validator.inherited_partitions.add(normalized_column_name)
+
+            column = Column(
+                name=normalized_column_name,
                 display_name=existing_column.display_name
                 if existing_column and existing_column.display_name
                 else labelize(column_name),
@@ -235,6 +298,7 @@ async def validate_node_data(
                 if existing_column
                 else [],
                 dimension=existing_column.dimension if existing_column else None,
+                partition=partition,
                 order=idx,
             )
         except DJParseException as parse_exc:
