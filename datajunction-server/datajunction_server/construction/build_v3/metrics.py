@@ -1874,8 +1874,37 @@ def generate_metrics_sql(
     # Build the final Query with all CTEs
     final_query = ast.Query(select=select_ast, ctes=all_cte_asts)
 
+    # Aggregate scan estimates from all grain groups
+    scan_estimate = None
+    grain_groups_with_scans = [
+        gg for gg in measures_result.grain_groups if gg.scan_estimate is not None
+    ]
+    if grain_groups_with_scans:
+        from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
+
+        # Aggregate by source name to avoid double-counting if same source appears in multiple grain groups
+        sources_by_name: dict[str, SourceScanInfo] = {}
+        for gg in grain_groups_with_scans:
+            if gg.scan_estimate:  # pragma: no branch
+                for source in gg.scan_estimate.sources:
+                    if source.source_name not in sources_by_name:
+                        sources_by_name[source.source_name] = source
+
+        # Sum total_bytes, skipping sources with None (no size data)
+        total_bytes = sum(
+            s.total_bytes for s in sources_by_name.values() if s.total_bytes is not None
+        )
+        # Set to None if no sources have size data
+        total_bytes_result = total_bytes if total_bytes > 0 else None
+
+        scan_estimate = ScanEstimate(
+            total_bytes=total_bytes_result,
+            sources=list(sources_by_name.values()),
+        )
+
     return GeneratedSQL(
         query=final_query,
         columns=columns_metadata,
         dialect=measures_result.dialect,
+        scan_estimate=scan_estimate,
     )

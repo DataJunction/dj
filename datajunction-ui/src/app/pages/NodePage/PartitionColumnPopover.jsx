@@ -141,6 +141,33 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                 >
                   Save
                 </button>
+                <button
+                  className="delete_button"
+                  type="button"
+                  aria-label="RemovePartition"
+                  aria-hidden="false"
+                  onClick={() => {
+                    setFieldValue('partition_type', '');
+                    setFieldValue('format', '');
+                    setFieldValue('granularity', '');
+                    savePartition(
+                      {
+                        node: node.name,
+                        column: column.name,
+                        partition_type: '',
+                        format: '',
+                        granularity: '',
+                      },
+                      { setSubmitting: () => {}, setStatus: s => {} },
+                    );
+                  }}
+                  style={{
+                    marginLeft: '10px',
+                    backgroundColor: '#dc3545',
+                  }}
+                >
+                  Remove Partition
+                </button>
               </Form>
             );
           }}

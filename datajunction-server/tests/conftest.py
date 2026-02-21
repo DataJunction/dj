@@ -663,7 +663,6 @@ def query_service_client(
     ) -> QueryWithResults:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
-        print("transpiled_sql!!", transpiled_sql)
         result = duckdb_conn.sql(transpiled_sql)
         columns = [
             {

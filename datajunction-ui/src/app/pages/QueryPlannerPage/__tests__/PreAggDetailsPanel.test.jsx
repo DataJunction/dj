@@ -10,6 +10,14 @@ import {
   QueryOverviewPanel,
   PreAggDetailsPanel,
   MetricDetailsPanel,
+  getDimensionNodeName,
+  normalizeGrain,
+  getScheduleSummary,
+  getStatusInfo,
+  inferGranularity,
+  formatBytes,
+  getScanWarningLevel,
+  formatScanEstimate,
 } from '../PreAggDetailsPanel';
 import React from 'react';
 
@@ -2992,5 +3000,430 @@ describe('QueryOverviewPanel - Custom Schedule and Druid Config', () => {
         ).toBeInTheDocument();
       });
     });
+  });
+});
+
+// ============================================================================
+// Helper Function Tests
+// ============================================================================
+
+describe('Helper Functions', () => {
+  describe('getDimensionNodeName', () => {
+    it('extracts node name from dimension path', () => {
+      expect(getDimensionNodeName('v3.customer.name')).toBe('v3.customer');
+      expect(getDimensionNodeName('v3.date.month')).toBe('v3.date');
+    });
+
+    it('handles role suffix in dimension path', () => {
+      expect(getDimensionNodeName('v3.date.month[order]')).toBe('v3.date');
+      expect(getDimensionNodeName('v3.customer.id[billing]')).toBe(
+        'v3.customer',
+      );
+    });
+
+    it('returns path without role when no dots after removing role', () => {
+      expect(getDimensionNodeName('singlename[role]')).toBe('singlename');
+      expect(getDimensionNodeName('singlename')).toBe('singlename');
+    });
+  });
+
+  describe('normalizeGrain', () => {
+    it('extracts and sorts column short names', () => {
+      expect(normalizeGrain(['v3.date.id', 'v3.customer.name'])).toBe(
+        'id,name',
+      );
+      expect(normalizeGrain(['v3.customer.name', 'v3.date.id'])).toBe(
+        'id,name',
+      );
+    });
+
+    it('handles empty grain', () => {
+      expect(normalizeGrain([])).toBe('');
+      expect(normalizeGrain(null)).toBe('');
+    });
+  });
+
+  describe('getScheduleSummary', () => {
+    it('returns null for empty schedule', () => {
+      expect(getScheduleSummary(null)).toBeNull();
+      expect(getScheduleSummary('')).toBeNull();
+    });
+
+    it('returns original schedule for invalid format', () => {
+      expect(getScheduleSummary('0 0')).toBe('0 0');
+      expect(getScheduleSummary('invalid')).toBe('invalid');
+    });
+
+    it('parses daily schedule at specific hour', () => {
+      expect(getScheduleSummary('0 0 * * *')).toBe('Daily @ 12:00am');
+      expect(getScheduleSummary('0 14 * * *')).toBe('Daily @ 2:00pm');
+      expect(getScheduleSummary('30 9 * * *')).toBe('Daily @ 9:30am');
+      expect(getScheduleSummary('0 12 * * *')).toBe('Daily @ 12:00pm');
+    });
+
+    it('parses weekly schedule', () => {
+      expect(getScheduleSummary('0 0 * * 0')).toBe('Weekly on Sun');
+      expect(getScheduleSummary('0 0 * * 1')).toBe('Weekly on Mon');
+      expect(getScheduleSummary('0 0 * * 6')).toBe('Weekly on Sat');
+    });
+
+    it('returns original schedule for unrecognized patterns', () => {
+      expect(getScheduleSummary('0 0 1 * *')).toBe('0 0 1 * *');
+      expect(getScheduleSummary('0 0 * 1 *')).toBe('0 0 * 1 *');
+    });
+  });
+
+  describe('formatBytes', () => {
+    it('handles zero and null bytes', () => {
+      expect(formatBytes(0)).toBe('0 B');
+      expect(formatBytes(null)).toBe('0 B');
+      expect(formatBytes(undefined)).toBe('0 B');
+    });
+
+    it('formats bytes correctly', () => {
+      expect(formatBytes(1023)).toBe('1023 B');
+      expect(formatBytes(1024)).toBe('1 KB');
+      expect(formatBytes(1024 * 1024)).toBe('1 MB');
+      expect(formatBytes(1024 * 1024 * 1024)).toBe('1 GB');
+      expect(formatBytes(1024 * 1024 * 1024 * 1024)).toBe('1 TB');
+      expect(formatBytes(1024 * 1024 * 1024 * 1024 * 1024)).toBe('1 PB');
+    });
+
+    it('rounds to 2 decimal places', () => {
+      expect(formatBytes(1536)).toBe('1.5 KB');
+      expect(formatBytes(1024 * 1.234)).toBe('1.23 KB');
+      expect(formatBytes(5.5 * 1024 * 1024 * 1024)).toBe('5.5 GB');
+    });
+  });
+
+  describe('getScanWarningLevel', () => {
+    it('returns critical for very large scans', () => {
+      // Assuming SCAN_CRITICAL_THRESHOLD is 100GB = 107374182400
+      expect(getScanWarningLevel(200 * 1024 * 1024 * 1024)).toBe('critical');
+    });
+
+    it('returns warning for medium scans', () => {
+      // Assuming SCAN_WARNING_THRESHOLD is 10GB = 10737418240
+      expect(getScanWarningLevel(50 * 1024 * 1024 * 1024)).toBe('warning');
+    });
+
+    it('returns ok for small scans', () => {
+      expect(getScanWarningLevel(1 * 1024 * 1024 * 1024)).toBe('ok');
+      expect(getScanWarningLevel(1024)).toBe('ok');
+    });
+  });
+
+  describe('formatScanEstimate', () => {
+    it('returns null for empty scan estimate', () => {
+      expect(formatScanEstimate(null)).toBeNull();
+      expect(formatScanEstimate({})).toBeNull();
+      expect(formatScanEstimate({ sources: [] })).toBeNull();
+    });
+
+    it('formats scan estimate with total bytes', () => {
+      const estimate = {
+        total_bytes: 50 * 1024 * 1024 * 1024, // 50GB - warning level
+        sources: [
+          {
+            source_name: 'source.sales',
+            total_bytes: 30 * 1024 * 1024 * 1024,
+          },
+          {
+            source_name: 'source.orders',
+            total_bytes: 20 * 1024 * 1024 * 1024,
+          },
+        ],
+      };
+
+      const result = formatScanEstimate(estimate);
+      expect(result).not.toBeNull();
+      expect(result.level).toBe('warning');
+      expect(result.icon).toBe('⚡');
+      expect(result.totalBytes).toBe(50 * 1024 * 1024 * 1024);
+      expect(result.sources).toHaveLength(2);
+      expect(result.hasMissingData).toBe(false);
+    });
+
+    it('detects missing size data', () => {
+      const estimate = {
+        total_bytes: null,
+        sources: [
+          {
+            source_name: 'source.sales',
+            total_bytes: null,
+          },
+          {
+            source_name: 'source.orders',
+            total_bytes: undefined,
+          },
+        ],
+      };
+
+      const result = formatScanEstimate(estimate);
+      expect(result).not.toBeNull();
+      expect(result.level).toBe('unknown');
+      expect(result.icon).toBe('ℹ️');
+      expect(result.hasMissingData).toBe(true);
+    });
+
+    it('shows critical icon for very large scans', () => {
+      const estimate = {
+        total_bytes: 200 * 1024 * 1024 * 1024, // 200GB
+        sources: [
+          {
+            source_name: 'source.large_table',
+            total_bytes: 200 * 1024 * 1024 * 1024,
+          },
+        ],
+      };
+
+      const result = formatScanEstimate(estimate);
+      expect(result.level).toBe('critical');
+      expect(result.icon).toBe('⚠️');
+    });
+
+    it('shows ok icon for small scans', () => {
+      const estimate = {
+        total_bytes: 1 * 1024 * 1024 * 1024, // 1GB
+        sources: [
+          {
+            source_name: 'source.small_table',
+            total_bytes: 1 * 1024 * 1024 * 1024,
+          },
+        ],
+      };
+
+      const result = formatScanEstimate(estimate);
+      expect(result.level).toBe('ok');
+      expect(result.icon).toBe('✓');
+    });
+  });
+
+  describe('getStatusInfo', () => {
+    it('returns not-planned status for preagg without workflows', () => {
+      const result = getStatusInfo({
+        workflow_urls: [],
+      });
+
+      expect(result.text).toBe('Not planned');
+      expect(result.className).toBe('status-not-planned');
+      expect(result.icon).toBe('○');
+    });
+
+    it('returns not-planned status for null/undefined preagg', () => {
+      expect(getStatusInfo(null).text).toBe('Not planned');
+      expect(getStatusInfo(undefined).text).toBe('Not planned');
+    });
+
+    it('returns compatible status for superset preagg with availability', () => {
+      const result = getStatusInfo({
+        _isCompatible: true,
+        grain_columns: ['v3.date.id', 'v3.customer.name'],
+        availability: { valid_through_ts: '2024-01-01' },
+        workflow_urls: ['http://workflow.com/1'],
+      });
+
+      expect(result.text).toContain('Covered');
+      expect(result.text).toContain('id, name');
+      expect(result.className).toBe('status-compatible-materialized');
+      expect(result.isCompatible).toBe(true);
+    });
+
+    it('returns compatible status for superset preagg without availability', () => {
+      const result = getStatusInfo({
+        _isCompatible: true,
+        grain_columns: ['v3.date.id', 'v3.region.code'],
+        availability: null,
+        workflow_urls: ['http://workflow.com/1'],
+      });
+
+      expect(result.text).toContain('Covered');
+      expect(result.text).toContain('id, code');
+      expect(result.className).toBe('status-compatible');
+      expect(result.isCompatible).toBe(true);
+    });
+  });
+
+  describe('inferGranularity', () => {
+    it('infers HOUR granularity from hour columns', () => {
+      const grainGroups = [
+        {
+          grain: ['date_hour', 'customer_id'],
+        },
+      ];
+      expect(inferGranularity(grainGroups)).toBe('HOUR');
+    });
+
+    it('infers HOUR granularity from hour suffix', () => {
+      const grainGroups = [
+        {
+          grain: ['v3.date.hour_of_day', 'region'],
+        },
+      ];
+      expect(inferGranularity(grainGroups)).toBe('HOUR');
+    });
+
+    it('defaults to DAY granularity', () => {
+      const grainGroups = [
+        {
+          grain: ['date_id', 'customer_id'],
+        },
+      ];
+      expect(inferGranularity(grainGroups)).toBe('DAY');
+    });
+
+    it('handles empty grain groups', () => {
+      expect(inferGranularity([])).toBe('DAY');
+      expect(inferGranularity(null)).toBe('DAY');
+    });
+  });
+});
+
+// ============================================================================
+// Scan Estimation UI Tests
+// ============================================================================
+
+describe('Scan Estimation Features', () => {
+  const propsWithScanEstimate = {
+    measuresResult: mockMeasuresResult,
+    metricsResult: {
+      sql: 'SELECT * FROM orders',
+      scan_estimate: {
+        total_bytes: 50 * 1024 * 1024 * 1024, // 50GB
+        sources: [
+          {
+            source_name: 'source.sales_fact',
+            catalog: 'default',
+            schema_: 'prod',
+            table: 'sales',
+            total_bytes: 30 * 1024 * 1024 * 1024,
+            partition_columns: ['utc_date'],
+            total_partition_count: 365,
+          },
+          {
+            source_name: 'source.customers',
+            total_bytes: 20 * 1024 * 1024 * 1024,
+            partition_columns: [],
+            total_partition_count: null,
+          },
+        ],
+        has_materialization: false,
+      },
+    },
+    selectedMetrics: ['default.num_repair_orders'],
+    selectedDimensions: ['v3.date.id'],
+    loadingMetrics: false,
+    errorMetrics: null,
+    loadingMeasures: false,
+    errorMeasures: null,
+    onToggleMaterialization: jest.fn(),
+    onUpdateCubeConfig: jest.fn(),
+    onClearWorkflowUrls: jest.fn(),
+  };
+
+  it('displays scan estimate banner with warning level', async () => {
+    renderWithRouter(<QueryOverviewPanel {...propsWithScanEstimate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/50 GB/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows scan estimate icon based on size', async () => {
+    const criticalProps = {
+      ...propsWithScanEstimate,
+      metricsResult: {
+        ...propsWithScanEstimate.metricsResult,
+        scan_estimate: {
+          ...propsWithScanEstimate.metricsResult.scan_estimate,
+          total_bytes: 200 * 1024 * 1024 * 1024, // 200GB - critical
+        },
+      },
+    };
+
+    renderWithRouter(<QueryOverviewPanel {...criticalProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/200 GB/)).toBeInTheDocument();
+    });
+  });
+
+  it('handles scan estimate with missing size data', async () => {
+    const propsWithMissingData = {
+      ...propsWithScanEstimate,
+      metricsResult: {
+        ...propsWithScanEstimate.metricsResult,
+        scan_estimate: {
+          total_bytes: null,
+          sources: [
+            {
+              source_name: 'source.unknown',
+              total_bytes: null,
+              partition_columns: [],
+              total_partition_count: null,
+            },
+          ],
+          has_materialization: false,
+        },
+      },
+    };
+
+    renderWithRouter(<QueryOverviewPanel {...propsWithMissingData} />);
+
+    // Should still render but show unknown/info icon
+    await waitFor(() => {
+      expect(screen.getByText(/Generated SQL/)).toBeInTheDocument();
+    });
+  });
+
+  it('toggles between optimized and raw SQL views', async () => {
+    const mockFetchRawSql = jest.fn().mockResolvedValue({
+      sql: 'SELECT * FROM raw_tables',
+      scan_estimate: {
+        total_bytes: 100 * 1024 * 1024 * 1024, // 100GB
+        sources: [
+          {
+            source_name: 'source.large_raw_table',
+            total_bytes: 100 * 1024 * 1024 * 1024,
+          },
+        ],
+      },
+    });
+
+    renderWithRouter(
+      <QueryOverviewPanel
+        {...propsWithScanEstimate}
+        onFetchRawSql={mockFetchRawSql}
+      />,
+    );
+
+    // Click raw SQL toggle
+    const rawButton = screen.getByText('Raw');
+    await act(async () => {
+      fireEvent.click(rawButton);
+    });
+
+    await waitFor(() => {
+      expect(mockFetchRawSql).toHaveBeenCalled();
+    });
+  });
+
+  it('does not show scan estimate when not provided', async () => {
+    const propsWithoutScan = {
+      ...propsWithScanEstimate,
+      metricsResult: {
+        sql: 'SELECT * FROM orders',
+        // No scan_estimate field
+      },
+    };
+
+    renderWithRouter(<QueryOverviewPanel {...propsWithoutScan} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Generated SQL/)).toBeInTheDocument();
+    });
+
+    // Should not show scan estimate banner
+    expect(screen.queryByText(/GB/)).not.toBeInTheDocument();
   });
 });

@@ -179,6 +179,10 @@ def test_merging_availability_simple_no_partitions() -> None:
         "partitions": [],
         "url": None,
         "links": {},
+        "total_partitions": None,
+        "total_row_count": None,
+        "total_size_bytes": None,
+        "ttl_days": None,
     }
 
 
@@ -220,6 +224,10 @@ def test_merging_availability_complex_no_partitions() -> None:
         "partitions": [],
         "url": None,
         "links": {},
+        "total_size_bytes": None,
+        "total_row_count": None,
+        "total_partitions": None,
+        "ttl_days": None,
     }
 
 
@@ -301,6 +309,10 @@ def test_merging_availability_complex_with_partitions() -> None:
         ],
         "url": None,
         "links": {},
+        "total_size_bytes": None,
+        "total_row_count": None,
+        "total_partitions": None,
+        "ttl_days": None,
     }
 
 

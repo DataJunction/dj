@@ -1540,6 +1540,87 @@
   background: #2563eb;
 }
 
+/* Scan Estimate Banner */
+.scan-estimate-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.scan-estimate-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.scan-estimate-content {
+  flex: 1;
+}
+
+.scan-estimate-header {
+  margin-bottom: 8px;
+}
+
+.scan-estimate-header strong {
+  font-weight: 600;
+}
+
+.scan-estimate-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.scan-source-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  font-family: var(--font-display);
+}
+
+.scan-source-name {
+  flex: 1;
+  color: var(--planner-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-source-size {
+  flex-shrink: 0;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* Scan estimate warning levels */
+.scan-estimate-ok {
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  color: var(--accent-success);
+}
+
+.scan-estimate-warning {
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: var(--accent-warning);
+}
+
+.scan-estimate-critical {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: var(--accent-error);
+}
+
 .sql-code-wrapper {
   padding: 0 16px 16px;
 }
@@ -1687,6 +1768,49 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Scan estimate styling */
+.preagg-summary-row .value.scan-estimate {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.scan-estimate-icon {
+  font-size: 12px;
+  display: inline-block;
+  min-width: 14px;
+  text-align: center;
+}
+
+.scan-estimate-hint {
+  font-size: 10px;
+  color: var(--planner-text-dim);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.scan-estimate-low {
+  color: #059669;
+}
+
+.scan-estimate-medium {
+  color: #d97706;
+}
+
+.scan-estimate-high {
+  color: #dc2626;
+}
+
+.scan-estimate-critical {
+  color: #991b1b;
+}
+
+.scan-estimate-unavailable {
+  color: var(--planner-text-dim);
+  font-style: italic;
 }
 
 .preagg-summary-status {
