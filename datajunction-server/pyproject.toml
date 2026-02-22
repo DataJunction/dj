@@ -7,6 +7,11 @@ include = [
   "datajunction_server/api/graphql/schema.graphql",
 ]
 
+[tool.ariadne-codegen]
+schema_path = "datajunction_server/api/graphql/schema.graphql"
+enable_custom_operations = true
+target_package_path = "../datajunction-clients/python/datajunction"
+
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction_server"]
 include = ["alembic/**", "alembic.ini"]
