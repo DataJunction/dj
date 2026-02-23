@@ -2004,40 +2004,6 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  getWorkspacePersonalNodes: async function (username, limit = 10) {
-    const personalNamespace = `users.${username}`;
-    const query = `
-      query PersonalNodes($namespace: String!, $limit: Int!) {
-        findNodesPaginated(namespace: $namespace, limit: $limit, orderBy: UPDATED_AT, ascending: false) {
-          edges {
-            node {
-              name
-              type
-              currentVersion
-              current {
-                displayName
-                status
-                mode
-                updatedAt
-              }
-            }
-          }
-        }
-      }
-    `;
-    return await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: { namespace: personalNamespace, limit },
-        }),
-      })
-    ).json();
-  },
-
   getWorkspaceCollections: async function (username) {
     const query = `
       query UserCollections($createdBy: String!) {
@@ -2107,36 +2073,6 @@ export const DataJunctionAPI = {
         body: JSON.stringify({
           query,
           variables: { ownedBy: username, limit },
-        }),
-      })
-    ).json();
-  },
-
-  getWorkspaceNodesMissingOwner: async function (limit = 5) {
-    const query = `
-      query NodesMissingOwner($limit: Int!) {
-        findNodesPaginated(missingOwner: true, limit: $limit) {
-          edges {
-            node {
-              name
-              type
-              current {
-                displayName
-                status
-              }
-            }
-          }
-        }
-      }
-    `;
-    return await (
-      await fetch(DJ_GQL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          query,
-          variables: { limit },
         }),
       })
     ).json();
