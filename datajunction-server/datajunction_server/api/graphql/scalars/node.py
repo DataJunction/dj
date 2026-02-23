@@ -256,7 +256,7 @@ class NodeRevision:
         The materialization configurations for this node
         """
         if not root.materializations:
-            return None
+            return []
         return [
             MaterializationConfig(  # type: ignore
                 name=m.name,
