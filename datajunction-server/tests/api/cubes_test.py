@@ -556,7 +556,7 @@ async def test_create_cube_similar_dimensions(
 
 
 @pytest.mark.asyncio
-async def test_create_cube(
+async def test_create_cube1(
     client_with_repairs_cube: AsyncClient,
 ):
     """
@@ -765,18 +765,54 @@ WITH default_DOT_repair_orders_fact AS (
     default_DOT_hard_hat_to_delete.hire_date
 )
 SELECT
-  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_country,
-  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_postal_code,
-  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_city,
-  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state,
-  default_DOT_repair_orders_fact_metrics.default_DOT_dispatcher_DOT_company_name,
-  default_DOT_repair_orders_fact_metrics.default_DOT_municipality_dim_DOT_local_region,
-  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date,
-  default_DOT_repair_orders_fact_metrics.default_DOT_discounted_orders_rate,
-  default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
-  default_DOT_repair_orders_fact_metrics.default_DOT_avg_repair_price,
-  default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost,
-  default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_order_discounts,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_country,
+    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_country
+  ) default_DOT_hard_hat_DOT_country,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_postal_code,
+    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_postal_code
+  ) default_DOT_hard_hat_DOT_postal_code,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_city,
+    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_city
+  ) default_DOT_hard_hat_DOT_city,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state,
+    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_state
+  ) default_DOT_hard_hat_DOT_state,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_dispatcher_DOT_company_name,
+    default_DOT_repair_order_details_metrics.default_DOT_dispatcher_DOT_company_name
+  ) default_DOT_dispatcher_DOT_company_name,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_municipality_dim_DOT_local_region,
+    default_DOT_repair_order_details_metrics.default_DOT_municipality_dim_DOT_local_region
+  ) default_DOT_municipality_dim_DOT_local_region,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date,
+    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date
+  ) default_DOT_hard_hat_to_delete_DOT_hire_date,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_discounted_orders_rate,
+    default_DOT_repair_order_details_metrics.default_DOT_discounted_orders_rate
+  ) default_DOT_discounted_orders_rate,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
+    default_DOT_repair_order_details_metrics.default_DOT_num_repair_orders
+  ) default_DOT_num_repair_orders,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_avg_repair_price,
+    default_DOT_repair_order_details_metrics.default_DOT_avg_repair_price
+  ) default_DOT_avg_repair_price,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost,
+    default_DOT_repair_order_details_metrics.default_DOT_total_repair_cost
+  ) default_DOT_total_repair_cost,
+  COALESCE(
+    default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_order_discounts,
+    default_DOT_repair_order_details_metrics.default_DOT_total_repair_order_discounts
+  ) default_DOT_total_repair_order_discounts,
   default_DOT_repair_order_details_metrics.default_DOT_double_total_repair_cost
 FROM default_DOT_repair_orders_fact_metrics
 FULL JOIN default_DOT_repair_order_details_metrics
