@@ -598,6 +598,9 @@ type Query {
 
   """List collections, optionally filtered by creator (for My Workspace)."""
   listCollections(
+    """Search fragment to filter collections by name or description"""
+    fragment: String = null
+
     """Filter to collections created by this user"""
     createdBy: String = null
 

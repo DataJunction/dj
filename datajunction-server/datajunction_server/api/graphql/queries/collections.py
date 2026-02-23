@@ -17,6 +17,12 @@ from datajunction_server.database.user import User
 
 
 async def list_collections(
+    fragment: Annotated[
+        str | None,
+        strawberry.argument(
+            description="Search fragment to filter collections by name or description",
+        ),
+    ] = None,
     created_by: Annotated[
         str | None,
         strawberry.argument(
@@ -31,7 +37,7 @@ async def list_collections(
     info: Info,
 ) -> list[Collection]:
     """
-    List collections, optionally filtered by creator.
+    List collections, optionally filtered by fragment, creator, or limit.
     """
     session = info.context["session"]
 
@@ -56,6 +62,13 @@ async def list_collections(
             joinedload(DBCollection.created_by),  # Eager load creator
         )
     )
+
+    # Filter by fragment (search in name or description)
+    if fragment:
+        statement = statement.where(
+            (DBCollection.name.ilike(f"%{fragment}%"))
+            | (DBCollection.description.ilike(f"%{fragment}%")),
+        )
 
     if created_by:
         statement = statement.join(

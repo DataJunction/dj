@@ -2,6 +2,8 @@
 Tests for the collections GraphQL queries.
 """
 
+from urllib.parse import quote
+
 import pytest
 from httpx import AsyncClient
 
@@ -330,7 +332,7 @@ async def test_list_collections_dataloader_batching(
         assert response.status_code == 201
 
         # Add nodes
-        collection_name = coll_data["name"].replace(" ", "%20")
+        collection_name = quote(str(coll_data["name"]))
         response = await client_with_roads.post(
             f"/collections/{collection_name}/nodes/",
             json=coll_data["nodes"],
@@ -501,6 +503,147 @@ async def test_list_collections_no_collections(
 
 
 @pytest.mark.asyncio
+async def test_list_collections_with_fragment_search(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test searching collections by fragment in name or description.
+    """
+    # Create collections with different names and descriptions
+    collections_data = [
+        {
+            "name": "Repair Metrics Collection",
+            "description": "Metrics for repair operations",
+        },
+        {
+            "name": "Dimension Tables",
+            "description": "Various dimension tables",
+        },
+        {
+            "name": "Revenue Analytics",
+            "description": "Revenue and repair cost analysis",
+        },
+    ]
+
+    for coll_data in collections_data:
+        response = await client_with_roads.post(
+            "/collections/",
+            json=coll_data,
+        )
+        assert response.status_code == 201
+
+    # Search by "repair" - should match name of first collection and description of third
+    query = """
+    {
+        listCollections(fragment: "repair") {
+            name
+            description
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    collection_names = {c["name"] for c in collections}
+    assert "Repair Metrics Collection" in collection_names
+    assert "Revenue Analytics" in collection_names
+    assert "Dimension Tables" not in collection_names
+
+    # Search by "dimension" - should match name of second collection
+    query = """
+    {
+        listCollections(fragment: "dimension") {
+            name
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 1
+    assert collections[0]["name"] == "Dimension Tables"
+
+    # Search by "revenue" - should match name of third collection
+    query = """
+    {
+        listCollections(fragment: "revenue") {
+            name
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 1
+    assert collections[0]["name"] == "Revenue Analytics"
+
+    # Search with non-matching fragment
+    query = """
+    {
+        listCollections(fragment: "nonexistent") {
+            name
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 0
+
+
+@pytest.mark.asyncio
+async def test_list_collections_combined_filters(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test combining fragment search with created_by filter.
+    """
+    # Create some collections
+    collections_data = [
+        {"name": "User Metrics", "description": "User-related metrics"},
+        {"name": "System Metrics", "description": "System performance metrics"},
+    ]
+
+    for coll_data in collections_data:
+        response = await client_with_roads.post(
+            "/collections/",
+            json=coll_data,
+        )
+        assert response.status_code == 201
+
+    # Search for "metrics" created by "dj"
+    query = """
+    {
+        listCollections(fragment: "metrics", createdBy: "dj") {
+            name
+            createdBy {
+                username
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 2
+
+    # All should be created by dj and match the fragment
+    for collection in collections:
+        assert collection["createdBy"]["username"] == "dj"
+        assert "metrics" in collection["name"].lower()
+
+
+@pytest.mark.asyncio
 async def test_list_collections_with_various_node_types(
     client_with_roads: AsyncClient,
 ) -> None:
@@ -566,3 +709,224 @@ async def test_list_collections_with_various_node_types(
     # All nodes should have a current version
     for node in nodes:
         assert node["currentVersion"] is not None
+
+
+@pytest.mark.asyncio
+async def test_list_collections_nodes_with_availability(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that availability information is properly loaded for nodes in collections.
+    """
+    # Create a collection with nodes
+    response = await client_with_roads.post(
+        "/collections/",
+        json={
+            "name": "Availability Test",
+            "description": "Testing availability field loading",
+        },
+    )
+    assert response.status_code == 201
+
+    # Add nodes to the collection
+    response = await client_with_roads.post(
+        "/collections/Availability%20Test/nodes/",
+        json=["default.repair_orders", "default.hard_hat"],
+    )
+    assert response.status_code == 204
+
+    # Query collections with availability information
+    query = """
+    {
+        listCollections {
+            name
+            nodes {
+                name
+                current {
+                    availability {
+                        catalog
+                        schema_
+                        table
+                        minTemporalPartition
+                        maxTemporalPartition
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 1
+
+    # Verify nodes were loaded with availability field
+    # Note: These nodes may not have availability data set, so we're just
+    # checking that the field is queryable without errors
+    nodes = collections[0]["nodes"]
+    assert len(nodes) == 2
+    for node in nodes:
+        assert "current" in node
+        # availability will be None if not set, which is valid
+        assert "availability" in node["current"]
+
+
+@pytest.mark.asyncio
+async def test_list_collections_nodes_with_materializations(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test that materialization information is properly loaded for nodes in collections.
+    """
+    # Create a collection with nodes
+    response = await client_with_roads.post(
+        "/collections/",
+        json={
+            "name": "Materialization Test",
+            "description": "Testing materialization field loading",
+        },
+    )
+    assert response.status_code == 201
+
+    # Add nodes to the collection
+    response = await client_with_roads.post(
+        "/collections/Materialization%20Test/nodes/",
+        json=["default.repair_orders_fact", "default.hard_hat"],
+    )
+    assert response.status_code == 204
+
+    # First, try to set up a materialization on one of the nodes
+    # Note: This may fail in test environment, but we can still test querying
+    await client_with_roads.post(
+        "/nodes/default.repair_orders_fact/columns/repair_order_id/partition",
+        json={"type_": "categorical"},
+    )
+
+    # Query collections with materialization information
+    query = """
+    {
+        listCollections {
+            name
+            nodes {
+                name
+                current {
+                    materializations {
+                        name
+                        job
+                        strategy
+                        schedule
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 1
+
+    # Verify nodes were loaded with materializations field
+    # Note: These nodes may not have materializations configured, so we're just
+    # checking that the field is queryable without errors
+    nodes = collections[0]["nodes"]
+    assert len(nodes) == 2
+    for node in nodes:
+        assert "current" in node
+        # materializations will be None or [] if not set, which is valid
+        assert "materializations" in node["current"]
+
+
+@pytest.mark.asyncio
+async def test_list_collections_nodes_with_complex_fields(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test loading nodes with multiple complex fields at once
+    (columns, availability, materializations, parents).
+    This verifies that the eager loading works correctly for all fields.
+    """
+    # Create a collection with various node types
+    response = await client_with_roads.post(
+        "/collections/",
+        json={
+            "name": "Complex Fields Test",
+            "description": "Testing multiple complex fields",
+        },
+    )
+    assert response.status_code == 201
+
+    # Add nodes with different characteristics
+    response = await client_with_roads.post(
+        "/collections/Complex%20Fields%20Test/nodes/",
+        json=[
+            "default.repair_orders",  # SOURCE with columns
+            "default.repair_orders_fact",  # TRANSFORM with parents
+            "default.num_repair_orders",  # METRIC
+        ],
+    )
+    assert response.status_code == 204
+
+    # Query with multiple complex fields
+    query = """
+    {
+        listCollections {
+            name
+            nodes {
+                name
+                type
+                current {
+                    columns {
+                        name
+                        type
+                    }
+                    availability {
+                        catalog
+                        table
+                    }
+                    materializations {
+                        name
+                        strategy
+                    }
+                    parents {
+                        name
+                        type
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+
+    collections = data["data"]["listCollections"]
+    assert len(collections) == 1
+
+    nodes = collections[0]["nodes"]
+    assert len(nodes) == 3
+
+    # Verify different node types have their expected fields
+    source_node = next((n for n in nodes if n["type"] == "SOURCE"), None)
+    assert source_node is not None
+    assert len(source_node["current"]["columns"]) > 0
+
+    transform_node = next((n for n in nodes if n["type"] == "TRANSFORM"), None)
+    assert transform_node is not None
+    # Transform node should have parents
+    assert "parents" in transform_node["current"]
+
+    metric_node = next((n for n in nodes if n["type"] == "METRIC"), None)
+    assert metric_node is not None
+    # All fields should be queryable
+    assert "columns" in metric_node["current"]
+    assert "availability" in metric_node["current"]
+    assert "materializations" in metric_node["current"]
