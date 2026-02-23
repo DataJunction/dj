@@ -41,6 +41,16 @@ type Catalog {
   engines: [Engine!]
 }
 
+type Collection {
+  id: Int!
+  name: String!
+  description: String
+  createdAt: DateTime!
+  createdBy: User!
+  nodeCount: Int!
+  nodes: [Node!]!
+}
+
 type Column {
   name: String!
   displayName: String
@@ -323,14 +333,14 @@ type NodeRevision {
   customMetadata: JSON
   query: String
   parents: [NodeNameVersion!]!
-  availability: AvailabilityState
-  materializations: [MaterializationConfig!]
   schema_: String
   table: String
   requiredDimensions: [Column!]
   catalog: Catalog
   columns(attributes: [String!] = null): [Column!]!
   dimensionLinks: [DimensionLink!]!
+  availability: AvailabilityState
+  materializations: [MaterializationConfig!]
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   isDerivedMetric: Boolean!
@@ -585,6 +595,18 @@ type Query {
 
   """List all DJ node tag types"""
   listTagTypes: [String!]!
+
+  """List collections, optionally filtered by creator (for My Workspace)."""
+  listCollections(
+    """Search fragment to filter collections by name or description"""
+    fragment: String = null
+
+    """Filter to collections created by this user"""
+    createdBy: String = null
+
+    """Limit collections"""
+    limit: Int = 100
+  ): [Collection!]!
 }
 
 type SemanticEntity {
