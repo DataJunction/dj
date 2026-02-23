@@ -971,7 +971,7 @@ def get_node_revision_materialization(
                 request_headers=request_headers,
             )
             if materialization.strategy != MaterializationStrategy.INCREMENTAL_TIME:
-                info.urls = [info.urls[0]]
+                info.urls = [info.urls[0]] if info.urls else []
             materialization_config_output = MaterializationConfigOutput.model_validate(
                 materialization,
             )
