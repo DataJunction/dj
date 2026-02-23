@@ -115,6 +115,7 @@ export function MyWorkspacePage() {
           <CollectionsSection
             collections={collections}
             loading={collectionsLoading}
+            currentUser={currentUser}
           />
 
           {/* My Nodes */}
@@ -248,7 +249,10 @@ function NotificationsSection({ notifications, username, loading }) {
             {mostRecent.display_name || mostRecent.entity_name.split('.').pop()}
           </a>
           {mostRecent.node_type && (
-            <NodeBadge type={mostRecent.node_type.toUpperCase()} size="medium" />
+            <NodeBadge
+              type={mostRecent.node_type.toUpperCase()}
+              size="medium"
+            />
           )}
           <span style={{ color: '#888', whiteSpace: 'nowrap' }}>
             {count > 1
@@ -736,23 +740,10 @@ function MyNodesSection({
 }
 
 // Collections Section (includes featured + my collections)
-function CollectionsSection({ collections, loading }) {
+function CollectionsSection({ collections, loading, currentUser }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const [currentUser, setCurrentUser] = useState(null);
   const [allCollections, setAllCollections] = useState([]);
   const [allLoading, setAllLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await djClient.whoami();
-        setCurrentUser(user);
-      } catch (error) {
-        console.error('Error fetching user:', error);
-      }
-    };
-    fetchUser();
-  }, [djClient]);
 
   useEffect(() => {
     const fetchAll = async () => {

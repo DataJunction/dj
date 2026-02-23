@@ -9,7 +9,12 @@ import * as React from 'react';
  * @param {boolean} [props.abbreviated=false] - Show only first character
  * @param {Object} [props.style] - Additional styles
  */
-export function NodeBadge({ type, size = 'medium', abbreviated = false, style = {} }) {
+export function NodeBadge({
+  type,
+  size = 'medium',
+  abbreviated = false,
+  style = {},
+}) {
   if (!type) return null;
 
   const sizeMap = {
@@ -45,7 +50,13 @@ export function NodeBadge({ type, size = 'medium', abbreviated = false, style = 
  * @param {boolean} [props.ellipsis=false] - Enable text overflow ellipsis
  * @param {Object} [props.style] - Additional styles
  */
-export function NodeLink({ node, size = 'medium', showFullName = false, ellipsis = false, style = {} }) {
+export function NodeLink({
+  node,
+  size = 'medium',
+  showFullName = false,
+  ellipsis = false,
+  style = {},
+}) {
   if (!node?.name) return null;
 
   const sizeMap = {
