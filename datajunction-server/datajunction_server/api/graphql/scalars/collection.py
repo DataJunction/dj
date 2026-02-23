@@ -36,20 +36,7 @@ class Collection:
         Get the nodes in this collection.
         Uses dataloader to batch requests efficiently.
         """
-        loader = info.context.get("collection_nodes_loader")
-        if not loader:
-            # Fallback if dataloader not configured
-            session = info.context["session"]
-            from datajunction_server.database.collection import (
-                Collection as DBCollection,
-            )
-
-            collection = await DBCollection.get_by_name(session, self.name)
-            if not collection:
-                return []
-            return collection.nodes  # type: ignore
-
-        # Use dataloader for efficient batching
+        loader = info.context["collection_nodes_loader"]
         nodes = await loader.load(self.id)
         return nodes  # type: ignore
 

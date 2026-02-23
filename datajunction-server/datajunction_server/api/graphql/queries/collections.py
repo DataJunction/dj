@@ -78,7 +78,7 @@ async def list_collections(
 
     statement = statement.order_by(DBCollection.created_at.desc())
 
-    if limit and limit > 0:
+    if limit and limit > 0:  # pragma: no branch
         statement = statement.limit(limit)
 
     result = await session.execute(statement)

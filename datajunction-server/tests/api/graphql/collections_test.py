@@ -735,6 +735,21 @@ async def test_list_collections_nodes_with_availability(
     )
     assert response.status_code == 204
 
+    # Set availability on one of the nodes
+    response = await client_with_roads.post(
+        "/data/default.repair_orders/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repair_orders",
+            "valid_through_ts": 20230125,
+            "max_temporal_partition": ["2023", "01", "25"],
+            "min_temporal_partition": ["2022", "01", "01"],
+            "url": "http://some.catalog.com/default.roads.repair_orders",
+        },
+    )
+    assert response.status_code == 200
+
     # Query collections with availability information
     query = """
     {
@@ -749,6 +764,7 @@ async def test_list_collections_nodes_with_availability(
                         table
                         minTemporalPartition
                         maxTemporalPartition
+                        url
                     }
                 }
             }
@@ -764,14 +780,28 @@ async def test_list_collections_nodes_with_availability(
     assert len(collections) == 1
 
     # Verify nodes were loaded with availability field
-    # Note: These nodes may not have availability data set, so we're just
-    # checking that the field is queryable without errors
     nodes = collections[0]["nodes"]
     assert len(nodes) == 2
-    for node in nodes:
-        assert "current" in node
-        # availability will be None if not set, which is valid
-        assert "availability" in node["current"]
+
+    # Find the node with availability set
+    repair_orders_node = next(
+        (n for n in nodes if n["name"] == "default.repair_orders"),
+        None,
+    )
+    assert repair_orders_node is not None
+    availability = repair_orders_node["current"]["availability"]
+    assert availability is not None
+    assert availability["catalog"] == "default"
+    assert availability["schema_"] == "roads"
+    assert availability["table"] == "repair_orders"
+    assert availability["minTemporalPartition"] == ["2022", "01", "01"]
+    assert availability["maxTemporalPartition"] == ["2023", "01", "25"]
+    assert availability["url"] == "http://some.catalog.com/default.roads.repair_orders"
+
+    # The other node should have no availability
+    hard_hat_node = next((n for n in nodes if n["name"] == "default.hard_hat"), None)
+    assert hard_hat_node is not None
+    assert hard_hat_node["current"]["availability"] is None
 
 
 @pytest.mark.asyncio
