@@ -10,7 +10,10 @@ from strawberry.types import Info
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from datajunction_server.api.graphql.scalars import BigInt
-from datajunction_server.api.graphql.scalars.availabilitystate import AvailabilityState
+from datajunction_server.api.graphql.scalars.availabilitystate import (
+    AvailabilityState,
+    PartitionAvailability,
+)
 from datajunction_server.api.graphql.scalars.catalog_engine import Catalog
 from datajunction_server.api.graphql.scalars.column import (
     Column,
@@ -20,7 +23,9 @@ from datajunction_server.api.graphql.scalars.column import (
 )
 from datajunction_server.api.graphql.scalars.git_info import GitRepositoryInfo
 from datajunction_server.api.graphql.scalars.materialization import (
+    Backfill,
     MaterializationConfig,
+    PartitionBackfill,
 )
 from datajunction_server.api.graphql.scalars.metricmetadata import (
     DecomposedMetric,
@@ -212,8 +217,72 @@ class NodeRevision:
     parents: List[NodeNameVersion]
 
     # Materialization-related outputs
-    availability: Optional[AvailabilityState] = None
-    materializations: Optional[List[MaterializationConfig]] = None
+    @strawberry.field
+    def availability(self, root: "DBNodeRevision") -> Optional[AvailabilityState]:
+        """
+        The availability state of materialized data for this node
+        """
+        if not root.availability:
+            return None
+        return AvailabilityState(  # type: ignore
+            catalog=root.availability.catalog,
+            schema_=root.availability.schema_,
+            table=root.availability.table,
+            valid_through_ts=root.availability.valid_through_ts,
+            url=root.availability.url,
+            categorical_partitions=root.availability.categorical_partitions,
+            temporal_partitions=root.availability.temporal_partitions,
+            min_temporal_partition=root.availability.min_temporal_partition,
+            max_temporal_partition=root.availability.max_temporal_partition,
+            partitions=[
+                PartitionAvailability(  # type: ignore
+                    min_temporal_partition=p.min_temporal_partition,
+                    max_temporal_partition=p.max_temporal_partition,
+                    value=p.value,
+                    valid_through_ts=p.valid_through_ts,
+                )
+                for p in (root.availability.partitions or [])
+            ]
+            if root.availability.partitions
+            else None,
+        )
+
+    @strawberry.field
+    def materializations(
+        self,
+        root: "DBNodeRevision",
+    ) -> Optional[List[MaterializationConfig]]:
+        """
+        The materialization configurations for this node
+        """
+        if not root.materializations:
+            return None
+        return [
+            MaterializationConfig(  # type: ignore
+                name=m.name,
+                config=m.config,
+                schedule=m.schedule,
+                job=m.job,
+                strategy=str(m.strategy.value) if m.strategy else None,
+                backfills=[
+                    Backfill(  # type: ignore
+                        spec=[
+                            PartitionBackfill(  # type: ignore
+                                column_name=p.column_name,
+                                values=p.values,
+                                range=p.range,
+                            )
+                            for p in (b.spec or [])
+                        ]
+                        if b.spec
+                        else None,
+                        urls=b.urls,
+                    )
+                    for b in (m.backfills or [])
+                ],
+            )
+            for m in root.materializations
+        ]
 
     # Only source nodes will have these fields
     schema_: Optional[str]
