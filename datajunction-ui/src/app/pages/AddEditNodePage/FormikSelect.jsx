@@ -48,8 +48,12 @@ export const FormikSelect = ({
     if (isMulti) {
       // For multi-select, map array of values to option objects
       return Array.isArray(field.value)
-        ? field.value.map(val =>
-            selectOptions.find(opt => opt.value === val) || { value: val, label: val }
+        ? field.value.map(
+            val =>
+              selectOptions.find(opt => opt.value === val) || {
+                value: val,
+                label: val,
+              },
           )
         : [];
     } else {
