@@ -207,38 +207,33 @@ async def find_join_paths_batch(
 
         # Process results: for each link found, apply to all frontier items with that source node
         for row in rows:
-            from_node_id = row.node_id
-            link_id = row.link_id
-            to_node_id = row.to_node_id
-            dim_name = row.dim_name
-            link_role = row.link_role
-
-            # Apply this link to all frontier items that came from this node
-            for item in frontier_by_node[from_node_id]:
+            for item in frontier_by_node[row.node_id]:
                 # Cycle prevention: skip if we've already visited this node
-                if to_node_id in item.visited:
+                if row.to_node_id in item.visited:
                     continue
 
                 # Build new path and role
-                new_path = item.path_so_far + [link_id]
+                new_path = item.path_so_far + [row.link_id]
                 new_role_path = (
-                    (item.role_path + "->" + link_role) if item.role_path else link_role
+                    (item.role_path + "->" + row.link_role)
+                    if item.role_path
+                    else row.link_role
                 )
-                new_visited = item.visited + [to_node_id]
+                new_visited = item.visited + [row.to_node_id]
 
                 # Check if this reaches a target
-                if dim_name in target_dimension_names:
-                    key = (item.source_rev_id, dim_name, new_role_path)
+                if row.dim_name in target_dimension_names:
+                    key = (item.source_rev_id, row.dim_name, new_role_path)
                     if key not in found_paths:
                         found_paths[key] = new_path
-                        targets_found_at_depth.add(dim_name)
+                        targets_found_at_depth.add(row.dim_name)
 
                 # Add to new frontier (explore further regardless of whether it's a target)
                 # This allows finding multi-hop paths through intermediate targets
                 new_frontier.append(
                     JoinPathState(
                         source_rev_id=item.source_rev_id,
-                        node_id=to_node_id,
+                        node_id=row.to_node_id,
                         path_so_far=new_path,
                         role_path=new_role_path,
                         visited=new_visited,
