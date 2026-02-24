@@ -116,8 +116,12 @@ async def find_join_paths_batch(
     Key optimization: Once a path reaches a target dimension, it stops exploring
     from that node (no point continuing past a target).
     """
+    import time
+
+    start_time = time.time()
+
     logger.info(
-        "[BuildV3] find_join_paths_batch: Starting recursive CTE query (max_depth=%d)...",
+        "[BuildV3] find_join_paths_batch: Starting BFS path finding (max_depth=%d)...",
         max_depth,
     )
     logger.info(
@@ -130,201 +134,201 @@ async def find_join_paths_batch(
         logger.info("[BuildV3] find_join_paths_batch: Empty input, returning early")
         return {}
 
-    # Breadth-first search with true early termination
-    # Tries each depth level incrementally and stops at the first level where we find paths
-    # This prevents exploring deeper paths when shorter ones exist
-    recursive_query = text("""
-        WITH RECURSIVE paths AS (
-            -- Base case: first level dimension links from any source node
-            SELECT
-                dl.node_revision_id as source_rev_id,
-                dl.id as link_id,
-                n.name as dim_name,
-                CAST(dl.id AS TEXT) as path,
-                COALESCE(dl.role, '') as role_path,
-                1 as depth,
-                CASE WHEN n.name IN :target_names THEN 1 ELSE 0 END as is_target,
-                ARRAY[dl.dimension_id] as visited_nodes
-            FROM dimensionlink dl
-            JOIN node n ON dl.dimension_id = n.id
-            WHERE dl.node_revision_id IN :source_revision_ids
+    # BFS frontier expansion approach:
+    # - Start with source nodes as frontier
+    # - Each iteration: expand frontier by one hop, check if we found all targets
+    # - Stop when all targets found OR no more frontier OR max depth reached
+    # This avoids re-exploring previous depths and enables true early termination
 
-            UNION
+    # Track found paths: (source_rev_id, target_name, role) -> [link_ids]
+    found_paths: dict[tuple[int, str, str], list[int]] = {}
 
-            -- Recursive case: only explore if we haven't found ALL targets yet at shallower depth
-            -- This is true breadth-first: explore all paths at depth N before moving to N+1
-            SELECT
-                paths.source_rev_id,
-                dl2.id as link_id,
-                n2.name as dim_name,
-                paths.path || ',' || CAST(dl2.id AS TEXT) as path,
-                paths.role_path || '->' || COALESCE(dl2.role, '') as role_path,
-                paths.depth + 1 as depth,
-                CASE WHEN n2.name IN :target_names THEN 1 ELSE 0 END as is_target,
-                paths.visited_nodes || dl2.dimension_id
-            FROM paths
-            JOIN node prev_node ON paths.dim_name = prev_node.name
-            JOIN noderevision nr ON prev_node.current_version = nr.version AND nr.node_id = prev_node.id
-            JOIN dimensionlink dl2 ON dl2.node_revision_id = nr.id
-            JOIN node n2 ON dl2.dimension_id = n2.id
-            WHERE paths.depth < :max_depth
-              AND NOT (dl2.dimension_id = ANY(paths.visited_nodes))  -- Cycle prevention
-              -- Allow exploring through targets to reach other targets (multi-hop paths)
-              -- Cycle prevention handles infinite loops
-        ),
-        -- Find the minimum depth where we found each (source, target, role) combination
-        min_depths AS (
-            SELECT source_rev_id, dim_name, role_path, MIN(depth) as min_depth
-            FROM paths
-            WHERE is_target = 1
-            GROUP BY source_rev_id, dim_name, role_path
-        )
-        -- Only return paths at their minimum depth (shortest paths)
-        SELECT p.source_rev_id, p.dim_name, p.path, p.role_path, p.depth
-        FROM paths p
-        JOIN min_depths md ON
-            p.source_rev_id = md.source_rev_id
-            AND p.dim_name = md.dim_name
-            AND p.role_path = md.role_path
-            AND p.depth = md.min_depth
-        WHERE p.is_target = 1
-        ORDER BY p.depth ASC
-    """).bindparams(
-        bindparam("source_revision_ids", expanding=True),
-        bindparam("target_names", expanding=True),
-    )
+    # Initialize frontier: each source node starts exploration
+    # Frontier item: (source_rev_id, current_node_id, path_so_far, role_path, visited_node_ids)
+    frontier: list[tuple[int, int, list[int], str, list[int]]] = []
 
-    # First, let's check what dimension links actually exist from these sources
-    # This helps debug why we might not find expected paths
-    debug_query = text("""
-        SELECT
-            n.name as source_node,
-            nr.id as source_rev_id,
-            dim.name as target_dim,
-            dl.role,
-            dl.join_type
-        FROM dimensionlink dl
-        JOIN noderevision nr ON dl.node_revision_id = nr.id
-        JOIN node n ON nr.node_id = n.id
-        JOIN node dim ON dl.dimension_id = dim.id
+    # Get the node_id for each source revision to start BFS
+    init_query = text("""
+        SELECT nr.id as rev_id, nr.node_id
+        FROM noderevision nr
         WHERE nr.id IN :source_revision_ids
-        ORDER BY n.name, dim.name
     """).bindparams(bindparam("source_revision_ids", expanding=True))
 
-    debug_result = await session.execute(
-        debug_query,
+    init_result = await session.execute(
+        init_query,
         {"source_revision_ids": list(source_revision_ids)},
     )
-    debug_rows = debug_result.fetchall()
 
-    if debug_rows:
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Found %d direct dimension link(s) from source nodes:",
-            len(debug_rows),
-        )
-        for source_node, source_rev_id, target_dim, role, join_type in debug_rows:
-            logger.info(
-                "  - %s (rev=%d) -> %s [role=%s, type=%s]",
-                source_node,
-                source_rev_id,
-                target_dim,
-                role or "null",
-                join_type,
-            )
-    else:
-        logger.warning(
-            "[BuildV3] find_join_paths_batch: No direct dimension links found from source revision IDs: %s",
-            list(source_revision_ids),
-        )
-
-    # Iterative deepening: try shallow depths first (fast), go deeper only if needed
-    # Most paths are 1-3 hops, so this finds them quickly without exploring deep
-    paths: dict[tuple[int, str, str], list[int]] = {}
-
-    # Try depths incrementally: 1, 2, 3, 5, 10, 20, 30
-    # Increasing gaps since deeper searches are exponentially slower
-    depth_sequence = [1, 2, 3, 5, 10, 20, 30]
-
-    for current_max_depth in depth_sequence:
-        if current_max_depth > max_depth:
-            break
-
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Trying depth %d (found %d paths so far)...",
-            current_max_depth,
-            len(paths),
-        )
-
-        # Set a statement timeout for each iteration (5 seconds per depth level)
-        await session.execute(text("SET LOCAL statement_timeout = '5s'"))
-
-        try:
-            result = await session.execute(
-                recursive_query,
-                {
-                    "source_revision_ids": list(source_revision_ids),
-                    "max_depth": current_max_depth,
-                    "target_names": list(target_dimension_names),
-                },
-            )
-        except Exception as e:
-            logger.warning(
-                "[BuildV3] find_join_paths_batch: Depth %d timed out or failed: %s",
-                current_max_depth,
-                str(e),
-            )
-            # Reset timeout and try next depth
-            await session.execute(text("SET LOCAL statement_timeout = DEFAULT"))
-            continue
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Query executed, fetching results...",
-        )
-        rows = result.fetchall()
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Got %d row(s) at depth %d",
-            len(rows),
-            current_max_depth,
-        )
-
-        # Log which dimensions were found at this depth
-        dims_at_depth = set()
-        for source_rev_id, dim_name, path_str, role_path, depth in rows:
-            dims_at_depth.add(dim_name)
-        if dims_at_depth:
-            logger.info(
-                "[BuildV3] find_join_paths_batch: Dimensions found at depth %d: %s",
-                current_max_depth,
-                sorted(dims_at_depth),
-            )
-
-        # Build paths dict for this depth level
-        new_paths_found = 0
-        for source_rev_id, dim_name, path_str, role_path, depth in rows:
-            key = (source_rev_id, dim_name, role_path or "")
-            if key not in paths:  # Only add if we haven't found this path yet
-                paths[key] = [int(x) for x in path_str.split(",")]
-                new_paths_found += 1
-
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Added %d new path(s) at depth %d",
-            new_paths_found,
-            current_max_depth,
-        )
-
-        # Early exit: if we didn't find any new paths at this depth, likely won't find any deeper
-        # This is more reliable than counting total paths (which can vary with roles)
-        if new_paths_found == 0 and len(paths) > 0:
-            logger.info(
-                "[BuildV3] find_join_paths_batch: No new paths at depth %d, stopping search",
-                current_max_depth,
-            )
-            break
+    for rev_id, node_id in init_result:
+        frontier.append((rev_id, node_id, [], "", []))
 
     logger.info(
-        "[BuildV3] find_join_paths_batch: COMPLETE - found %d path(s) total",
-        len(paths),
+        "[BuildV3] find_join_paths_batch: Starting BFS with %d source node(s), seeking %d target(s): %s",
+        len(frontier),
+        len(target_dimension_names),
+        sorted(target_dimension_names),
     )
-    return paths
+
+    # BFS: explore depth by depth
+    # We explore up to a practical depth limit (typically 5-10 hops is more than enough)
+    practical_max_depth = min(max_depth, 10)
+    total_queries = 0
+
+    for depth in range(1, practical_max_depth + 1):
+        if not frontier:
+            logger.info(
+                "[BuildV3] find_join_paths_batch: No more frontier at depth %d, stopping",
+                depth,
+            )
+            break
+
+        depth_start_time = time.time()
+        logger.info(
+            "[BuildV3] find_join_paths_batch: Depth %d - expanding %d frontier node(s)...",
+            depth,
+            len(frontier),
+        )
+
+        # Expand frontier by one hop - BATCH query for all frontier nodes
+        new_frontier: list[tuple[int, int, list[int], str, list[int]]] = []
+        targets_found_at_depth = set()
+
+        # Build a map: node_id -> list of frontier items with that node
+        frontier_by_node: dict[
+            int,
+            list[tuple[int, int, list[int], str, list[int]]],
+        ] = {}
+        for item in frontier:
+            node_id = item[1]
+            if node_id not in frontier_by_node:
+                frontier_by_node[node_id] = []
+            frontier_by_node[node_id].append(item)
+
+        # Single batched query for ALL frontier nodes at this depth
+        frontier_node_ids = list(frontier_by_node.keys())
+        logger.info(
+            "[BuildV3] find_join_paths_batch: Depth %d - executing single batch query for %d unique node(s)...",
+            depth,
+            len(frontier_node_ids),
+        )
+
+        expand_query = text("""
+            SELECT
+                nr.node_id,
+                dl.id as link_id,
+                dl.dimension_id as to_node_id,
+                n.name as dim_name,
+                COALESCE(dl.role, '') as link_role
+            FROM noderevision nr
+            JOIN dimensionlink dl ON dl.node_revision_id = nr.id
+            JOIN node n ON dl.dimension_id = n.id
+            WHERE nr.node_id IN :node_ids
+                AND nr.version = (SELECT current_version FROM node WHERE id = nr.node_id)
+        """).bindparams(bindparam("node_ids", expanding=True))
+
+        query_start = time.time()
+        total_queries += 1
+        try:
+            expand_result = await session.execute(
+                expand_query,
+                {"node_ids": frontier_node_ids},
+            )
+            query_time = time.time() - query_start
+            rows = expand_result.fetchall()
+            logger.info(
+                "[BuildV3] find_join_paths_batch: Depth %d batch query returned %d link(s) from %d node(s) (%.3fs)",
+                depth,
+                len(rows),
+                len(frontier_node_ids),
+                query_time,
+            )
+        except Exception as e:
+            logger.error(
+                "[BuildV3] find_join_paths_batch: Batch query FAILED at depth %d: %s",
+                depth,
+                str(e),
+            )
+            break
+
+        # Process results: for each link found, apply to all frontier items with that source node
+        for row in rows:
+            from_node_id = row.node_id
+            link_id = row.link_id
+            to_node_id = row.to_node_id
+            dim_name = row.dim_name
+            link_role = row.link_role
+
+            # Apply this link to all frontier items that came from this node
+            for (
+                source_rev_id,
+                node_id,
+                path_so_far,
+                role_path,
+                visited,
+            ) in frontier_by_node[from_node_id]:
+                # Cycle prevention: skip if we've already visited this node
+                if to_node_id in visited:
+                    continue
+
+                # Build new path and role
+                new_path = path_so_far + [link_id]
+                new_role_path = (
+                    (role_path + "->" + link_role) if role_path else link_role
+                )
+                new_visited = visited + [to_node_id]
+
+                # Check if this reaches a target
+                if dim_name in target_dimension_names:
+                    key = (source_rev_id, dim_name, new_role_path)
+                    if key not in found_paths:
+                        found_paths[key] = new_path
+                        targets_found_at_depth.add(dim_name)
+                        logger.info(
+                            "[BuildV3] find_join_paths_batch: Found path to %s with role '%s' at depth %d (path length: %d)",
+                            dim_name,
+                            new_role_path,
+                            depth,
+                            len(new_path),
+                        )
+
+                # Add to new frontier (explore further regardless of whether it's a target)
+                # This allows finding multi-hop paths through intermediate targets
+                new_frontier.append(
+                    (source_rev_id, to_node_id, new_path, new_role_path, new_visited),
+                )
+
+        if targets_found_at_depth:
+            logger.info(
+                "[BuildV3] find_join_paths_batch: Found %d target(s) at depth %d: %s",
+                len(targets_found_at_depth),
+                depth,
+                sorted(targets_found_at_depth),
+            )
+
+        # Update frontier for next iteration
+        frontier = new_frontier
+
+        # Continue exploring even if we found some targets, because:
+        # 1. We might need the same dimension with different roles (multi-hop paths)
+        # 2. BFS naturally finds shortest paths first, so we'll get those before longer ones
+        # 3. We stop when frontier is empty (no more nodes to explore)
+        depth_time = time.time() - depth_start_time
+        logger.info(
+            "[BuildV3] find_join_paths_batch: Depth %d complete - %d path(s) found, %d frontier node(s) for next depth (%.3fs)",
+            depth,
+            len(found_paths),
+            len(frontier),
+            depth_time,
+        )
+
+    total_time = time.time() - start_time
+    logger.info(
+        "[BuildV3] find_join_paths_batch: COMPLETE - found %d path(s) total (%.3fs total, %d queries)",
+        len(found_paths),
+        total_time,
+        total_queries,
+    )
+    return found_paths
 
 
 async def load_dimension_links_batch(
@@ -372,12 +376,13 @@ async def preload_join_paths(
     """
     Preload all join paths from multiple source nodes to target dimensions.
 
-    Uses a single recursive CTE query to find paths from ALL sources at once,
-    then a single batch load for DimensionLink objects. Results are stored
-    in ctx.join_paths.
-
-    This is O(2) queries regardless of how many source nodes we have.
+    Uses BFS to find paths from ALL sources to all targets, then a single
+    batch load for DimensionLink objects. Results are stored in ctx.join_paths.
     """
+    import time
+
+    start_time = time.time()
+
     logger.info(
         "[BuildV3] preload_join_paths: Starting with %d source revisions, %d target dimensions",
         len(source_revision_ids),
@@ -435,10 +440,12 @@ async def preload_join_paths(
         sorted(unique_targets),
     )
 
+    total_time = time.time() - start_time
     logger.info(
-        "[BuildV3] preload_join_paths: COMPLETE - Preloaded %d join paths for %d sources",
+        "[BuildV3] preload_join_paths: COMPLETE - Preloaded %d join paths for %d sources (%.3fs total)",
         len(path_ids),
         len(source_revision_ids),
+        total_time,
     )
 
 
@@ -450,6 +457,9 @@ async def load_nodes(ctx: BuildContext) -> None:
     Query 2: Batch load all those nodes with eager loading
     Query 3-4: Find join paths and batch load dimension links
     """
+    import time
+
+    start_time = time.time()
     logger.info("[BuildV3] load_nodes: Starting...")
     # Collect initial node names (metrics + explicit dimension nodes)
     initial_node_names = set(ctx.metrics)
@@ -634,7 +644,12 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
 
-    logger.info("[BuildV3] load_nodes: COMPLETE - loaded %d nodes", len(ctx.nodes))
+    total_time = time.time() - start_time
+    logger.info(
+        "[BuildV3] load_nodes: COMPLETE - loaded %d nodes (%.3fs total)",
+        len(ctx.nodes),
+        total_time,
+    )
 
 
 async def load_available_preaggs(ctx: BuildContext) -> None:
