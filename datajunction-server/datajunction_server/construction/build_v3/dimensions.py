@@ -186,23 +186,9 @@ def resolve_dimensions(
 
     Returns a list of ResolvedDimension objects with join path information.
     """
-    import logging
-
-    _logger = logging.getLogger(__name__)
-    _logger.info(
-        "[BuildV3] resolve_dimensions START for parent %s with %d dimensions",
-        parent_node.name,
-        len(ctx.dimensions),
-    )
     resolved = []
 
-    for idx, dim in enumerate(ctx.dimensions):
-        _logger.info(
-            "[BuildV3] Resolving dimension %d/%d: %s",
-            idx + 1,
-            len(ctx.dimensions),
-            dim,
-        )
+    for dim in ctx.dimensions:
         dim_ref = parse_dimension_ref(dim)
 
         # Check if it's a local dimension (column on the parent node itself)
@@ -227,21 +213,11 @@ def resolve_dimensions(
             )
         else:
             # Need to find join path
-            _logger.info(
-                "[BuildV3] Finding join path from %s to %s (role: %s)",
-                parent_node.name,
-                dim_ref.node_name,
-                dim_ref.role,
-            )
             join_path = find_join_path(
                 ctx,
                 parent_node,
                 dim_ref.node_name,
                 dim_ref.role,
-            )
-            _logger.info(
-                "[BuildV3] Join path found: %s",
-                "None" if not join_path else f"{len(join_path.links)} link(s)",
             )
 
             if not join_path and dim_ref.role:  # pragma: no cover

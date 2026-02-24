@@ -366,13 +366,6 @@ def build_select_ast(
         - query: AST Query node
         - scanned_sources: List of source node names accessed during SQL generation
     """
-    _logger.info(
-        "[BuildV3] build_select_ast START for parent %s (%d metrics, %d dimensions, %d grain_cols)",
-        parent_node.name,
-        len(metric_expressions),
-        len(resolved_dimensions),
-        len(grain_columns) if grain_columns else 0,
-    )
     # Build projection (SELECT clause)
     # Use Any type to satisfy ast.Select.projection which accepts Union[Aliasable, Expression, Column]
     projection: list[Any] = []
@@ -380,7 +373,6 @@ def build_select_ast(
 
     # Generate alias for the main table
     main_alias = ctx.next_table_alias(parent_node.name)
-    _logger.info("[BuildV3] Main table alias: %s", main_alias)
 
     # Track which dimension nodes need joins and their aliases
     # Key by (node_name, role) to support multiple joins to same dimension with different roles
@@ -388,18 +380,7 @@ def build_select_ast(
     joins: list[ast.Join] = []
 
     # Process dimensions to build joins
-    _logger.info(
-        "[BuildV3] Processing %d dimensions to build joins...",
-        len(resolved_dimensions),
-    )
-    for idx, resolved_dim in enumerate(resolved_dimensions):
-        _logger.debug(
-            "[BuildV3] Dimension %d/%d: %s (is_local: %s)",
-            idx + 1,
-            len(resolved_dimensions),
-            resolved_dim.original_ref,
-            resolved_dim.is_local,
-        )
+    for resolved_dim in resolved_dimensions:
         if not resolved_dim.is_local and resolved_dim.join_path:
             # Need to add join(s) for this dimension
             current_left_alias = main_alias
@@ -510,10 +491,7 @@ def build_select_ast(
     for grain_col in grain_columns:
         group_by.append(make_column_ref(grain_col, main_alias))
 
-    _logger.info("[BuildV3] Built %d join(s)", len(joins))
-
     # Collect all nodes that need CTEs and their needed columns
-    _logger.info("[BuildV3] Collecting nodes for CTEs...")
     nodes_for_ctes: list[Node] = []
     needed_columns_by_node: dict[str, set[str]] = {}
 
@@ -590,16 +568,10 @@ def build_select_ast(
                         needed_columns_by_node[dim_node.name] = dim_cols
 
     # Build CTEs for all non-source nodes with column filtering
-    _logger.info("[BuildV3] Building CTEs for %d node(s)...", len(nodes_for_ctes))
     ctes, scanned_sources = collect_node_ctes(
         ctx,
         nodes_for_ctes,
         needed_columns_by_node,
-    )
-    _logger.info(
-        "[BuildV3] Built %d CTE(s), %d source(s) scanned",
-        len(ctes),
-        len(scanned_sources),
     )
 
     # Build FROM clause with main table (use materialized table if available)
@@ -705,7 +677,6 @@ def build_select_ast(
     )
 
     # Build Query with CTEs
-    _logger.info("[BuildV3] Building final query with CTEs...")
     query = ast.Query(select=select)
 
     # Add CTEs to the query
@@ -717,7 +688,6 @@ def build_select_ast(
             cte_list.append(cte_query)
         query.ctes = cte_list
 
-    _logger.info("[BuildV3] build_select_ast COMPLETE")
     return query, scanned_sources
 
 
@@ -975,16 +945,10 @@ def build_grain_group_sql(
         GrainGroupSQL with SQL and metadata for this grain group
     """
     parent_node = grain_group.parent_node
-    _logger.info(
-        "[BuildV3] build_grain_group_sql START for parent %s (aggregability: %s)",
-        parent_node.name,
-        grain_group.aggregability,
-    )
 
     # Check for matching pre-aggregation
     # TODO: Remove this once we have a way to test pre-aggregations
     if ctx.use_materialized and ctx.available_preaggs:  # pragma: no cover
-        _logger.info("[BuildV3] Checking for matching pre-aggregation...")
         requested_grain = [dim.original_ref for dim in resolved_dimensions]
         matching_preagg = find_matching_preagg(
             ctx,
@@ -993,7 +957,6 @@ def build_grain_group_sql(
             grain_group,
         )
         if matching_preagg:
-            _logger.info("[BuildV3] Found matching pre-aggregation, using it")
             return build_grain_group_from_preagg(
                 ctx,
                 grain_group,
@@ -1002,7 +965,6 @@ def build_grain_group_sql(
                 components_per_metric,
             )
 
-    _logger.info("[BuildV3] Building component expressions...")
     # Build list of component expressions with their aliases
     component_expressions: list[tuple[str, ast.Expression]] = []
     component_metadata: list[tuple[str, MetricComponent, Node]] = []
@@ -1128,14 +1090,6 @@ def build_grain_group_sql(
         # FULL: no additional grain columns
         effective_grain_columns = []
 
-    _logger.info(
-        "[BuildV3] Building SELECT AST (component_expressions: %d, grain_columns: %d, non_decomposable: %d)",
-        len(component_expressions),
-        len(effective_grain_columns),
-        len(grain_group.non_decomposable_metrics)
-        if grain_group.non_decomposable_metrics
-        else 0,
-    )
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),
     # we pass through raw rows without aggregation
@@ -1309,11 +1263,6 @@ def process_metric_group(
         List of GrainGroupSQL, one per aggregability level
     """
     parent_node = metric_group.parent_node
-    _logger.info(
-        "[BuildV3] process_metric_group START for parent: %s with %d decomposed metrics",
-        parent_node.name,
-        len(metric_group.decomposed_metrics),
-    )
 
     # Count components per metric to determine naming strategy
     components_per_metric: dict[str, int] = {}
@@ -1322,33 +1271,20 @@ def process_metric_group(
 
     # Analyze grain groups - split by aggregability
     # Extract just the column names from dimensions for grain analysis
-    _logger.info("[BuildV3] Analyzing grain groups...")
     dim_column_names = [parse_dimension_ref(d).column_name for d in ctx.dimensions]
     grain_groups = analyze_grain_groups(metric_group, dim_column_names)
-    _logger.info("[BuildV3] Analyzed %d grain group(s)", len(grain_groups))
 
     # Merge compatible grain groups from same parent into single CTEs
     # This optimization reduces duplicate JOINs by outputting raw values
     # at finest grain, with aggregations applied in final SELECT
-    _logger.info("[BuildV3] Merging compatible grain groups...")
     grain_groups = merge_grain_groups(grain_groups)
-    _logger.info("[BuildV3] After merge: %d grain group(s)", len(grain_groups))
 
     # Resolve dimensions (find join paths) - shared across grain groups
-    _logger.info("[BuildV3] Resolving dimensions for parent %s...", parent_node.name)
     resolved_dimensions = resolve_dimensions(ctx, parent_node)
-    _logger.info("[BuildV3] Resolved %d dimension(s)", len(resolved_dimensions))
 
     # Build SQL for each grain group
     grain_group_sqls: list[GrainGroupSQL] = []
-    for idx, grain_group in enumerate(grain_groups):
-        _logger.info(
-            "[BuildV3] Building SQL for grain group %d/%d (aggregability: %s, %d components)",
-            idx + 1,
-            len(grain_groups),
-            grain_group.aggregability,
-            len(grain_group.components),
-        )
+    for grain_group in grain_groups:
         # Reset alias registry for each grain group to avoid conflicts
         ctx.alias_registry = AliasRegistry()
         ctx._table_alias_counter = 0
@@ -1359,18 +1295,7 @@ def process_metric_group(
             resolved_dimensions,
             components_per_metric,
         )
-        _logger.info(
-            "[BuildV3] Completed grain group %d/%d SQL generation",
-            idx + 1,
-            len(grain_groups),
-        )
         grain_group_sqls.append(grain_group_sql)
-
-    _logger.info(
-        "[BuildV3] process_metric_group COMPLETE for parent: %s, produced %d grain group SQL(s)",
-        parent_node.name,
-        len(grain_group_sqls),
-    )
     return grain_group_sqls
 
 
