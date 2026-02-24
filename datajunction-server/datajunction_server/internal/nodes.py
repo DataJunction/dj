@@ -2161,8 +2161,10 @@ async def validate_complex_dimension_link(
         )
 
     if (
-        dimension_node.current.catalog.name != settings.seed_setup.virtual_catalog_name  # type: ignore
-        and dimension_node.current.catalog is not None  # type: ignore
+        dimension_node.current.catalog is not None  # type: ignore
+        and node.current.catalog is not None  # type: ignore
+        and dimension_node.current.catalog.name
+        != settings.seed_setup.virtual_catalog_name  # type: ignore
         and node.current.catalog.name != dimension_node.current.catalog.name  # type: ignore
     ):
         raise DJInvalidInputException(  # pragma: no cover
