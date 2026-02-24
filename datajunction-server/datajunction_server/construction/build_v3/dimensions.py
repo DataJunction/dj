@@ -102,20 +102,34 @@ def find_join_path(
             role=role,
         )
 
-    # Fallback: if no role specified, find ANY path to this dimension
-    # This handles cases where the dimension link has a role but user didn't specify one
-    if not role:  # pragma: no cover
-        for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
-            if src_id == source_revision_id and dim_name == target_dim_name:
-                logger.debug(
-                    f"[BuildV3] Using path with role '{stored_role}' for "
-                    f"dimension {target_dim_name} (no role specified)",
-                )
-                return JoinPath(
-                    links=path_links,
-                    target_dimension=path_links[-1].dimension,
-                    role=stored_role or None,
-                )
+    # Fallback: if exact role not found, try to find ANY path to this dimension
+    # This handles cases where:
+    # 1. User didn't specify a role, but link has one
+    # 2. User specified a role that doesn't match, so we use the actual link's role
+    # We prefer empty role (null) over named roles when falling back
+    fallback_paths = []
+    for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
+        if src_id == source_revision_id and dim_name == target_dim_name:
+            fallback_paths.append((stored_role, path_links))
+
+    if fallback_paths:
+        # Prefer paths with no role (empty string) as they're the "default" link
+        fallback_paths.sort(key=lambda x: (x[0] != "", x[0]))  # Empty role first
+        stored_role, path_links = fallback_paths[0]
+
+        if role and stored_role != role_path:
+            logger.info(
+                "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
+                role,
+                stored_role or "null",
+                target_dim_name,
+            )
+
+        return JoinPath(
+            links=path_links,
+            target_dimension=path_links[-1].dimension,
+            role=stored_role or None,
+        )
 
     return None  # pragma: no cover
 
@@ -172,9 +186,23 @@ def resolve_dimensions(
 
     Returns a list of ResolvedDimension objects with join path information.
     """
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    _logger.info(
+        "[BuildV3] resolve_dimensions START for parent %s with %d dimensions",
+        parent_node.name,
+        len(ctx.dimensions),
+    )
     resolved = []
 
-    for dim in ctx.dimensions:
+    for idx, dim in enumerate(ctx.dimensions):
+        _logger.info(
+            "[BuildV3] Resolving dimension %d/%d: %s",
+            idx + 1,
+            len(ctx.dimensions),
+            dim,
+        )
         dim_ref = parse_dimension_ref(dim)
 
         # Check if it's a local dimension (column on the parent node itself)
@@ -199,11 +227,21 @@ def resolve_dimensions(
             )
         else:
             # Need to find join path
+            _logger.info(
+                "[BuildV3] Finding join path from %s to %s (role: %s)",
+                parent_node.name,
+                dim_ref.node_name,
+                dim_ref.role,
+            )
             join_path = find_join_path(
                 ctx,
                 parent_node,
                 dim_ref.node_name,
                 dim_ref.role,
+            )
+            _logger.info(
+                "[BuildV3] Join path found: %s",
+                "None" if not join_path else f"{len(join_path.links)} link(s)",
             )
 
             if not join_path and dim_ref.role:  # pragma: no cover

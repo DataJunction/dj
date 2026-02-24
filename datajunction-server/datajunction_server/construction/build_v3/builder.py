@@ -188,15 +188,24 @@ async def setup_build_context(
     Returns:
         Fully initialized BuildContext
     """
+    logger.info("[BuildV3] setup_build_context: Starting...")
+
     # Extract temporal partition columns from matching cube if requested
     temporal_partition_columns = None
     if include_temporal_filters:
+        logger.info(
+            "[BuildV3] setup_build_context: Extracting temporal partition columns...",
+        )
         temporal_partition_columns = await extract_temporal_partition_columns(
             session,
             metrics,
             dimensions,
         )
+        logger.info(
+            "[BuildV3] setup_build_context: Temporal partition columns extracted",
+        )
 
+    logger.info("[BuildV3] setup_build_context: Creating BuildContext...")
     ctx = BuildContext(
         session=session,
         metrics=metrics,
@@ -207,28 +216,52 @@ async def setup_build_context(
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
     )
+    logger.info("[BuildV3] setup_build_context: BuildContext created")
 
     # Load all required nodes (single DB round trip)
+    logger.info("[BuildV3] setup_build_context: Loading nodes...")
     await load_nodes(ctx)
+    logger.info("[BuildV3] setup_build_context: Loaded %d nodes", len(ctx.nodes))
 
     # Validate we have at least one metric
     if not ctx.metrics:
         raise DJInvalidInputException("At least one metric is required")
 
     # Decompose metrics and group by parent node
+    logger.info("[BuildV3] setup_build_context: Decomposing metrics...")
     ctx.metric_groups, ctx.decomposed_metrics = await decompose_and_group_metrics(ctx)
+    logger.info(
+        "[BuildV3] setup_build_context: Decomposed into %d metric group(s), %d decomposed metrics",
+        len(ctx.metric_groups),
+        len(ctx.decomposed_metrics),
+    )
 
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
+    logger.info(
+        "[BuildV3] setup_build_context: Adding dimensions from metric expressions...",
+    )
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+    logger.info(
+        "[BuildV3] setup_build_context: Now have %d dimensions",
+        len(ctx.dimensions),
+    )
 
     # Add dimensions referenced in filters (for WHERE clause resolution)
+    logger.info("[BuildV3] setup_build_context: Adding dimensions from filters...")
     add_dimensions_from_filters(ctx)
+    logger.info(
+        "[BuildV3] setup_build_context: Now have %d dimensions",
+        len(ctx.dimensions),
+    )
 
     # Load any missing dimension nodes (and their upstreams, including sources)
     # This is needed for dimensions discovered from metric expressions
     # load_nodes adds to ctx.nodes rather than replacing, so this is safe to call again
+    logger.info("[BuildV3] setup_build_context: Loading any missing dimension nodes...")
     await load_nodes(ctx)
+    logger.info("[BuildV3] setup_build_context: Final node count: %d", len(ctx.nodes))
 
+    logger.info("[BuildV3] setup_build_context: Complete!")
     return ctx
 
 
@@ -270,7 +303,20 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    logger.info(
+        "[BuildV3] Starting build_measures_sql for %d metrics, %d dimensions, %d filters",
+        len(metrics),
+        len(dimensions),
+        len(filters) if filters else 0,
+    )
+    logger.debug(
+        "[BuildV3] Metrics: %s, Dimensions: %s",
+        metrics,
+        dimensions,
+    )
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
+    logger.info("[BuildV3] Setting up build context...")
     ctx = await setup_build_context(
         session=session,
         metrics=metrics,
@@ -281,9 +327,21 @@ async def build_measures_sql(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
     )
+    logger.info(
+        "[BuildV3] Build context ready: %d nodes loaded, %d metric groups, %d decomposed metrics",
+        len(ctx.nodes),
+        len(ctx.metric_groups),
+        len(ctx.decomposed_metrics),
+    )
 
     # Build grain groups from context
-    return await build_grain_groups(ctx, metrics)
+    logger.info("[BuildV3] Building grain groups...")
+    result = await build_grain_groups(ctx, metrics)
+    logger.info(
+        "[BuildV3] Completed build_measures_sql with %d grain groups",
+        len(result.grain_groups),
+    )
+    return result
 
 
 async def build_grain_groups(
@@ -304,13 +362,32 @@ async def build_grain_groups(
         GeneratedMeasuresSQL with grain groups
     """
     # Load available pre-aggregations (if use_materialized=True)
+    logger.info("[BuildV3] Loading available pre-aggregations...")
     await load_available_preaggs(ctx)
+    logger.info(
+        "[BuildV3] Pre-aggregations loaded: %d available",
+        len(ctx.available_preaggs),
+    )
 
     # Process each metric group into grain group SQLs
     # Cross-fact metrics produce separate grain groups (one per parent node)
     all_grain_group_sqls: list[GrainGroupSQL] = []
-    for metric_group in ctx.metric_groups:
+    logger.info("[BuildV3] Processing %d metric groups...", len(ctx.metric_groups))
+    for idx, metric_group in enumerate(ctx.metric_groups):
+        logger.info(
+            "[BuildV3] Processing metric group %d/%d (parent: %s, %d metrics)",
+            idx + 1,
+            len(ctx.metric_groups),
+            metric_group.parent_node.name,
+            len(metric_group.decomposed_metrics),
+        )
         grain_group_sqls = process_metric_group(ctx, metric_group)
+        logger.info(
+            "[BuildV3] Metric group %d/%d produced %d grain group(s)",
+            idx + 1,
+            len(ctx.metric_groups),
+            len(grain_group_sqls),
+        )
         all_grain_group_sqls.extend(grain_group_sqls)
 
     # Sanity check: all requested metrics should already be decomposed
