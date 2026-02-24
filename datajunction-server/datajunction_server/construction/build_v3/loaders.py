@@ -143,10 +143,8 @@ async def find_join_paths_batch(
         frontier.append((rev_id, node_id, [], "", []))
 
     # BFS: explore depth by depth
-    # We explore up to a practical depth limit (typically 5-10 hops is more than enough)
-    practical_max_depth = min(max_depth, 10)
-
-    for depth in range(1, practical_max_depth + 1):
+    # Cycle prevention ensures we won't loop infinitely even with high max_depth
+    for depth in range(1, max_depth + 1):
         if not frontier:
             break
 
