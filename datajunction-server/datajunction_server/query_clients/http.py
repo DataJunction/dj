@@ -206,6 +206,21 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             request_headers=request_headers,
         )
 
+    def refresh_cube_materialization(
+        self,
+        cube_name: str,
+        cube_version: Optional[str] = None,
+        materializations: Optional[List[Dict[str, Any]]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """Refresh/rebuild materialization workflows for a cube via HTTP query service."""
+        return self._client.refresh_cube_materialization(
+            cube_name=cube_name,
+            cube_version=cube_version,
+            materializations=materializations,
+            request_headers=request_headers,
+        )
+
     def get_materialization_info(
         self,
         node_name: str,

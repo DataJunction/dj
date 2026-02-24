@@ -17,7 +17,7 @@ from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import get_query_service_client
+from datajunction_server.utils import get_query_service_client, get_session
 from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
 
@@ -4283,3 +4283,93 @@ class TestCubeBackfillSuccessPaths:
         )
         assert response.status_code == 500
         assert "failed to run cube backfill" in response.json()["message"].lower()
+
+
+class TestCubeRefreshMaterialization:
+    """Tests for refreshing cube materializations without version bump."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_materialization_no_version_bump(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        Test that PATCH with refresh_materialization=true and no other changes
+        calls refresh_cube_materialization without bumping the version.
+        """
+        cube_name = "default.test_refresh_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=True,
+        )
+
+        # Get the initial version
+        response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
+        assert response.status_code == 200
+        initial_version = response.json()["version"]
+
+        # Add a deactivated materialization to the node revision so the
+        # re-activation logic gets exercised
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from datajunction_server.database.materialization import Materialization
+        from datajunction_server.database.node import NodeRevision
+
+        session_factory = client_with_repairs_cube.app.dependency_overrides[get_session]
+        session = session_factory()
+        result = await session.execute(
+            select(NodeRevision).where(NodeRevision.name == cube_name),
+        )
+        node_rev = result.scalars().first()
+        deactivated_mat = Materialization(
+            node_revision_id=node_rev.id,
+            name="deactivated_mat",
+            strategy=None,
+            schedule="",
+            config={"cube": {"version": initial_version}},
+            job="DruidCubeMaterializationJob",
+            deactivated_at=datetime.now(timezone.utc),
+        )
+        session.add(deactivated_mat)
+        await session.commit()
+
+        # Mock the refresh method on the query service client
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_refresh = mocker.patch.object(
+            qs_client,
+            "refresh_cube_materialization",
+            return_value=mocker.MagicMock(urls=["http://workflow/refreshed"]),
+        )
+
+        # PATCH with refresh_materialization=true but no actual changes
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/?refresh_materialization=true",
+            json={},
+        )
+        # Should return 200 with no version change (returns None -> no content)
+        assert response.status_code == 200
+
+        # Verify refresh was called with correct args
+        mock_refresh.assert_called_once()
+        call_kwargs = mock_refresh.call_args[1]
+        assert call_kwargs["cube_name"] == cube_name
+        assert call_kwargs["cube_version"] == initial_version
+        assert isinstance(call_kwargs["materializations"], list)
+        assert len(call_kwargs["materializations"]) > 0
+        # Deactivated materialization should be re-activated and included
+        mat_names = [m["name"] for m in call_kwargs["materializations"]]
+        assert "deactivated_mat" in mat_names
+
+        # Verify the materialization was re-activated in the DB
+        await session.refresh(deactivated_mat)
+        assert deactivated_mat.deactivated_at is None
+
+        # Verify version didn't change
+        response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
+        assert response.json()["version"] == initial_version
