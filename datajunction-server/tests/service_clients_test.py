@@ -1181,3 +1181,82 @@ class TestQueryServiceClient:
         with pytest.raises(Exception) as exc_info:
             query_service_client.run_cube_backfill(backfill_input)
         assert "Query service error" in str(exc_info.value)
+
+    def test_refresh_cube_materialization_success(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test successful refresh of cube materializations.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://workflow1"],
+            "output_tables": [],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        materializations = [
+            {
+                "name": "druid_cube__incremental_time__date",
+                "job": "DruidCubeMaterializationJob",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "cube": {"name": "test.cube", "version": "v1.0"},
+            },
+        ]
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.refresh_cube_materialization(
+            cube_name="test.cube",
+            cube_version="v1.0",
+            materializations=materializations,
+            request_headers={"Cookie": "session=abc123"},
+        )
+
+        mock_request.assert_called_once_with(
+            "/cubes/test.cube/refresh-materialization",
+            headers=ANY,
+            params={"cube_version": "v1.0"},
+            json={"materializations": materializations},
+        )
+        assert result == MaterializationInfo(
+            urls=["http://workflow1"],
+            output_tables=[],
+        )
+
+    def test_refresh_cube_materialization_no_version(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test refresh without specifying a version sends no params.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": [],
+            "output_tables": [],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_service_client.refresh_cube_materialization(
+            cube_name="test.cube",
+        )
+
+        mock_request.assert_called_once_with(
+            "/cubes/test.cube/refresh-materialization",
+            headers=ANY,
+            params={},
+            json={},
+        )

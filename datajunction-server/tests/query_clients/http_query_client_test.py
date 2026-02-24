@@ -102,3 +102,27 @@ class TestHttpQueryServiceClientCubeV2Methods:
             backfill_input=backfill_input,
             request_headers={"X-Test": "1"},
         )
+
+    def test_refresh_cube_materialization(self, mock_client):
+        """Test refresh_cube_materialization delegates to underlying client."""
+        client, mock_inner = mock_client
+        mock_inner.refresh_cube_materialization.return_value = MagicMock(
+            urls=["http://wf1"],
+        )
+
+        materializations = [
+            {"name": "mat1", "job": "DruidCubeMaterializationJob"},
+        ]
+        client.refresh_cube_materialization(
+            cube_name="test.cube",
+            cube_version="v1.0",
+            materializations=materializations,
+            request_headers={"X-Test": "1"},
+        )
+
+        mock_inner.refresh_cube_materialization.assert_called_once_with(
+            cube_name="test.cube",
+            cube_version="v1.0",
+            materializations=materializations,
+            request_headers={"X-Test": "1"},
+        )

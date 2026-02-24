@@ -26,7 +26,7 @@ dependencies = [
     "snowflake-connector-python>=3.3.1",
     "pyyaml>=6.0.1",
     "trino>=0.324.0",
-    "psycopg[async,pool]>=3.2.1",
+    "psycopg[pool]>=3.2.1",
     "sqlalchemy>=2.0.34",
     "pytest-asyncio>=0.24.0",
     "pytest-integration>=0.2.3",
@@ -64,7 +64,7 @@ test = [
     "pydruid>=0.6.4",
     "typing-extensions>=4.3.0",
     "httpx>=0.24.1",
-    "psycopg[async,pool]>=3.2.1",
+    "psycopg[pool]>=3.2.1",
     "testcontainers[postgres]>=4.8.1",
     "types-toml",
 ]

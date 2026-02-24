@@ -57,6 +57,9 @@ def test_base_client_abstract_methods():
         client.materialize_cube(None)
 
     with pytest.raises(NotImplementedError):
+        client.refresh_cube_materialization("cube")
+
+    with pytest.raises(NotImplementedError):
         client.deactivate_materialization("node", "mat")
 
     with pytest.raises(NotImplementedError):
@@ -98,6 +101,17 @@ def test_base_client_error_messages():
     except NotImplementedError as e:
         assert "MockQueryServiceClient" in str(e)
         assert "does not support query submission" in str(e)
+
+
+def test_refresh_cube_materialization_error_message():
+    """Test that refresh_cube_materialization error message includes class name."""
+    client = MockQueryServiceClient()
+
+    try:
+        client.refresh_cube_materialization("cube")
+    except NotImplementedError as e:
+        assert "MockQueryServiceClient" in str(e)
+        assert "does not support cube materialization refresh" in str(e)
 
 
 def test_preagg_error_messages():

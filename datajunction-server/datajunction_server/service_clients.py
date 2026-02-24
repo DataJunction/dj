@@ -541,6 +541,74 @@ class QueryServiceClient:
         )
         return MaterializationInfo(**result)
 
+    def refresh_cube_materialization(
+        self,
+        cube_name: str,
+        cube_version: Optional[str] = None,
+        materializations: Optional[List[Dict]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Refresh/rebuild materialization workflows for a cube without creating a new version.
+
+        This calls the query service to recreate the cube's materialization workflows
+        with the same names, effectively overwriting them in the scheduler.
+
+        Args:
+            cube_name: Name of the cube node
+            cube_version: Optional cube version (defaults to latest if not specified)
+            materializations: List of active materialization dicts to rebuild
+            request_headers: Optional HTTP headers
+
+        Returns:
+            MaterializationInfo with URLs of recreated workflows
+        """
+        refresh_endpoint = f"/cubes/{cube_name}/refresh-materialization"
+        params = {}
+        if cube_version:
+            params["cube_version"] = cube_version
+
+        _logger.info(
+            "[DJQS] Refreshing materializations for cube=%s version=%s",
+            cube_name,
+            cube_version or "latest",
+        )
+
+        # Merge request headers with session headers
+        headers = dict(self.requests_session.headers)
+        if request_headers:
+            headers.update(request_headers)
+
+        # Build request body with materialization data
+        body = {}
+        if materializations is not None:
+            body["materializations"] = materializations
+
+        response = self.requests_session.post(
+            refresh_endpoint,
+            headers=headers,
+            params=params,
+            json=body,
+        )
+
+        if response.status_code not in (200, 201):  # pragma: no cover
+            _logger.exception(
+                "[DJQS] Failed to refresh materializations for cube=%s with `POST %s`: %s",
+                cube_name,
+                refresh_endpoint,
+                response.text,
+                exc_info=True,
+            )
+            return MaterializationInfo(urls=[], output_tables=[])
+
+        result = response.json()
+        _logger.info(
+            "[DJQS] Successfully refreshed materializations for cube=%s with `POST %s`",
+            cube_name,
+            refresh_endpoint,
+        )
+        return MaterializationInfo(**result)
+
     def get_materialization_info(
         self,
         node_name: str,

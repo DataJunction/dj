@@ -1279,7 +1279,7 @@ async def update_cube_node(
     """
     node = await Node.get_cube_by_name(session, node_revision.name)
     node_revision = node.current  # type: ignore
-    minor_changes = has_minor_changes(node_revision, data) or refresh_materialization
+    minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
     major_changes = (data.metrics and data.metrics != old_metrics) or (
@@ -1297,6 +1297,52 @@ async def update_cube_node(
         limit=data.limit or None,
     )
     if not major_changes and not minor_changes:
+        # If refresh_materialization requested but no other changes, refresh and return
+        if refresh_materialization and query_service_client:
+            _logger.info(
+                "Refreshing materializations for cube=%s without version change",
+                node_revision.name,
+            )
+            # Re-activate deactivated materializations that match the current version
+            current_version = node_revision.version
+            for mat in node_revision.materializations:
+                mat_config = mat.config if isinstance(mat.config, dict) else {}
+                mat_version = mat_config.get("cube", {}).get("version", "")
+                if mat.deactivated_at and mat_version == current_version:
+                    _logger.info(
+                        "Re-activating materialization %s for cube=%s version=%s",
+                        mat.name,
+                        node_revision.name,
+                        current_version,
+                    )
+                    mat.deactivated_at = None
+            await session.commit()
+
+            # Serialize active materializations as complete, ready-to-use dicts
+            # so dj-query can parse them directly into model inputs without merging.
+            # This avoids a callback from query service back to DJ.
+            active_mats = []
+            for mat in node_revision.materializations:
+                if mat.deactivated_at:
+                    continue  # pragma: no cover
+                mat_dict = {
+                    **(mat.config if isinstance(mat.config, dict) else {}),
+                    "name": mat.name,
+                    "job": mat.job,
+                    "strategy": mat.strategy.value if mat.strategy else None,
+                    "schedule": mat.schedule,
+                    "cube": {
+                        "name": node_revision.name,
+                        "version": node_revision.version,
+                    },
+                }
+                active_mats.append(mat_dict)
+            query_service_client.refresh_cube_materialization(
+                cube_name=node_revision.name,
+                cube_version=node_revision.version,
+                materializations=active_mats,
+                request_headers=request_headers,
+            )
         return None
 
     # Disable autoflush to prevent partial state from being persisted if an error
