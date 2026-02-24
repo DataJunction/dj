@@ -306,38 +306,24 @@ async def preload_join_paths(
     """
 
     if not target_dimension_names or not source_revision_ids:
-        logger.info("[BuildV3] preload_join_paths: Nothing to preload, returning early")
         return
 
     # Find all paths from all sources using recursive CTE (single query)
-    logger.info("[BuildV3] preload_join_paths: Finding join paths via recursive CTE...")
     path_ids = await find_join_paths_batch(
         ctx.session,
         source_revision_ids,
         target_dimension_names,
     )
-    logger.info("[BuildV3] preload_join_paths: Found %d join path(s)", len(path_ids))
 
     # Collect all link IDs we need to load
-    logger.info("[BuildV3] preload_join_paths: Collecting link IDs...")
     all_link_ids: set[int] = set()
     for link_id_list in path_ids.values():
         all_link_ids.update(link_id_list)
-    logger.info(
-        "[BuildV3] preload_join_paths: Need to load %d dimension link(s)",
-        len(all_link_ids),
-    )
 
     # Batch load all DimensionLinks (single query)
-    logger.info("[BuildV3] preload_join_paths: Batch loading dimension links...")
     link_dict = await load_dimension_links_batch(ctx.session, all_link_ids)
-    logger.info(
-        "[BuildV3] preload_join_paths: Loaded %d dimension link(s)",
-        len(link_dict),
-    )
 
     # Store in context, keyed by (source_revision_id, dim_name, role_path)
-    logger.info("[BuildV3] preload_join_paths: Storing paths in context...")
     for (source_rev_id, dim_name, role_path), link_id_list in path_ids.items():
         links = [link_dict[lid] for lid in link_id_list if lid in link_dict]
         ctx.join_paths[(source_rev_id, dim_name, role_path)] = links
@@ -345,11 +331,6 @@ async def preload_join_paths(
         for link in links:
             if link.dimension and link.dimension.name not in ctx.nodes:
                 ctx.nodes[link.dimension.name] = link.dimension
-
-    # Log which dimensions we found paths to (for debugging)
-    unique_targets = set()
-    for src_id, dim_name, role_path in ctx.join_paths.keys():
-        unique_targets.add(dim_name)
 
 
 async def load_nodes(ctx: BuildContext) -> None:
@@ -364,27 +345,18 @@ async def load_nodes(ctx: BuildContext) -> None:
     initial_node_names = set(ctx.metrics)
 
     # Parse dimension references to get target dimension node names
-    logger.info("[BuildV3] load_nodes: Parsing dimension references...")
     target_dim_names: set[str] = set()
     for dim in ctx.dimensions:
         dim_ref = parse_dimension_ref(dim)
         if dim_ref.node_name:  # pragma: no branch
             initial_node_names.add(dim_ref.node_name)
             target_dim_names.add(dim_ref.node_name)
-    logger.info(
-        "[BuildV3] load_nodes: Initial node names: %d (metrics: %d, dimensions: %d)",
-        len(initial_node_names),
-        len(ctx.metrics),
-        len(target_dim_names),
-    )
 
     # Find all upstream nodes using a recursive CTE query
-    logger.info("[BuildV3] load_nodes: Finding upstream nodes...")
     all_node_names, parent_map = await find_upstream_node_names(
         ctx.session,
         list(initial_node_names),
     )
-    logger.info("[BuildV3] load_nodes: Found %d upstream nodes", len(all_node_names))
 
     # Store parent map in context for later use (e.g., get_parent_node)
     ctx.parent_map = parent_map
@@ -392,10 +364,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Also include the initial nodes themselves
     all_node_names.update(initial_node_names)
 
-    logger.info(f"[BuildV3] load_nodes: Total nodes to load: {len(all_node_names)}")
-
     # Query 2: Batch load all nodes with appropriate eager loading
-    logger.info("[BuildV3] load_nodes: Building batch load query...")
     stmt = (
         select(Node)
         .where(Node.name.in_(all_node_names))
@@ -435,27 +404,17 @@ async def load_nodes(ctx: BuildContext) -> None:
         )
     )
 
-    logger.info("[BuildV3] load_nodes: Executing batch load query...")
     result = await ctx.session.execute(stmt)
-    logger.info("[BuildV3] load_nodes: Processing query results...")
     nodes = result.scalars().unique().all()
-    logger.info("[BuildV3] load_nodes: Loaded %d nodes from database", len(nodes))
 
     # Cache all loaded nodes
-    logger.info("[BuildV3] load_nodes: Caching loaded nodes...")
     for node in nodes:
         ctx.nodes[node.name] = node
-    logger.info("[BuildV3] load_nodes: Cached %d nodes", len(ctx.nodes))
 
     # Collect required dimensions from metrics and add to context
     # Required dimensions are stored as Column objects, so they don't have role info.
     # We need to check if a user-requested dimension already covers the same (node, column).
-    logger.info("[BuildV3] load_nodes: Collecting required dimensions...")
     required_dims = collect_required_dimensions(ctx.nodes, ctx.metrics)
-    logger.info(
-        "[BuildV3] load_nodes: Found %d required dimensions",
-        len(required_dims),
-    )
     for req_dim in required_dims:
         dim_ref = parse_dimension_ref(req_dim)
         if dim_ref.node_name:  # pragma: no branch
@@ -510,35 +469,11 @@ async def load_nodes(ctx: BuildContext) -> None:
                 # Parent is a fact/transform - collect its revision ID
                 parent_revision_ids.add(parent_node.current.id)
 
-    logger.info("[BuildV3] load_nodes: Collecting fact parents...")
     for metric_name in ctx.metrics:
         collect_fact_parents(metric_name, set())
-    logger.info(
-        "[BuildV3] load_nodes: Collected %d parent revision IDs",
-        len(parent_revision_ids),
-    )
-
-    # Log which nodes these revision IDs correspond to for debugging
-    parent_nodes_info = []
-    for rev_id in parent_revision_ids:
-        for node in ctx.nodes.values():
-            if node.current and node.current.id == rev_id:
-                parent_nodes_info.append(f"{node.name} (rev={rev_id})")
-                break
-    if parent_nodes_info:
-        logger.info(
-            "[BuildV3] load_nodes: Parent nodes to search from: %s",
-            ", ".join(parent_nodes_info),
-        )
 
     # Preload join paths for ALL parent nodes in a single batch
-    logger.info(
-        "[BuildV3] load_nodes: Preloading join paths (%d parents, %d target dimensions)...",
-        len(parent_revision_ids),
-        len(target_dim_names),
-    )
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
-    logger.info("[BuildV3] load_nodes: Join paths preloaded")
 
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
