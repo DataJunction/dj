@@ -283,8 +283,7 @@ async def build_measures_sql(
     )
 
     # Build grain groups from context
-    result = await build_grain_groups(ctx, metrics)
-    return result
+    return await build_grain_groups(ctx, metrics)
 
 
 async def build_grain_groups(

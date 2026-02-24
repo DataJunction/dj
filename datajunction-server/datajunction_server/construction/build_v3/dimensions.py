@@ -102,7 +102,7 @@ def find_join_path(
             role=role,
         )
 
-    # Fallback: if exact role not found, try to find ANY path to this dimension
+    # Fallback: if exact role not found, try to find any path to this dimension
     # This handles cases where:
     # 1. User didn't specify a role, but link has one
     # 2. User specified a role that doesn't match, so we use the actual link's role
