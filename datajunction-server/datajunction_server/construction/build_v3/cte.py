@@ -879,6 +879,13 @@ def collect_node_ctes(
         - cte_list: List of (cte_name, query_ast) tuples in dependency order
         - scanned_sources: List of source node names encountered during traversal
     """
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    _logger.info(
+        "[BuildV3] collect_node_ctes START for %d node(s)",
+        len(nodes_to_include),
+    )
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
     # Track source nodes encountered during traversal
@@ -895,6 +902,7 @@ def collect_node_ctes(
         if node.name in visited:  # pragma: no branch
             return  # pragma: no cover
         visited.add(node.name)
+        _logger.debug("[BuildV3] Collecting refs for node: %s", node.name)
 
         if node.type == NodeType.SOURCE:
             # Track this source node
@@ -924,12 +932,23 @@ def collect_node_ctes(
 
     # Collect from all starting nodes with SHARED visited set
     # This prevents re-parsing nodes that are shared dependencies
+    _logger.info(
+        "[BuildV3] Collecting refs for %d starting node(s)...",
+        len(nodes_to_include),
+    )
     shared_visited: set[str] = set()
     for node in nodes_to_include:
         collect_refs(node, shared_visited)
+    _logger.info(
+        "[BuildV3] Collected %d node(s) needing CTEs, %d source(s) scanned",
+        len(all_node_names),
+        len(scanned_source_names),
+    )
 
     # Topologically sort all collected nodes
+    _logger.info("[BuildV3] Topologically sorting nodes...")
     sorted_nodes = topological_sort_nodes(ctx, all_node_names)
+    _logger.info("[BuildV3] Sorted %d node(s)", len(sorted_nodes))
 
     # Build CTE name mapping
     cte_names: dict[str, str] = {}
@@ -937,8 +956,15 @@ def collect_node_ctes(
         cte_names[node.name] = get_cte_name(node.name)
 
     # Build CTEs in dependency order
+    _logger.info("[BuildV3] Building CTEs in dependency order...")
     ctes: list[tuple[str, ast.Query]] = []
-    for node in sorted_nodes:
+    for idx, node in enumerate(sorted_nodes):
+        _logger.debug(
+            "[BuildV3] Building CTE %d/%d for node: %s",
+            idx + 1,
+            len(sorted_nodes),
+            node.name,
+        )
         if node.type == NodeType.SOURCE:  # pragma: no cover
             continue
 
