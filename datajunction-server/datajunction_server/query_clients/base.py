@@ -230,6 +230,32 @@ class BaseQueryServiceClient(ABC):
             f"{self.__class__.__name__} does not support cube backfill",
         )
 
+    def refresh_cube_materialization(
+        self,
+        cube_name: str,
+        cube_version: Optional[str] = None,
+        materializations: Optional[List[Dict[str, Any]]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> MaterializationInfo:
+        """
+        Refresh/rebuild materialization workflows for a cube without creating a new version.
+
+        Default implementation raises NotImplementedError.
+        Override in subclasses that support cube materialization refresh.
+
+        Args:
+            cube_name: Name of the cube node
+            cube_version: Optional cube version
+            materializations: List of active materialization dicts to rebuild
+            request_headers: Optional HTTP headers
+
+        Returns:
+            MaterializationInfo with details of refreshed workflows
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support cube materialization refresh",
+        )
+
     def deactivate_materialization(
         self,
         node_name: str,

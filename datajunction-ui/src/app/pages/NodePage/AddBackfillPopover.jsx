@@ -64,18 +64,25 @@ export default function AddBackfillPopover({
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
+      return true;
     } else {
       setStatus({
         failure: `${response.json.message}`,
       });
+      return false;
     }
   };
 
   const submitBackfill = async (values, { setSubmitting, setStatus }) => {
-    await runBackfill(values, setStatus).then(_ => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-      setSubmitting(false);
-    });
+    const success = await runBackfill(values, setStatus);
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    setSubmitting(false);
+    if (success) {
+      setPopoverAnchor(false);
+      if (onSubmit) {
+        onSubmit();
+      }
+    }
   };
 
   return (

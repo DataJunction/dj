@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import TableIcon from '../../icons/TableIcon';
 import AddMaterializationPopover from './AddMaterializationPopover';
 import * as React from 'react';
@@ -47,54 +47,56 @@ export default function NodeMaterializationTab({ node, djClient }) {
     }, {});
   }, [filteredMaterializations, node?.version]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (node) {
-        const data = await djClient.materializations(node.name);
+  const fetchData = useCallback(async () => {
+    if (node) {
+      const data = await djClient.materializations(node.name);
 
-        // Store raw data
-        setRawMaterializations(data);
+      // Store raw data
+      setRawMaterializations(data);
 
-        // Fetch availability states
-        const availabilityData = await djClient.availabilityStates(node.name);
-        setAvailabilityStates(availabilityData);
+      // Fetch availability states
+      const availabilityData = await djClient.availabilityStates(node.name);
+      setAvailabilityStates(availabilityData);
 
-        // Group availability states by version
-        const availabilityGrouped = availabilityData.reduce((acc, avail) => {
-          const version = avail.node_version || node.version;
-          if (!acc[version]) {
-            acc[version] = [];
-          }
-          acc[version].push(avail);
-          return acc;
-        }, {});
-
-        setAvailabilityStatesByRevision(availabilityGrouped);
-
-        // Clear rebuilding state once data is loaded after a page reload
-        if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
-          localStorage.removeItem(`rebuilding-${node.name}`);
-          setIsRebuilding(false);
+      // Group availability states by version
+      const availabilityGrouped = availabilityData.reduce((acc, avail) => {
+        const version = avail.node_version || node.version;
+        if (!acc[version]) {
+          acc[version] = [];
         }
+        acc[version].push(avail);
+        return acc;
+      }, {});
+
+      setAvailabilityStatesByRevision(availabilityGrouped);
+
+      // Clear rebuilding state once data is loaded after a page reload
+      if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
+        localStorage.removeItem(`rebuilding-${node.name}`);
+        setIsRebuilding(false);
       }
-    };
-    fetchData().catch(console.error);
+    }
   }, [djClient, node]);
 
-  // Separate useEffect to set default selected tab
   useEffect(() => {
+    fetchData().catch(console.error);
+  }, [fetchData]);
+
+  // Set default selected tab, or reset if current tab is no longer visible
+  useEffect(() => {
+    const versions = Object.keys(materializationsByRevision);
+    if (versions.length === 0) return;
+
     if (
-      !selectedRevisionTab &&
-      Object.keys(materializationsByRevision).length > 0
+      !selectedRevisionTab ||
+      !materializationsByRevision[selectedRevisionTab]
     ) {
       // First try to find current node version
       if (materializationsByRevision[node?.version]) {
         setSelectedRevisionTab(node.version);
       } else {
         // Otherwise, select the most recent version (sort by version string)
-        const sortedVersions = Object.keys(materializationsByRevision).sort(
-          (a, b) => b.localeCompare(a),
-        );
+        const sortedVersions = versions.sort((a, b) => b.localeCompare(a));
         setSelectedRevisionTab(sortedVersions[0]);
       }
     }
@@ -193,16 +195,17 @@ export default function NodeMaterializationTab({ node, djClient }) {
       return b.localeCompare(a);
     });
 
-    // Check if latest version has active materializations
-    const hasLatestVersionMaterialization =
-      materializationsByRevision[node?.version] &&
-      materializationsByRevision[node?.version].length > 0;
+    // Check if latest version has any materializations (including inactive ones)
+    const hasLatestVersionMaterialization = rawMaterializations.some(mat => {
+      const matVersion = mat.config?.cube?.version || node?.version;
+      return matVersion === node?.version;
+    });
 
     // Refresh latest materialization function
     const refreshLatestMaterialization = async () => {
       if (
         !window.confirm(
-          'This will create a new version of the cube and build new materialization workflows. The previous version of the cube and its materialization will be accessible using a specific version label. Would you like to continue?',
+          'This will rebuild the materialization workflows for the current cube version without creating a new version. Would you like to continue?',
         )
       ) {
         return;
@@ -286,7 +289,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                 tabIndex="0"
                 onClick={refreshLatestMaterialization}
                 disabled={isRebuilding}
-                title="Create a new version of the cube and re-create its materialization workflows."
+                title="Rebuild the materialization workflows for the current cube version (no version bump)."
                 style={{
                   opacity: isRebuilding ? 0.7 : 1,
                   cursor: isRebuilding ? 'not-allowed' : 'pointer',
@@ -398,6 +401,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                         <AddBackfillPopover
                           node={node}
                           materialization={materialization}
+                          onSubmit={fetchData}
                         />
                       </li>
                       {materialization.backfills.map(backfill => (
