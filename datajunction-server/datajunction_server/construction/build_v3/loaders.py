@@ -5,6 +5,7 @@ Database loading functions
 from __future__ import annotations
 
 import logging
+from collections import namedtuple
 
 from sqlalchemy import select, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,13 @@ from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import collect_required_dimensions
 
 logger = logging.getLogger(__name__)
+
+# State during BFS search for join paths in find_join_paths_batch
+# Tracks the current position in the search along with accumulated path context
+JoinPathState = namedtuple(
+    "JoinPathState",
+    ["source_rev_id", "node_id", "path_so_far", "role_path", "visited"],
+)
 
 
 async def find_upstream_node_names(
@@ -124,8 +132,7 @@ async def find_join_paths_batch(
     found_paths: dict[tuple[int, str, str], list[int]] = {}
 
     # Initialize frontier: each source node starts exploration
-    # Frontier item: (source_rev_id, current_node_id, path_so_far, role_path, visited_node_ids)
-    frontier: list[tuple[int, int, list[int], str, list[int]]] = []
+    frontier: list[JoinPathState] = []
 
     # Get the node_id for each source revision to start BFS
     init_query = text("""
@@ -140,7 +147,15 @@ async def find_join_paths_batch(
     )
 
     for rev_id, node_id in init_result:
-        frontier.append((rev_id, node_id, [], "", []))
+        frontier.append(
+            JoinPathState(
+                source_rev_id=rev_id,
+                node_id=node_id,
+                path_so_far=[],
+                role_path="",
+                visited=[],
+            ),
+        )
 
     # BFS: explore depth by depth
     # Cycle prevention ensures we won't loop infinitely even with high max_depth
@@ -149,19 +164,15 @@ async def find_join_paths_batch(
             break
 
         # Expand frontier by one hop - BATCH query for all frontier nodes
-        new_frontier: list[tuple[int, int, list[int], str, list[int]]] = []
+        new_frontier: list[JoinPathState] = []
         targets_found_at_depth = set()
 
         # Build a map: node_id -> list of frontier items with that node
-        frontier_by_node: dict[
-            int,
-            list[tuple[int, int, list[int], str, list[int]]],
-        ] = {}
+        frontier_by_node: dict[int, list[JoinPathState]] = {}
         for item in frontier:
-            node_id = item[1]
-            if node_id not in frontier_by_node:
-                frontier_by_node[node_id] = []
-            frontier_by_node[node_id].append(item)
+            if item.node_id not in frontier_by_node:
+                frontier_by_node[item.node_id] = []
+            frontier_by_node[item.node_id].append(item)
 
         # Single batched query for ALL frontier nodes at this depth
         frontier_node_ids = list(frontier_by_node.keys())
@@ -203,27 +214,21 @@ async def find_join_paths_batch(
             link_role = row.link_role
 
             # Apply this link to all frontier items that came from this node
-            for (
-                source_rev_id,
-                node_id,
-                path_so_far,
-                role_path,
-                visited,
-            ) in frontier_by_node[from_node_id]:
+            for item in frontier_by_node[from_node_id]:
                 # Cycle prevention: skip if we've already visited this node
-                if to_node_id in visited:
+                if to_node_id in item.visited:
                     continue
 
                 # Build new path and role
-                new_path = path_so_far + [link_id]
+                new_path = item.path_so_far + [link_id]
                 new_role_path = (
-                    (role_path + "->" + link_role) if role_path else link_role
+                    (item.role_path + "->" + link_role) if item.role_path else link_role
                 )
-                new_visited = visited + [to_node_id]
+                new_visited = item.visited + [to_node_id]
 
                 # Check if this reaches a target
                 if dim_name in target_dimension_names:
-                    key = (source_rev_id, dim_name, new_role_path)
+                    key = (item.source_rev_id, dim_name, new_role_path)
                     if key not in found_paths:
                         found_paths[key] = new_path
                         targets_found_at_depth.add(dim_name)
@@ -231,7 +236,13 @@ async def find_join_paths_batch(
                 # Add to new frontier (explore further regardless of whether it's a target)
                 # This allows finding multi-hop paths through intermediate targets
                 new_frontier.append(
-                    (source_rev_id, to_node_id, new_path, new_role_path, new_visited),
+                    JoinPathState(
+                        source_rev_id=item.source_rev_id,
+                        node_id=to_node_id,
+                        path_so_far=new_path,
+                        role_path=new_role_path,
+                        visited=new_visited,
+                    ),
                 )
 
         # Update frontier for next iteration
