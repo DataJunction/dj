@@ -116,29 +116,9 @@ async def find_join_paths_batch(
     Key optimization: Once a path reaches a target dimension, it stops exploring
     from that node (no point continuing past a target).
     """
-    import time
-
-    start_time = time.time()
-
-    logger.info(
-        "[BuildV3] find_join_paths_batch: Starting BFS path finding (max_depth=%d)...",
-        max_depth,
-    )
-    logger.info(
-        "[BuildV3] find_join_paths_batch: Searching for paths FROM revision_ids=%s TO dimensions=%s",
-        list(source_revision_ids),
-        list(target_dimension_names),
-    )
 
     if not target_dimension_names or not source_revision_ids:  # pragma: no cover
-        logger.info("[BuildV3] find_join_paths_batch: Empty input, returning early")
         return {}
-
-    # BFS frontier expansion approach:
-    # - Start with source nodes as frontier
-    # - Each iteration: expand frontier by one hop, check if we found all targets
-    # - Stop when all targets found OR no more frontier OR max depth reached
-    # This avoids re-exploring previous depths and enables true early termination
 
     # Track found paths: (source_rev_id, target_name, role) -> [link_ids]
     found_paths: dict[tuple[int, str, str], list[int]] = {}
@@ -162,32 +142,13 @@ async def find_join_paths_batch(
     for rev_id, node_id in init_result:
         frontier.append((rev_id, node_id, [], "", []))
 
-    logger.info(
-        "[BuildV3] find_join_paths_batch: Starting BFS with %d source node(s), seeking %d target(s): %s",
-        len(frontier),
-        len(target_dimension_names),
-        sorted(target_dimension_names),
-    )
-
     # BFS: explore depth by depth
     # We explore up to a practical depth limit (typically 5-10 hops is more than enough)
     practical_max_depth = min(max_depth, 10)
-    total_queries = 0
 
     for depth in range(1, practical_max_depth + 1):
         if not frontier:
-            logger.info(
-                "[BuildV3] find_join_paths_batch: No more frontier at depth %d, stopping",
-                depth,
-            )
             break
-
-        depth_start_time = time.time()
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Depth %d - expanding %d frontier node(s)...",
-            depth,
-            len(frontier),
-        )
 
         # Expand frontier by one hop - BATCH query for all frontier nodes
         new_frontier: list[tuple[int, int, list[int], str, list[int]]] = []
@@ -206,11 +167,6 @@ async def find_join_paths_batch(
 
         # Single batched query for ALL frontier nodes at this depth
         frontier_node_ids = list(frontier_by_node.keys())
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Depth %d - executing single batch query for %d unique node(s)...",
-            depth,
-            len(frontier_node_ids),
-        )
 
         expand_query = text("""
             SELECT
@@ -226,25 +182,15 @@ async def find_join_paths_batch(
                 AND nr.version = (SELECT current_version FROM node WHERE id = nr.node_id)
         """).bindparams(bindparam("node_ids", expanding=True))
 
-        query_start = time.time()
-        total_queries += 1
         try:
             expand_result = await session.execute(
                 expand_query,
                 {"node_ids": frontier_node_ids},
             )
-            query_time = time.time() - query_start
             rows = expand_result.fetchall()
-            logger.info(
-                "[BuildV3] find_join_paths_batch: Depth %d batch query returned %d link(s) from %d node(s) (%.3fs)",
-                depth,
-                len(rows),
-                len(frontier_node_ids),
-                query_time,
-            )
         except Exception as e:
             logger.error(
-                "[BuildV3] find_join_paths_batch: Batch query FAILED at depth %d: %s",
+                "[BuildV3] find_join_paths_batch: Query failed at depth %d: %s",
                 depth,
                 str(e),
             )
@@ -283,27 +229,12 @@ async def find_join_paths_batch(
                     if key not in found_paths:
                         found_paths[key] = new_path
                         targets_found_at_depth.add(dim_name)
-                        logger.info(
-                            "[BuildV3] find_join_paths_batch: Found path to %s with role '%s' at depth %d (path length: %d)",
-                            dim_name,
-                            new_role_path,
-                            depth,
-                            len(new_path),
-                        )
 
                 # Add to new frontier (explore further regardless of whether it's a target)
                 # This allows finding multi-hop paths through intermediate targets
                 new_frontier.append(
                     (source_rev_id, to_node_id, new_path, new_role_path, new_visited),
                 )
-
-        if targets_found_at_depth:
-            logger.info(
-                "[BuildV3] find_join_paths_batch: Found %d target(s) at depth %d: %s",
-                len(targets_found_at_depth),
-                depth,
-                sorted(targets_found_at_depth),
-            )
 
         # Update frontier for next iteration
         frontier = new_frontier
@@ -312,22 +243,7 @@ async def find_join_paths_batch(
         # 1. We might need the same dimension with different roles (multi-hop paths)
         # 2. BFS naturally finds shortest paths first, so we'll get those before longer ones
         # 3. We stop when frontier is empty (no more nodes to explore)
-        depth_time = time.time() - depth_start_time
-        logger.info(
-            "[BuildV3] find_join_paths_batch: Depth %d complete - %d path(s) found, %d frontier node(s) for next depth (%.3fs)",
-            depth,
-            len(found_paths),
-            len(frontier),
-            depth_time,
-        )
 
-    total_time = time.time() - start_time
-    logger.info(
-        "[BuildV3] find_join_paths_batch: COMPLETE - found %d path(s) total (%.3fs total, %d queries)",
-        len(found_paths),
-        total_time,
-        total_queries,
-    )
     return found_paths
 
 
@@ -379,15 +295,6 @@ async def preload_join_paths(
     Uses BFS to find paths from ALL sources to all targets, then a single
     batch load for DimensionLink objects. Results are stored in ctx.join_paths.
     """
-    import time
-
-    start_time = time.time()
-
-    logger.info(
-        "[BuildV3] preload_join_paths: Starting with %d source revisions, %d target dimensions",
-        len(source_revision_ids),
-        len(target_dimension_names),
-    )
 
     if not target_dimension_names or not source_revision_ids:
         logger.info("[BuildV3] preload_join_paths: Nothing to preload, returning early")
@@ -434,19 +341,6 @@ async def preload_join_paths(
     unique_targets = set()
     for src_id, dim_name, role_path in ctx.join_paths.keys():
         unique_targets.add(dim_name)
-    logger.info(
-        "[BuildV3] preload_join_paths: Found paths to %d unique dimension(s): %s",
-        len(unique_targets),
-        sorted(unique_targets),
-    )
-
-    total_time = time.time() - start_time
-    logger.info(
-        "[BuildV3] preload_join_paths: COMPLETE - Preloaded %d join paths for %d sources (%.3fs total)",
-        len(path_ids),
-        len(source_revision_ids),
-        total_time,
-    )
 
 
 async def load_nodes(ctx: BuildContext) -> None:
@@ -457,10 +351,6 @@ async def load_nodes(ctx: BuildContext) -> None:
     Query 2: Batch load all those nodes with eager loading
     Query 3-4: Find join paths and batch load dimension links
     """
-    import time
-
-    start_time = time.time()
-    logger.info("[BuildV3] load_nodes: Starting...")
     # Collect initial node names (metrics + explicit dimension nodes)
     initial_node_names = set(ctx.metrics)
 
@@ -643,13 +533,6 @@ async def load_nodes(ctx: BuildContext) -> None:
 
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
-
-    total_time = time.time() - start_time
-    logger.info(
-        "[BuildV3] load_nodes: COMPLETE - loaded %d nodes (%.3fs total)",
-        len(ctx.nodes),
-        total_time,
-    )
 
 
 async def load_available_preaggs(ctx: BuildContext) -> None:
