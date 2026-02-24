@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import TableIcon from '../../icons/TableIcon';
 import AddMaterializationPopover from './AddMaterializationPopover';
 import * as React from 'react';
@@ -47,39 +47,40 @@ export default function NodeMaterializationTab({ node, djClient }) {
     }, {});
   }, [filteredMaterializations, node?.version]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (node) {
-        const data = await djClient.materializations(node.name);
+  const fetchData = useCallback(async () => {
+    if (node) {
+      const data = await djClient.materializations(node.name);
 
-        // Store raw data
-        setRawMaterializations(data);
+      // Store raw data
+      setRawMaterializations(data);
 
-        // Fetch availability states
-        const availabilityData = await djClient.availabilityStates(node.name);
-        setAvailabilityStates(availabilityData);
+      // Fetch availability states
+      const availabilityData = await djClient.availabilityStates(node.name);
+      setAvailabilityStates(availabilityData);
 
-        // Group availability states by version
-        const availabilityGrouped = availabilityData.reduce((acc, avail) => {
-          const version = avail.node_version || node.version;
-          if (!acc[version]) {
-            acc[version] = [];
-          }
-          acc[version].push(avail);
-          return acc;
-        }, {});
-
-        setAvailabilityStatesByRevision(availabilityGrouped);
-
-        // Clear rebuilding state once data is loaded after a page reload
-        if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
-          localStorage.removeItem(`rebuilding-${node.name}`);
-          setIsRebuilding(false);
+      // Group availability states by version
+      const availabilityGrouped = availabilityData.reduce((acc, avail) => {
+        const version = avail.node_version || node.version;
+        if (!acc[version]) {
+          acc[version] = [];
         }
+        acc[version].push(avail);
+        return acc;
+      }, {});
+
+      setAvailabilityStatesByRevision(availabilityGrouped);
+
+      // Clear rebuilding state once data is loaded after a page reload
+      if (localStorage.getItem(`rebuilding-${node.name}`) === 'true') {
+        localStorage.removeItem(`rebuilding-${node.name}`);
+        setIsRebuilding(false);
       }
-    };
-    fetchData().catch(console.error);
+    }
   }, [djClient, node]);
+
+  useEffect(() => {
+    fetchData().catch(console.error);
+  }, [fetchData]);
 
   // Set default selected tab, or reset if current tab is no longer visible
   useEffect(() => {
@@ -400,6 +401,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
                         <AddBackfillPopover
                           node={node}
                           materialization={materialization}
+                          onSubmit={fetchData}
                         />
                       </li>
                       {materialization.backfills.map(backfill => (
