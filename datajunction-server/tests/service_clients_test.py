@@ -1260,3 +1260,121 @@ class TestQueryServiceClient:
             params={},
             json={},
         )
+
+    def test_get_columns_for_tables_batch_success(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test batch column retrieval for multiple tables.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "catalog1.schema1.table1": {
+                "columns": [
+                    {"name": "col1", "type": "INT"},
+                    {"name": "col2", "type": "STRING"},
+                ],
+            },
+            "catalog1.schema1.table2": {
+                "columns": [
+                    {"name": "col3", "type": "BIGINT"},
+                ],
+            },
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.get_columns_for_tables_batch(
+            tables=[
+                ("catalog1", "schema1", "table1"),
+                ("catalog1", "schema1", "table2"),
+            ],
+        )
+
+        mock_request.assert_called_once_with(
+            "/tables/columns/",
+            headers=ANY,
+            json=[
+                "catalog1.schema1.table1",
+                "catalog1.schema1.table2",
+            ],
+        )
+
+        # Verify results are correctly parsed
+        assert len(result) == 2
+        assert len(result[("catalog1", "schema1", "table1")]) == 2
+        assert result[("catalog1", "schema1", "table1")][0].name == "col1"
+        assert len(result[("catalog1", "schema1", "table2")]) == 1
+
+    def test_get_columns_for_tables_batch_with_empty_columns(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test batch column retrieval when some tables have no columns.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "catalog1.schema1.table1": {
+                "columns": [
+                    {"name": "col1", "type": "INT"},
+                ],
+            },
+            "catalog1.schema1.table2": {
+                "columns": [],  # Empty columns
+            },
+            "catalog1.schema1.table3": {},  # Missing columns key
+        }
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        result = query_service_client.get_columns_for_tables_batch(
+            tables=[
+                ("catalog1", "schema1", "table1"),
+                ("catalog1", "schema1", "table2"),
+                ("catalog1", "schema1", "table3"),
+            ],
+        )
+
+        # Table1 should have columns
+        assert len(result[("catalog1", "schema1", "table1")]) == 1
+
+        # Table2 and table3 should have empty list and warning should be logged
+        assert result[("catalog1", "schema1", "table2")] == []
+        assert result[("catalog1", "schema1", "table3")] == []
+
+    def test_get_columns_for_tables_batch_with_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test batch column retrieval with error response.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal server error"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.get_columns_for_tables_batch(
+                tables=[
+                    ("catalog1", "schema1", "table1"),
+                ],
+            )
+        assert "Error response from query service" in str(exc_info.value)

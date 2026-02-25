@@ -63,6 +63,19 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             engine=engine,
         )
 
+    def get_columns_for_tables_batch(
+        self,
+        tables: List[tuple[str, str, str]],
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """Retrieves columns for multiple tables in a single batch request via HTTP query service."""
+        return self._client.get_columns_for_tables_batch(
+            tables=tables,
+            request_headers=request_headers,
+            engine=engine,
+        )
+
     def create_view(
         self,
         view_name: str,
