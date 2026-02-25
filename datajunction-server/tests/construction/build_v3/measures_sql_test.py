@@ -522,20 +522,17 @@ class TestDimensionJoins:
         SELECT  t1.status,
             t2.name,
             t3.month month_order,
-            t5.year year_registration,
-            t7.country country_home,
+            t4.year year_registration,
+            t5.country country_home,
             SUM(t1.line_total) line_total_sum_e1f61696,
             SUM(t1.quantity) quantity_sum_06b64d2e,
             hll_sketch_agg(t1.customer_id) customer_id_hll_23002251
-        FROM v3_order_details t1
-        LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+        FROM v3_order_details t1 LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
         LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-        LEFT OUTER JOIN v3_customer t4 ON t1.customer_id = t4.customer_id
-        LEFT OUTER JOIN v3_date t5 ON t4.registration_date = t5.date_id
-        LEFT OUTER JOIN v3_customer t6 ON t1.customer_id = t6.customer_id
-        LEFT OUTER JOIN v3_location t7 ON t6.location_id = t7.location_id
-        GROUP BY  t1.status, t2.name, t3.month, t5.year, t7.country
-""",
+        LEFT OUTER JOIN v3_date t4 ON t2.registration_date = t4.date_id
+        LEFT OUTER JOIN v3_location t5 ON t2.location_id = t5.location_id
+        GROUP BY  t1.status, t2.name, t3.month, t4.year, t5.country
+        """,
         )
 
         # Check all dimension semantic entities
