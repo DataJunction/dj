@@ -19,6 +19,7 @@ dimension_links:
   - type: join
     node_column: state
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.us_state.state_abbr = ${prefix}roads.contractor.state
   - type: reference
     node_column: company_name
     dimension: ${prefix}roads.companies_dim.name
