@@ -466,6 +466,51 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
         assert "message" in result or "detail" in result
 
+    def test_plan_with_temporal_filters(self, client):
+        """
+        Test query execution plan retrieval with temporal filter parameters
+        """
+        # Test plan with include_temporal_filters=True
+        result = client.plan(
+            metrics=["default.avg_repair_price"],
+            dimensions=["default.hard_hat.city"],
+            include_temporal_filters=True,
+        )
+        assert isinstance(result, dict)
+        assert "grain_groups" in result
+        assert "metric_formulas" in result
+
+        # Test plan with include_temporal_filters and lookback_window
+        result = client.plan(
+            metrics=["default.avg_repair_price", "default.num_repair_orders"],
+            dimensions=["default.hard_hat.city"],
+            filters=["default.hard_hat.state = 'NY'"],
+            include_temporal_filters=True,
+            lookback_window="3 DAY",
+        )
+        assert isinstance(result, dict)
+        assert "grain_groups" in result
+        assert "metric_formulas" in result
+        assert "requested_dimensions" in result
+
+        # Verify grain_groups structure
+        assert isinstance(result["grain_groups"], list)
+        for grain_group in result["grain_groups"]:
+            assert "parent_name" in grain_group
+            assert "grain" in grain_group
+            assert "sql" in grain_group
+            assert "components" in grain_group
+
+        # Test with different lookback windows
+        result = client.plan(
+            metrics=["default.avg_repair_price"],
+            dimensions=["default.hard_hat.city"],
+            include_temporal_filters=True,
+            lookback_window="1 WEEK",
+        )
+        assert isinstance(result, dict)
+        assert "grain_groups" in result
+
     #
     # Data Catalog and Engines
     #
