@@ -250,8 +250,16 @@ def _add_table_prefixes_to_filter(
             col_to_table[col_alias] = main_alias
         elif resolved_dim.join_path:  # pragma: no branch
             # Get the dimension's table alias for joined dimensions
+            # Build accumulated role path to match how joins were created
+            accumulated_role_parts = []
             for link in resolved_dim.join_path.links:  # pragma: no branch
-                dim_key = (link.dimension.name, resolved_dim.role)
+                link_role = link.role or ""
+                if link_role:
+                    accumulated_role_parts.append(link_role)
+                accumulated_role = (
+                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
+                )
+                dim_key = (link.dimension.name, accumulated_role)
                 if dim_key in dim_aliases:  # pragma: no branch
                     col_to_table[col_alias] = dim_aliases[dim_key]
                     break
@@ -321,7 +329,7 @@ def get_dimension_table_alias(
     Args:
         resolved_dim: The resolved dimension
         main_alias: The alias for the main/parent table
-        dim_aliases: Map of (node_name, role) -> table_alias for dimension joins
+        dim_aliases: Map of (node_name, accumulated_role) -> table_alias for dimension joins
 
     Returns:
         The appropriate table alias to use for this dimension's column
@@ -329,8 +337,17 @@ def get_dimension_table_alias(
     if resolved_dim.is_local:
         return main_alias
     elif resolved_dim.join_path:  # pragma: no branch
+        # Build accumulated role path to match how joins were created
         final_dim_name = resolved_dim.join_path.target_node_name
-        dim_key = (final_dim_name, resolved_dim.role)
+        accumulated_role_parts = []
+        for link in resolved_dim.join_path.links:
+            link_role = link.role or ""
+            if link_role:
+                accumulated_role_parts.append(link_role)
+        accumulated_role = (
+            "->".join(accumulated_role_parts) if accumulated_role_parts else ""
+        )
+        dim_key = (final_dim_name, accumulated_role)
         return dim_aliases.get(dim_key, main_alias)
     return main_alias  # pragma: no cover
 

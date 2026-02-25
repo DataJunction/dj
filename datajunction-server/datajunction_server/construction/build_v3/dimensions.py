@@ -114,7 +114,10 @@ def find_join_path(
 
     if fallback_paths:
         # Prefer paths with no role (empty string) as they're the "default" link
-        fallback_paths.sort(key=lambda x: (x[0] != "", x[0]))  # Empty role first
+        # Also prefer shorter paths (fewer hops) over longer ones
+        fallback_paths.sort(
+            key=lambda x: (len(x[1]), x[0] != "", x[0]),
+        )  # Shortest path, then empty role, then alphabetical
         stored_role, path_links = fallback_paths[0]
 
         if role and stored_role != role_path:
