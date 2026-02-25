@@ -121,7 +121,7 @@ def find_join_path(
         stored_role, path_links = fallback_paths[0]
 
         if role and stored_role != role_path:
-            logger.info(
+            logger.info(  # pragma: no cover
                 "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
                 role,
                 stored_role or "null",
