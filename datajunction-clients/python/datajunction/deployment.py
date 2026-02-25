@@ -13,6 +13,7 @@ from rich.table import Table
 from datajunction import DJBuilder
 from datajunction.exceptions import (
     DJClientException,
+    DJDeploymentFailure,
 )
 
 
@@ -218,6 +219,13 @@ class DeploymentService:
             console.print(
                 f"\nDeployment finished: [bold {color}]{deployment_data.get('status').upper()}[/bold {color}]",
             )
+            if deployment_data.get("status") == "failed":
+                results = deployment_data.get("results", [])
+                errors = [r for r in results if r.get("status") == "failed"]
+                raise DJDeploymentFailure(
+                    project_name=deployment_spec.get("namespace", source_path),
+                    errors=errors if errors else results,
+                )
 
     def get_impact(
         self,

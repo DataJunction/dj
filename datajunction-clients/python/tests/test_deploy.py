@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 from unittest.mock import MagicMock
 from datajunction.deployment import DeploymentService
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJDeploymentFailure
 import yaml
 from rich.console import Console
 
@@ -237,6 +237,79 @@ def test_push_times_out(monkeypatch, tmp_path):
 
     client.deploy.assert_called_once()
     client.check_deployment.assert_called()
+
+
+@pytest.mark.timeout(2)
+def test_push_raises_on_failed_deployment(monkeypatch, tmp_path):
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    failed_results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "create",
+            "status": "failed",
+            "message": "Column `x` does not exist",
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "failed",
+        "results": failed_results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path)
+
+    assert "foo" in exc_info.value.message
+    assert len(exc_info.value.errors) == 1
+    assert exc_info.value.errors[0]["name"] == "foo.bar"
+
+
+@pytest.mark.timeout(2)
+def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "ns"}))
+    (tmp_path / "ns.yaml").write_text(yaml.safe_dump({"name": "ns.node"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "789",
+        "status": "pending",
+        "results": [],
+        "namespace": "ns",
+    }
+    client.check_deployment.side_effect = [
+        {"uuid": "789", "status": "pending", "results": [], "namespace": "ns"},
+        {
+            "uuid": "789",
+            "status": "failed",
+            "results": [
+                {
+                    "deploy_type": "general",
+                    "name": "DJInvalidDeploymentConfig",
+                    "operation": "unknown",
+                    "status": "failed",
+                    "message": "Missing dependencies: source.foo",
+                },
+            ],
+            "namespace": "ns",
+        },
+    ]
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path)
+
+    assert exc_info.value.errors[0]["message"] == "Missing dependencies: source.foo"
+    assert client.check_deployment.call_count == 2
 
 
 def test_read_project_yaml_returns_empty(tmp_path: Path):
