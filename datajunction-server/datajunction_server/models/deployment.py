@@ -630,6 +630,14 @@ class DeploymentSpec(BaseModel):
     tags: list[TagSpec] = Field(default_factory=list)
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
+    auto_register_sources: bool = Field(
+        default=True,
+        description=(
+            "If True, automatically register missing source nodes by introspecting "
+            "catalog tables. Missing nodes that match the pattern catalog.schema.table "
+            "will be looked up in the specified catalog and auto-created as source nodes."
+        ),
+    )
 
     @model_validator(mode="after")
     def set_namespaces(self):

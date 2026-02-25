@@ -1,50 +1,34 @@
 import asyncio
 import logging
-from dataclasses import dataclass, field
 import re
 import time
-from typing import Coroutine, cast
 from collections import Counter
+from dataclasses import dataclass, field
+from typing import Coroutine, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload, defer
 
-from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.api.helpers import (
     get_attribute_type,
     get_node_namespace,
     COLUMN_NAME_REGEX,
     map_dimensions_to_roles,
 )
+from datajunction_server.construction.build_v2 import FullColumnName
+from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.attributetype import AttributeType
-from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+from datajunction_server.database.history import History
+from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import NodeRelationship
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
-from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.database.node import Node
-from datajunction_server.models.node import NodeType
-from datajunction_server.internal.deployment.validation import (
-    NodeValidationResult,
-    CubeValidationData,
-)
-from dataclasses import dataclass
-from datajunction_server.internal.nodes import (
-    hard_delete_node,
-    validate_complex_dimension_link,
-)
-from datajunction_server.models.deployment import (
-    ColumnSpec,
-    CubeSpec,
-    DeploymentResult,
-    DeploymentSpec,
-    DimensionReferenceLinkSpec,
-    LinkableNodeSpec,
-    NodeSpec,
-    TagSpec,
-)
 from datajunction_server.errors import (
     DJError,
     DJInvalidDeploymentConfig,
@@ -52,59 +36,51 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.models.base import labelize
+from datajunction_server.internal.catalogs import parse_source_node_name
 from datajunction_server.internal.deployment.utils import (
     extract_node_graph,
     topological_levels,
-)
-from datajunction_server.internal.deployment.utils import DeploymentContext
-from datajunction_server.database.user import User
-from datajunction_server.database import Node, NodeRevision
-from datajunction_server.database.metricmetadata import MetricMetadata
-from datajunction_server.api.helpers import get_attribute_type
-from datajunction_server.models.base import labelize
-from datajunction_server.models.node import (
-    DEFAULT_DRAFT_VERSION,
-    DEFAULT_PUBLISHED_VERSION,
-    NodeMode,
+    DeploymentContext,
 )
 from datajunction_server.internal.deployment.validation import (
+    NodeValidationResult,
+    CubeValidationData,
     bulk_validate_node_data,
 )
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.column import Column, ColumnAttribute
-from datajunction_server.database.dimensionlink import DimensionLink, JoinType
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.tag import Tag
+from datajunction_server.internal.history import EntityType
+from datajunction_server.internal.nodes import (
+    hard_delete_node,
+    validate_complex_dimension_link,
+)
 from datajunction_server.models.attribute import ColumnAttributes
+from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
+    ColumnSpec,
     CubeSpec,
     DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     LinkableNodeSpec,
     MetricSpec,
-    SourceSpec,
     NodeSpec,
+    SourceSpec,
+    TagSpec,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
 )
 from datajunction_server.models.history import ActivityType
-from datajunction_server.database.history import History
-from datajunction_server.internal.history import EntityType
 from datajunction_server.models.node import (
+    DEFAULT_DRAFT_VERSION,
+    DEFAULT_PUBLISHED_VERSION,
+    NodeMode,
     NodeStatus,
     NodeType,
 )
-from datajunction_server.errors import (
-    DJInvalidDeploymentConfig,
-)
 from datajunction_server.utils import SEPARATOR, Version, get_namespace_from_name
-
-from sqlalchemy.orm import joinedload, selectinload, defer
 
 
 logger = logging.getLogger(__name__)
@@ -266,6 +242,139 @@ class DeploymentOrchestrator:
                 warnings=self.warnings,
             )
 
+    async def _auto_register_sources(
+        self,
+        missing_nodes: list[str],
+    ) -> list[SourceSpec]:
+        """
+        Auto-register missing source nodes by introspecting catalog tables.
+
+        This method takes a list of missing node names and attempts to register
+        any that match the catalog.schema.table pattern by introspecting the
+        catalog to get the table schema.
+
+        Args:
+            missing_nodes: List of node names that are missing from both
+                          the deployment and the existing system
+
+        Returns:
+            List of SourceSpec objects that were successfully auto-registered
+        """
+        if not self.deployment_spec.auto_register_sources:
+            return []
+
+        if not missing_nodes:
+            logger.info("No missing nodes to auto-register")
+            return []
+
+        logger.info("Attempting to auto-register missing sources...")
+        auto_registered_sources: list[SourceSpec] = []
+
+        # Filter to only nodes that look like catalog.schema.table
+        missing_nodes_to_check: list[str] = []
+        for missing_node_name in missing_nodes:
+            # Strip "source." prefix if present
+            parts = missing_node_name.split(".")
+            if parts[0] == "source":
+                parts = parts[1:]
+                missing_node_name = ".".join(parts)
+
+            # Only consider tables that look like catalog.schema.table (3 parts)
+            if len(parts) == 3:
+                missing_nodes_to_check.append(missing_node_name)
+
+        if not missing_nodes_to_check:
+            logger.info("No missing nodes match catalog.schema.table pattern")
+            return []
+
+        logger.info(
+            "Found %d potential sources to auto-register: %s",
+            len(missing_nodes_to_check),
+            ", ".join(sorted(missing_nodes_to_check)),
+        )
+
+        # Check if query service client is available
+        if not self.context.query_service_client:
+            logger.warning(
+                "Query service client not available, cannot auto-register sources",
+            )
+            return []
+
+        # Try to introspect and create SourceSpec for each missing node
+        for missing_node_name in missing_nodes_to_check:
+            try:
+                # Parse the node name to extract catalog/schema/table
+                catalog_name, schema_name, table_name = parse_source_node_name(
+                    missing_node_name,
+                )
+
+                # Get the catalog to access its engines
+                from datajunction_server.api.helpers import get_catalog_by_name
+
+                _catalog = await get_catalog_by_name(
+                    session=self.session,
+                    name=catalog_name,
+                )
+
+                # Use query service to get column information (same as register_table)
+                request_headers = (
+                    dict(self.context.request.headers) if self.context.request else {}
+                )
+                columns = self.context.query_service_client.get_columns_for_table(
+                    _catalog.name,
+                    schema_name,
+                    table_name,
+                    request_headers,
+                    _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
+                )
+
+                # Create SourceSpec with introspected columns
+                # Note: Don't set namespace so rendered_name matches the missing node name
+                source_spec = SourceSpec(
+                    name=missing_node_name,  # Use canonical name (no "source." prefix)
+                    catalog=catalog_name,
+                    schema_=schema_name,
+                    table=table_name,
+                    columns=[
+                        ColumnSpec(name=col.name, type=str(col.type)) for col in columns
+                    ],
+                    description=(
+                        f"Auto-registered source from {catalog_name}.{schema_name}.{table_name}"
+                    ),
+                )
+
+                auto_registered_sources.append(source_spec)
+                logger.info(
+                    "Auto-registered source %s with %d columns",
+                    missing_node_name,
+                    len(columns),
+                )
+
+            except Exception as exc:
+                # If introspection fails, add an error
+                # This will cause deployment to fail with a clear message
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.UNKNOWN_ERROR,
+                        message=(
+                            f"Failed to auto-register source `{missing_node_name}`: {str(exc)}"
+                        ),
+                    ),
+                )
+                logger.error(
+                    "Failed to auto-register source %s: %s",
+                    missing_node_name,
+                    exc,
+                )
+
+        if auto_registered_sources:
+            logger.info(
+                "Successfully auto-registered %d sources",
+                len(auto_registered_sources),
+            )
+
+        return auto_registered_sources
+
     async def _handle_no_changes(self) -> list[DeploymentResult]:
         """Handle case where no deployment changes are needed"""
         logger.info("No changes detected, skipping deployment")
@@ -279,36 +388,29 @@ class DeploymentOrchestrator:
         deployment_namespace = self.deployment_spec.namespace
         all_namespaces = {deployment_namespace}  # Start with deployment namespace
 
-        # Process each node to extract namespace hierarchy
-        for node in self.deployment_spec.nodes:
-            node_name = node.rendered_name
+        def add_namespace_hierarchy(node_name: str):
+            """Helper to add a node's namespace and all parent namespaces"""
             if SEPARATOR not in node_name:
-                continue  # pragma: no cover
+                return
 
-            # Get the node's direct namespace (everything except the root name)
+            # Get the node's direct namespace (everything except the leaf name)
             node_namespace = node_name.rsplit(SEPARATOR, 1)[0]
 
-            # Generate all parent namespaces up to deployment root
-            namespace_parts = node_namespace.split(SEPARATOR)
-            deployment_parts = deployment_namespace.split(SEPARATOR)
-
-            # Ensure node is actually under deployment namespace
-            if not node_namespace.startswith(deployment_namespace):
-                self.errors.append(
-                    DJError(
-                        code=ErrorCode.INVALID_NAMESPACE,
-                        message=f"Node '{node_name}' is not under deployment namespace '{deployment_namespace}'",
-                        context="namespace validation",
-                    ),
-                )
-                continue
-
-            # Build all namespace levels from deployment root to node's namespace
-            for i in range(len(deployment_parts), len(namespace_parts) + 1):
-                if parent_namespace := SEPARATOR.join(
-                    namespace_parts[:i],
-                ):  # pragma: no cover
+            # Add all parent namespaces
+            parts = node_namespace.split(SEPARATOR)
+            for i in range(1, len(parts) + 1):
+                if parent_namespace := SEPARATOR.join(parts[:i]):
                     all_namespaces.add(parent_namespace)
+
+        # Process each node in the deployment spec
+        for node in self.deployment_spec.nodes:
+            add_namespace_hierarchy(node.rendered_name)
+
+            # Also add namespaces for dimension link targets
+            if isinstance(node, LinkableNodeSpec) and node.dimension_links:
+                for link in node.dimension_links:
+                    add_namespace_hierarchy(link.rendered_dimension_node)
+
         return all_namespaces
 
     async def _setup_namespaces(self) -> list[NodeNamespace]:
@@ -512,12 +614,86 @@ class DeploymentOrchestrator:
 
         # Build deployment graph if needed
         node_graph = {}
-        external_deps = set()
+        external_deps: set[str] = set()
         if to_deploy or to_delete:
             node_graph = extract_node_graph(
                 [node for node in to_deploy if not isinstance(node, CubeSpec)],
             )
-            external_deps = await self.check_external_deps(node_graph)
+            external_deps, auto_registered_sources = await self.check_external_deps(
+                node_graph,
+            )
+
+            # If sources were auto-registered, check which ones don't exist yet
+            if auto_registered_sources:
+                logger.info(
+                    "Checking if %d auto-registered sources already exist",
+                    len(auto_registered_sources),
+                )
+
+                # Check which auto-registered sources actually need to be created
+                auto_source_names = [
+                    src.rendered_name for src in auto_registered_sources
+                ]
+                existing_auto_sources = await Node.get_by_names(
+                    self.session,
+                    auto_source_names,
+                )
+                existing_auto_source_names = {
+                    node.name for node in existing_auto_sources
+                }
+
+                # Only include sources that don't already exist
+                sources_to_create = [
+                    src
+                    for src in auto_registered_sources
+                    if src.rendered_name not in existing_auto_source_names
+                ]
+
+                if sources_to_create:
+                    logger.info(
+                        "Adding %d new auto-registered sources to deployment spec (skipping %d that already exist)",
+                        len(sources_to_create),
+                        len(auto_registered_sources) - len(sources_to_create),
+                    )
+                    # Prepend auto-registered sources so they're created first
+                    self.deployment_spec.nodes = (
+                        sources_to_create + self.deployment_spec.nodes
+                    )
+
+                    # Rebuild the deployment plan with the new sources included
+                    logger.info(
+                        "Rebuilding deployment plan with auto-registered sources",
+                    )
+                    to_deploy = sources_to_create + to_deploy
+                else:
+                    logger.info("All auto-registered sources already exist, skipping")
+                    # All sources already exist, just rebuild graph to include them
+                    sources_to_create = []
+
+                # Add existing auto-registered sources to existing_specs so they can be found during link validation
+                for existing_node in existing_auto_sources:
+                    if existing_node.name not in existing_specs:
+                        existing_specs[
+                            existing_node.name
+                        ] = await existing_node.to_spec(self.session)
+                        logger.info(
+                            "Added existing auto-registered source %s to registry",
+                            existing_node.name,
+                        )
+
+                node_graph = extract_node_graph(
+                    [node for node in to_deploy if not isinstance(node, CubeSpec)],
+                )
+
+                # Re-check external deps (should be empty now, or raise error)
+                external_deps, more_auto_registered = await self.check_external_deps(
+                    node_graph,
+                )
+                if more_auto_registered:  # pragma: no cover
+                    # This shouldn't happen, but handle it gracefully
+                    raise DJInvalidDeploymentConfig(
+                        message="Unexpected second round of auto-registration needed",
+                    )
 
         return DeploymentPlan(
             to_deploy=to_deploy,
@@ -698,14 +874,36 @@ class DeploymentOrchestrator:
         validation_results: dict[tuple[str, str, str | None], Exception | None],
     ) -> DeploymentResult:
         link_name = f"{node_spec.rendered_name} -> {link_spec.rendered_dimension_node}"
+        logger.info(
+            "Processing dimension link: %s (link_type=%s, role=%s)",
+            link_name,
+            link_spec.type,
+            link_spec.role,
+        )
+
         node = self.registry.nodes.get(node_spec.rendered_name)
         dimension_node = self.registry.nodes.get(link_spec.rendered_dimension_node)
+
+        logger.info(
+            "Link nodes lookup - source_node=%s, dimension_node=%s",
+            node.name if node else None,
+            dimension_node.name if dimension_node else None,
+        )
+
         if not node:
+            logger.error(
+                "Source node %s not found in registry",
+                node_spec.rendered_name,
+            )
             return self._create_missing_node_link_result(
                 link_name,
                 node_spec.rendered_name,
             )
         if not dimension_node:
+            logger.error(
+                "Dimension node %s not found in registry",
+                link_spec.rendered_dimension_node,
+            )
             return self._create_missing_node_link_result(  # pragma: no cover
                 link_name,
                 link_spec.rendered_dimension_node,
@@ -715,6 +913,11 @@ class DeploymentOrchestrator:
             (node.name, dimension_node.name, link_spec.role),
         )
         if isinstance(result, Exception):
+            logger.exception(
+                "Dimension link validation failed for %s",
+                link_name,
+                result,
+            )
             return DeploymentResult(
                 name=link_name,
                 deploy_type=DeploymentResult.Type.LINK,
@@ -725,6 +928,13 @@ class DeploymentOrchestrator:
                     f" {dimension_node.name} is invalid: {result}"
                 ),
             )
+
+        logger.info(
+            "Creating/updating dimension link: %s (node_revision=%s, dimension_node=%s)",
+            link_name,
+            node.current.name if node.current else None,
+            dimension_node.name,
+        )
 
         return await self._create_or_update_dimension_link(
             link_spec=link_spec,
@@ -752,6 +962,17 @@ class DeploymentOrchestrator:
         new_revision: NodeRevision,
         dimension_node: Node,
     ) -> DeploymentResult:
+        logger.debug(
+            "Creating/updating dimension link - link_spec=%s, new_revision=%s (id=%s, name=%s), dimension_node=%s (id=%s, name=%s)",
+            link_spec,
+            new_revision,
+            new_revision.id if new_revision else None,
+            new_revision.name if new_revision else None,
+            dimension_node,
+            dimension_node.id if dimension_node else None,
+            dimension_node.name if dimension_node else None,
+        )
+
         activity_type = ActivityType.CREATE
         if link_spec.type == LinkType.JOIN:
             join_link = cast(DimensionJoinLinkSpec, link_spec)
@@ -793,6 +1014,13 @@ class DeploymentOrchestrator:
 
         # Track history for dimension link create/update (skip REFRESH/NOOP)
         if activity_type in (ActivityType.CREATE, ActivityType.UPDATE):
+            if not dimension_node:
+                logger.error("dimension_node is None when creating history")
+                raise ValueError("dimension_node is None")
+            if not new_revision:
+                logger.error("new_revision is None when creating history")
+                raise ValueError("new_revision is None")
+
             link_details = {
                 "dimension_node": dimension_node.name,
                 "link_type": link_spec.type,
@@ -1511,10 +1739,14 @@ class DeploymentOrchestrator:
     async def check_external_deps(
         self,
         node_graph: dict[str, list[str]],
-    ) -> set[str]:
+    ) -> tuple[set[str], list[SourceSpec]]:
         """
         Find any dependencies that are not in the deployment but are already in the system.
-        If any dependencies are not in the deployment and not in the system, raise an error.
+        If any dependencies are missing and auto_register_sources is enabled, attempt to
+        register them. Otherwise raise an error.
+
+        Returns:
+            Tuple of (external_deps, auto_registered_sources)
         """
         dimension_link_deps = [
             link.rendered_dimension_node
@@ -1561,17 +1793,33 @@ class DeploymentOrchestrator:
                 missing_nodes.append(dep)
 
             if missing_nodes:
-                raise DJInvalidDeploymentConfig(
-                    message=(
-                        "The following dependencies are not in the deployment and do not"
-                        " pre-exist in the system: " + ", ".join(sorted(missing_nodes))
-                    ),
-                )
+                # Try to auto-register missing sources
+                auto_registered = await self._auto_register_sources(missing_nodes)
+
+                # If we failed to auto-register (or it's disabled), raise an error
+                if self.errors or not auto_registered:
+                    if self.errors:
+                        raise DJInvalidDeploymentConfig(
+                            message="Failed to auto-register sources",
+                            errors=self.errors,
+                            warnings=self.warnings,
+                        )
+                    raise DJInvalidDeploymentConfig(
+                        message=(
+                            "The following dependencies are not in the deployment and do not"
+                            " pre-exist in the system: "
+                            + ", ".join(sorted(missing_nodes))
+                        ),
+                    )
+
+                # Successfully auto-registered, return them so caller can rebuild graph
+                return deps_not_in_deployment, auto_registered
+
             logger.info(
                 "All %d external dependencies pre-exist in the system",
                 len(external_node_deps),
             )
-        return deps_not_in_deployment
+        return deps_not_in_deployment, []
 
     async def validate_dimension_links(self, plan: DeploymentPlan):
         """
@@ -1951,7 +2199,6 @@ class DeploymentOrchestrator:
             NodeType.METRIC,
         ):
             new_revision.query = result.spec.rendered_query
-            print("result.inferred_columns", result.inferred_columns)
             new_revision.columns = [
                 self._create_column_from_spec(
                     col,
