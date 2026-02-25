@@ -202,6 +202,8 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         dialect: Optional[str] = None,
         use_materialized: bool = True,
+        include_temporal_filters: bool = False,
+        lookback_window: Optional[str] = None,
     ):
         """
         Returns a query execution plan for the given metrics and dimensions.
@@ -220,13 +222,21 @@ class DJClient(_internal.DJClient):
             filters: List of filter expressions
             dialect: SQL dialect (e.g., 'spark', 'trino'). Defaults to engine dialect.
             use_materialized: Whether to use materialized tables when available
+            include_temporal_filters: Whether to include temporal partition filters.
+                Only applies if the metrics and dimensions resolve to a cube with
+                temporal partitions.
+            lookback_window: Lookback window for temporal filters (e.g., '3 DAY',
+                '1 WEEK'). Only applicable when include_temporal_filters is True.
         """
         params: dict = {
             "metrics": metrics,
             "dimensions": dimensions or [],
             "filters": filters or [],
             "use_materialized": use_materialized,
+            "include_temporal_filters": include_temporal_filters,
         }
+        if lookback_window is not None:
+            params["lookback_window"] = lookback_window
         effective_dialect = dialect or self.engine_name
         if effective_dialect:
             params["dialect"] = effective_dialect  # pragma: no cover
