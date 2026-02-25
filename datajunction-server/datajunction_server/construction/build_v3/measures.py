@@ -385,16 +385,32 @@ def build_select_ast(
             # Need to add join(s) for this dimension
             current_left_alias = main_alias
 
+            # Build accumulated role path as we traverse links
+            # This ensures that when two dimensions share a common prefix in their
+            # join paths, we reuse the same joins instead of creating duplicates
+            accumulated_role_parts = []
+
             for link in resolved_dim.join_path.links:
                 dim_node_name = link.dimension.name
-                dim_key = (dim_node_name, resolved_dim.role)
+
+                # Build the accumulated role path up to this link
+                link_role = link.role or ""
+                if link_role:
+                    accumulated_role_parts.append(link_role)
+                accumulated_role = (
+                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
+                )
+
+                # Key for deduplication: (dimension_node, accumulated_role_up_to_this_point)
+                # This allows different final dimensions to share intermediate joins
+                dim_key = (dim_node_name, accumulated_role)
 
                 # Generate alias for dimension table if not already created
-                # Key includes role to allow multiple joins to same dimension with different roles
+                # Key includes accumulated role to allow multiple joins to same dimension with different roles
                 if dim_key not in dim_aliases:  # pragma: no branch
-                    # Use role as part of alias if present to distinguish multiple joins to same dim
-                    if resolved_dim.role:
-                        alias_base = resolved_dim.role.replace("->", "_")
+                    # Use accumulated role as part of alias if present to distinguish multiple joins
+                    if accumulated_role:
+                        alias_base = accumulated_role.replace("->", "_")
                     else:
                         alias_base = get_short_name(dim_node_name)
                     dim_alias = ctx.next_table_alias(alias_base)

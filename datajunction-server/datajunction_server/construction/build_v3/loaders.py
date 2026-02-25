@@ -214,11 +214,15 @@ async def find_join_paths_batch(
 
                 # Build new path and role
                 new_path = item.path_so_far + [row.link_id]
-                new_role_path = (
-                    (item.role_path + "->" + row.link_role)
-                    if item.role_path
-                    else row.link_role
-                )
+                # Only concatenate with '->' if both role_path and link_role are non-empty
+                if not item.role_path and not row.link_role:
+                    new_role_path = ""
+                elif not item.role_path:
+                    new_role_path = row.link_role
+                elif not row.link_role:
+                    new_role_path = item.role_path
+                else:
+                    new_role_path = item.role_path + "->" + row.link_role
                 new_visited = item.visited + [row.to_node_id]
 
                 # Check if this reaches a target
