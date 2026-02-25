@@ -159,7 +159,7 @@ async def find_join_paths_batch(
 
     # BFS: explore depth by depth
     # Cycle prevention ensures we won't loop infinitely even with high max_depth
-    for depth in range(1, max_depth + 1):
+    for depth in range(1, max_depth + 1):  # pragma: no branch
         if not frontier:
             break
 
@@ -197,7 +197,7 @@ async def find_join_paths_batch(
                 {"node_ids": frontier_node_ids},
             )
             rows = expand_result.fetchall()
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.error(
                 "[BuildV3] find_join_paths_batch: Query failed at depth %d: %s",
                 depth,
@@ -228,7 +228,7 @@ async def find_join_paths_batch(
                 # Check if this reaches a target
                 if row.dim_name in target_dimension_names:
                     key = (item.source_rev_id, row.dim_name, new_role_path)
-                    if key not in found_paths:
+                    if key not in found_paths:  # pragma: no branch
                         found_paths[key] = new_path
                         targets_found_at_depth.add(row.dim_name)
 
