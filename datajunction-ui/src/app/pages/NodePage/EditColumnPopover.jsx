@@ -63,7 +63,7 @@ export default function EditColumnPopover({ column, node, options, onSubmit }) {
           initialValues={{
             column: column.name,
             node: node.name,
-            attributes: [],
+            attributes: column.attributes.map(attr => attr.attribute_type.name),
           }}
           onSubmit={saveAttributes}
         >

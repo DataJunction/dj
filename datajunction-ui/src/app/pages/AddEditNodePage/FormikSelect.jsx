@@ -39,10 +39,33 @@ export const FormikSelect = ({
     }
   };
 
+  // Convert Formik field value to React Select format
+  const getSelectValue = () => {
+    if (!field.value) {
+      return isMulti ? [] : null;
+    }
+
+    if (isMulti) {
+      // For multi-select, map array of values to option objects
+      return Array.isArray(field.value)
+        ? field.value.map(
+            val =>
+              selectOptions.find(opt => opt.value === val) || {
+                value: val,
+                label: val,
+              },
+          )
+        : [];
+    } else {
+      // For single-select, find the matching option
+      return selectOptions.find(opt => opt.value === field.value) || null;
+    }
+  };
+
   return (
     <Select
       className={className}
-      defaultValue={defaultValue}
+      value={getSelectValue()}
       options={selectOptions}
       name={field.name}
       placeholder={placeholder}
