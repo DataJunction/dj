@@ -5,6 +5,7 @@ Database loading functions
 from __future__ import annotations
 
 import logging
+from collections import namedtuple
 
 from sqlalchemy import select, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,13 @@ from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import collect_required_dimensions
 
 logger = logging.getLogger(__name__)
+
+# State during BFS search for join paths in find_join_paths_batch
+# Tracks the current position in the search along with accumulated path context
+JoinPathState = namedtuple(
+    "JoinPathState",
+    ["source_rev_id", "node_id", "path_so_far", "role_path", "visited"],
+)
 
 
 async def find_upstream_node_names(
@@ -96,7 +104,7 @@ async def find_join_paths_batch(
     session: AsyncSession,
     source_revision_ids: set[int],
     target_dimension_names: set[str],
-    max_depth: int = 100,  # High limit - early termination handles most cases
+    max_depth: int = 100,  # High limit is safe with cycle prevention; iterative deepening keeps it fast
 ) -> dict[tuple[int, str, str], list[int]]:
     """
     Find join paths from multiple source nodes to all target dimension nodes
@@ -116,77 +124,135 @@ async def find_join_paths_batch(
     Key optimization: Once a path reaches a target dimension, it stops exploring
     from that node (no point continuing past a target).
     """
+
     if not target_dimension_names or not source_revision_ids:  # pragma: no cover
         return {}
 
-    # Single recursive CTE to find all paths to target dimensions
-    # NOTE: We do NOT use early termination based on is_target because
-    # a target node might also be an intermediate hop for multi-hop paths.
-    # For example, v3.customer might be both:
-    # - A target (for v3.customer.name)
-    # - An intermediate hop (for v3.date.year[customer->registration])
-    # Depth limit prevents infinite recursion.
-    recursive_query = text("""
-        WITH RECURSIVE paths AS (
-            -- Base case: first level dimension links from any source node
-            SELECT
-                dl.node_revision_id as source_rev_id,
-                dl.id as link_id,
-                n.name as dim_name,
-                CAST(dl.id AS TEXT) as path,
-                COALESCE(dl.role, '') as role_path,
-                1 as depth,
-                CASE WHEN n.name IN :target_names THEN 1 ELSE 0 END as is_target
-            FROM dimensionlink dl
-            JOIN node n ON dl.dimension_id = n.id
-            WHERE dl.node_revision_id IN :source_revision_ids
+    # Track found paths: (source_rev_id, target_name, role) -> [link_ids]
+    found_paths: dict[tuple[int, str, str], list[int]] = {}
 
-            UNION ALL
+    # Initialize frontier: each source node starts exploration
+    frontier: list[JoinPathState] = []
 
-            -- Recursive case: follow dimension_links from each dimension node
-            -- Continue exploring even from target nodes (they might be intermediate hops)
-            SELECT
-                paths.source_rev_id as source_rev_id,
-                dl2.id as link_id,
-                n2.name as dim_name,
-                paths.path || ',' || CAST(dl2.id AS TEXT) as path,
-                paths.role_path || '->' || COALESCE(dl2.role, '') as role_path,
-                paths.depth + 1 as depth,
-                CASE WHEN n2.name IN :target_names THEN 1 ELSE 0 END as is_target
-            FROM paths
-            JOIN node prev_node ON paths.dim_name = prev_node.name
-            JOIN noderevision nr ON prev_node.current_version = nr.version AND nr.node_id = prev_node.id
-            JOIN dimensionlink dl2 ON dl2.node_revision_id = nr.id
-            JOIN node n2 ON dl2.dimension_id = n2.id
-            WHERE paths.depth < :max_depth
+    # Get the node_id for each source revision to start BFS
+    init_query = text("""
+        SELECT nr.id as rev_id, nr.node_id
+        FROM noderevision nr
+        WHERE nr.id IN :source_revision_ids
+    """).bindparams(bindparam("source_revision_ids", expanding=True))
+
+    init_result = await session.execute(
+        init_query,
+        {"source_revision_ids": list(source_revision_ids)},
+    )
+
+    for rev_id, node_id in init_result:
+        frontier.append(
+            JoinPathState(
+                source_rev_id=rev_id,
+                node_id=node_id,
+                path_so_far=[],
+                role_path="",
+                visited=[],
+            ),
         )
-        SELECT source_rev_id, dim_name, path, role_path, depth
-        FROM paths
-        WHERE is_target = 1
-        ORDER BY depth ASC
-    """).bindparams(
-        bindparam("source_revision_ids", expanding=True),
-        bindparam("target_names", expanding=True),
-    )
 
-    result = await session.execute(
-        recursive_query,
-        {
-            "source_revision_ids": list(source_revision_ids),
-            "max_depth": max_depth,
-            "target_names": list(target_dimension_names),
-        },
-    )
-    rows = result.fetchall()
+    # BFS: explore depth by depth
+    # Cycle prevention ensures we won't loop infinitely even with high max_depth
+    for depth in range(1, max_depth + 1):  # pragma: no branch
+        if not frontier:
+            break
 
-    # Build paths dict keyed by (source_rev_id, dim_name, role_path)
-    paths: dict[tuple[int, str, str], list[int]] = {}
-    for source_rev_id, dim_name, path_str, role_path, depth in rows:
-        key = (source_rev_id, dim_name, role_path or "")
-        if key not in paths:  # pragma: no branch
-            paths[key] = [int(x) for x in path_str.split(",")]
+        # Expand frontier by one hop - BATCH query for all frontier nodes
+        new_frontier: list[JoinPathState] = []
+        targets_found_at_depth = set()
 
-    return paths
+        # Build a map: node_id -> list of frontier items with that node
+        frontier_by_node: dict[int, list[JoinPathState]] = {}
+        for item in frontier:
+            if item.node_id not in frontier_by_node:
+                frontier_by_node[item.node_id] = []
+            frontier_by_node[item.node_id].append(item)
+
+        # Single batched query for ALL frontier nodes at this depth
+        frontier_node_ids = list(frontier_by_node.keys())
+
+        expand_query = text("""
+            SELECT
+                nr.node_id,
+                dl.id as link_id,
+                dl.dimension_id as to_node_id,
+                n.name as dim_name,
+                COALESCE(dl.role, '') as link_role
+            FROM noderevision nr
+            JOIN dimensionlink dl ON dl.node_revision_id = nr.id
+            JOIN node n ON dl.dimension_id = n.id
+            WHERE nr.node_id IN :node_ids
+                AND nr.version = (SELECT current_version FROM node WHERE id = nr.node_id)
+        """).bindparams(bindparam("node_ids", expanding=True))
+
+        try:
+            expand_result = await session.execute(
+                expand_query,
+                {"node_ids": frontier_node_ids},
+            )
+            rows = expand_result.fetchall()
+        except Exception as e:  # pragma: no cover
+            logger.error(
+                "[BuildV3] find_join_paths_batch: Query failed at depth %d: %s",
+                depth,
+                str(e),
+            )
+            break
+
+        # Process results: for each link found, apply to all frontier items with that source node
+        for row in rows:
+            for item in frontier_by_node[row.node_id]:
+                # Cycle prevention: skip if we've already visited this node
+                if row.to_node_id in item.visited:
+                    continue
+
+                # Build new path and role
+                new_path = item.path_so_far + [row.link_id]
+                # Only concatenate with '->' if both role_path and link_role are non-empty
+                if not item.role_path and not row.link_role:
+                    new_role_path = ""
+                elif not item.role_path:
+                    new_role_path = row.link_role
+                elif not row.link_role:
+                    new_role_path = item.role_path
+                else:
+                    new_role_path = item.role_path + "->" + row.link_role
+                new_visited = item.visited + [row.to_node_id]
+
+                # Check if this reaches a target
+                if row.dim_name in target_dimension_names:
+                    key = (item.source_rev_id, row.dim_name, new_role_path)
+                    if key not in found_paths:  # pragma: no branch
+                        found_paths[key] = new_path
+                        targets_found_at_depth.add(row.dim_name)
+
+                # Add to new frontier (explore further regardless of whether it's a target)
+                # This allows finding multi-hop paths through intermediate targets
+                new_frontier.append(
+                    JoinPathState(
+                        source_rev_id=item.source_rev_id,
+                        node_id=row.to_node_id,
+                        path_so_far=new_path,
+                        role_path=new_role_path,
+                        visited=new_visited,
+                    ),
+                )
+
+        # Update frontier for next iteration
+        frontier = new_frontier
+
+        # Continue exploring even if we found some targets, because:
+        # 1. We might need the same dimension with different roles (multi-hop paths)
+        # 2. BFS naturally finds shortest paths first, so we'll get those before longer ones
+        # 3. We stop when frontier is empty (no more nodes to explore)
+
+    return found_paths
 
 
 async def load_dimension_links_batch(
@@ -234,11 +300,8 @@ async def preload_join_paths(
     """
     Preload all join paths from multiple source nodes to target dimensions.
 
-    Uses a single recursive CTE query to find paths from ALL sources at once,
-    then a single batch load for DimensionLink objects. Results are stored
-    in ctx.join_paths.
-
-    This is O(2) queries regardless of how many source nodes we have.
+    Uses BFS to find paths from ALL sources to all targets, then a single
+    batch load for DimensionLink objects. Results are stored in ctx.join_paths.
     """
 
     if not target_dimension_names or not source_revision_ids:
@@ -267,11 +330,6 @@ async def preload_join_paths(
         for link in links:
             if link.dimension and link.dimension.name not in ctx.nodes:
                 ctx.nodes[link.dimension.name] = link.dimension
-
-    logger.debug(
-        f"[BuildV3] Preloaded {len(path_ids)} join paths for "
-        f"{len(source_revision_ids)} sources in 2 queries",
-    )
 
 
 async def load_nodes(ctx: BuildContext) -> None:
@@ -304,8 +362,6 @@ async def load_nodes(ctx: BuildContext) -> None:
 
     # Also include the initial nodes themselves
     all_node_names.update(initial_node_names)
-
-    logger.debug(f"[BuildV3] Found {len(all_node_names)} nodes to load")
 
     # Query 2: Batch load all nodes with appropriate eager loading
     stmt = (
@@ -414,8 +470,6 @@ async def load_nodes(ctx: BuildContext) -> None:
 
     for metric_name in ctx.metrics:
         collect_fact_parents(metric_name, set())
-
-    logger.debug(f"[BuildV3] Loaded {len(ctx.nodes)} nodes")
 
     # Preload join paths for ALL parent nodes in a single batch
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)

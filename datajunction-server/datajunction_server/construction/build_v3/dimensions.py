@@ -102,20 +102,37 @@ def find_join_path(
             role=role,
         )
 
-    # Fallback: if no role specified, find ANY path to this dimension
-    # This handles cases where the dimension link has a role but user didn't specify one
-    if not role:  # pragma: no cover
-        for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
-            if src_id == source_revision_id and dim_name == target_dim_name:
-                logger.debug(
-                    f"[BuildV3] Using path with role '{stored_role}' for "
-                    f"dimension {target_dim_name} (no role specified)",
-                )
-                return JoinPath(
-                    links=path_links,
-                    target_dimension=path_links[-1].dimension,
-                    role=stored_role or None,
-                )
+    # Fallback: if exact role not found, try to find any path to this dimension
+    # This handles cases where:
+    # 1. User didn't specify a role, but link has one
+    # 2. User specified a role that doesn't match, so we use the actual link's role
+    # We prefer empty role (null) over named roles when falling back
+    fallback_paths = []
+    for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
+        if src_id == source_revision_id and dim_name == target_dim_name:
+            fallback_paths.append((stored_role, path_links))
+
+    if fallback_paths:
+        # Prefer paths with no role (empty string) as they're the "default" link
+        # Also prefer shorter paths (fewer hops) over longer ones
+        fallback_paths.sort(
+            key=lambda x: (len(x[1]), x[0] != "", x[0]),
+        )  # Shortest path, then empty role, then alphabetical
+        stored_role, path_links = fallback_paths[0]
+
+        if role and stored_role != role_path:
+            logger.info(  # pragma: no cover
+                "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
+                role,
+                stored_role or "null",
+                target_dim_name,
+            )
+
+        return JoinPath(
+            links=path_links,
+            target_dimension=path_links[-1].dimension,
+            role=stored_role or None,
+        )
 
     return None  # pragma: no cover
 
