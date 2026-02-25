@@ -2176,11 +2176,45 @@ async def validate_complex_dimension_link(
         )
 
     # Parse the join query and do some basic verification of its validity
-    join_query = parse(
-        f"SELECT 1 FROM {node.name} "
-        f"{link_input.join_type} JOIN {link_input.dimension_node} "
-        + (f"ON {link_input.join_on}" if link_input.join_on else ""),
-    )
+    # Handle self-joins (where a dimension links to itself) by adding aliases
+    is_self_join = node.name == link_input.dimension_node
+
+    if is_self_join:
+        # Self-joins require a role to distinguish the relationship
+        if not link_input.role:
+            raise DJInvalidInputException(
+                message=(
+                    f"Self-join dimension links require a role to distinguish the relationship. "
+                    f"Please specify a role for the link from {node.name} to itself."
+                ),
+            )
+
+        # For self-joins, we need to add aliases to avoid SQL ambiguity
+        # Use the role as the alias for the dimension side
+        # Replace dimension_node references in join_on with the role alias
+        rewritten_join_on = link_input.join_on
+        if link_input.join_on:
+            # Replace all occurrences of the dimension_node with the role
+            # This allows validation SQL like:
+            # SELECT 1 FROM employee AS origin LEFT JOIN employee AS manager
+            # ON origin.manager_id = manager.id
+            rewritten_join_on = link_input.join_on.replace(
+                f"{link_input.dimension_node}.",
+                f"{link_input.role}.",
+            )
+
+        join_query = parse(
+            f"SELECT 1 FROM {node.name} AS origin "
+            f"{link_input.join_type} JOIN {link_input.dimension_node} AS {link_input.role} "
+            + (f"ON {rewritten_join_on}" if rewritten_join_on else ""),
+        )
+    else:
+        join_query = parse(
+            f"SELECT 1 FROM {node.name} "
+            f"{link_input.join_type} JOIN {link_input.dimension_node} "
+            + (f"ON {link_input.join_on}" if link_input.join_on else ""),
+        )
+
     exc = DJException()
     ctx = ast.CompileContext(
         session=session,
@@ -2191,23 +2225,25 @@ async def validate_complex_dimension_link(
     join_relation = join_query.select.from_.relations[0].extensions[0]  # type: ignore
 
     # Verify that the query references both the node and the dimension being joined
-    expected_references = {node.name, link_input.dimension_node}
-    references = (
-        {
-            table.name.namespace.identifier()  # type: ignore
-            for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
-        }
-        if join_relation.criteria
-        else {}
-    )
-    if (
-        expected_references.difference(references)
-        and link_input.join_type != JoinType.CROSS
-    ):
-        raise DJInvalidInputException(
-            f"The join SQL provided does not reference both the origin node {node.name} and the "
-            f"dimension node {link_input.dimension_node} that it's being joined to.",
+    # For self-joins, skip this check since both references are to the same node
+    if not is_self_join:
+        expected_references = {node.name, link_input.dimension_node}
+        references = (
+            {
+                table.name.namespace.identifier()  # type: ignore
+                for table in join_relation.criteria.on.find_all(ast.Column)  # type: ignore
+            }
+            if join_relation.criteria
+            else {}
         )
+        if (
+            expected_references.difference(references)
+            and link_input.join_type != JoinType.CROSS
+        ):
+            raise DJInvalidInputException(
+                f"The join SQL provided does not reference both the origin node {node.name} and the "
+                f"dimension node {link_input.dimension_node} that it's being joined to.",
+            )
 
     # Verify that the columns in the ON clause exist on both nodes
     if ctx.exception.errors:
