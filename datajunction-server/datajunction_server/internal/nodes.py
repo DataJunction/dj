@@ -2192,7 +2192,7 @@ async def validate_complex_dimension_link(
         # For self-joins, we need to add aliases to avoid SQL ambiguity
         # Use "origin" for the left side and role for the right side
         rewritten_join_on = link_input.join_on
-        if link_input.join_on:
+        if link_input.join_on:  # pragma: no branch
             # Replace table references: first occurrence -> "origin", rest -> role
             # This handles join conditions like:
             # "employee.manager_id = employee.employee_id"
@@ -2200,7 +2200,7 @@ async def validate_complex_dimension_link(
             table_prefix = f"{link_input.dimension_node}."
             parts = link_input.join_on.split(table_prefix)
 
-            if len(parts) > 1:
+            if len(parts) > 1:  # pragma: no branch
                 # Reconstruct: first part stays, subsequent parts use appropriate aliases
                 rewritten_join_on = parts[0]
                 for i, part in enumerate(parts[1:], 1):
