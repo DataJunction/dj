@@ -195,7 +195,7 @@ def resolve_dimensions(
         dim_ref = parse_dimension_ref(dim)
 
         # Check if it's a local dimension (column on the parent node itself)
-        # Note: A dimension with a role is NOT local, even if the node name matches
+        # Note: A dimension with a role is not local, even if the node name matches
         # (e.g., employee[manager] requires a self-join, not a local column)
         is_local = False
         if dim_ref.node_name == parent_node.name and not dim_ref.role:
@@ -282,6 +282,84 @@ def resolve_dimensions(
     return resolved
 
 
+def _rewrite_column_refs_with_aliases(
+    expr: ast.Node,
+    left_node_name: str,
+    right_node_name: str,
+    left_alias: str,
+    right_alias: str,
+    is_self_join: bool,
+    occurrence_count: list[int],
+) -> None:
+    """
+    Recursively rewrite column references in a JOIN condition to use table aliases.
+
+    This function walks an AST expression tree and replaces fully-qualified column
+    references (e.g., "node.column") with aliased references (e.g., "t1.column").
+
+    For regular joins where left and right nodes are different:
+        - Columns matching left_node_name get rewritten with left_alias
+        - Columns matching right_node_name get rewritten with right_alias
+
+    For self-joins where both nodes are the same:
+        - Uses occurrence order to assign aliases
+        - First occurrence of the node name gets left_alias
+        - Second occurrence gets right_alias
+        - Example: "employee.manager_id = employee.employee_id"
+          becomes "t1.manager_id = manager.employee_id"
+
+    Args:
+        expr: AST expression to rewrite (typically a JOIN ON clause)
+        left_node_name: Full name of the left/source node (e.g., "default.orders")
+        right_node_name: Full name of the right/dimension node (e.g., "default.customer")
+        left_alias: Alias to use for left node columns (e.g., "t1")
+        right_alias: Alias to use for right node columns (e.g., "t2" or role like "manager")
+        is_self_join: True if joining a node to itself
+        occurrence_count: Mutable counter for self-join occurrence tracking (modified in-place)
+    """
+    if isinstance(expr, ast.Column):
+        if expr.name and expr.name.namespace:  # pragma: no branch
+            full_name = expr.identifier()
+
+            if is_self_join:
+                # Self-join: both left and right node names are the same
+                # Use occurrence order to determine which alias to apply
+                if full_name.startswith(left_node_name + SEPARATOR):
+                    col_name = full_name[len(left_node_name) + 1 :]
+                    # First occurrence -> left_alias, subsequent -> right_alias
+                    if occurrence_count[0] == 0:
+                        expr.name = ast.Name(col_name, namespace=ast.Name(left_alias))
+                        occurrence_count[0] += 1
+                    else:
+                        expr.name = ast.Name(
+                            col_name,
+                            namespace=ast.Name(right_alias),
+                        )
+            else:
+                # Regular join: use node name matching to determine alias
+                if full_name.startswith(left_node_name + SEPARATOR):
+                    col_name = full_name[len(left_node_name) + 1 :]
+                    expr.name = ast.Name(col_name, namespace=ast.Name(left_alias))
+                elif full_name.startswith(
+                    right_node_name + SEPARATOR,
+                ):  # pragma: no branch
+                    col_name = full_name[len(right_node_name) + 1 :]
+                    expr.name = ast.Name(col_name, namespace=ast.Name(right_alias))
+
+    # Recurse into child expressions
+    for child in expr.children if hasattr(expr, "children") else []:
+        if child:  # pragma: no branch
+            _rewrite_column_refs_with_aliases(
+                child,
+                left_node_name,
+                right_node_name,
+                left_alias,
+                right_alias,
+                is_self_join,
+                occurrence_count,
+            )
+
+
 def build_join_clause(
     ctx: BuildContext,
     link: DimensionLink,
@@ -315,62 +393,20 @@ def build_join_clause(
     # Detect self-join: when joining a dimension to itself
     is_self_join = left_node_name == right_node_name
 
-    # Now we need to rewrite column references to use our aliases
-    if is_self_join:
-        # For self-joins, we need to track occurrence order to assign aliases correctly
-        # First occurrence of the node name gets left_alias, second gets right_alias
-        occurrence_count = [0]  # Use list to allow mutation in nested function
-
-        def rewrite_column_refs_self_join(expr):
-            """Rewrite column references for self-joins using occurrence order."""
-            if isinstance(expr, ast.Column):
-                if expr.name and expr.name.namespace:  # pragma: no branch
-                    full_name = expr.identifier()
-                    if full_name.startswith(left_node_name + SEPARATOR):
-                        col_name = full_name[len(left_node_name) + 1 :]
-                        # Use occurrence order: first -> left, second -> right
-                        if occurrence_count[0] == 0:
-                            expr.name = ast.Name(
-                                col_name,
-                                namespace=ast.Name(left_alias),
-                            )
-                            occurrence_count[0] += 1
-                        else:
-                            expr.name = ast.Name(
-                                col_name,
-                                namespace=ast.Name(right_alias),
-                            )
-
-            # Recurse into children
-            for child in expr.children if hasattr(expr, "children") else []:
-                if child:  # pragma: no branch
-                    rewrite_column_refs_self_join(child)
-
-        if on_clause:  # pragma: no branch
-            rewrite_column_refs_self_join(on_clause)
-    else:
-        # Regular join: use node names to determine aliases
-        def rewrite_column_refs(expr):
-            """Recursively rewrite column references to use table aliases."""
-            if isinstance(expr, ast.Column):
-                if expr.name and expr.name.namespace:  # pragma: no branch
-                    full_name = expr.identifier()
-                    if full_name.startswith(left_node_name + SEPARATOR):
-                        col_name = full_name[len(left_node_name) + 1 :]
-                        expr.name = ast.Name(col_name, namespace=ast.Name(left_alias))
-                    elif full_name.startswith(
-                        right_node_name + SEPARATOR,
-                    ):  # pragma: no branch
-                        col_name = full_name[len(right_node_name) + 1 :]
-                        expr.name = ast.Name(col_name, namespace=ast.Name(right_alias))
-
-            # Recurse into children
-            for child in expr.children if hasattr(expr, "children") else []:
-                if child:  # pragma: no branch
-                    rewrite_column_refs(child)
-
-        if on_clause:  # pragma: no branch
-            rewrite_column_refs(on_clause)
+    # Rewrite column references to use table aliases
+    # For self-joins: track occurrence order (first occurrence -> left, second -> right)
+    # For regular joins: match by node name (left node -> left alias, right node -> right alias)
+    occurrence_count = [0]  # Mutable counter for self-join occurrence tracking
+    if on_clause:  # pragma: no branch
+        _rewrite_column_refs_with_aliases(
+            on_clause,
+            left_node_name,
+            right_node_name,
+            left_alias,
+            right_alias,
+            is_self_join,
+            occurrence_count,
+        )
 
     # Determine join type (as string for ast.Join)
     from datajunction_server.models.dimensionlink import JoinType
