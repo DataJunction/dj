@@ -324,7 +324,7 @@ def _rewrite_column_refs_with_aliases(
             if is_self_join:
                 # Self-join: both left and right node names are the same
                 # Use occurrence order to determine which alias to apply
-                if full_name.startswith(left_node_name + SEPARATOR):
+                if full_name.startswith(left_node_name + SEPARATOR):  # pragma: no branch
                     col_name = full_name[len(left_node_name) + 1 :]
                     # First occurrence -> left_alias, subsequent -> right_alias
                     if occurrence_count[0] == 0:
