@@ -80,6 +80,63 @@ def test_raise_on_invalid_infer_binary_op():
     ) in str(exc_info.value)
 
 
+def test_infer_logical_or_and_operators():
+    """
+    Test type inference for logical OR (||) and logical AND (&&) operators in Spark SQL.
+
+    - || (LogicalOr) with strings -> string concatenation (returns StringType)
+    - || (LogicalOr) with booleans -> logical OR (returns BooleanType)
+    - && (LogicalAnd) -> always logical AND (returns BooleanType)
+    """
+    # Test || with strings (string concatenation)
+    string_concat = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalOr,
+        left=ast.String(value="'hello'"),
+        right=ast.String(value="'world'"),
+    )
+    assert isinstance(string_concat.type, StringType)
+
+    # Test || with booleans (logical OR)
+    logical_or = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalOr,
+        left=ast.Boolean(True),
+        right=ast.Boolean(False),
+    )
+    assert isinstance(logical_or.type, BooleanType)
+
+    # Test || with mixed types (should default to boolean)
+    mixed_or = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalOr,
+        left=ast.Number(value=1),
+        right=ast.Number(value=0),
+    )
+    assert isinstance(mixed_or.type, BooleanType)
+
+    # Test && with booleans (logical AND)
+    logical_and = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalAnd,
+        left=ast.Boolean(True),
+        right=ast.Boolean(False),
+    )
+    assert isinstance(logical_and.type, BooleanType)
+
+    # Test && with numbers (should return boolean)
+    logical_and_numbers = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalAnd,
+        left=ast.Number(value=1),
+        right=ast.Number(value=0),
+    )
+    assert isinstance(logical_and_numbers.type, BooleanType)
+
+    # Test && with strings (should return boolean, not concatenation)
+    logical_and_strings = ast.BinaryOp(
+        op=ast.BinaryOpKind.LogicalAnd,
+        left=ast.String(value="'hello'"),
+        right=ast.String(value="'world'"),
+    )
+    assert isinstance(logical_and_strings.type, BooleanType)
+
+
 @pytest.mark.asyncio
 async def test_infer_column_with_an_aliased_table(construction_session: AsyncSession):
     """
