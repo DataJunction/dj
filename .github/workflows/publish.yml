@@ -40,7 +40,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install Hatch
-        run: pip install hatch
+        run: |
+          pip install --upgrade virtualenv
+          pip install 'hatch<1.13' hatchling
 
       - uses: actions/setup-node@v4
         with:
