@@ -41,8 +41,7 @@ jobs:
 
       - name: Install Hatch
         run: |
-          pip install --upgrade virtualenv
-          pip install 'hatch<1.13' hatchling
+          pip install hatch 'virtualenv!=21.0.0'
 
       - uses: actions/setup-node@v4
         with:
