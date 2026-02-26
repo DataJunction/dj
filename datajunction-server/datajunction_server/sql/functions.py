@@ -4780,6 +4780,25 @@ def infer_type(
     return [arg.key, arg.value]
 
 
+class Range(TableFunction):
+    """
+    range(start[, end[, step[, numSlices]]]) / range(end)
+    Returns a table with a single BIGINT column `id` containing values
+    within the specified range.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@Range.register
+def infer_type(
+    *args: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    from datajunction_server.sql.parsing.ast import Name
+
+    return [ct.NestedField(name=Name("id"), field_type=ct.BigIntType())]
+
+
 class FunctionRegistryDict(dict):
     """
     Custom dictionary mapping for functions
