@@ -71,6 +71,7 @@ from datajunction_server.sql.parsing.types import (
     MapType,
     NestedField,
     NullType,
+    StringBase,
     StringType,
     StructType,
     TimestampType,
@@ -1848,12 +1849,26 @@ class BinaryOp(Operation):
                 return IntegerType()
             return raise_binop_exception()
 
+        def handle_logical_or_operator(
+            left: ColumnType,
+            right: ColumnType,
+        ) -> ColumnType:
+            """
+            Handle || operator which means string concatenation in Spark/PostgreSQL
+            when used with strings, or logical OR when used with booleans.
+            """
+            if isinstance(left, StringBase) and isinstance(right, StringBase):
+                return left
+            return BooleanType()
+
         BINOP_TYPE_COMBO_LOOKUP: Dict[
             BinaryOpKind,
             Callable[[ColumnType, ColumnType], ColumnType],
         ] = {
             BinaryOpKind.And: lambda left, right: BooleanType(),
             BinaryOpKind.Or: lambda left, right: BooleanType(),
+            BinaryOpKind.LogicalAnd: lambda left, right: BooleanType(),
+            BinaryOpKind.LogicalOr: handle_logical_or_operator,
             BinaryOpKind.Is: lambda left, right: BooleanType(),
             BinaryOpKind.Eq: lambda left, right: BooleanType(),
             BinaryOpKind.NotEq: lambda left, right: BooleanType(),
