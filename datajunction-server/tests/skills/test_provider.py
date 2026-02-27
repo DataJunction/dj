@@ -76,6 +76,7 @@ class TestSkillProvider:
 
         # Mock settings to return custom provider class
         from datajunction_server import config
+
         mock_settings = config.Settings()
         mock_settings.skill_provider_class = (
             "tests.skills.test_provider.CustomSkillProvider"
@@ -83,6 +84,7 @@ class TestSkillProvider:
 
         # Inject the custom class into the test module's namespace
         import sys
+
         sys.modules[__name__].CustomSkillProvider = CustomSkillProvider
 
         def mock_get_settings():
@@ -103,6 +105,7 @@ class TestSkillProvider:
     def test_invalid_provider_falls_back_to_default(self, monkeypatch):
         """Test that invalid provider class falls back to DefaultSkillProvider."""
         from datajunction_server import config
+
         mock_settings = config.Settings()
         mock_settings.skill_provider_class = "nonexistent.module.Provider"
 

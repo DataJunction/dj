@@ -67,18 +67,22 @@ class TestSkillsAPI:
 
     @pytest.mark.asyncio
     async def test_get_namespace_skill_not_implemented(
-        self, client_with_roads: AsyncClient
+        self,
+        client_with_roads: AsyncClient,
     ):
         """Test GET /skills/namespaces/{namespace} - Phase 3 feature."""
         response = await client_with_roads.get("/skills/namespaces/default")
 
         # Phase 3 not yet implemented
         assert response.status_code == 404
-        assert "Auto-generation will be available in Phase 3" in response.json()["detail"]
+        assert (
+            "Auto-generation will be available in Phase 3" in response.json()["detail"]
+        )
 
     @pytest.mark.asyncio
     async def test_skills_contain_expected_content(
-        self, client_with_roads: AsyncClient
+        self,
+        client_with_roads: AsyncClient,
     ):
         """Test that skills contain expected DJ concepts."""
         response = await client_with_roads.get("/skills/dj-core")
@@ -98,7 +102,8 @@ class TestSkillsAPI:
 
     @pytest.mark.asyncio
     async def test_builder_skill_has_metric_patterns(
-        self, client_with_roads: AsyncClient
+        self,
+        client_with_roads: AsyncClient,
     ):
         """Test that builder skill includes metric creation patterns."""
         response = await client_with_roads.get("/skills/dj-builder")
@@ -111,7 +116,8 @@ class TestSkillsAPI:
 
     @pytest.mark.asyncio
     async def test_consumer_skill_has_query_patterns(
-        self, client_with_roads: AsyncClient
+        self,
+        client_with_roads: AsyncClient,
     ):
         """Test that consumer skill includes query patterns."""
         response = await client_with_roads.get("/skills/dj-consumer")

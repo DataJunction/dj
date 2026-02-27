@@ -56,11 +56,7 @@ class SkillProvider(ABC):
         """
         pass
 
-    def get_namespace_skill(
-        self,
-        namespace: str,
-        session: Session
-    ) -> Optional[dict]:
+    def get_namespace_skill(self, namespace: str, session: Session) -> Optional[dict]:
         """Return namespace-specific skill, or None for default generation.
 
         Override this to provide custom namespace documentation.
@@ -105,7 +101,7 @@ class DefaultSkillProvider(SkillProvider):
                 "provider": "default",
                 "dj_version": DJ_VERSION,
                 "generated_at": datetime.utcnow().isoformat(),
-            }
+            },
         }
 
     def get_builder_skill(self, session: Session) -> dict:
@@ -131,7 +127,7 @@ class DefaultSkillProvider(SkillProvider):
                 "provider": "default",
                 "dj_version": DJ_VERSION,
                 "generated_at": datetime.utcnow().isoformat(),
-            }
+            },
         }
 
     def get_consumer_skill(self, session: Session) -> dict:
@@ -157,7 +153,7 @@ class DefaultSkillProvider(SkillProvider):
                 "provider": "default",
                 "dj_version": DJ_VERSION,
                 "generated_at": datetime.utcnow().isoformat(),
-            }
+            },
         }
 
 
@@ -187,7 +183,7 @@ def get_skill_provider() -> SkillProvider:
             # Fall back to default if custom provider fails
             logger.warning(
                 f"Failed to load custom skill provider '{provider_class}': {e}. "
-                f"Falling back to DefaultSkillProvider."
+                f"Falling back to DefaultSkillProvider.",
             )
             return DefaultSkillProvider()
 

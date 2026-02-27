@@ -25,8 +25,7 @@ def load_skill_markdown(skill_name: str) -> str:
 
     if not skill_file.exists():
         raise FileNotFoundError(
-            f"Skill file not found: {skill_file}. "
-            f"Expected skills in: {SKILLS_DIR}"
+            f"Skill file not found: {skill_file}. Expected skills in: {SKILLS_DIR}",
         )
 
     logger.debug(f"Loading skill from {skill_file}")

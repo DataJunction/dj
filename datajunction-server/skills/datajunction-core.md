@@ -19,6 +19,114 @@ DataJunction is a semantic layer that provides a unified interface to query metr
 
 ---
 
+## Connecting to DataJunction
+
+To interact with DataJunction, you'll make authenticated HTTP requests to the DJ API server.
+
+### Setup (Development)
+
+```bash
+# Set your DJ server URL and credentials
+export DJ_URL=http://localhost:8000
+export DJ_USER=dj
+export DJ_PWD=dj
+
+# Test the connection (health endpoint is public, no auth needed)
+curl $DJ_URL/health
+```
+
+### Authentication
+
+**DataJunction requires authentication for most operations** (creating nodes, querying, etc.). Only a few endpoints like `/health` and `/docs` are public.
+
+DJ uses **JWT token authentication**. You must first login to get a token, then use that token in subsequent requests.
+
+#### Step 1: Login to Get Token
+
+```bash
+# Create DJ config directory if it doesn't exist
+mkdir -p ~/.dj
+
+# Login and save cookies
+curl -X POST $DJ_URL/basic/login/ \
+  -d "username=$DJ_USER&password=$DJ_PWD" \
+  -c ~/.dj/cookies.txt
+
+# Response: {"message": "Logged in successfully"}
+# Token is saved in ~/.dj/cookies.txt as an HTTP-only cookie
+```
+
+#### Step 2: Make Authenticated Requests
+
+**Option A: Using Cookies** (simpler, recommended for CLI):
+```bash
+# Use the cookie file with -b flag
+curl -b ~/.dj/cookies.txt -X GET $DJ_URL/nodes/
+```
+
+**Option B: Using Bearer Token** (for programmatic access):
+```bash
+# Extract token from cookie file (if needed for API clients)
+TOKEN=$(grep djSession ~/.dj/cookies.txt | cut -f7)
+
+# Use Bearer token in Authorization header
+curl -H "Authorization: Bearer $TOKEN" -X GET $DJ_URL/nodes/
+```
+
+### Connection Tips
+
+- **Login once, reuse token**: Login saves a token valid for 365 days (default)
+- **Cookie file**: `~/.dj/cookies.txt` persists across sessions
+- **Always login first**: You need a valid JWT token before making authenticated requests
+- **Reuse cookies**: Use `-b ~/.dj/cookies.txt` in all subsequent requests
+- **Token expiration**: If token expires, just login again to refresh
+- **Always use `$DJ_URL`**: Makes connection URL configurable
+- **Test connectivity**: Check `/health` endpoint first (no auth needed)
+- **Default local server**: `http://localhost:8000` (when running DJ locally)
+- **Default credentials**: `DJ_USER=dj`, `DJ_PWD=dj` (local development)
+- **Headers**: Most POST/PATCH requests need `-H 'Content-Type: application/json'`
+
+### Complete Example Workflow
+
+```bash
+# 1. Set up environment
+export DJ_URL=http://localhost:8000
+export DJ_USER=dj
+export DJ_PWD=dj
+
+# 2. First-time setup: Login and save token (only needed once)
+mkdir -p ~/.dj
+curl -X POST $DJ_URL/basic/login/ \
+  -d "username=$DJ_USER&password=$DJ_PWD" \
+  -c ~/.dj/cookies.txt
+
+# 3. Make authenticated requests using cookies
+curl -b ~/.dj/cookies.txt -X GET $DJ_URL/nodes/
+
+# 4. Create a metric
+curl -b ~/.dj/cookies.txt -X POST $DJ_URL/nodes/metric/ \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "finance.revenue",
+    "query": "SELECT SUM(amount) as revenue FROM finance.transactions",
+    "description": "Total revenue",
+    "mode": "published"
+  }'
+
+# 5. Generate SQL
+curl -b ~/.dj/cookies.txt -X POST $DJ_URL/sql/metrics/v3 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "metrics": ["finance.revenue"],
+    "dimensions": ["common.date.dateint"],
+    "filters": ["common.date.dateint >= 20240101"]
+  }'
+```
+
+**Note for Deployment-Specific Setups**: If you're using DataJunction at an organization with custom authentication or infrastructure (e.g., Netflix, Airbnb), your deployment may provide custom connection instructions. Check with your platform team for the correct DJ server URL and authentication method.
+
+---
+
 ## Node Types
 
 DataJunction organizes entities into different node types:

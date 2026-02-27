@@ -45,13 +45,13 @@ async def get_core_skill(
         logger.error(f"Skill file not found: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Skill content not found. Please ensure skills are properly installed."
+            detail="Skill content not found. Please ensure skills are properly installed.",
         )
     except Exception as e:
         logger.error(f"Error generating core skill: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate skill: {str(e)}"
+            detail=f"Failed to generate skill: {str(e)}",
         )
 
 
@@ -73,13 +73,13 @@ async def get_builder_skill(
         logger.error(f"Skill file not found: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Skill content not found. Please ensure skills are properly installed."
+            detail="Skill content not found. Please ensure skills are properly installed.",
         )
     except Exception as e:
         logger.error(f"Error generating builder skill: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate skill: {str(e)}"
+            detail=f"Failed to generate skill: {str(e)}",
         )
 
 
@@ -101,13 +101,13 @@ async def get_consumer_skill(
         logger.error(f"Skill file not found: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Skill content not found. Please ensure skills are properly installed."
+            detail="Skill content not found. Please ensure skills are properly installed.",
         )
     except Exception as e:
         logger.error(f"Error generating consumer skill: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate skill: {str(e)}"
+            detail=f"Failed to generate skill: {str(e)}",
         )
 
 
@@ -134,7 +134,7 @@ async def get_namespace_skill(
                 detail=(
                     f"Namespace skill '{namespace}' not available. "
                     f"Auto-generation will be available in Phase 3."
-                )
+                ),
             )
 
         return SkillResponse(**skill_data)
@@ -144,5 +144,5 @@ async def get_namespace_skill(
         logger.error(f"Error generating namespace skill for {namespace}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate skill: {str(e)}"
+            detail=f"Failed to generate skill: {str(e)}",
         )

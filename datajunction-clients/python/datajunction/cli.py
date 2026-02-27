@@ -1353,8 +1353,7 @@ class DJCLI:
 
     def export_skills(self, output_dir: Path, force: bool = False):
         """Export DJ skills for Claude Code."""
-        import httpx
-        import yaml
+        import json
 
         console = Console()
 
@@ -1364,37 +1363,60 @@ class DJCLI:
         console.print(f"\n[bold blue]📚 Exporting DJ skills from {self.builder_client.uri}[/bold blue]\n")
 
         try:
-            # Fetch core skills
-            skill_names = ["dj-core", "dj-builder", "dj-consumer"]
+            # Fetch core skills with better naming
+            skills = [
+                ("dj-core", "datajunction-core"),
+                ("dj-builder", "datajunction-builder"),
+                ("dj-consumer", "datajunction-consumer"),
+            ]
 
-            for skill_name in skill_names:
-                output_file = output_dir / f"{skill_name}.yaml"
+            for api_name, dir_name in skills:
+                # Create skill directory
+                skill_dir = output_dir / dir_name
+                skill_file = skill_dir / "SKILL.md"
 
                 # Skip if exists and not force
-                if output_file.exists() and not force:
-                    console.print(f"⚠️  Skipped {skill_name}.yaml (already exists, use --force to overwrite)")
+                if skill_file.exists() and not force:
+                    console.print(f"⚠️  Skipped {dir_name}/ (already exists, use --force to overwrite)")
                     continue
 
-                console.print(f"Fetching [cyan]{skill_name}[/cyan]...")
+                console.print(f"Fetching [cyan]{dir_name}[/cyan]...")
 
                 # Make request using builder client's session
                 response = self.builder_client._session.get(
-                    f"{self.builder_client.uri}/skills/{skill_name}"
+                    f"{self.builder_client.uri}/skills/{api_name}"
                 )
 
                 if response.status_code != 200:
-                    console.print(f"[red]✗ Failed to fetch {skill_name}: {response.status_code}[/red]")
+                    console.print(f"[red]✗ Failed to fetch {api_name}: {response.status_code}[/red]")
                     console.print(f"[dim]{response.text}[/dim]")
                     continue
 
-                # Parse and write
+                # Parse response
                 skill_data = response.json()
-                with open(output_file, "w") as f:
-                    yaml.dump(skill_data, f, sort_keys=False, allow_unicode=True)
 
-                console.print(f"[green]✓ Exported {output_file}[/green]")
-                console.print(f"  [dim]Version: {skill_data.get('version', 'unknown')}[/dim]")
-                console.print(f"  [dim]Keywords: {len(skill_data.get('keywords', []))}[/dim]\n")
+                # Create directory
+                skill_dir.mkdir(parents=True, exist_ok=True)
+
+                # Write SKILL.md (markdown content)
+                with open(skill_file, "w") as f:
+                    f.write(skill_data["instructions"])
+
+                # Write metadata as separate JSON file
+                metadata_file = skill_dir / "metadata.json"
+                with open(metadata_file, "w") as f:
+                    metadata = {
+                        "name": skill_data.get("name"),
+                        "version": skill_data.get("version"),
+                        "description": skill_data.get("description"),
+                        "keywords": skill_data.get("keywords", []),
+                        "metadata": skill_data.get("metadata", {}),
+                    }
+                    json.dump(metadata, f, indent=2)
+
+                console.print(f"[green]✓ Exported {skill_dir}/[/green]")
+                console.print(f"  [dim]├─ SKILL.md ({len(skill_data['instructions'])} chars)[/dim]")
+                console.print(f"  [dim]└─ metadata.json (v{skill_data.get('version', 'unknown')})[/dim]\n")
 
             console.print(f"\n[bold green]✓ Skills exported to {output_dir}[/bold green]")
             console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
