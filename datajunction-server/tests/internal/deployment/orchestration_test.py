@@ -41,6 +41,7 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
 )
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.catalog import Catalog
@@ -897,3 +898,626 @@ class TestCubeDeployment:
         assert date_cube_column.partition.type_ == PartitionType.TEMPORAL
         assert date_cube_column.partition.granularity == Granularity.DAY
         assert date_cube_column.partition.format == "yyyyMMdd"
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_disabled(
+    session,
+    current_user: User,
+):
+    """Test auto-registration when disabled."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=False,  # Disabled
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Should return empty list when disabled
+    result = await orchestrator._auto_register_sources(["catalog.schema.table"])
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_no_matching_pattern(
+    session,
+    current_user: User,
+):
+    """Test auto-registration when missing nodes don't match catalog.schema.table pattern."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Missing nodes that don't match catalog.schema.table pattern (only 2 parts)
+    result = await orchestrator._auto_register_sources(["foo.bar"])
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_no_query_service_client(
+    session,
+    current_user: User,
+):
+    """Test auto-registration when query service client is not available."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(),
+        query_service_client=None,  # No query service client
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Should return empty list and log warning
+    result = await orchestrator._auto_register_sources(["catalog.schema.table"])
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_with_empty_columns(
+    session,
+    current_user: User,
+):
+    """Test auto-registration when tables have no columns."""
+    # Create catalog
+    catalog = Catalog(name="test_catalog")
+    session.add(catalog)
+    await session.commit()
+
+    # Create mock column
+    mock_col = Mock()
+    mock_col.name = "col1"
+
+    mock_query_client = Mock()
+    # Mock batch column fetch returning empty columns for one table
+    mock_query_client.get_columns_for_tables_batch.return_value = {
+        ("test_catalog", "schema1", "table1"): [],  # Empty columns
+        ("test_catalog", "schema1", "table2"): [mock_col],
+    }
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_query_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Should only register table2 (table1 has no columns)
+    result = await orchestrator._auto_register_sources(
+        [
+            "test_catalog.schema1.table1",
+            "test_catalog.schema1.table2",
+        ],
+    )
+
+    # Only table2 should be registered
+    assert len(result) == 1
+    assert result[0].name == "test_catalog.schema1.table2"
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_batch_introspection_failure(
+    session,
+    current_user: User,
+):
+    """Test auto-registration when batch introspection fails."""
+    # Create catalog
+    catalog = Catalog(name="test_catalog")
+    session.add(catalog)
+    await session.commit()
+
+    mock_query_client = Mock()
+    # Mock batch column fetch to raise exception
+    mock_query_client.get_columns_for_tables_batch.side_effect = Exception(
+        "Connection timeout",
+    )
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_query_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Should return empty list and add errors
+    result = await orchestrator._auto_register_sources(
+        [
+            "test_catalog.schema1.table1",
+        ],
+    )
+
+    assert result == []
+    # Should have error for failed table
+    assert len(orchestrator.errors) > 0
+    assert "Failed to auto-register source" in str(orchestrator.errors[0])
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_invalid_node_name(
+    session,
+    current_user: User,
+):
+    """Unknown catalogs are silently skipped — no error, just returns empty."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    result = await orchestrator._auto_register_sources(["invalid_catalog.schema.table"])
+
+    assert result == []
+    assert len(orchestrator.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_success(
+    session,
+    current_user: User,
+):
+    """Test successful auto-registration of sources."""
+
+    # Create catalog
+    catalog = Catalog(name="test_catalog")
+    session.add(catalog)
+    await session.commit()
+
+    mock_query_client = Mock()
+    # Mock successful batch column fetch
+    mock_query_client.get_columns_for_tables_batch.return_value = {
+        ("test_catalog", "schema1", "table1"): [
+            Column(name="id", type="int", order=0),
+            Column(name="name", type="str", order=1),
+        ],
+        ("test_catalog", "schema1", "table2"): [
+            Column(name="value", type="bigint", order=0),
+        ],
+    }
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_query_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Should successfully register both sources
+    result = await orchestrator._auto_register_sources(
+        [
+            "test_catalog.schema1.table1",
+            "test_catalog.schema1.table2",
+        ],
+    )
+
+    assert len(result) == 2
+    assert result[0].name == "test_catalog.schema1.table1"
+    assert result[1].name == "test_catalog.schema1.table2"
+    assert result[0].columns is not None and len(result[0].columns) == 2
+    assert result[1].columns is not None and len(result[1].columns) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_empty_list(
+    session,
+    current_user: User,
+):
+    """Lines 266-267: return early when missing_nodes is empty but auto-register is enabled."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+    result = await orchestrator._auto_register_sources([])
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_multiple_catalogs_error(
+    session,
+    current_user: User,
+):
+    """Test that auto-registration fails when missing nodes span multiple catalogs,
+    since a single SQL query cannot reference tables from different engines."""
+    catalog_a = Catalog(name="iceberg_catalog")
+    catalog_b = Catalog(name="druid_catalog")
+    session.add_all([catalog_a, catalog_b])
+    await session.commit()
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    result = await orchestrator._auto_register_sources(
+        [
+            "iceberg_catalog.schema.table_a",
+            "druid_catalog.schema.table_b",
+        ],
+    )
+
+    assert result == []
+    assert len(orchestrator.errors) == 1
+    assert "iceberg_catalog" in orchestrator.errors[0].message
+    assert "druid_catalog" in orchestrator.errors[0].message
+    assert "multiple catalogs" in orchestrator.errors[0].message
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_strips_source_prefix(
+    session,
+    current_user: User,
+):
+    """Lines 280-282: the configured source namespace prefix is stripped before matching.
+    Lines 313-314: no nodes remain after catalog filter when catalog is unknown."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+    # "source.catalog.schema.table" has the default source prefix → stripped to
+    # "catalog.schema.table". But "catalog" doesn't exist in DB → filtered out → [].
+    result = await orchestrator._auto_register_sources(["source.catalog.schema.table"])
+    assert result == []
+    assert len(orchestrator.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_unknown_catalog(
+    session,
+    current_user: User,
+):
+    """Unknown catalogs are silently skipped — no error, just returns empty."""
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=Mock(),
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+    result = await orchestrator._auto_register_sources(["unknown_catalog.schema.table"])
+    assert result == []
+    assert len(orchestrator.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_find_namespaces_to_create_root_level_node(session, current_user: User):
+    """Line 444: a node whose rendered_name has no separator returns True immediately."""
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[
+            SourceSpec(
+                name="simple_node",
+                catalog="catalog",
+                schema="schema",
+                table="table",
+            ),
+        ],
+    )
+    # Force namespace to None so rendered_name = "simple_node" (no separator)
+    deployment_spec.nodes[0].namespace = None
+
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    context.save_history = AsyncMock()
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+    result = await orchestrator._find_namespaces_to_create()
+    # The deployment namespace is always present; root-level node adds no extra namespace
+    assert "test" in result
+
+
+@pytest.mark.asyncio
+async def test_check_external_deps_duplicate_source_forms(session, current_user: User):
+    """Line 1807->1804: when both 'source.X' and 'X' are in deps_not_in_deployment,
+    the normalized form is already in names_to_search so the append is skipped."""
+    catalog = Catalog(name="ext")
+    session.add(catalog)
+    await session.commit()
+
+    ext_node = Node(
+        name="ext.schema.tbl",
+        type="source",
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(ext_node)
+    ext_rev = NodeRevision(
+        name="ext.schema.tbl",
+        type="source",
+        node=ext_node,
+        version="v1.0",
+        created_by_id=current_user.id,
+        schema_="schema",
+        table="tbl",
+        catalog_id=catalog.id,
+    )
+    session.add(ext_rev)
+    await session.commit()
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Both forms are external deps; "ext.schema.tbl" is already in names_to_search
+    # when we encounter "source.ext.schema.tbl", so the append at line 1807 is skipped.
+    node_graph = {"test.transform": ["source.ext.schema.tbl", "ext.schema.tbl"]}
+
+    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    assert auto_registered == []
+    assert len(orchestrator.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_check_external_deps_auto_register_fails_with_errors(
+    session,
+    current_user: User,
+):
+    """Line 1853: when _auto_register_sources populates self.errors,
+    DJInvalidDeploymentConfig is raised with 'Failed to auto-register sources'."""
+    catalog = Catalog(name="test_catalog")
+    session.add(catalog)
+    await session.commit()
+
+    mock_client = Mock()
+    mock_client.get_columns_for_tables_batch.side_effect = Exception(
+        "Connection timeout",
+    )
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+    node_graph = {"test.transform": ["test_catalog.ext_schema.ext_table"]}
+
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        await orchestrator.check_external_deps(node_graph)
+
+    assert "Failed to auto-register sources" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_create_deployment_plan_all_auto_sources_already_exist(
+    session,
+    current_user: User,
+):
+    """Lines 737-747: when all auto-registered sources already exist in DB,
+    sources_to_create is empty (else branch at 737) and existing sources are
+    added to existing_specs (lines 743-747)."""
+    session.add(NodeNamespace(namespace="test"))
+    catalog = Catalog(name="ext_cat")
+    session.add(catalog)
+    await session.commit()  # flush catalog first so its ID is available
+
+    existing_source = Node(
+        name="ext_cat.s.t",
+        type="source",
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(existing_source)
+    existing_rev = NodeRevision(
+        name="ext_cat.s.t",
+        type="source",
+        node=existing_source,
+        version="v1.0",
+        created_by_id=current_user.id,
+        schema_="s",
+        table="t",
+        catalog_id=catalog.id,
+    )
+    session.add(existing_rev)
+    await session.commit()
+
+    # Include a transform so to_deploy is non-empty, triggering the check_external_deps path
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[TransformSpec(name="my_transform", query="SELECT 1")],
+        auto_register_sources=True,
+    )
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    auto_source = SourceSpec(
+        name="ext_cat.s.t",
+        catalog="ext_cat",
+        schema="s",
+        table="t",
+        columns=[],
+    )
+    auto_source.namespace = None  # rendered_name = "ext_cat.s.t" (matches the DB node)
+
+    # First call: return the auto source; second call (re-check after rebuild): return nothing
+    with patch.object(
+        orchestrator,
+        "check_external_deps",
+        side_effect=[(set(), [auto_source]), (set(), [])],
+    ):
+        plan = await orchestrator._create_deployment_plan()
+
+    # The existing source was found in DB and added to existing_specs (lines 743-747)
+    assert "ext_cat.s.t" in plan.existing_specs

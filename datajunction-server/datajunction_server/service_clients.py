@@ -134,6 +134,51 @@ class QueryServiceClient:
             for idx, column in enumerate(table_columns)
         ]
 
+    def get_columns_for_tables_batch(
+        self,
+        tables: List[tuple[str, str, str]],
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """
+        Retrieves columns for multiple tables in a single batch request.
+        """
+        # Format tables as "catalog.schema.table" strings
+        table_names = [
+            f"{catalog}.{schema}.{table}" for catalog, schema, table in tables
+        ]
+
+        response = self.requests_session.post(
+            "/tables/columns/",
+            headers=self.requests_session.headers,
+            json=table_names,
+        )
+        if response.status_code not in (200, 201):
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+                http_status_code=response.status_code,
+            )
+
+        # Parse response and convert back to expected format
+        result = {}
+        tables_data = response.json()
+
+        for catalog, schema, table in tables:
+            table_name = f"{catalog}.{schema}.{table}"
+            table_info = tables_data.get(table_name)
+
+            if table_info and table_info.get("columns"):
+                result[(catalog, schema, table)] = [
+                    Column(name=col["name"], type=ColumnType(col["type"]), order=idx)
+                    for idx, col in enumerate(table_info["columns"])
+                ]
+            else:
+                # Table not found or has no columns
+                _logger.warning(f"No columns returned for table {table_name}")
+                result[(catalog, schema, table)] = []
+
+        return result
+
     def create_view(
         self,
         view_name: str,
