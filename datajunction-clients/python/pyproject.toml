@@ -47,7 +47,8 @@ dj-mcp = "datajunction.mcp.cli:run"
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction"]
 include = [
-  "datajunction/seed/**"
+  "datajunction/seed/**",
+  "datajunction/skills/**"
 ]
 
 [project.urls]

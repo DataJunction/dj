@@ -409,8 +409,9 @@ async def test_get_node_details_success():
         assert "finance.daily_revenue" in result
         assert "Daily Revenue" in result
         assert "SELECT date, SUM(amount)" in result
-        assert "Available Dimensions" in result
-        assert "core.date" in result
+        assert "Direction: HIGHER_IS_BETTER" in result
+        assert "Unit: USD" in result
+        assert "Upstream Dependencies: 1" in result
 
 
 @pytest.mark.asyncio
@@ -440,6 +441,52 @@ async def test_get_node_details_error():
 
         assert "Error" in result
         assert "GraphQL error" in result
+
+
+@pytest.mark.asyncio
+async def test_get_node_details_with_git_info():
+    """Test getting node details with git repository info"""
+    mock_response = {
+        "findNodes": [
+            {
+                "name": "finance.daily_revenue",
+                "type": "METRIC",
+                "createdAt": "2024-01-01T00:00:00Z",
+                "gitInfo": {
+                    "repo": "myorg/dj-finance",
+                    "branch": "main",
+                    "defaultBranch": "main",
+                },
+                "current": {
+                    "displayName": "Daily Revenue",
+                    "description": "Total revenue per day",
+                    "status": "VALID",
+                    "mode": "PUBLISHED",
+                    "query": "SELECT date, SUM(amount) FROM transactions GROUP BY date",
+                    "columns": [
+                        {"name": "date", "type": "DATE", "displayName": "Date"},
+                        {"name": "amount", "type": "DECIMAL", "displayName": "Amount"},
+                    ],
+                },
+                "tags": [],
+                "owners": [],
+            },
+        ],
+    }
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        result = await tools.get_node_details(name="finance.daily_revenue")
+
+        # Check git info is formatted correctly
+        assert "Git Repository:" in result
+        assert "Repo: myorg/dj-finance" in result
+        assert "Branch: main" in result
+        assert "Default Branch: main" in result
+        assert "This namespace is repo-backed" in result
 
 
 # ============================================================================
@@ -1307,6 +1354,156 @@ async def test_build_metric_sql_columns_with_semantic_name():
         assert "city: STRING (semantic: location.city)" in result
         assert "count: INTEGER" in result
         assert "(semantic: location.city)" in result  # Explicit check for semantic info
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_with_temporal_filters():
+    """Test build_metric_sql with include_temporal_filters=True"""
+    mock_response_json = {
+        "sql": "SELECT date, SUM(amount) FROM transactions WHERE date >= ${dj_logical_timestamp} AND date <= ${dj_logical_timestamp}",
+        "dialect": "spark",
+        "columns": [
+            {"name": "date", "type": "DATE"},
+            {"name": "amount", "type": "DECIMAL"},
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = mock_response_json
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.build_metric_sql(
+            metrics=["finance.daily_revenue"],
+            dimensions=["core.date"],
+            include_temporal_filters=True,
+        )
+
+        # Verify temporal filter template variables in output
+        assert "${dj_logical_timestamp}" in result
+        assert "include_temporal_filters" in str(mock_http_client.get.call_args)
+
+        # Verify the API was called with include_temporal_filters=True
+        call_args = mock_http_client.get.call_args
+        assert call_args[1]["params"]["include_temporal_filters"] is True
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_with_lookback_window():
+    """Test build_metric_sql with include_temporal_filters and lookback_window"""
+    mock_response_json = {
+        "sql": "SELECT date, SUM(amount) FROM transactions WHERE date >= ${dj_logical_timestamp} AND date <= ${dj_logical_timestamp}",
+        "dialect": "spark",
+        "columns": [
+            {"name": "date", "type": "DATE"},
+            {"name": "amount", "type": "DECIMAL"},
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = mock_response_json
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.build_metric_sql(
+            metrics=["finance.daily_revenue"],
+            dimensions=["core.date"],
+            include_temporal_filters=True,
+            lookback_window="7 DAY",
+        )
+
+        # Verify temporal filter template variables in output
+        assert "${dj_logical_timestamp}" in result
+
+        # Verify the API was called with both parameters
+        call_args = mock_http_client.get.call_args
+        assert call_args[1]["params"]["include_temporal_filters"] is True
+        assert call_args[1]["params"]["lookback_window"] == "7 DAY"
+
+
+@pytest.mark.asyncio
+async def test_build_metric_sql_without_temporal_filters():
+    """Test build_metric_sql with include_temporal_filters=False (default)"""
+    mock_response_json = {
+        "sql": "SELECT date, SUM(amount) FROM transactions WHERE date >= '2024-01-01'",
+        "dialect": "spark",
+        "columns": [
+            {"name": "date", "type": "DATE"},
+            {"name": "amount", "type": "DECIMAL"},
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = mock_response_json
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.build_metric_sql(
+            metrics=["finance.daily_revenue"],
+            dimensions=["core.date"],
+            filters=["date >= '2024-01-01'"],
+        )
+
+        # Verify no temporal filter template variables
+        assert "${dj_logical_timestamp}" not in result
+        assert "2024-01-01" in result
+
+        # Verify the API was called with include_temporal_filters=False (default)
+        call_args = mock_http_client.get.call_args
+        assert call_args[1]["params"]["include_temporal_filters"] is False
+        # lookback_window should not be in params when not specified
+        assert "lookback_window" not in call_args[1]["params"]
 
 
 # ============================================================================

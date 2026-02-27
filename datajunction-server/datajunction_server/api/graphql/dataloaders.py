@@ -66,14 +66,16 @@ async def batch_load_nodes_by_name_only(
     Simplified batch loader that loads nodes by name with default fields.
 
     This is used when we don't need fine-grained field selection.
+    Creates its own independent session to avoid concurrent operation errors.
 
     Args:
         names: List of node names
-        request: The Starlette request object for creating sessions
+        request: The Starlette request object for creating independent session
 
     Returns:
         List of nodes in the same order as names
     """
+    # Create independent session for this dataloader batch
     async with session_context(request) as session:
         nodes = await DBNode.find_by(
             session,
@@ -93,7 +95,7 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     Create a DataLoader for loading nodes by name.
 
     This loader batches multiple node lookups within a single request and caches
-    the results to avoid duplicate queries.
+    the results to avoid duplicate queries. Creates independent sessions.
 
     Args:
         request: The Starlette request object

@@ -2001,3 +2001,349 @@ class TestPlanCommand:
         captured = capsys.readouterr()
         assert "comp1" in captured.out
         assert "COUNT(*)" in captured.out
+
+
+# ============================================================================
+# setup-claude Tests
+# ============================================================================
+
+
+def test_setup_claude_full_install(tmp_path, monkeypatch):
+    """Test setup-claude with both skills and MCP (default behavior)"""
+    # Setup temp directories
+    claude_dir = tmp_path / ".claude"
+    skills_dir = claude_dir / "skills" / "datajunction"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    output = mock_stdout.getvalue()
+
+    # Verify skill was installed
+    skill_file = skills_dir / "SKILL.md"
+    assert skill_file.exists(), "SKILL.md should be created"
+    assert skill_file.read_text().startswith("---\nname: datajunction")
+
+    # Verify metadata file was created
+    metadata_file = skills_dir / "metadata.json"
+    assert metadata_file.exists(), "metadata.json should be created"
+    metadata = json.loads(metadata_file.read_text())
+    assert metadata["name"] == "datajunction"
+    assert "version" in metadata
+
+    # Verify MCP config was created
+    mcp_config_file = tmp_path / ".claude.json"
+    assert mcp_config_file.exists(), "MCP config should be created"
+    mcp_config = json.loads(mcp_config_file.read_text())
+    assert "mcpServers" in mcp_config
+    assert "datajunction" in mcp_config["mcpServers"]
+    assert "dj-mcp" in mcp_config["mcpServers"]["datajunction"]["command"]
+    assert "DJ_API_URL" in mcp_config["mcpServers"]["datajunction"]["env"]
+
+    # Verify success message
+    assert "Skill installed" in output
+    assert "DJ MCP server configured" in output or "MCP server" in output
+    assert "Restart Claude" in output
+
+
+def test_setup_claude_skills_only(tmp_path, monkeypatch):
+    """Test setup-claude --no-mcp (skills only)"""
+    claude_dir = tmp_path / ".claude"
+    skills_dir = claude_dir / "skills" / "datajunction"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    output = mock_stdout.getvalue()
+
+    # Verify skill was installed
+    skill_file = skills_dir / "SKILL.md"
+    assert skill_file.exists(), "SKILL.md should be created"
+
+    # Verify MCP config was NOT created
+    mcp_config_file = tmp_path / ".claude.json"
+    assert not mcp_config_file.exists(), (
+        "MCP config should NOT be created with --no-mcp"
+    )
+
+    # Verify success message only for skills
+    assert "Skill installed" in output
+    assert "Skills are now available in Claude Code" in output
+    assert "MCP server" not in output
+
+
+def test_setup_claude_mcp_only(tmp_path, monkeypatch):
+    """Test setup-claude --no-skills (MCP only)"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    output = mock_stdout.getvalue()
+
+    # Verify skill was NOT installed
+    skills_dir = claude_dir / "skills" / "datajunction"
+    assert not skills_dir.exists(), (
+        "Skills directory should NOT be created with --no-skills"
+    )
+
+    # Verify MCP config was created
+    mcp_config_file = tmp_path / ".claude.json"
+    assert mcp_config_file.exists(), "MCP config should be created"
+
+    # Verify success message only for MCP
+    assert "DJ MCP server configured" in output or "MCP server configured" in output
+    assert "Restart Claude" in output
+    assert "Skill installed" not in output
+
+
+def test_setup_claude_bundled_skill_loading(tmp_path, monkeypatch):
+    """Test that bundled skill is correctly loaded via importlib.resources"""
+    claude_dir = tmp_path / ".claude"
+    skills_dir = claude_dir / "skills" / "datajunction"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Verify the skill content was loaded from bundled file
+    skill_file = skills_dir / "SKILL.md"
+    content = skill_file.read_text()
+
+    # Check for key sections that should be in the bundled skill
+    assert "---\nname: datajunction" in content
+    assert "DataJunction" in content
+    assert "semantic layer" in content
+    assert "dimension link" in content or "dimension links" in content
+    assert "Practical Notes" in content or "Node Types" in content
+
+
+def test_setup_claude_overwrite_existing(tmp_path, monkeypatch):
+    """Test setup-claude overwrites existing skill (force behavior)"""
+    claude_dir = tmp_path / ".claude"
+    skills_dir = claude_dir / "skills" / "datajunction"
+    skills_dir.mkdir(parents=True)
+
+    # Create existing skill with old content
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("OLD SKILL CONTENT")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Verify skill was overwritten
+    new_content = skill_file.read_text()
+    assert "OLD SKILL CONTENT" not in new_content
+    assert "---\nname: datajunction" in new_content
+
+    output = mock_stdout.getvalue()
+    assert "Skill installed" in output
+
+
+def test_setup_claude_custom_dj_url(tmp_path, monkeypatch):
+    """Test setup-claude with custom DJ_URL environment variable"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("DJ_URL", "http://custom-dj-server:9000")
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Verify MCP config uses custom URL
+    mcp_config_file = tmp_path / ".claude.json"
+    mcp_config = json.loads(mcp_config_file.read_text())
+    assert (
+        mcp_config["mcpServers"]["datajunction"]["env"]["DJ_API_URL"]
+        == "http://custom-dj-server:9000"
+    )
+
+
+def test_setup_claude_mcp_config_merge(tmp_path, monkeypatch):
+    """Test setup-claude merges with existing MCP config"""
+    # Create existing MCP config with other servers
+    existing_config = {
+        "mcpServers": {
+            "other-server": {"command": "other-command", "env": {}},
+        },
+    }
+    mcp_config_file = tmp_path / ".claude.json"
+    mcp_config_file.write_text(json.dumps(existing_config))
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Verify both servers are in config
+    mcp_config = json.loads(mcp_config_file.read_text())
+    assert "other-server" in mcp_config["mcpServers"]
+    assert "datajunction" in mcp_config["mcpServers"]
+    assert mcp_config["mcpServers"]["other-server"]["command"] == "other-command"
+
+
+def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
+    """Test that the installed skill has correct content"""
+    claude_dir = tmp_path / ".claude"
+    skills_dir = claude_dir / "skills" / "datajunction"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Verify skill content includes key sections
+    skill_file = skills_dir / "SKILL.md"
+    content = skill_file.read_text()
+
+    # Check for essential sections
+    assert "DataJunction" in content
+    assert "semantic layer" in content
+    assert "dimension link" in content
+    assert "Temporal Partitions" in content  # Verify our recent additions
+    assert "owners:" in content  # Verify ownership section
+    assert "Git Repository" in content  # Verify git info documentation
+
+
+def test_setup_claude_no_config_path(tmp_path, monkeypatch):
+    """Test MCP setup when no Claude config path can be found"""
+    # Create a temp home that doesn't have any of the expected paths
+    fake_home = tmp_path / "nonexistent"
+    # Don't create fake_home or any parent directories
+
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    with (
+        patch("pathlib.Path.home", return_value=fake_home),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+        output = mock_stdout.getvalue()
+        # Should show warning about not finding config directory
+        assert "Could not find Claude config directory" in output
+        assert "Skipping MCP setup" in output
+
+
+def test_setup_claude_dj_mcp_not_found(tmp_path, monkeypatch):
+    """Test MCP setup when dj-mcp command is not in PATH"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch("shutil.which", return_value=None),  # Simulate dj-mcp not found
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+        output = mock_stdout.getvalue()
+        # Should show warning about dj-mcp not found
+        assert "dj-mcp command not found" in output
+        assert "pip install 'datajunction[mcp]'" in output
+
+
+def test_setup_claude_invalid_json_config(tmp_path, monkeypatch):
+    """Test MCP setup when existing Claude config has invalid JSON"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    config_file = tmp_path / ".claude.json"
+
+    # Write invalid JSON to config file
+    config_file.write_text("{ invalid json content }")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch("shutil.which", return_value="/usr/bin/dj-mcp"),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+        output = mock_stdout.getvalue()
+        # Should show warning about invalid JSON and backup
+        assert "Invalid JSON in Claude config" in output
+        assert "Backup saved to" in output
+
+        # Verify backup was created
+        backup_file = tmp_path / ".claude.json.backup"
+        assert backup_file.exists()
+        assert backup_file.read_text() == "{ invalid json content }"
+
+        # Verify new valid config was written
+        assert config_file.exists()
+        new_config = json.loads(config_file.read_text())
+        assert "mcpServers" in new_config
+        assert "datajunction" in new_config["mcpServers"]
