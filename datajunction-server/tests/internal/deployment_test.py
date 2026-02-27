@@ -352,22 +352,42 @@ async def test_check_external_dependencies(
     If a dependency is not in the deployment DAG but does already exist in the
     system, check_external_deps should return it without raising.
     """
+
+    # Create orchestrator helper that disables auto-registration for this test
+    def create_test_orchestrator(nodes):
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = mock_save_history
+        deployment_spec = DeploymentSpec(
+            namespace="example",
+            nodes=nodes,
+            tags=[],
+            auto_register_sources=False,  # Disable auto-registration for this test
+        )
+        return DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id=str(uuid4()),
+            session=session,
+            context=context,
+        )
+
     # No external dependencies
     valid_nodes = [
         node_spec
         for node_spec in basic_nodes
         if node_spec.name not in ("example.dimension_node", "example.cube_node")
     ]
-    orchestrator = create_orchestrator(session, current_user, valid_nodes)
+    orchestrator = create_test_orchestrator(valid_nodes)
     node_graph = extract_node_graph(valid_nodes)
-    external_deps = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
     assert external_deps == set()
+    assert auto_registered == []
 
     # One external dependency that doesn't exist yet
     nodes = [
         node_spec for node_spec in basic_nodes if node_spec.name != "example.cube_node"
     ]
-    orchestrator = create_orchestrator(session, current_user, nodes)
+    orchestrator = create_test_orchestrator(nodes)
     node_graph = extract_node_graph(nodes)
     with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
         await orchestrator.check_external_deps(node_graph)
@@ -378,10 +398,13 @@ async def test_check_external_dependencies(
 
     # External dependency exists in the system
     async with external_source_node(session, current_user, catalog) as _:
-        orchestrator = create_orchestrator(session, current_user, basic_nodes)
+        orchestrator = create_test_orchestrator(basic_nodes)
         node_graph = extract_node_graph(basic_nodes)
-        external_deps = await orchestrator.check_external_deps(node_graph)
+        external_deps, auto_registered = await orchestrator.check_external_deps(
+            node_graph,
+        )
         assert external_deps == {"catalog.dim.categories"}
+        assert auto_registered == []
 
 
 async def mock_save_history(event, session):
@@ -586,9 +609,10 @@ async def test_check_external_deps_dimension_attribute_reference(
     node_graph = extract_node_graph([metric_with_dim_attr])
 
     # Should not raise because catalog.dim.categories exists
-    external_deps = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
     # The dimension node should be in external deps (not the attribute)
     assert "catalog.dim.categories" in external_deps
+    assert auto_registered == []
 
 
 async def test_check_external_deps_namespace_prefix_filtering(
@@ -617,9 +641,10 @@ async def test_check_external_deps_namespace_prefix_filtering(
     # The node_graph will have deps like catalog.dim.categories.dateint and catalog.dim.categories
     # check_external_deps should handle this correctly - categories exists, so the attribute
     # reference should be filtered out
-    external_deps = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
     # catalog.dim.categories should be in external deps (the actual node)
     assert "catalog.dim.categories" in external_deps
+    assert auto_registered == []
 
 
 async def test_virtual_catalog_fallback_for_parentless_nodes(
@@ -1631,3 +1656,330 @@ async def test_validate_node_deletion_many_references_formatting(
 
     # Verify error message is properly formatted (uses commas)
     assert ", " in error_message
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_success(session: AsyncSession):
+    """
+    Test successful auto-registration of missing sources
+    """
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+    from unittest.mock import MagicMock
+
+    # Setup: Create a test catalog with an engine
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    # Link engine to catalog
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment spec with a transform that references a missing source
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id, name FROM testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    # Mock the query service client to return fake columns
+    from datajunction_server.database.column import Column
+    from datajunction_server.sql.parsing.types import IntegerType, StringType
+
+    mock_query_service = MagicMock()
+    mock_query_service.get_columns_for_tables_batch.return_value = {
+        ("testcatalog", "myschema", "mytable"): [
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="name", type=StringType(), order=1),
+        ],
+    }
+
+    # Create orchestrator and run deployment (auto-registration happens during plan creation)
+    context = DeploymentContext(
+        current_user=MagicMock(id=1, username="test"),
+        query_service_client=mock_query_service,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+
+    # Auto-registration happens during deployment plan creation
+    plan = await orchestrator._create_deployment_plan()
+
+    # Verify query service was called
+    mock_query_service.get_columns_for_tables_batch.assert_called_once_with(
+        tables=[("testcatalog", "myschema", "mytable")],
+        request_headers={},
+        engine=engine,
+    )
+
+    # Verify source was added to deployment spec
+    assert len(deployment_spec.nodes) == 2  # original + auto-registered
+
+    # First node should be the auto-registered source (prepended)
+    auto_source = deployment_spec.nodes[0]
+    assert isinstance(auto_source, SourceSpec)
+    assert auto_source.name == "testcatalog.myschema.mytable"
+    assert auto_source.catalog == "testcatalog"
+    assert auto_source.schema_ == "myschema"
+    assert auto_source.table == "mytable"
+    assert auto_source.columns is not None
+    assert len(auto_source.columns) == 2
+
+    # Verify the source is in the deployment plan
+    assert len(plan.to_deploy) == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_disabled(session: AsyncSession):
+    """
+    Test that auto-registration is skipped when flag is False
+    """
+    from unittest.mock import MagicMock
+
+    # Create deployment spec without auto_register_sources flag
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=False,  # Explicitly disabled
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+
+    # With auto_register_sources=False, missing dependencies should cause an error
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        await orchestrator._create_deployment_plan()
+
+    # Verify error message mentions missing dependencies
+    assert "do not pre-exist in the system" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
+    """
+    Test that auto-registration fails gracefully when catalog doesn't exist
+    """
+    from unittest.mock import MagicMock
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM nonexistent.myschema.mytable",
+            ),
+        ],
+    )
+
+    context = DeploymentContext(current_user=MagicMock(id=1, username="test"))
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+
+    # Should raise DJInvalidDeploymentConfig with error about missing catalog
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        await orchestrator._create_deployment_plan()
+
+    assert "nonexistent.myschema.mytable" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_backward_compat_with_source_prefix(
+    session: AsyncSession,
+):
+    """
+    Test that source. prefix is handled correctly (stripped to canonical form)
+    """
+
+    # Setup catalog
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment with transform referencing source.catalog.schema.table
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.my_transform",
+                query="SELECT id FROM source.testcatalog.myschema.mytable",
+            ),
+        ],
+    )
+
+    from datajunction_server.database.column import Column
+    from datajunction_server.sql.parsing.types import IntegerType
+    from unittest.mock import MagicMock
+
+    mock_query_service = MagicMock()
+    mock_query_service.get_columns_for_tables_batch.return_value = {
+        ("testcatalog", "myschema", "mytable"): [
+            Column(name="id", type=IntegerType(), order=0),
+        ],
+    }
+
+    context = DeploymentContext(
+        current_user=MagicMock(id=1, username="test"),
+        query_service_client=mock_query_service,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+    await orchestrator._create_deployment_plan()
+
+    # Verify source was registered with canonical name (no source. prefix)
+    assert len(deployment_spec.nodes) == 2
+    auto_source = deployment_spec.nodes[0]
+    assert isinstance(auto_source, SourceSpec)
+    assert auto_source.name == "testcatalog.myschema.mytable"
+    assert "source." not in auto_source.name
+
+
+@pytest.mark.asyncio
+async def test_auto_register_sources_no_duplication(session: AsyncSession):
+    """
+    Test that same source referenced by multiple transforms is only registered once
+    """
+
+    # Setup catalog
+    catalog = Catalog(name="testcatalog")
+    session.add(catalog)
+
+    from datajunction_server.database.engine import Engine
+    from datajunction_server.models.dialect import Dialect
+
+    engine = Engine(
+        name="test_engine",
+        version="1.0",
+        uri="sqlite:///:memory:",
+        dialect=Dialect.SPARK,
+    )
+    session.add(engine)
+    await session.flush()
+
+    from datajunction_server.database.catalog import CatalogEngines
+
+    catalog_engine = CatalogEngines(catalog_id=catalog.id, engine_id=engine.id)
+    session.add(catalog_engine)
+    await session.commit()
+
+    # Create deployment with TWO transforms referencing the SAME source
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        auto_register_sources=True,
+        nodes=[
+            TransformSpec(
+                name="test.transform1",
+                query="SELECT id FROM testcatalog.myschema.shared_table",
+            ),
+            TransformSpec(
+                name="test.transform2",
+                query="SELECT name FROM testcatalog.myschema.shared_table",
+            ),
+        ],
+    )
+
+    from datajunction_server.database.column import Column
+    from datajunction_server.sql.parsing.types import IntegerType, StringType
+    from unittest.mock import MagicMock
+
+    mock_query_service = MagicMock()
+    mock_query_service.get_columns_for_tables_batch.return_value = {
+        ("testcatalog", "myschema", "shared_table"): [
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="name", type=StringType(), order=1),
+        ],
+    }
+
+    context = DeploymentContext(
+        current_user=MagicMock(id=1, username="test"),
+        query_service_client=mock_query_service,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=deployment_spec,
+        deployment_id=str(uuid4()),
+        session=session,
+        context=context,
+    )
+
+    await orchestrator._setup_deployment_resources()
+    await orchestrator._validate_deployment_resources()
+    await orchestrator._create_deployment_plan()
+
+    # Should have 3 nodes: 1 auto-registered source + 2 original transforms
+    assert len(deployment_spec.nodes) == 3
+
+    # First should be the auto-registered source
+    assert isinstance(deployment_spec.nodes[0], SourceSpec)
+    assert deployment_spec.nodes[0].name == "testcatalog.myschema.shared_table"
+
+    # Query service should only be called once (no duplication)
+    assert mock_query_service.get_columns_for_tables_batch.call_count == 1

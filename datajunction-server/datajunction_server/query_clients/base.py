@@ -60,6 +60,47 @@ class BaseQueryServiceClient(ABC):
         """
         pass
 
+    def get_columns_for_tables_batch(
+        self,
+        tables: List[tuple[str, str, str]],  # [(catalog, schema, table), ...]
+        request_headers: Optional[Dict[str, str]] = None,
+        engine: Optional["Engine"] = None,
+    ) -> Dict[tuple[str, str, str], List[Column]]:
+        """
+        Retrieves columns for multiple tables in a single batch request.
+
+        Default implementation falls back to individual calls.
+        Override in subclasses that support batched column retrieval.
+
+        Args:
+            tables: List of (catalog, schema, table) tuples
+            request_headers: Optional HTTP headers
+            engine: Optional engine for context
+
+        Returns:
+            Dict mapping (catalog, schema, table) to List of Column objects
+        """
+        _logger.info(
+            "get_columns_for_tables_batch not implemented, falling back to individual calls",
+        )
+        result = {}
+        for catalog, schema, table in tables:
+            try:
+                columns = self.get_columns_for_table(
+                    catalog,
+                    schema,
+                    table,
+                    request_headers,
+                    engine,
+                )
+                result[(catalog, schema, table)] = columns
+            except Exception as e:  # pragma: no cover
+                _logger.warning(
+                    f"Failed to get columns for {catalog}.{schema}.{table}: {e}",
+                )
+                result[(catalog, schema, table)] = []
+        return result
+
     def create_view(
         self,
         view_name: str,

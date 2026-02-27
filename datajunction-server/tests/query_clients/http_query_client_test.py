@@ -126,3 +126,32 @@ class TestHttpQueryServiceClientCubeV2Methods:
             materializations=materializations,
             request_headers={"X-Test": "1"},
         )
+
+    def test_get_columns_for_tables_batch(self, mock_client):
+        """Test get_columns_for_tables_batch delegates to underlying client."""
+        from unittest.mock import Mock
+
+        client, mock_inner = mock_client
+
+        # Use mock columns to avoid SQLAlchemy issues
+        mock_col = Mock()
+        mock_col.name = "col1"
+
+        mock_inner.get_columns_for_tables_batch.return_value = {
+            ("cat1", "sch1", "table1"): [mock_col],
+        }
+
+        tables = [("cat1", "sch1", "table1")]
+        result = client.get_columns_for_tables_batch(
+            tables=tables,
+            request_headers={"X-Test": "1"},
+            engine=None,
+        )
+
+        mock_inner.get_columns_for_tables_batch.assert_called_once_with(
+            tables=tables,
+            request_headers={"X-Test": "1"},
+            engine=None,
+        )
+        assert len(result) == 1
+        assert result[("cat1", "sch1", "table1")][0].name == "col1"

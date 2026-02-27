@@ -259,11 +259,15 @@ class NodeSpecBulkValidator:
         existing_spec: Optional[ColumnSpec],
     ) -> ColumnSpec:
         """Create a ColumnSpec from AST column and existing spec"""
-        try:
-            column_type = str(ast_column.type)
-        except Exception as e:  # pragma: no cover
-            logger.error("Error inferring column %s: %s", column_name, e)
-            column_type = "unknown"
+        # If existing spec has a type, use it. Otherwise infer from AST.
+        if existing_spec and existing_spec.type:
+            column_type = existing_spec.type
+        else:
+            try:
+                column_type = str(ast_column.type)
+            except Exception as e:  # pragma: no cover
+                logger.exception("Error inferring column %s: %s", column_name, e)
+                column_type = "unknown"
 
         if existing_spec:
             return ColumnSpec(

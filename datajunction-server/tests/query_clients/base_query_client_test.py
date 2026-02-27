@@ -153,3 +153,88 @@ def test_abstract_method_coverage():
 
     # The abstract method should return None due to the pass statement
     assert result is None
+
+
+def test_get_columns_for_tables_batch_fallback():
+    """Test default implementation falls back to individual calls."""
+    from unittest.mock import MagicMock, Mock
+
+    client = MockQueryServiceClient()
+
+    # Create mock columns instead of actual Column objects
+    mock_col1 = Mock()
+    mock_col1.name = "col1"
+    mock_col2 = Mock()
+    mock_col2.name = "col2"
+    mock_col3 = Mock()
+    mock_col3.name = "col3"
+
+    # Mock get_columns_for_table to return different columns for each table
+    def mock_get_columns(catalog, schema, table, request_headers=None, engine=None):
+        if table == "table1":
+            return [mock_col1, mock_col2]
+        elif table == "table2":
+            return [mock_col3]
+        return []
+
+    client.get_columns_for_table = MagicMock(side_effect=mock_get_columns)
+
+    # Call batch method
+    result = client.get_columns_for_tables_batch(
+        tables=[
+            ("cat1", "sch1", "table1"),
+            ("cat1", "sch1", "table2"),
+        ],
+    )
+
+    # Verify individual calls were made
+    assert client.get_columns_for_table.call_count == 2
+
+    # Verify results
+    assert len(result) == 2
+    assert len(result[("cat1", "sch1", "table1")]) == 2
+    assert result[("cat1", "sch1", "table1")][0].name == "col1"
+    assert len(result[("cat1", "sch1", "table2")]) == 1
+    assert result[("cat1", "sch1", "table2")][0].name == "col3"
+
+
+def test_get_columns_for_tables_batch_fallback_with_exception():
+    """Test default implementation handles exceptions gracefully."""
+    from unittest.mock import MagicMock
+
+    client = MockQueryServiceClient()
+
+    # Mock get_columns_for_table to raise exception for one table
+    def mock_get_columns(catalog, schema, table, request_headers=None, engine=None):
+        if table == "table1":
+            raise Exception("Connection error")
+        return []
+
+    client.get_columns_for_table = MagicMock(side_effect=mock_get_columns)
+
+    # Call batch method - should not raise, should return empty list for failed table
+    result = client.get_columns_for_tables_batch(
+        tables=[
+            ("cat1", "sch1", "table1"),
+            ("cat1", "sch1", "table2"),
+        ],
+    )
+
+    # Verify both calls were attempted
+    assert client.get_columns_for_table.call_count == 2
+
+    # Failed table should have empty list
+    assert result[("cat1", "sch1", "table1")] == []
+    # Successful table should have empty list (as per mock)
+    assert result[("cat1", "sch1", "table2")] == []
+
+
+def test_run_cube_backfill_not_implemented():
+    """Test that run_cube_backfill raises NotImplementedError."""
+    client = MockQueryServiceClient()
+
+    with pytest.raises(NotImplementedError) as exc_info:
+        client.run_cube_backfill(None)
+
+    assert "MockQueryServiceClient" in str(exc_info.value)
+    assert "does not support cube backfill" in str(exc_info.value)
