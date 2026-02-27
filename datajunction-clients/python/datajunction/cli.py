@@ -1231,6 +1231,23 @@ class DJCLI:
             help="Output format (default: table)",
         )
 
+        # `dj export-skills`
+        export_skills_parser = subparsers.add_parser(
+            "export-skills",
+            help="Export DJ skills for Claude Code",
+        )
+        export_skills_parser.add_argument(
+            "--output",
+            type=str,
+            default=str(Path.home() / ".claude" / "skills"),
+            help="Output directory for skill files (default: ~/.claude/skills)",
+        )
+        export_skills_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Force re-export, overwriting existing files",
+        )
+
         return parser
 
     def dispatch_command(self, args, parser):
@@ -1315,6 +1332,11 @@ class DJCLI:
                 limit=args.limit,
                 format=args.format,
             )
+        elif args.command == "export-skills":
+            self.export_skills(
+                output_dir=Path(args.output),
+                force=args.force,
+            )
         else:
             parser.print_help()  # pragma: no cover
 
@@ -1328,6 +1350,59 @@ class DJCLI:
         if not self._client_provided:
             self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
+
+    def export_skills(self, output_dir: Path, force: bool = False):
+        """Export DJ skills for Claude Code."""
+        import httpx
+        import yaml
+
+        console = Console()
+
+        # Ensure output directory exists
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        console.print(f"\n[bold blue]📚 Exporting DJ skills from {self.builder_client.uri}[/bold blue]\n")
+
+        try:
+            # Fetch core skills
+            skill_names = ["dj-core", "dj-builder", "dj-consumer"]
+
+            for skill_name in skill_names:
+                output_file = output_dir / f"{skill_name}.yaml"
+
+                # Skip if exists and not force
+                if output_file.exists() and not force:
+                    console.print(f"⚠️  Skipped {skill_name}.yaml (already exists, use --force to overwrite)")
+                    continue
+
+                console.print(f"Fetching [cyan]{skill_name}[/cyan]...")
+
+                # Make request using builder client's session
+                response = self.builder_client._session.get(
+                    f"{self.builder_client.uri}/skills/{skill_name}"
+                )
+
+                if response.status_code != 200:
+                    console.print(f"[red]✗ Failed to fetch {skill_name}: {response.status_code}[/red]")
+                    console.print(f"[dim]{response.text}[/dim]")
+                    continue
+
+                # Parse and write
+                skill_data = response.json()
+                with open(output_file, "w") as f:
+                    yaml.dump(skill_data, f, sort_keys=False, allow_unicode=True)
+
+                console.print(f"[green]✓ Exported {output_file}[/green]")
+                console.print(f"  [dim]Version: {skill_data.get('version', 'unknown')}[/dim]")
+                console.print(f"  [dim]Keywords: {len(skill_data.get('keywords', []))}[/dim]\n")
+
+            console.print(f"\n[bold green]✓ Skills exported to {output_dir}[/bold green]")
+            console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
+
+        except Exception as e:
+            console.print(f"\n[red]✗ Error: {e}[/red]")
+            logger.exception("Failed to export skills")
+            raise
 
     def seed(self, type: str = "nodes"):
         """

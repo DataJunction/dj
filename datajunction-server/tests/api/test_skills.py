@@ -5,11 +5,15 @@ from httpx import AsyncClient
 
 
 class TestSkillsAPI:
-    """Tests for /skills/* endpoints."""
+    """Tests for /skills/* endpoints.
+
+    Note: Skills endpoints are public (no authentication required)
+    since they're documentation/usage guides.
+    """
 
     @pytest.mark.asyncio
     async def test_get_core_skill(self, client_with_roads: AsyncClient):
-        """Test GET /skills/dj-core endpoint."""
+        """Test GET /skills/dj-core endpoint (public, no auth required)."""
         response = await client_with_roads.get("/skills/dj-core")
 
         assert response.status_code == 200

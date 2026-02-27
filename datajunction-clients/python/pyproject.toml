@@ -43,7 +43,6 @@ path = "datajunction/__about__.py"
 [project.scripts]
 dj = "datajunction.cli:main"
 dj-mcp = "datajunction.mcp.cli:run"
-dj-export-skills = "datajunction.export_skills:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["datajunction"]
