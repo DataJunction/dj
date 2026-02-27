@@ -393,6 +393,11 @@ async def get_node_details(name: str) -> str:
             name
             type
             createdAt
+            gitInfo {
+                repo
+                branch
+                defaultBranch
+            }
             current {
                 displayName
                 description
@@ -422,17 +427,6 @@ async def get_node_details(name: str) -> str:
                 name
             }
         }
-        commonDimensions(nodes: $names) {
-            name
-            type
-            dimensionNode {
-                name
-                current {
-                    description
-                    displayName
-                }
-            }
-        }
     }
     """
 
@@ -445,9 +439,8 @@ async def get_node_details(name: str) -> str:
             return f"Node '{name}' not found."
 
         node = nodes[0]
-        dimensions = data.get("commonDimensions", [])
 
-        return format_node_details(node, dimensions)
+        return format_node_details(node)
 
     except Exception as e:
         logger.error(f"Error getting node details: {str(e)}")
@@ -503,6 +496,8 @@ async def build_metric_sql(
     limit: Optional[int] = None,
     dialect: Optional[str] = None,
     use_materialized: bool = True,
+    include_temporal_filters: bool = False,
+    lookback_window: Optional[str] = None,
 ) -> str:
     """
     Generate SQL for querying metrics with dimensions and filters using v3 SQL builder
@@ -515,6 +510,10 @@ async def build_metric_sql(
         limit: Optional row limit
         dialect: Optional SQL dialect (e.g., 'spark', 'trino', 'postgres')
         use_materialized: Whether to use materialized tables when available (default: True)
+        include_temporal_filters: Whether to include temporal partition filters (default: False).
+            Only applies if metrics+dimensions resolve to a cube with temporal partitions.
+        lookback_window: Lookback window for temporal filters (e.g., '3 DAY', '1 WEEK').
+            Only applicable when include_temporal_filters is True.
 
     Returns:
         Formatted SQL with metadata
@@ -530,11 +529,14 @@ async def build_metric_sql(
             "filters": filters or [],
             "orderby": orderby or [],
             "use_materialized": use_materialized,
+            "include_temporal_filters": include_temporal_filters,
         }
         if limit:
             params["limit"] = limit
         if dialect:
             params["dialect"] = dialect
+        if lookback_window:
+            params["lookback_window"] = lookback_window
 
         # Call v3 SQL metrics endpoint via REST
         async with httpx.AsyncClient(
