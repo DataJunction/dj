@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.database.user import User
+from datajunction_server.api.helpers import get_current_user
+from datajunction_server.models.user import User
 from datajunction_server.skills import get_skill_provider
-from datajunction_server.utils import get_session, get_current_user
+from datajunction_server.utils import get_session
 
 logger = logging.getLogger(__name__)
 
