@@ -167,6 +167,12 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # Default access policy when no explicit RBAC rule exists:
     # - "permissive": Allow by default
+
+    # Skills configuration
+    # Pluggable skill provider for customizing skill content per deployment.
+    # Example: "nflx_dj.skills.provider.NetflixSkillProvider"
+    # If not set, uses DefaultSkillProvider from datajunction_server.skills.provider
+    skill_provider_class: Optional[str] = None
     # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
