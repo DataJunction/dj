@@ -1247,6 +1247,11 @@ class DJCLI:
             action="store_true",
             help="Force re-export, overwriting existing files",
         )
+        export_skills_parser.add_argument(
+            "--setup-mcp",
+            action="store_true",
+            help="Also configure DJ MCP server in Claude config",
+        )
 
         return parser
 
@@ -1336,6 +1341,7 @@ class DJCLI:
             self.export_skills(
                 output_dir=Path(args.output),
                 force=args.force,
+                setup_mcp=args.setup_mcp,
             )
         else:
             parser.print_help()  # pragma: no cover
@@ -1351,9 +1357,10 @@ class DJCLI:
             self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
-    def export_skills(self, output_dir: Path, force: bool = False):
+    def export_skills(self, output_dir: Path, force: bool = False, setup_mcp: bool = False):
         """Export DJ skills for Claude Code."""
         import json
+        import shutil
 
         console = Console()
 
@@ -1422,10 +1429,87 @@ class DJCLI:
             console.print(f"\n[bold green]✓ Skills exported to {output_dir}[/bold green]")
             console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
 
+            # Setup MCP if requested
+            if setup_mcp:
+                self._setup_mcp_server(console)
+
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
             logger.exception("Failed to export skills")
             raise
+
+    def _setup_mcp_server(self, console: Console):
+        """Configure DJ MCP server in Claude config."""
+        import json
+        import shutil
+        from pathlib import Path
+
+        # Find Claude config location
+        claude_config_paths = [
+            Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # MacOS
+            Path.home() / ".config" / "Claude" / "claude_desktop_config.json",  # Linux
+            Path.home() / ".claude" / "mcp_config.json",  # Claude Code CLI
+        ]
+
+        config_path = None
+        for path in claude_config_paths:
+            if path.parent.exists():
+                config_path = path
+                break
+
+        if not config_path:
+            console.print("\n[yellow]⚠️  Could not find Claude config directory[/yellow]")
+            console.print("[dim]Skipping MCP setup. You can manually add DJ MCP to your Claude config.[/dim]")
+            return
+
+        console.print(f"\n[bold blue]🔧 Configuring DJ MCP server[/bold blue]")
+        console.print(f"[dim]Config file: {config_path}[/dim]\n")
+
+        # Find dj-mcp command
+        dj_mcp_path = shutil.which("dj-mcp")
+        if not dj_mcp_path:
+            console.print("[yellow]⚠️  dj-mcp command not found in PATH[/yellow]")
+            console.print("[dim]Make sure datajunction client is installed with MCP extras:[/dim]")
+            console.print("[dim]  pip install 'datajunction[mcp]'[/dim]")
+            return
+
+        # Load existing config or create new one
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+            except json.JSONDecodeError:
+                console.print("[yellow]⚠️  Invalid JSON in Claude config, creating backup[/yellow]")
+                backup_path = config_path.with_suffix(".json.backup")
+                shutil.copy(config_path, backup_path)
+                console.print(f"[dim]Backup saved to: {backup_path}[/dim]")
+                config = {}
+        else:
+            config = {}
+
+        # Ensure mcpServers section exists
+        if "mcpServers" not in config:
+            config["mcpServers"] = {}
+
+        # Add DJ MCP server
+        dj_url = self.builder_client.uri or "http://localhost:8000"
+        config["mcpServers"]["datajunction"] = {
+            "command": dj_mcp_path,
+            "env": {
+                "DJ_URL": dj_url,
+            }
+        }
+
+        # Write config back
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        console.print(f"[green]✓ DJ MCP server configured[/green]")
+        console.print(f"  [dim]Server: datajunction[/dim]")
+        console.print(f"  [dim]Command: {dj_mcp_path}[/dim]")
+        console.print(f"  [dim]DJ_URL: {dj_url}[/dim]\n")
+        console.print("[bold yellow]⚠️  Restart Claude Desktop/Code to load the MCP server[/bold yellow]")
 
     def seed(self, type: str = "nodes"):
         """
