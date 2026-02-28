@@ -18,6 +18,7 @@ from datajunction_server.sql.dag import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR, session_context
+from sqlalchemy.orm import joinedload
 
 
 async def common_dimensions(
@@ -35,6 +36,7 @@ async def common_dimensions(
     """
     # Use shared session from context
     session = info.context["session"]
+    request = info.context["request"]
 
     # Load nodes directly with the main session (no dataloader needed)
     # This avoids session complexity since we're loading all nodes once
@@ -44,44 +46,52 @@ async def common_dimensions(
         options=load_node_options({"name": None, "current": {"name": None}}),
     )
 
-    dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
-
-    result = [
-        DimensionAttribute(  # type: ignore
-            name=dim.name,
-            attribute=dim.name.split(SEPARATOR)[-1],
-            properties=dim.properties,  # type: ignore
-            type=dim.type,  # type: ignore
+    # Use a fresh independent session for get_common_dimensions to avoid concurrent
+    # session operations (it makes many nested queries and refresh calls)
+    async with session_context(request) as dims_session:
+        # Reload nodes in the new session with basic options
+        dims_nodes = await Node.find_by(
+            dims_session,
+            names=nodes,
+            options=[joinedload(Node.current)],
         )
-        for dim in dimensions
-    ]
+        dimensions = await get_common_dimensions(dims_session, dims_nodes)  # type: ignore
 
-    # Check if dimensionNode field is requested
-    fields = extract_fields(info)
-    # Note: extract_fields converts camelCase to snake_case
-    has_dimension_node_field = "dimension_node" in fields
+        result = [
+            DimensionAttribute(  # type: ignore
+                name=dim.name,
+                attribute=dim.name.split(SEPARATOR)[-1],
+                properties=dim.properties,  # type: ignore
+                type=dim.type,  # type: ignore
+            )
+            for dim in dimensions
+        ]
 
-    if has_dimension_node_field:  # pragma: no branch
-        dimension_node_names = list(
-            {dim.name.rsplit(".", 1)[0] for dim in dimensions},
-        )
-        dimension_node_fields = fields.get("dimension_node", {})
+        # Check if dimensionNode field is requested
+        fields = extract_fields(info)
+        # Note: extract_fields converts camelCase to snake_case
+        has_dimension_node_field = "dimension_node" in fields
 
-        # Load dimension nodes with proper field selection using shared session
-        # We can't use the simple DataLoader here because we need custom field loading
-        loaded_nodes = await Node.find_by(
-            session,
-            names=dimension_node_names,
-            options=load_node_options(dimension_node_fields),
-        )
+        if has_dimension_node_field:  # pragma: no branch
+            dimension_node_names = list(
+                {dim.name.rsplit(".", 1)[0] for dim in dimensions},
+            )
+            dimension_node_fields = fields.get("dimension_node", {})
 
-        # Create lookup map
-        node_map = {node.name: node for node in loaded_nodes}
+            # Load dimension nodes in the same independent session
+            loaded_nodes = await Node.find_by(
+                dims_session,
+                names=dimension_node_names,
+                options=load_node_options(dimension_node_fields),
+            )
 
-        # Pre-populate the _dimension_node on each DimensionAttribute
-        for dim_attr in result:
-            dimension_node_name = dim_attr.name.rsplit(".", 1)[0]
-            dim_attr._dimension_node = node_map.get(dimension_node_name)
+            # Create lookup map
+            node_map = {node.name: node for node in loaded_nodes}
+
+            # Pre-populate the _dimension_node on each DimensionAttribute
+            for dim_attr in result:
+                dimension_node_name = dim_attr.name.rsplit(".", 1)[0]
+                dim_attr._dimension_node = node_map.get(dimension_node_name)
 
     return result
 
