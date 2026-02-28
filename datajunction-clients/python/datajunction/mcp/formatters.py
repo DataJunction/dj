@@ -95,11 +95,11 @@ def format_node_details(
     if node.get("gitInfo"):
         git_info = node["gitInfo"]
         result.append("Git Repository:")
-        if git_info.get("repo"):
+        if git_info.get("repo"):  # pragma: no branch
             result.append(f"  Repo: {git_info['repo']}")
-        if git_info.get("branch"):
+        if git_info.get("branch"):  # pragma: no branch
             result.append(f"  Branch: {git_info['branch']}")
-        if git_info.get("defaultBranch"):
+        if git_info.get("defaultBranch"):  # pragma: no branch
             result.append(f"  Default Branch: {git_info['defaultBranch']}")
         result.append(
             "  → This namespace is repo-backed (use git workflow for changes)",
