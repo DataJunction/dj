@@ -70,7 +70,7 @@ curl -X POST http://localhost:8000/nodes/dimension/ \
 
 ## Defining Dimension Links
 
-### On Source Nodes (Most Common)
+### On Source Nodes
 
 When the source table cleanly represents a semantic entity:
 
@@ -191,7 +191,7 @@ curl -X POST http://localhost:8000/nodes/dimension/ \
 
 ### Dimension Links with Roles
 
-When a node references the same dimension multiple times:
+When a node links to the same dimension multiple times:
 
 ```bash
 curl -X POST http://localhost:8000/nodes/source/ \

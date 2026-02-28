@@ -57,7 +57,7 @@ curl http://localhost:8000/nodes/finance.total_revenue
 
 ```bash
 # Find dimensions available across ALL specified metrics
-curl -X POST http://localhost:8000/metrics/common/dimensions \
+curl -X GET http://localhost:8000/metrics/common/dimensions \
 -H 'Content-Type: application/json' \
 -d '{
   "metrics": [
@@ -84,7 +84,7 @@ curl -X POST http://localhost:8000/metrics/common/dimensions \
 ### Basic Metric Query
 
 ```bash
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -H 'Content-Type: application/json' \
 -d '{
   "metrics": ["finance.total_revenue"],
@@ -107,7 +107,7 @@ curl -X POST http://localhost:8000/sql/metrics/v3 \
 ### Multi-Metric Query
 
 ```bash
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -H 'Content-Type: application/json' \
 -d '{
   "metrics": [
@@ -137,7 +137,7 @@ curl -X POST /metrics/common/dimensions -d '{"metrics": [...]}'
 ### Complex Filters
 
 ```bash
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["core.date.date"],
@@ -162,7 +162,7 @@ curl -X POST http://localhost:8000/sql/metrics/v3 \
 ### Ordering & Limiting
 
 ```bash
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["core.date.date", "core.region.region_name"],
@@ -190,7 +190,7 @@ Generate SQL for different engines from the same semantic query:
 
 ```bash
 # Trino (interactive queries)
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["core.date.date"],
@@ -198,7 +198,7 @@ curl -X POST http://localhost:8000/sql/metrics/v3 \
 }'
 
 # Spark (large batch queries)
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["core.date.date"],
@@ -206,7 +206,7 @@ curl -X POST http://localhost:8000/sql/metrics/v3 \
 }'
 
 # DuckDB (local analytics)
-curl -X POST http://localhost:8000/sql/metrics/v3 \
+curl -X GET http://localhost:8000/sql/metrics/v3 \
 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["core.date.date"],
@@ -223,7 +223,7 @@ curl -X POST http://localhost:8000/sql/metrics/v3 \
 Use `/sql/measures/v3` to generate SQL for pre-aggregated measures:
 
 ```bash
-curl -X POST http://localhost:8000/sql/measures/v3 \
+curl -X GET http://localhost:8000/sql/measures/v3 \
 -H 'Content-Type: application/json' \
 -d '{
   "metrics": ["finance.total_revenue", "finance.transaction_count"],
@@ -440,7 +440,7 @@ curl -X POST /sql/metrics/v3 -d '{
 ### Geographic Breakdown
 
 ```bash
-curl -X POST /sql/metrics/v3 -d '{
+curl -X GET /sql/metrics/v3 -d '{
   "metrics": ["finance.total_revenue", "finance.transaction_count"],
   "dimensions": ["core.region.region_name", "core.country.country_name"],
   "filters": ["core.date.date >= '\''2024-01-01'\''"],
@@ -453,7 +453,7 @@ curl -X POST /sql/metrics/v3 -d '{
 ### Cohort Analysis
 
 ```bash
-curl -X POST /sql/metrics/v3 -d '{
+curl -X GET /sql/metrics/v3 -d '{
   "metrics": ["growth.retention_rate"],
   "dimensions": ["users.signup_month", "core.date.month"],
   "filters": ["users.signup_month >= '\''2024-01'\''"],
@@ -464,7 +464,7 @@ curl -X POST /sql/metrics/v3 -d '{
 ### Top N Analysis
 
 ```bash
-curl -X POST /sql/metrics/v3 -d '{
+curl -X GET /sql/metrics/v3 -d '{
   "metrics": ["finance.total_revenue"],
   "dimensions": ["products.product_name"],
   "filters": ["core.date.date >= '\''2024-01-01'\''"],

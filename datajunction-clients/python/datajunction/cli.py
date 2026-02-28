@@ -1368,6 +1368,7 @@ class DJCLI:
                 ("dj-core", "datajunction-core"),
                 ("dj-builder", "datajunction-builder"),
                 ("dj-consumer", "datajunction-consumer"),
+                ("dj-repo-workflow", "datajunction-repo-workflow"),
             ]
 
             for api_name, dir_name in skills:

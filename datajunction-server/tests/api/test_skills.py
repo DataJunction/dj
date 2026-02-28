@@ -66,6 +66,19 @@ class TestSkillsAPI:
         assert len(skill["instructions"]) > 100
 
     @pytest.mark.asyncio
+    async def test_get_repo_workflow_skill(self, client_with_roads: AsyncClient):
+        """Test GET /skills/dj-repo-workflow endpoint."""
+        response = await client_with_roads.get("/skills/dj-repo-workflow")
+
+        assert response.status_code == 200
+        skill = response.json()
+
+        assert skill["name"] == "datajunction-repo-workflow"
+        assert "git workflow" in skill["keywords"]
+        assert "YAML nodes" in skill["keywords"]
+        assert len(skill["instructions"]) > 100
+
+    @pytest.mark.asyncio
     async def test_get_namespace_skill_not_implemented(
         self,
         client_with_roads: AsyncClient,

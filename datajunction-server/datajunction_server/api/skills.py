@@ -111,6 +111,34 @@ async def get_consumer_skill(
         )
 
 
+@router.get("/skills/dj-repo-workflow", response_model=SkillResponse)
+async def get_repo_workflow_skill(
+    session: AsyncSession = Depends(get_session),
+) -> SkillResponse:
+    """Get DJ repo workflow skill.
+
+    Returns skill content for git-backed namespace development with YAML node definitions.
+
+    Note: This endpoint is public (no authentication required).
+    """
+    try:
+        provider = get_skill_provider()
+        skill_data = provider.get_repo_workflow_skill(session)
+        return SkillResponse(**skill_data)
+    except FileNotFoundError as e:
+        logger.error(f"Skill file not found: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Skill content not found. Please ensure skills are properly installed.",
+        )
+    except Exception as e:
+        logger.error(f"Error generating repo workflow skill: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate skill: {str(e)}",
+        )
+
+
 @router.get("/skills/namespaces/{namespace}", response_model=SkillResponse)
 async def get_namespace_skill(
     namespace: str,

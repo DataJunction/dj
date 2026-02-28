@@ -23,6 +23,10 @@ DataJunction is a semantic layer that provides a unified interface to query metr
 
 To interact with DataJunction, you'll make authenticated HTTP requests to the DJ API server.
 
+**IMPORTANT**: Before proceeding, you need the DJ server URL. If the user hasn't provided it yet, ask them:
+- "What's your DJ server URL?"
+- Common values: `http://localhost:8000` (local), `https://dj.company.com` (production)
+
 ### Setup (Development)
 
 ```bash
@@ -123,7 +127,7 @@ curl -b ~/.dj/cookies.txt -X POST $DJ_URL/sql/metrics/v3 \
   }'
 ```
 
-**Note for Deployment-Specific Setups**: If you're using DataJunction at an organization with custom authentication or infrastructure (e.g., Netflix, Airbnb), your deployment may provide custom connection instructions. Check with your platform team for the correct DJ server URL and authentication method.
+**Note for Deployment-Specific Setups**: If you're using DataJunction at an organization with custom authentication or infrastructure, your deployment may provide custom connection instructions. Check with your platform team for the correct DJ server URL and authentication method.
 
 ---
 
@@ -143,11 +147,14 @@ DataJunction organizes entities into different node types:
 
 ## Star Schema & Dimensional Modeling
 
-DJ uses normalized star schema modeling where **dimension links** connect fact tables to dimension tables:
+DJ uses normalized star schema modeling where **dimension links** connect fact tables to dimension tables, and dimensional entities to other dimensions:
 
 ```
 [Fact Table: transactions]
     ├─ dimension_link: user_id → [Dimension: users]
+    │   ├─ Attributes: country, signup_date, tier
+    │   │  └─ dimension_link: signup_date → [Dimension: date]
+    │   │      └─ Attributes: month, quarter, year
     │   └─ Attributes: country, signup_date, tier
     ├─ dimension_link: product_id → [Dimension: products]
     │   └─ Attributes: category, price, brand
@@ -162,7 +169,7 @@ DJ uses normalized star schema modeling where **dimension links** connect fact t
         └─ dates.month (via date)
 ```
 
-**Key insight**: When you define dimension links on a node, any metric built on that node automatically inherits access to all dimension attributes. DJ automatically discovers and generates the necessary joins.
+**Key insight**: When you define dimension links on a node, any metric built on that node automatically inherits access to all dimension attributes. DJ automatically discovers and generates the necessary joins across the entire dimensions graph.
 
 ---
 
@@ -174,7 +181,7 @@ Dimension links define how nodes join to dimensions. They enable automatic join 
 
 Dimension links can be defined on **three node types**:
 
-#### 1. Source Nodes (Most Common)
+#### 1. Source Nodes
 When the source table cleanly represents a semantic entity.
 
 #### 2. Transform Nodes (Clean Semantic Representation)
@@ -231,14 +238,12 @@ DJ tracks TWO separate state systems:
 Users control this via the `mode` field:
 
 - **`draft`**: Work in progress
-  - Not queryable via SQL endpoints
   - Use for development/testing
   - Can be invalid SQL - that's okay while drafting
 
 - **`published`**: Production-ready
-  - Queryable via SQL endpoints
   - Should be valid and tested
-  - Visible to all users
+  - Indicates that it's ready for use
 
 ### 2. Status (System-Controlled Validation)
 
@@ -307,19 +312,20 @@ namespace.node_name
 
 **Examples:**
 - ✅ `finance.total_revenue`
-- ✅ `core.users`
+- ✅ `common.dimensions.users`
 - ✅ `clean.user_events`
 - ❌ `revenue` (missing namespace)
 
 ### Namespace Organization
 
+Namespaces are organized by business area: e.g., finance, growth, product etc.
+
 **Common conventions:**
-- `core.*` - Shared dimensions (users, dates, regions)
+- `common.dimensions.*` - Shared dimensions (users, dates, regions)
 - `finance.*` - Financial metrics & facts
 - `growth.*` - User engagement & activation
 - `product.*` - Product usage & features
-- `raw.*` - Raw source tables
-- `clean.*` - Cleaned transforms
+- `source.*` - Raw source tables
 
 ### Workflow: Draft → Validate → Test → Publish
 

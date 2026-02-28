@@ -56,6 +56,18 @@ class SkillProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_repo_workflow_skill(self, session: Session) -> dict:
+        """Return dj-repo-workflow skill content.
+
+        Args:
+            session: Database session for dynamic content
+
+        Returns:
+            dict with keys: name, version, description, keywords, instructions, metadata
+        """
+        pass
+
     def get_namespace_skill(self, namespace: str, session: Session) -> Optional[dict]:
         """Return namespace-specific skill, or None for default generation.
 
@@ -147,6 +159,33 @@ class DefaultSkillProvider(SkillProvider):
                 "common dimensions",
                 "run query",
                 "SQL generation",
+            ],
+            "instructions": instructions,
+            "metadata": {
+                "provider": "default",
+                "dj_version": DJ_VERSION,
+                "generated_at": datetime.utcnow().isoformat(),
+            },
+        }
+
+    def get_repo_workflow_skill(self, session: Session) -> dict:
+        """Return DJ repo workflow skill."""
+        from datajunction_server.skills.content.loaders import load_skill_markdown
+
+        instructions = load_skill_markdown("datajunction-repo-workflow")
+
+        return {
+            "name": "datajunction-repo-workflow",
+            "version": DJ_VERSION,
+            "description": "DataJunction semantic layer - git-backed namespace development",
+            "keywords": [
+                "git workflow",
+                "repo-backed namespace",
+                "YAML nodes",
+                "branch development",
+                "gitops",
+                "pull request",
+                "version control",
             ],
             "instructions": instructions,
             "metadata": {
