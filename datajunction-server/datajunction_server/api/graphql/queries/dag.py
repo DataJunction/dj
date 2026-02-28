@@ -42,6 +42,11 @@ async def common_dimensions(
 
     # Use shared session from context (like other queries) to avoid concurrent session issues
     session = info.context["session"]
+
+    # Merge nodes from dataloader session into main session
+    # This is required because nodes were loaded in a different session
+    nodes_list = [session.merge(node) for node in nodes_list]
+
     dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
 
     result = [
