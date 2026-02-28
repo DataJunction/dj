@@ -33,22 +33,16 @@ async def common_dimensions(
     """
     Return a list of common dimensions for a set of nodes.
     """
-    # Use DataLoader to batch load input nodes
-    node_loader = info.context["node_loader"]
-    nodes_list = await node_loader.load_many(nodes)
-
-    # Filter out nodes that don't exist
-    nodes_list = [node for node in nodes_list if node is not None]
-
-    # Use shared session from context (like other queries) to avoid concurrent session issues
+    # Use shared session from context
     session = info.context["session"]
 
-    # Merge nodes from dataloader session into main session
-    # This is required because nodes were loaded in a different session
-    # Disable autoflush to prevent merge from triggering database writes
-    import asyncio
-    with session.no_autoflush:
-        nodes_list = await asyncio.gather(*[session.merge(node) for node in nodes_list])
+    # Load nodes directly with the main session (no dataloader needed)
+    # This avoids session complexity since we're loading all nodes once
+    nodes_list = await Node.find_by(
+        session,
+        names=nodes,
+        options=load_node_options({"name": None, "current": {"name": None}}),
+    )
 
     dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
 
