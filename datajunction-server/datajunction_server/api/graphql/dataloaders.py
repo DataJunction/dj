@@ -60,48 +60,51 @@ async def batch_load_nodes(
 
 async def batch_load_nodes_by_name_only(
     names: list[str],
-    session: Any,
+    request: Request,
 ) -> list[DBNode | None]:
     """
     Simplified batch loader that loads nodes by name with default fields.
 
     This is used when we don't need fine-grained field selection.
+    Creates its own independent session to avoid concurrent operation errors.
 
     Args:
         names: List of node names
-        session: The database session to use (shared from GraphQL context)
+        request: The Starlette request object for creating independent session
 
     Returns:
         List of nodes in the same order as names
     """
-    nodes = await DBNode.find_by(
-        session,
-        names=names,
-        options=load_node_options({"name": None, "current": {"name": None}}),
-    )
+    # Create independent session for this dataloader batch
+    async with session_context(request) as session:
+        nodes = await DBNode.find_by(
+            session,
+            names=names,
+            options=load_node_options({"name": None, "current": {"name": None}}),
+        )
 
-    # Create a lookup map
-    node_map = {node.name: node for node in nodes}
+        # Create a lookup map
+        node_map = {node.name: node for node in nodes}
 
-    # Return nodes in the same order as requested
-    return [node_map.get(name) for name in names]
+        # Return nodes in the same order as requested
+        return [node_map.get(name) for name in names]
 
 
-def create_node_by_name_loader(session: Any) -> DataLoader[str, DBNode | None]:
+def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | None]:
     """
     Create a DataLoader for loading nodes by name.
 
     This loader batches multiple node lookups within a single request and caches
-    the results to avoid duplicate queries.
+    the results to avoid duplicate queries. Creates independent sessions.
 
     Args:
-        session: The shared database session from GraphQL context
+        request: The Starlette request object
 
     Returns:
         A DataLoader instance for batching node lookups
     """
     return DataLoader(
-        load_fn=lambda keys: batch_load_nodes_by_name_only(keys, session),
+        load_fn=lambda keys: batch_load_nodes_by_name_only(keys, request),
     )
 
 
