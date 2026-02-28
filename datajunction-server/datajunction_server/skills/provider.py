@@ -21,44 +21,8 @@ class SkillProvider(ABC):
     """
 
     @abstractmethod
-    def get_core_skill(self, session: Session) -> dict:
-        """Return dj-core skill content.
-
-        Args:
-            session: Database session for dynamic content
-
-        Returns:
-            dict with keys: name, version, description, keywords, instructions, metadata
-        """
-        pass
-
-    @abstractmethod
-    def get_builder_skill(self, session: Session) -> dict:
-        """Return dj-builder skill content.
-
-        Args:
-            session: Database session for dynamic content
-
-        Returns:
-            dict with keys: name, version, description, keywords, instructions, metadata
-        """
-        pass
-
-    @abstractmethod
-    def get_consumer_skill(self, session: Session) -> dict:
-        """Return dj-consumer skill content.
-
-        Args:
-            session: Database session for dynamic content
-
-        Returns:
-            dict with keys: name, version, description, keywords, instructions, metadata
-        """
-        pass
-
-    @abstractmethod
-    def get_repo_workflow_skill(self, session: Session) -> dict:
-        """Return dj-repo-workflow skill content.
+    def get_datajunction_skill(self, session: Session) -> dict:
+        """Return comprehensive DataJunction skill content.
 
         Args:
             session: Database session for dynamic content
@@ -89,103 +53,38 @@ class DefaultSkillProvider(SkillProvider):
     Serves base skill content from markdown files.
     """
 
-    def get_core_skill(self, session: Session) -> dict:
-        """Return vanilla DJ core skill."""
+    def get_datajunction_skill(self, session: Session) -> dict:
+        """Return comprehensive DataJunction skill."""
         from datajunction_server.skills.content.loaders import load_skill_markdown
 
-        instructions = load_skill_markdown("datajunction-core")
+        instructions = load_skill_markdown("datajunction")
 
         return {
-            "name": "datajunction-core",
+            "name": "datajunction",
             "version": DJ_VERSION,
-            "description": "DataJunction semantic layer fundamentals",
+            "description": "Comprehensive DataJunction semantic layer guide",
             "keywords": [
                 "DataJunction",
                 "DJ",
                 "semantic layer",
                 "dimension link",
+                "dimension links",
                 "star schema",
                 "metric",
+                "metrics",
                 "SQL generation",
-            ],
-            "instructions": instructions,
-            "metadata": {
-                "provider": "default",
-                "dj_version": DJ_VERSION,
-                "generated_at": datetime.utcnow().isoformat(),
-            },
-        }
-
-    def get_builder_skill(self, session: Session) -> dict:
-        """Return DJ builder skill."""
-        from datajunction_server.skills.content.loaders import load_skill_markdown
-
-        instructions = load_skill_markdown("datajunction-builder")
-
-        return {
-            "name": "datajunction-builder",
-            "version": DJ_VERSION,
-            "description": "DataJunction semantic layer - building metrics and dimensions",
-            "keywords": [
+                "node types",
                 "create metric",
-                "define dimension",
-                "dimension link",
-                "build cube",
-                "publish node",
-                "metric creation",
-            ],
-            "instructions": instructions,
-            "metadata": {
-                "provider": "default",
-                "dj_version": DJ_VERSION,
-                "generated_at": datetime.utcnow().isoformat(),
-            },
-        }
-
-    def get_consumer_skill(self, session: Session) -> dict:
-        """Return DJ consumer skill."""
-        from datajunction_server.skills.content.loaders import load_skill_markdown
-
-        instructions = load_skill_markdown("datajunction-consumer")
-
-        return {
-            "name": "datajunction-consumer",
-            "version": DJ_VERSION,
-            "description": "DataJunction semantic layer - querying metrics and generating SQL",
-            "keywords": [
+                "create dimension",
                 "query metric",
                 "generate SQL",
                 "available dimensions",
                 "common dimensions",
-                "run query",
-                "SQL generation",
-            ],
-            "instructions": instructions,
-            "metadata": {
-                "provider": "default",
-                "dj_version": DJ_VERSION,
-                "generated_at": datetime.utcnow().isoformat(),
-            },
-        }
-
-    def get_repo_workflow_skill(self, session: Session) -> dict:
-        """Return DJ repo workflow skill."""
-        from datajunction_server.skills.content.loaders import load_skill_markdown
-
-        instructions = load_skill_markdown("datajunction-repo-workflow")
-
-        return {
-            "name": "datajunction-repo-workflow",
-            "version": DJ_VERSION,
-            "description": "DataJunction semantic layer - git-backed namespace development",
-            "keywords": [
+                "build cube",
+                "YAML nodes",
                 "git workflow",
                 "repo-backed namespace",
-                "YAML nodes",
                 "branch development",
-                "gitops",
-                "pull request",
-                "version control",
             ],
             "instructions": instructions,
             "metadata": {

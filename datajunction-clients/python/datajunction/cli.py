@@ -1394,36 +1394,27 @@ class DJCLI:
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 console.print(
-                    f"[bold]📚 Exporting DJ skills from {self.builder_client.uri}[/bold]\n",
+                    f"[bold]📚 Exporting DJ skill from {self.builder_client.uri}[/bold]\n",
                 )
 
-                # Fetch core skills
-                skill_list = [
-                    ("dj-core", "datajunction-core"),
-                    ("dj-builder", "datajunction-builder"),
-                    ("dj-consumer", "datajunction-consumer"),
-                    ("dj-repo-workflow", "datajunction-repo-workflow"),
-                ]
+                # Fetch consolidated skill
+                dir_name = "datajunction"
+                skill_dir = output_dir / dir_name
+                skill_file = skill_dir / "SKILL.md"
 
-                for api_name, dir_name in skill_list:
-                    # Create skill directory
-                    skill_dir = output_dir / dir_name
-                    skill_file = skill_dir / "SKILL.md"
+                console.print(f"Fetching [cyan]{dir_name}[/cyan]...")
 
-                    console.print(f"Fetching [cyan]{dir_name}[/cyan]...")
+                # Make request using builder client's session
+                response = self.builder_client._session.get(
+                    f"{self.builder_client.uri}/skills/datajunction",
+                )
 
-                    # Make request using builder client's session
-                    response = self.builder_client._session.get(
-                        f"{self.builder_client.uri}/skills/{api_name}",
+                if response.status_code != 200:
+                    console.print(
+                        f"[red]✗ Failed to fetch skill: {response.status_code}[/red]",
                     )
-
-                    if response.status_code != 200:
-                        console.print(
-                            f"[red]✗ Failed to fetch {api_name}: {response.status_code}[/red]",
-                        )
-                        console.print(f"[dim]{response.text}[/dim]")
-                        continue
-
+                    console.print(f"[dim]{response.text}[/dim]")
+                else:
                     # Parse response
                     skill_data = response.json()
 
@@ -1454,9 +1445,9 @@ class DJCLI:
                         f"  [dim]└─ metadata.json (v{skill_data.get('version', 'unknown')})[/dim]\n",
                     )
 
-                console.print(
-                    f"[bold green]✓ Skills exported to {output_dir}[/bold green]\n",
-                )
+                    console.print(
+                        f"[bold green]✓ Skill exported to {output_dir}[/bold green]\n",
+                    )
 
             # Setup MCP if requested
             if mcp:
