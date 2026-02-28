@@ -34,22 +34,13 @@ async def common_dimensions(
     """
     Return a list of common dimensions for a set of nodes.
     """
-    # Use shared session from context
-    session = info.context["session"]
     request = info.context["request"]
 
-    # Load nodes directly with the main session (no dataloader needed)
-    # This avoids session complexity since we're loading all nodes once
-    nodes_list = await Node.find_by(
-        session,
-        names=nodes,
-        options=load_node_options({"name": None, "current": {"name": None}}),
-    )
-
-    # Use a fresh independent session for get_common_dimensions to avoid concurrent
-    # session operations (it makes many nested queries and refresh calls)
+    # Use a fresh independent session for all operations to avoid concurrent
+    # session conflicts when this resolver runs alongside other resolvers
+    # (e.g., findNode + commonDimensions in the same GraphQL query)
     async with session_context(request) as dims_session:
-        # Reload nodes in the new session with basic options
+        # Load nodes in the independent session
         dims_nodes = await Node.find_by(
             dims_session,
             names=nodes,
