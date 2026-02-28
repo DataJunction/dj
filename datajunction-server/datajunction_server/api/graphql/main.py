@@ -94,16 +94,15 @@ async def get_context(
     """
     Provides the context for graphql requests
     """
-    # Note: We don't attach db_session to request.state anymore.
-    # Dataloaders that use session_context(request) will create their own independent sessions
-    # to avoid concurrent operation errors with the shared session.
+    # Attach test session to request.state so DataLoaders can use it
+    # This ensures DataLoaders use the same test session in tests
+    if not hasattr(request.state, "test_session"):
+        request.state.test_session = db_session
 
     return {
-        "session": db_session,  # Shared session for resolvers only
-        "node_loader": create_node_by_name_loader(request),  # Will create own session
-        "collection_nodes_loader": create_collection_nodes_loader(
-            request,
-        ),  # Will create own session
+        "session": db_session,  # Keep for backward compatibility with existing code
+        "node_loader": create_node_by_name_loader(request),
+        "collection_nodes_loader": create_collection_nodes_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,
