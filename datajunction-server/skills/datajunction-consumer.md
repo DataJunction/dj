@@ -71,6 +71,16 @@ curl -X GET http://localhost:8000/metrics/common/dimensions \
 
 **Use this before querying multiple metrics together!**
 
+#### Roles
+
+In some cases, dimensions may be available with different **roles**, including with various role-based paths.
+For example:
+  demo.main.market.active_market[primary->active_market]
+  demo.main.user.user_id[reader]
+  demo.main.user.user_id[writer]
+
+These roles take on semantically different meanings and it is important to ask for a dimension with the right role in the context of a given metric.
+
 ---
 
 ## Building Queries with V3 Endpoints
