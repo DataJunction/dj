@@ -100,8 +100,8 @@ async def get_context(
         request.state.test_session = db_session
 
     return {
-        "session": db_session,  # Keep for backward compatibility with existing code
-        "node_loader": create_node_by_name_loader(request),
+        "session": db_session,  # Shared session for all resolvers and dataloaders
+        "node_loader": create_node_by_name_loader(db_session),  # Use shared session
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "settings": get_settings(),
         "request": request,

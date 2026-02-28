@@ -60,7 +60,7 @@ async def batch_load_nodes(
 
 async def batch_load_nodes_by_name_only(
     names: list[str],
-    request: Request,
+    session: Any,
 ) -> list[DBNode | None]:
     """
     Simplified batch loader that loads nodes by name with default fields.
@@ -69,26 +69,25 @@ async def batch_load_nodes_by_name_only(
 
     Args:
         names: List of node names
-        request: The Starlette request object for creating sessions
+        session: The database session to use (shared from GraphQL context)
 
     Returns:
         List of nodes in the same order as names
     """
-    async with session_context(request) as session:
-        nodes = await DBNode.find_by(
-            session,
-            names=names,
-            options=load_node_options({"name": None, "current": {"name": None}}),
-        )
+    nodes = await DBNode.find_by(
+        session,
+        names=names,
+        options=load_node_options({"name": None, "current": {"name": None}}),
+    )
 
-        # Create a lookup map
-        node_map = {node.name: node for node in nodes}
+    # Create a lookup map
+    node_map = {node.name: node for node in nodes}
 
-        # Return nodes in the same order as requested
-        return [node_map.get(name) for name in names]
+    # Return nodes in the same order as requested
+    return [node_map.get(name) for name in names]
 
 
-def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | None]:
+def create_node_by_name_loader(session: Any) -> DataLoader[str, DBNode | None]:
     """
     Create a DataLoader for loading nodes by name.
 
@@ -96,13 +95,13 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     the results to avoid duplicate queries.
 
     Args:
-        request: The Starlette request object
+        session: The shared database session from GraphQL context
 
     Returns:
         A DataLoader instance for batching node lookups
     """
     return DataLoader(
-        load_fn=lambda keys: batch_load_nodes_by_name_only(keys, request),
+        load_fn=lambda keys: batch_load_nodes_by_name_only(keys, session),
     )
 
 
