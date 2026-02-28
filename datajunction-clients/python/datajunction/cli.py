@@ -1231,26 +1231,40 @@ class DJCLI:
             help="Output format (default: table)",
         )
 
-        # `dj export-skills`
-        export_skills_parser = subparsers.add_parser(
-            "export-skills",
-            help="Export DJ skills for Claude Code",
+        # `dj setup-claude`
+        setup_claude_parser = subparsers.add_parser(
+            "setup-claude",
+            help="Configure Claude Code integration (skills + MCP server)",
         )
-        export_skills_parser.add_argument(
+        setup_claude_parser.add_argument(
             "--output",
             type=str,
             default=str(Path.home() / ".claude" / "skills"),
             help="Output directory for skill files (default: ~/.claude/skills)",
         )
-        export_skills_parser.add_argument(
-            "--force",
+        setup_claude_parser.add_argument(
+            "--skills",
             action="store_true",
-            help="Force re-export, overwriting existing files",
+            default=True,
+            help="Export DJ skills (default: True)",
         )
-        export_skills_parser.add_argument(
-            "--setup-mcp",
+        setup_claude_parser.add_argument(
+            "--no-skills",
+            action="store_false",
+            dest="skills",
+            help="Skip exporting skills",
+        )
+        setup_claude_parser.add_argument(
+            "--mcp",
             action="store_true",
-            help="Also configure DJ MCP server in Claude config",
+            default=True,
+            help="Configure DJ MCP server (default: True)",
+        )
+        setup_claude_parser.add_argument(
+            "--no-mcp",
+            action="store_false",
+            dest="mcp",
+            help="Skip MCP server configuration",
         )
 
         return parser
@@ -1337,11 +1351,11 @@ class DJCLI:
                 limit=args.limit,
                 format=args.format,
             )
-        elif args.command == "export-skills":
-            self.export_skills(
+        elif args.command == "setup-claude":
+            self.setup_claude(
                 output_dir=Path(args.output),
-                force=args.force,
-                setup_mcp=args.setup_mcp,
+                skills=args.skills,
+                mcp=args.mcp,
             )
         else:
             parser.print_help()  # pragma: no cover
@@ -1353,106 +1367,119 @@ class DJCLI:
         parser = self.create_parser()
         args = parser.parse_args()
         # Skip login if client was provided (e.g., for testing with pre-authenticated client)
-        # Also skip login for export-skills since skills endpoints are public
-        if not self._client_provided and args.command != "export-skills":
+        # Also skip login for setup-claude since skills endpoints are public
+        if not self._client_provided and args.command != "setup-claude":
             self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
-    def export_skills(
+    def setup_claude(
         self,
         output_dir: Path,
-        force: bool = False,
-        setup_mcp: bool = False,
+        skills: bool = True,
+        mcp: bool = True,
     ):
-        """Export DJ skills for Claude Code."""
+        """Configure Claude Code integration with DJ."""
         import json
 
         console = Console()
 
-        # Ensure output directory exists
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         console.print(
-            f"\n[bold blue]📚 Exporting DJ skills from {self.builder_client.uri}[/bold blue]\n",
+            "\n[bold blue]🔧 Setting up Claude Code integration[/bold blue]\n",
         )
 
         try:
-            # Fetch core skills with better naming
-            skills = [
-                ("dj-core", "datajunction-core"),
-                ("dj-builder", "datajunction-builder"),
-                ("dj-consumer", "datajunction-consumer"),
-                ("dj-repo-workflow", "datajunction-repo-workflow"),
-            ]
+            # Export skills if requested
+            if skills:
+                # Ensure output directory exists
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-            for api_name, dir_name in skills:
-                # Create skill directory
-                skill_dir = output_dir / dir_name
-                skill_file = skill_dir / "SKILL.md"
-
-                # Skip if exists and not force
-                if skill_file.exists() and not force:
-                    console.print(
-                        f"⚠️  Skipped {dir_name}/ (already exists, use --force to overwrite)",
-                    )
-                    continue
-
-                console.print(f"Fetching [cyan]{dir_name}[/cyan]...")
-
-                # Make request using builder client's session
-                response = self.builder_client._session.get(
-                    f"{self.builder_client.uri}/skills/{api_name}",
-                )
-
-                if response.status_code != 200:
-                    console.print(
-                        f"[red]✗ Failed to fetch {api_name}: {response.status_code}[/red]",
-                    )
-                    console.print(f"[dim]{response.text}[/dim]")
-                    continue
-
-                # Parse response
-                skill_data = response.json()
-
-                # Create directory
-                skill_dir.mkdir(parents=True, exist_ok=True)
-
-                # Write SKILL.md (markdown content)
-                with open(skill_file, "w") as f:
-                    f.write(skill_data["instructions"])
-
-                # Write metadata as separate JSON file
-                metadata_file = skill_dir / "metadata.json"
-                with open(metadata_file, "w") as f:
-                    metadata = {
-                        "name": skill_data.get("name"),
-                        "version": skill_data.get("version"),
-                        "description": skill_data.get("description"),
-                        "keywords": skill_data.get("keywords", []),
-                        "metadata": skill_data.get("metadata", {}),
-                    }
-                    json.dump(metadata, f, indent=2)
-
-                console.print(f"[green]✓ Exported {skill_dir}/[/green]")
                 console.print(
-                    f"  [dim]├─ SKILL.md ({len(skill_data['instructions'])} chars)[/dim]",
-                )
-                console.print(
-                    f"  [dim]└─ metadata.json (v{skill_data.get('version', 'unknown')})[/dim]\n",
+                    f"[bold]📚 Exporting DJ skills from {self.builder_client.uri}[/bold]\n",
                 )
 
-            console.print(
-                f"\n[bold green]✓ Skills exported to {output_dir}[/bold green]",
-            )
-            console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
+                # Fetch core skills
+                skill_list = [
+                    ("dj-core", "datajunction-core"),
+                    ("dj-builder", "datajunction-builder"),
+                    ("dj-consumer", "datajunction-consumer"),
+                    ("dj-repo-workflow", "datajunction-repo-workflow"),
+                ]
+
+                for api_name, dir_name in skill_list:
+                    # Create skill directory
+                    skill_dir = output_dir / dir_name
+                    skill_file = skill_dir / "SKILL.md"
+
+                    console.print(f"Fetching [cyan]{dir_name}[/cyan]...")
+
+                    # Make request using builder client's session
+                    response = self.builder_client._session.get(
+                        f"{self.builder_client.uri}/skills/{api_name}",
+                    )
+
+                    if response.status_code != 200:
+                        console.print(
+                            f"[red]✗ Failed to fetch {api_name}: {response.status_code}[/red]",
+                        )
+                        console.print(f"[dim]{response.text}[/dim]")
+                        continue
+
+                    # Parse response
+                    skill_data = response.json()
+
+                    # Create directory
+                    skill_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Write SKILL.md (markdown content)
+                    with open(skill_file, "w") as f:
+                        f.write(skill_data["instructions"])
+
+                    # Write metadata as separate JSON file
+                    metadata_file = skill_dir / "metadata.json"
+                    with open(metadata_file, "w") as f:
+                        metadata = {
+                            "name": skill_data.get("name"),
+                            "version": skill_data.get("version"),
+                            "description": skill_data.get("description"),
+                            "keywords": skill_data.get("keywords", []),
+                            "metadata": skill_data.get("metadata", {}),
+                        }
+                        json.dump(metadata, f, indent=2)
+
+                    console.print(f"[green]✓ Exported {skill_dir}/[/green]")
+                    console.print(
+                        f"  [dim]├─ SKILL.md ({len(skill_data['instructions'])} chars)[/dim]",
+                    )
+                    console.print(
+                        f"  [dim]└─ metadata.json (v{skill_data.get('version', 'unknown')})[/dim]\n",
+                    )
+
+                console.print(
+                    f"[bold green]✓ Skills exported to {output_dir}[/bold green]\n",
+                )
 
             # Setup MCP if requested
-            if setup_mcp:
+            if mcp:
                 self._setup_mcp_server(console)
+
+            # Final success message
+            if skills and mcp:
+                console.print(
+                    "\n[bold green]✓ Claude Code integration complete[/bold green]",
+                )
+                console.print(
+                    "[dim]Skills and MCP server are now configured. Restart Claude Code to load changes.[/dim]",
+                )
+            elif skills:
+                console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
+            elif mcp:
+                console.print(
+                    "\n[dim]MCP server configured. Restart Claude Code to load changes.[/dim]",
+                )
 
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
-            logger.exception("Failed to export skills")
+            logger.exception("Failed to setup Claude Code integration")
             raise
 
     def _setup_mcp_server(self, console: Console):
