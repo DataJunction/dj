@@ -1447,14 +1447,15 @@ class DJCLI:
 
         # Find Claude config location
         claude_config_paths = [
-            Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # MacOS
-            Path.home() / ".config" / "Claude" / "claude_desktop_config.json",  # Linux
-            Path.home() / ".claude" / "mcp_config.json",  # Claude Code CLI
+            Path.home() / ".claude.json",  # Claude Code CLI (primary)
+            Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # Claude Desktop MacOS
+            Path.home() / ".config" / "Claude" / "claude_desktop_config.json",  # Claude Desktop Linux
         ]
 
         config_path = None
         for path in claude_config_paths:
-            if path.parent.exists():
+            # Use the first path that either exists or whose parent exists
+            if path.exists() or path.parent.exists():
                 config_path = path
                 break
 

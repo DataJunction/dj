@@ -40,8 +40,9 @@ async def common_dimensions(
     # Filter out nodes that don't exist
     nodes_list = [node for node in nodes_list if node is not None]
 
-    async with session_context(info.context["request"]) as session:
-        dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
+    # Use shared session from context (like other queries) to avoid concurrent session issues
+    session = info.context["session"]
+    dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
 
     result = [
         DimensionAttribute(  # type: ignore
@@ -64,14 +65,13 @@ async def common_dimensions(
         )
         dimension_node_fields = fields.get("dimension_node", {})
 
-        # Load dimension nodes with proper field selection using a fresh session
+        # Load dimension nodes with proper field selection using shared session
         # We can't use the simple DataLoader here because we need custom field loading
-        async with session_context(info.context["request"]) as session:
-            loaded_nodes = await Node.find_by(
-                session,
-                names=dimension_node_names,
-                options=load_node_options(dimension_node_fields),
-            )
+        loaded_nodes = await Node.find_by(
+            session,
+            names=dimension_node_names,
+            options=load_node_options(dimension_node_fields),
+        )
 
         # Create lookup map
         node_map = {node.name: node for node in loaded_nodes}
