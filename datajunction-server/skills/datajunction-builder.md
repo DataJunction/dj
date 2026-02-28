@@ -1,11 +1,21 @@
-# DataJunction Builder
-
-> **Skill**: `datajunction-builder`
-> **Purpose**: Creating and managing the semantic layer - sources, dimensions, metrics, cubes
-> **Requires**: `datajunction-core` (activate together)
-> **Keywords**: create metric, define dimension, dimension link, build cube, publish node, metric creation
-
 ---
+name: datajunction-builder
+description: |
+  Activate this skill when building or modifying the DataJunction semantic layer.
+  Covers creating sources, dimensions, metrics, transforms, cubes, and dimension links.
+  Keywords:
+  - create metric, create dimension, create node
+  - define metric, define dimension
+  - build metric, build dimension
+  - dimension link, dimension links
+  - build cube, create cube
+  - publish node
+  - metric creation
+  - DJ, DataJunction
+user-invocable: false
+---
+
+# DataJunction Builder
 
 ## Creating Source Nodes
 

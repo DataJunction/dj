@@ -1,11 +1,21 @@
-# DataJunction Repo Workflow
-
-> **Skill**: `datajunction-repo-workflow`
-> **Purpose**: Git-backed namespace development with YAML node definitions
-> **Requires**: `datajunction-core`, `datajunction-builder` (activate together for concepts)
-> **Keywords**: git workflow, repo-backed namespace, YAML nodes, branch development, gitops, pull request, version control
-
 ---
+name: datajunction-repo-workflow
+description: |
+  Activate this skill when working with git-backed DataJunction namespaces.
+  Covers YAML node definitions, branch-based development, and repo-backed workflows.
+  Keywords:
+  - git workflow, git-backed
+  - repo-backed namespace, repository
+  - YAML nodes, YAML definitions
+  - branch development, feature branch
+  - gitops, git operations
+  - pull request, PR, merge
+  - version control
+  - DJ, DataJunction
+user-invocable: false
+---
+
+# DataJunction Repo Workflow
 
 ## Overview
 

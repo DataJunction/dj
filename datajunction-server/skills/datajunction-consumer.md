@@ -1,11 +1,19 @@
-# DataJunction Consumer
-
-> **Skill**: `datajunction-consumer`
-> **Purpose**: Querying the semantic layer - discovering metrics, generating SQL, running queries
-> **Requires**: `datajunction-core` (activate together)
-> **Keywords**: query metric, generate SQL, available dimensions, common dimensions, run query, SQL generation
-
 ---
+name: datajunction-consumer
+description: |
+  Activate this skill when querying or discovering DataJunction metrics.
+  Covers finding available metrics, checking dimensions, generating SQL, and running queries.
+  Keywords:
+  - query metric, query metrics
+  - generate SQL, SQL generation
+  - available dimensions, common dimensions
+  - run query, execute query
+  - list metrics, find metrics
+  - DJ, DataJunction
+user-invocable: false
+---
+
+# DataJunction Consumer
 
 ## Discovery Workflow
 

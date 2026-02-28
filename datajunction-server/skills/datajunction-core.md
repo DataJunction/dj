@@ -1,10 +1,20 @@
-# DataJunction Core
-
-> **Skill**: `datajunction-core`
-> **Purpose**: Foundational DJ concepts - always activate this with other DJ skills
-> **Keywords**: DataJunction, DJ, semantic layer, star schema, dimension links
-
 ---
+name: datajunction-core
+description: |
+  Activate this skill whenever working with DataJunction (DJ) semantic layer.
+  Foundational concepts including star schema, dimension links, node types, and API connectivity.
+  Keywords:
+  - DataJunction, DJ
+  - semantic layer
+  - dimension link, dimension links
+  - star schema
+  - metric, metrics
+  - SQL generation
+  - node types
+user-invocable: false
+---
+
+# DataJunction Core
 
 ## What is DataJunction?
 
