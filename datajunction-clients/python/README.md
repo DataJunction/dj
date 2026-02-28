@@ -446,3 +446,90 @@ List of all available DJ builder methods:
 
   ### Together
   - link_engine_to_catalog( engine_name: str, engine_version: str, catalog: str)
+
+## Claude Code Integration
+
+DataJunction provides comprehensive Claude Code integration through two components:
+
+1. **MCP Tools** - Live connectivity to your DJ instance for querying metrics, discovering dimensions, and visualizing data
+2. **Skill** - Passive knowledge about DataJunction concepts, patterns, and workflows
+
+Both components are bundled with the Python client and can be installed with a single command.
+
+### What's Included
+
+**MCP Tools provide:**
+- Query metrics and generate SQL
+- Discover available metrics and dimensions
+- Find common dimensions across metrics
+- Visualize data with inline charts
+
+**The DataJunction skill provides:**
+- **Core concepts** - Star schema, dimension links, node types, and DJ fundamentals
+- **Building the semantic layer** - Creating metrics, dimensions, cubes, and dimension links
+- **Repo-backed workflow** - YAML node definitions, git workflow, and branch-based development
+
+### Installation
+
+To install the DataJunction skill and configure Claude Code integration:
+
+```bash
+dj setup-claude
+```
+
+This will:
+1. Copy the bundled skill to `~/.claude/skills/datajunction/`
+2. Configure the DJ MCP server in your Claude config
+3. Make DataJunction expertise available to Claude in all your conversations
+
+**Options:**
+```bash
+# Install only the skill (skip MCP server setup)
+dj setup-claude --no-mcp
+
+# Install only the MCP server (skip skill installation)
+dj setup-claude --no-skills
+```
+
+After installation, restart Claude Code to load the changes.
+
+### Usage
+
+Once installed, Claude Code will automatically use both MCP tools and the skill for DataJunction tasks:
+
+**MCP tools in action:**
+- "Show me the revenue metric" → Queries your live DJ instance
+- "What dimensions are available for these metrics?" → Discovers common dimensions
+- "Visualize revenue by city" → Generates and displays inline charts
+
+**Skill in action:**
+- "How do dimension links work in DataJunction?" → Explains concepts
+- "How do I create a metric in YAML?" → Shows YAML examples and patterns
+- "Explain the repo-backed workflow" → Details git-based development
+
+The MCP tools provide live data access while the skill provides conceptual knowledge and best practices.
+
+### Customizing for Your Organization
+
+If you need organization-specific skill content:
+
+**Option A: Fork the client**
+1. Fork `datajunction-clients/python`
+2. Modify `datajunction/skills/datajunction.md` with your custom content
+3. Publish your custom client package
+
+**Option B: Override after install**
+1. Run `dj setup-claude` to get the base skill
+2. Manually edit `~/.claude/skills/datajunction/SKILL.md` with your customizations
+
+### Skill Location
+
+The skill file is bundled at:
+```
+datajunction/skills/datajunction.md
+```
+
+And installed to:
+```
+~/.claude/skills/datajunction/SKILL.md
+```

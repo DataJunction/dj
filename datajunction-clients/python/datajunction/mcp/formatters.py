@@ -91,6 +91,21 @@ def format_node_details(
     result.append(f"Created: {node.get('createdAt', 'unknown')}")
     result.append("")
 
+    # Git repository info (indicates if namespace is repo-backed)
+    if node.get("gitInfo"):
+        git_info = node["gitInfo"]
+        result.append("Git Repository:")
+        if git_info.get("repo"):  # pragma: no branch
+            result.append(f"  Repo: {git_info['repo']}")
+        if git_info.get("branch"):  # pragma: no branch
+            result.append(f"  Branch: {git_info['branch']}")
+        if git_info.get("defaultBranch"):  # pragma: no branch
+            result.append(f"  Default Branch: {git_info['defaultBranch']}")
+        result.append(
+            "  → This namespace is repo-backed (use git workflow for changes)",
+        )
+        result.append("")
+
     # Metric-specific metadata
     if current.get("metricMetadata"):
         mm = current["metricMetadata"]
