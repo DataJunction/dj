@@ -1353,7 +1353,8 @@ class DJCLI:
         parser = self.create_parser()
         args = parser.parse_args()
         # Skip login if client was provided (e.g., for testing with pre-authenticated client)
-        if not self._client_provided:
+        # Also skip login for export-skills since skills endpoints are public
+        if not self._client_provided and args.command != "export-skills":
             self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
