@@ -45,7 +45,9 @@ async def common_dimensions(
 
     # Merge nodes from dataloader session into main session
     # This is required because nodes were loaded in a different session
-    nodes_list = [session.merge(node) for node in nodes_list]
+    # Must await each merge since we're using async SQLAlchemy
+    import asyncio
+    nodes_list = await asyncio.gather(*[session.merge(node) for node in nodes_list])
 
     dimensions = await get_common_dimensions(session, nodes_list)  # type: ignore
 
