@@ -43,6 +43,12 @@ class BuildContext:
     dialect: Dialect = Dialect.SPARK
     alias_registry: AliasRegistry = field(default_factory=AliasRegistry)
 
+    # Filter classification (populated early in setup)
+    # Dimension filters are applied in WHERE clauses (before aggregation)
+    # Metric filters are applied in HAVING clauses (after aggregation)
+    dimension_filters: list[str] = field(default_factory=list)
+    metric_filters: list[str] = field(default_factory=list)
+
     # Whether to use materialized tables when available (default: True)
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True

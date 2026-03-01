@@ -24,6 +24,8 @@ from datajunction_server.construction.build_v3.cte import (
     replace_metric_refs_in_ast,
 )
 from datajunction_server.construction.build_v3.filters import (
+    combine_filters,
+    get_filter_column_references,
     parse_and_resolve_filters,
     parse_filter,
 )
@@ -51,6 +53,58 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
+
+
+def classify_filters(
+    filters: list[str],
+    ctx: BuildContext,
+) -> tuple[list[str], list[str]]:
+    """
+    Classify filters into dimension filters (WHERE) and metric filters (HAVING).
+
+    A filter is classified as a metric filter if it references any metric node.
+    Otherwise, it's a dimension filter.
+
+    Args:
+        filters: List of filter strings
+        ctx: Build context with nodes loaded
+
+    Returns:
+        Tuple of (dimension_filters, metric_filters)
+
+    Example::
+
+        dimension_filters, metric_filters = classify_filters(
+            [
+                "v3.product.category = 'Electronics'",  # dimension filter
+                "v3.total_revenue > 10000",              # metric filter
+            ],
+            ctx,
+        )
+        # dimension_filters = ["v3.product.category = 'Electronics'"]
+        # metric_filters = ["v3.total_revenue > 10000"]
+    """
+    dimension_filters = []
+    metric_filters = []
+
+    for filter_str in filters:
+        # Extract all column references from this filter
+        refs = get_filter_column_references(filter_str)
+
+        # Check if any reference is a metric
+        is_metric_filter = False
+        for ref in refs:
+            node = ctx.nodes.get(ref)
+            if node and node.type == NodeType.METRIC:
+                is_metric_filter = True
+                break
+
+        if is_metric_filter:
+            metric_filters.append(filter_str)
+        else:
+            dimension_filters.append(filter_str)
+
+    return dimension_filters, metric_filters
 
 
 def build_base_metric_expression(
@@ -1832,10 +1886,16 @@ def generate_metrics_sql(
         grain_levels,
     )
 
-    # Build WHERE clause from filters
+    # Use pre-classified filters from BuildContext
+    # Filters were classified early in setup_build_context() to ensure grain groups
+    # only use dimension filters (not metric filters)
+    dimension_filters_raw = ctx.dimension_filters
+    metric_filters_raw = ctx.metric_filters
+
+    # Build WHERE clause from dimension filters
     # Skip filters that reference filter-only dimensions (not available in final SELECT)
     where_clause: Optional[ast.Expression] = None
-    if ctx.filters:
+    if dimension_filters_raw:
         # Use base_metrics CTE for window function queries, otherwise first grain group CTE
         filter_cte = (
             window_metrics_cte_alias if window_metrics_cte_alias else cte_aliases[0]
@@ -1843,8 +1903,8 @@ def generate_metrics_sql(
 
         # Filter out filters that reference filter-only dimensions
         # Those filters are already applied in the grain group CTEs
-        applicable_filters = []
-        for f in ctx.filters:
+        applicable_dimension_filters = []
+        for f in dimension_filters_raw:
             filter_ast = parse_filter(f)
             # Check if any column ref in this filter is a filter-only dimension
             refs_filter_only = False
@@ -1854,14 +1914,40 @@ def generate_metrics_sql(
                     refs_filter_only = True
                     break
             if not refs_filter_only:
-                applicable_filters.append(f)
+                applicable_dimension_filters.append(f)
 
-        if applicable_filters:
+        if applicable_dimension_filters:
             where_clause = parse_and_resolve_filters(
-                applicable_filters,
+                applicable_dimension_filters,
                 dimension_aliases,
                 cte_alias=filter_cte,
             )
+
+    # Build HAVING clause from metric filters
+    # Metric filters are applied after aggregation on computed metric values
+    # Use full aggregation expressions (not aliases) for SQL dialect portability
+    having_clause: Optional[ast.Expression] = None
+    if metric_filters_raw:
+        # Parse and resolve metric filters
+        # Replace metric references with their full aggregation expressions
+        parsed_metric_filters = []
+        for f in metric_filters_raw:
+            filter_ast = parse_filter(f)
+
+            # Replace metric column references with their full aggregation expressions
+            # This ensures compatibility across all SQL dialects (some don't support aliases in HAVING)
+            # Use the AST's built-in replace() method for clean, robust replacement
+            for col in filter_ast.find_all(ast.Column):
+                full_name = get_column_full_name(col)
+                if full_name and full_name in metric_expr_asts:  # pragma: no branch
+                    # Replace this column node with the metric's full expression
+                    metric_expr = metric_expr_asts[full_name].expr_ast
+                    filter_ast.replace(from_=col, to=metric_expr, copy=True)
+
+            parsed_metric_filters.append(filter_ast)
+
+        if parsed_metric_filters:  # pragma: no branch
+            having_clause = combine_filters(parsed_metric_filters)
 
     # Build the final SELECT
     select_ast = ast.Select(
@@ -1869,6 +1955,7 @@ def generate_metrics_sql(
         from_=from_clause,
         where=where_clause,
         group_by=group_by,
+        having=having_clause,
     )
 
     # Build the final Query with all CTEs
