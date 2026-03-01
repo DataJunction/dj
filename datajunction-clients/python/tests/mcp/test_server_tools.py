@@ -48,6 +48,11 @@ async def test_call_tool_search_nodes():
             query="revenue",
             node_type="metric",
             namespace="default",
+            tags=None,
+            statuses=None,
+            mode=None,
+            owned_by=None,
+            has_materialization=False,
             limit=10,
             prefer_main_branch=True,
         )
@@ -66,7 +71,43 @@ async def test_call_tool_search_nodes_minimal_args():
             query="test",
             node_type=None,
             namespace=None,
+            tags=None,
+            statuses=None,
+            mode=None,
+            owned_by=None,
+            has_materialization=False,
             limit=100,  # default
+            prefer_main_branch=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_search_nodes_with_new_filters():
+    """Test search_nodes dispatch passes tags, statuses, mode, owned_by, has_materialization"""
+    with patch("datajunction.mcp.server.tools.search_nodes") as mock_search:
+        mock_search.return_value = "Results"
+
+        await call_tool(
+            "search_nodes",
+            {
+                "tags": ["revenue", "core"],
+                "statuses": ["valid"],
+                "mode": "published",
+                "owned_by": "alice@example.com",
+                "has_materialization": True,
+            },
+        )
+
+        mock_search.assert_called_once_with(
+            query="",
+            node_type=None,
+            namespace=None,
+            tags=["revenue", "core"],
+            statuses=["valid"],
+            mode="published",
+            owned_by="alice@example.com",
+            has_materialization=True,
+            limit=100,
             prefer_main_branch=True,
         )
 
@@ -85,19 +126,41 @@ async def test_call_tool_get_node_details():
 
 
 @pytest.mark.asyncio
-async def test_call_tool_get_common_dimensions():
-    """Test calling get_common_dimensions tool"""
-    with patch("datajunction.mcp.server.tools.get_common_dimensions") as mock_dims:
-        mock_dims.return_value = "Common dimensions:\n- date\n- region"
+async def test_call_tool_get_common_metrics_direction():
+    """Test calling get_common tool with metrics → dimensions direction"""
+    with patch("datajunction.mcp.server.tools.get_common") as mock_common:
+        mock_common.return_value = "Common dimensions:\n- date\n- region"
 
         result = await call_tool(
-            "get_common_dimensions",
-            {"metric_names": ["metric1", "metric2"]},
+            "get_common",
+            {"metrics": ["metric1", "metric2"]},
         )
 
         assert len(result) == 1
         assert "Common dimensions" in result[0].text
-        mock_dims.assert_called_once_with(metric_names=["metric1", "metric2"])
+        mock_common.assert_called_once_with(
+            metrics=["metric1", "metric2"],
+            dimensions=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_common_dimensions_direction():
+    """Test calling get_common tool with dimensions → metrics direction"""
+    with patch("datajunction.mcp.server.tools.get_common") as mock_common:
+        mock_common.return_value = "Compatible metrics:\n- finance.revenue"
+
+        result = await call_tool(
+            "get_common",
+            {"dimensions": ["common.dimensions.date.dateint"]},
+        )
+
+        assert len(result) == 1
+        assert "Compatible metrics" in result[0].text
+        mock_common.assert_called_once_with(
+            metrics=None,
+            dimensions=["common.dimensions.date.dateint"],
+        )
 
 
 @pytest.mark.asyncio
@@ -303,17 +366,20 @@ async def test_list_tools_handler():
 
     # Verify we get the expected tools
     assert isinstance(tools, list)
-    assert len(tools) == 9  # Should have 8 tools
+    assert len(tools) == 10
     tool_names = [tool.name for tool in tools]
     assert "list_namespaces" in tool_names
     assert "search_nodes" in tool_names
     assert "get_node_details" in tool_names
-    assert "get_common_dimensions" in tool_names
+    assert "get_common" in tool_names
     assert "build_metric_sql" in tool_names
     assert "get_metric_data" in tool_names
     assert "get_node_lineage" in tool_names
     assert "get_node_dimensions" in tool_names
+    assert "get_query_plan" in tool_names
     assert "visualize_metrics" in tool_names
+    # Ensure old tool name is gone
+    assert "get_common_dimensions" not in tool_names
 
 
 @pytest.mark.asyncio
@@ -458,4 +524,62 @@ async def test_call_tool_visualize_metrics_with_y_min():
             chart_type="bar",
             title=None,
             y_min=0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_query_plan():
+    """Test calling get_query_plan tool with full args"""
+    with patch("datajunction.mcp.server.tools.get_query_plan") as mock_plan:
+        mock_plan.return_value = (
+            "Query Execution Plan\n=" * 60 + "\nDialect:   spark\nGrain Groups: 1\n"
+        )
+
+        result = await call_tool(
+            "get_query_plan",
+            {
+                "metrics": ["finance.revenue", "finance.orders"],
+                "dimensions": ["common.dimensions.date.dateint"],
+                "filters": ["date >= '2024-01-01'"],
+                "dialect": "spark",
+                "use_materialized": True,
+                "include_temporal_filters": True,
+                "lookback_window": "7 DAY",
+            },
+        )
+
+        assert len(result) == 1
+        assert result[0].type == "text"
+        assert "Query Execution Plan" in result[0].text
+        mock_plan.assert_called_once_with(
+            metrics=["finance.revenue", "finance.orders"],
+            dimensions=["common.dimensions.date.dateint"],
+            filters=["date >= '2024-01-01'"],
+            dialect="spark",
+            use_materialized=True,
+            include_temporal_filters=True,
+            lookback_window="7 DAY",
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_get_query_plan_minimal():
+    """Test get_query_plan dispatch with only required metrics arg"""
+    with patch("datajunction.mcp.server.tools.get_query_plan") as mock_plan:
+        mock_plan.return_value = "Query Execution Plan\n"
+
+        result = await call_tool(
+            "get_query_plan",
+            {"metrics": ["finance.revenue"]},
+        )
+
+        assert len(result) == 1
+        mock_plan.assert_called_once_with(
+            metrics=["finance.revenue"],
+            dimensions=None,
+            filters=None,
+            dialect=None,
+            use_materialized=True,
+            include_temporal_filters=False,
+            lookback_window=None,
         )

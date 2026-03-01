@@ -1266,6 +1266,18 @@ class DJCLI:
             dest="mcp",
             help="Skip MCP server configuration",
         )
+        setup_claude_parser.add_argument(
+            "--agents",
+            action="store_true",
+            default=True,
+            help="Install DJ subagent to ~/.claude/agents/ (default: True)",
+        )
+        setup_claude_parser.add_argument(
+            "--no-agents",
+            action="store_false",
+            dest="agents",
+            help="Skip subagent installation",
+        )
 
         return parser
 
@@ -1356,6 +1368,7 @@ class DJCLI:
                 output_dir=Path(args.output),
                 skills=args.skills,
                 mcp=args.mcp,
+                agents=args.agents,
             )
         else:
             parser.print_help()  # pragma: no cover
@@ -1377,6 +1390,7 @@ class DJCLI:
         output_dir: Path,
         skills: bool = True,
         mcp: bool = True,
+        agents: bool = True,
     ):
         """Configure Claude Code integration with DJ."""
         import json
@@ -1464,23 +1478,50 @@ class DJCLI:
                         "[red]✗ Bundled skill not found. Please ensure datajunction is properly installed.[/red]",
                     )
 
+            # Install subagent if requested
+            if agents:
+                agents_dir = Path.home() / ".claude" / "agents"
+                agents_dir.mkdir(parents=True, exist_ok=True)
+                agent_file = agents_dir / "dj.md"
+
+                console.print("[bold]🤖 Installing DJ subagent[/bold]\n")
+
+                subagent_content = """\
+---
+name: dj
+description: >
+  DataJunction semantic layer expert. Use proactively for any DataJunction
+  or DJ work — querying metrics, exploring nodes and dimensions, building
+  SQL, understanding lineage, and semantic layer design.
+skills:
+  - datajunction
+model: inherit
+---
+"""
+                with open(agent_file, "w") as f:
+                    f.write(subagent_content)
+
+                console.print(f"[green]✓ Installed subagent to {agent_file}[/green]\n")
+
             # Setup MCP if requested
             if mcp:
                 self._setup_mcp_server(console)
 
             # Final success message
-            if skills and mcp:
+            anything_installed = skills or mcp or agents
+            if anything_installed:
                 console.print(
                     "\n[bold green]✓ Claude Code integration complete[/bold green]",
                 )
+                parts = []
+                if skills:
+                    parts.append("skill")
+                if agents:
+                    parts.append("subagent")
+                if mcp:
+                    parts.append("MCP server")
                 console.print(
-                    "[dim]Skills and MCP server are now configured. Restart Claude Code to load changes.[/dim]",
-                )
-            elif skills:
-                console.print("\n[dim]Skills are now available in Claude Code.[/dim]")
-            elif mcp:  # pragma: no branch
-                console.print(
-                    "\n[dim]MCP server configured. Restart Claude Code to load changes.[/dim]",
+                    f"[dim]{', '.join(parts).capitalize()} installed. Restart Claude Code to load changes.[/dim]",
                 )
 
         except Exception as e:  # pragma: no cover
