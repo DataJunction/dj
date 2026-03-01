@@ -39,14 +39,19 @@ export default function NodeListActions({ nodeName, iconSize = 20 }) {
   }
 
   return (
-    <div>
-      <a href={`/nodes/${nodeName}/edit`} style={{ marginLeft: '0.5rem' }}>
+    <div
+      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+    >
+      <a href={`/nodes/${nodeName}/edit`}>
         <EditIcon size={iconSize} />
       </a>
       <Formik initialValues={initialValues} onSubmit={deleteNode}>
         {function Render({ status, setFieldValue }) {
           return (
-            <Form className="deleteNode">
+            <Form
+              className="deleteNode"
+              style={{ display: 'flex', alignItems: 'flex-start' }}
+            >
               {displayMessageAfterSubmit(status)}
               {
                 <>

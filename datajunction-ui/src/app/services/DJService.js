@@ -73,8 +73,10 @@ export const DataJunctionAPI = {
                 mode
                 updatedAt
               }
-              createdBy {
-                username
+              gitInfo {
+                repo
+                branch
+                defaultBranch
               }
             }
           }
@@ -1908,6 +1910,325 @@ export const DataJunctionAPI = {
       credentials: 'include',
     });
     return await response.json();
+  },
+
+  // ===== My Workspace GraphQL Queries =====
+
+  getWorkspaceRecentlyEdited: async function (username, limit = 10) {
+    // Nodes the user has edited, ordered by last updated (excluding source nodes)
+    const query = `
+      query RecentlyEdited($editedBy: String!, $limit: Int!, $nodeTypes: [NodeType!]) {
+        findNodesPaginated(editedBy: $editedBy, limit: $limit, nodeTypes: $nodeTypes, orderBy: UPDATED_AT, ascending: false) {
+          edges {
+            node {
+              name
+              type
+              currentVersion
+              current {
+                displayName
+                status
+                mode
+                updatedAt
+              }
+              gitInfo {
+                repo
+                branch
+                defaultBranch
+                isDefaultBranch
+                parentNamespace
+                gitOnly
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            editedBy: username,
+            limit,
+            nodeTypes: ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'],
+          },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceOwnedNodes: async function (username, limit = 10) {
+    // Owned nodes ordered by UPDATED_AT (excluding source nodes)
+    const query = `
+      query OwnedNodes($ownedBy: String!, $limit: Int!, $nodeTypes: [NodeType!]) {
+        findNodesPaginated(ownedBy: $ownedBy, limit: $limit, nodeTypes: $nodeTypes, orderBy: UPDATED_AT, ascending: false) {
+          edges {
+            node {
+              name
+              type
+              currentVersion
+              current {
+                displayName
+                status
+                mode
+                updatedAt
+              }
+              gitInfo {
+                repo
+                branch
+                defaultBranch
+                isDefaultBranch
+                parentNamespace
+                gitOnly
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            ownedBy: username,
+            limit,
+            nodeTypes: ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'],
+          },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceCollections: async function (username) {
+    const query = `
+      query UserCollections($createdBy: String!) {
+        listCollections(createdBy: $createdBy) {
+          name
+          description
+          nodeCount
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: { createdBy: username },
+        }),
+      })
+    ).json();
+  },
+
+  listAllCollections: async function () {
+    const query = `
+      query AllCollections {
+        listCollections {
+          name
+          description
+          nodeCount
+          createdBy {
+            username
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query }),
+      })
+    ).json();
+  },
+
+  getWorkspaceNodesMissingDescription: async function (username, limit = 5) {
+    const query = `
+      query NodesMissingDescription($ownedBy: String!, $limit: Int!) {
+        findNodesPaginated(ownedBy: $ownedBy, missingDescription: true, limit: $limit) {
+          edges {
+            node {
+              name
+              type
+              current {
+                displayName
+                status
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: { ownedBy: username, limit },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceInvalidNodes: async function (username, limit = 10) {
+    // Nodes the user owns that have INVALID status
+    const query = `
+      query InvalidNodes($ownedBy: String!, $limit: Int!, $statuses: [NodeStatus!]) {
+        findNodesPaginated(ownedBy: $ownedBy, statuses: $statuses, limit: $limit) {
+          edges {
+            node {
+              name
+              type
+              current {
+                displayName
+                status
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            ownedBy: username,
+            limit,
+            statuses: ['INVALID'],
+          },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceOrphanedDimensions: async function (username, limit = 10) {
+    // Dimension nodes the user owns that are not linked to by any other node
+    const query = `
+      query OrphanedDimensions($ownedBy: String!, $limit: Int!, $orphanedDimension: Boolean!) {
+        findNodesPaginated(ownedBy: $ownedBy, orphanedDimension: $orphanedDimension, limit: $limit) {
+          edges {
+            node {
+              name
+              type
+              current {
+                displayName
+                status
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            ownedBy: username,
+            limit,
+            orphanedDimension: true,
+          },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceDraftNodes: async function (username, limit = 50) {
+    // Draft nodes the user owns (we'll filter for stale ones on frontend)
+    const query = `
+      query DraftNodes($ownedBy: String!, $limit: Int!, $mode: NodeMode!) {
+        findNodesPaginated(ownedBy: $ownedBy, mode: $mode, limit: $limit, orderBy: UPDATED_AT, ascending: true) {
+          edges {
+            node {
+              name
+              type
+              current {
+                displayName
+                status
+                mode
+                updatedAt
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: {
+            ownedBy: username,
+            limit,
+            mode: 'DRAFT',
+          },
+        }),
+      })
+    ).json();
+  },
+
+  getWorkspaceMaterializations: async function (username, limit = 20) {
+    // Nodes the user owns that have materializations configured
+    const query = `
+      query MaterializedNodes($ownedBy: String!, $limit: Int!, $hasMaterialization: Boolean!) {
+        findNodesPaginated(ownedBy: $ownedBy, limit: $limit, hasMaterialization: $hasMaterialization) {
+          edges {
+            node {
+              name
+              type
+              current {
+                displayName
+                status
+                materializations {
+                  name
+                  schedule
+                  job
+                }
+                availability {
+                  catalog
+                  table
+                  validThroughTs
+                  maxTemporalPartition
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+    return await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query,
+          variables: { ownedBy: username, limit, hasMaterialization: true },
+        }),
+      })
+    ).json();
   },
 
   // =================================
