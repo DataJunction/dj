@@ -219,6 +219,10 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
     for filter resolution but should not appear in the output projection. These are
     tracked in ctx.filter_dimensions.
 
+    This function processes ALL filters (both dimension and metric filters) because
+    it's called BEFORE filter classification. Metric filters that reference dimensions
+    (rare but possible) will have those dimensions added, which is correct.
+
     Args:
         ctx: BuildContext with filters and dimensions lists to update
     """

@@ -438,12 +438,12 @@ def build_synthetic_grain_group(
         cube_col_name = component_aliases[comp.name]
         projection.append(ast.Column(name=ast.Name(cube_col_name)))
 
-    # Apply filters as WHERE clause on the cube table
-    # This ensures filters are applied before aggregation in generate_metrics_sql
+    # Apply DIMENSION filters as WHERE clause on the cube table
+    # Metric filters are handled separately in HAVING clause (in generate_metrics_sql)
     where_clause = None
-    if ctx.filters:
+    if ctx.dimension_filters:
         where_clause = parse_and_resolve_filters(
-            ctx.filters,
+            ctx.dimension_filters,
             dimension_aliases,
             cte_alias=None,  # No CTE alias - selecting directly from cube table
         )
