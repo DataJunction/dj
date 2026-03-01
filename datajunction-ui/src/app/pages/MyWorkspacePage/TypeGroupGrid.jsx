@@ -35,14 +35,15 @@ function TypeCard({ type, nodes, count, username, activeTab }) {
 
     if (activeTab === 'owned') {
       params.append('ownedBy', username);
+      params.append('type', type);
     } else if (activeTab === 'watched') {
       // For watched, we'd need a different filter - for now use type only
       params.append('type', type);
     } else if (activeTab === 'edited') {
       params.append('updatedBy', username);
+      params.append('type', type);
     }
 
-    params.append('type', type);
     return `/?${params.toString()}`;
   };
 

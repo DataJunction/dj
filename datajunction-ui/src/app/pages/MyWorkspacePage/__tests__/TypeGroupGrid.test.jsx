@@ -344,4 +344,213 @@ describe('<TypeGroupGrid />', () => {
     // "dimension" should be displayed as "Dimensions"
     expect(screen.getByText('Dimensions (2)')).toBeInTheDocument();
   });
+
+  it('should handle nodes with only repo (no branch)', () => {
+    const repoOnlyData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={repoOnlyData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('myorg/myrepo')).toBeInTheDocument();
+  });
+
+  it('should handle nodes with only branch (no repo)', () => {
+    const branchOnlyData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              branch: 'feature-branch',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={branchOnlyData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('feature-branch')).toBeInTheDocument();
+  });
+
+  it('should handle nodes without gitInfo', () => {
+    const noGitData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={noGitData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // Should render without git info
+    expect(screen.getByText('default.test')).toBeInTheDocument();
+  });
+
+  it('should show invalid node indicator', () => {
+    const invalidNodeData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.invalid_metric',
+            type: 'metric',
+            status: 'invalid',
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={invalidNodeData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTitle('Invalid node')).toBeInTheDocument();
+  });
+
+  it('should show draft mode indicator', () => {
+    const draftNodeData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.draft_metric',
+            type: 'metric',
+            mode: 'draft',
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={draftNodeData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTitle('Draft mode')).toBeInTheDocument();
+  });
+
+  it('should handle nodes without updatedAt', () => {
+    const noTimeData = [
+      {
+        type: 'metric',
+        count: 1,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            current: {},
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={noTimeData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // Should render without timestamp
+    expect(screen.getByText('default.test')).toBeInTheDocument();
+  });
+
+  it('should handle watched tab filter URLs', () => {
+    const manyNodesData = [
+      {
+        type: 'metric',
+        count: 15,
+        nodes: Array.from({ length: 15 }, (_, i) => ({
+          name: `default.metric_${i}`,
+          type: 'metric',
+          current: {
+            displayName: `Metric ${i}`,
+            updatedAt: '2024-01-01T10:00:00Z',
+          },
+        })),
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={manyNodesData}
+          username="test.user@example.com"
+          activeTab="watched"
+        />
+      </MemoryRouter>,
+    );
+
+    const moreLink = screen.getByText('+5 more →');
+    // For watched tab, should filter by type only
+    expect(moreLink).toHaveAttribute('href', '/?type=metric');
+  });
 });

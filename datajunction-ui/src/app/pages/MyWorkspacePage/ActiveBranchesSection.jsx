@@ -114,7 +114,12 @@ export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
 
   // Fetch total node counts for each branch
   useEffect(() => {
-    if (loading || gitNamespaces.length === 0) return;
+    if (loading) return;
+
+    if (gitNamespaces.length === 0) {
+      setCountsLoading(false);
+      return;
+    }
 
     const fetchCounts = async () => {
       const counts = {};
