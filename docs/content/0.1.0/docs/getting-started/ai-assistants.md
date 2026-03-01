@@ -9,11 +9,13 @@ weight: 10
 toc: true
 ---
 
-The DataJunction MCP (Model Context Protocol) server allows AI assistants like Claude to interact directly with your DataJunction semantic layer. Instead of writing code or crafting API queries, you can have natural conversations with AI to discover metrics, explore relationships, generate SQL, and query data.
+DataJunction integrates with AI assistants like Claude, letting you explore your semantic layer, generate SQL, and query metrics through natural conversation — without writing code or crafting API requests directly.
 
-## What is MCP?
+The integration has three components that work together:
 
-The Model Context Protocol (MCP) is an open-source standard created by Anthropic for connecting AI assistants to external systems. MCP allows Claude to discover available tools, call them with appropriate parameters, and use the results to help you work with DataJunction.
+- **MCP tools** — give Claude the ability to query your live DJ instance: search nodes, generate SQL, inspect lineage, run queries, and more. Built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io), an open standard for connecting AI assistants to external tools.
+- **DJ skill** — teaches Claude about DJ concepts: node types, YAML syntax, dimension links, cube partitions, and semantic modeling best practices. Shapes how Claude reasons about DJ, not just what it can call.
+- **DJ subagent** — a Claude Code agent with the DJ skill pre-loaded, so DJ expertise is automatically available in any Claude Code session without needing to invoke it manually.
 
 ## Installation
 
@@ -21,83 +23,28 @@ The Model Context Protocol (MCP) is an open-source standard created by Anthropic
 
 - Python 3.10 or higher
 - Access to a running DataJunction server instance
-- Claude Desktop or Claude Code (CLI)
+- Claude Code (CLI) or Claude Desktop
 
-### Install from PyPI
+### Install and set up
 
-```bash
-pip install datajunction[mcp]
-```
-
-### Install from GitHub
-
-Install the latest version directly from GitHub:
-
-```bash
-pip install git+https://github.com/DataJunction/dj.git#subdirectory=datajunction-clients/python
-```
-
-Install a specific branch:
-
-```bash
-pip install git+https://github.com/DataJunction/dj.git@branch-name#subdirectory=datajunction-clients/python
-```
-
-### Install from Source
-
-If you've cloned the repository:
-
-```bash
-cd datajunction-clients/python
-uv pip install -e .
-```
-
-Or for development:
-
-```bash
-uv install
-```
-
-### Verify Installation
-
-Check that the MCP server is installed correctly:
-
-```bash
-dj-mcp --help
-```
-
-The server will start and wait for stdin/stdout communication (this is normal - it communicates via pipes, not HTTP).
-
-## Configuration
-
-{{< alert icon="💡" >}}
-**You don't need to manually run `dj-mcp`** - Claude automatically starts and stops it as needed based on your configuration.
-{{< /alert >}}
-
-### Quick Setup with `dj setup-claude` (Recommended)
-
-The fastest way to configure everything is to run the setup command after installing the client:
+Install the DataJunction Python client with the MCP extra:
 
 ```bash
 pip install datajunction[mcp]
+```
+
+Then run the setup command to configure Claude Code:
+
+```bash
 dj setup-claude
 ```
 
-This single command:
-1. **Installs the DJ skill** — adds DataJunction-specific knowledge to Claude Code under `~/.claude/skills/datajunction/`
-2. **Installs the DJ subagent** — creates `~/.claude/agents/dj.md`, a Claude Code subagent with the datajunction skill pre-loaded so it activates automatically for DJ work
-3. **Configures the MCP server** — adds `dj-mcp` to your `~/.claude.json` config with the right environment variables
+This installs all three components described above:
+1. **DJ skill** — adds DataJunction knowledge to Claude Code under `~/.claude/skills/datajunction/`
+2. **DJ subagent** — creates `~/.claude/agents/dj.md` so DJ expertise is always available
+3. **MCP server config** — adds `dj-mcp` to `~/.claude.json` pointing at your DJ instance
 
-After running, restart Claude Code to pick up the changes.
-
-**Options:**
-
-```bash
-dj setup-claude                  # Install everything (default)
-dj setup-claude --no-mcp         # Skills + subagent only (no MCP config)
-dj setup-claude --no-skills      # MCP + subagent only
-dj setup-claude --no-agents      # Skills + MCP only (no subagent)
-```
+Restart Claude Code after running to pick up the changes.
 
 **Custom DJ server URL:**
 
@@ -105,93 +52,22 @@ dj setup-claude --no-agents      # Skills + MCP only (no subagent)
 DJ_URL=https://dj.yourcompany.com dj setup-claude
 ```
 
-### Manual Configuration
+**Selective installation** (if you only want some components):
 
-If you prefer to configure manually or are using Claude Desktop, follow the steps below.
+```bash
+dj setup-claude --no-mcp         # Skill + subagent only
+dj setup-claude --no-skills      # MCP + subagent only
+dj setup-claude --no-agents      # Skill + MCP only
+```
 
-#### Claude Desktop
+## Claude Desktop
 
-The Claude Desktop configuration file is located at:
+`dj setup-claude` only configures Claude Code. For Claude Desktop, add the DJ MCP server manually to your config file:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-Edit the configuration file and add the DataJunction MCP server:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-After saving, restart Claude Desktop to load the MCP server.
-
-#### Claude Code (CLI)
-
-For Claude Code, add the configuration to `~/.claude.json`:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-**Alternative:** You can also use a project-specific configuration by creating `.mcp.json` in your project directory:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-### Configuration Options
-
-The MCP server supports the following environment variables:
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `DJ_API_URL` | URL of your DataJunction server | `http://localhost:8000` | Yes |
-| `DJ_API_TOKEN` | JWT token for authentication | - | No* |
-| `DJ_USERNAME` | Username for basic auth | - | No* |
-| `DJ_PASSWORD` | Password for basic auth | - | No* |
-
-\* Either provide `DJ_API_TOKEN` OR both `DJ_USERNAME` and `DJ_PASSWORD`
-
-### Configuration Examples
-
-**Local Development:**
-
 ```json
 {
   "mcpServers": {
@@ -207,7 +83,7 @@ The MCP server supports the following environment variables:
 }
 ```
 
-**Production with JWT Token:**
+To authenticate with a JWT token instead of username/password, use `DJ_API_TOKEN`:
 
 ```json
 {
@@ -223,24 +99,7 @@ The MCP server supports the following environment variables:
 }
 ```
 
-**Using a Virtual Environment:**
-
-If you installed the MCP server in a virtual environment, specify the full path:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "/path/to/venv/bin/dj-mcp",
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
+Restart Claude Desktop after saving.
 
 ## Available Tools
 
