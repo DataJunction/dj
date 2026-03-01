@@ -18,6 +18,9 @@ from sqlalchemy.orm import joinedload, selectinload
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.filters import (
+    parse_and_resolve_filters,
+)
 from datajunction_server.construction.build_v3.metrics import (
     generate_metrics_sql,
 )
@@ -276,6 +279,7 @@ def build_sql_from_cube_impl(
         GeneratedSQL with the query and column metadata.
     """
     # Build synthetic GrainGroupSQL for cube table
+    # This applies all filters in the cube CTE's WHERE clause
     synthetic_grain_group = build_synthetic_grain_group(
         ctx,
         decomposed_metrics,
@@ -291,6 +295,10 @@ def build_sql_from_cube_impl(
         decomposed_metrics=decomposed_metrics,
     )
 
+    # Note: Filters are applied in both the cube CTE (above) and the final SELECT
+    # (below in generate_metrics_sql). While redundant, this is harmless and
+    # provides defense-in-depth. The cube CTE filter is critical for correctness
+    # when filtering on dimensions not in the GROUP BY.
     result = generate_metrics_sql(
         ctx,
         measures_result,
@@ -382,7 +390,13 @@ def build_synthetic_grain_group(
     # Build column metadata for the synthetic grain group
     grain_group_columns: list[ColumnMetadata] = []
 
-    # Add dimension columns (short names with role suffix if present)
+    # Build mapping from dimension ref to short column name for filter resolution
+    # ctx.dimensions includes both requested dimensions AND filter-only dimensions
+    # (filter-only dimensions were added by add_dimensions_from_filters() in setup_build_context)
+    dimension_aliases: dict[str, str] = {}
+
+    # Add all dimensions (requested + filter-only). We need all dimensions
+    # in the cube SELECT for proper filter resolution
     dim_short_names = []
     for dim_ref in ctx.dimensions:
         parsed_dim = parse_dimension_ref(dim_ref)
@@ -390,6 +404,7 @@ def build_synthetic_grain_group(
         if parsed_dim.role:
             col_name = f"{col_name}_{parsed_dim.role}"
         dim_short_names.append(col_name)
+        dimension_aliases[dim_ref] = col_name
         grain_group_columns.append(
             ColumnMetadata(
                 name=col_name,
@@ -411,11 +426,10 @@ def build_synthetic_grain_group(
             ),
         )
 
-    # Build the synthetic query: SELECT dims, components FROM cube_table
-    # No GROUP BY here - generate_metrics_sql will add that
+    # Build the synthetic query: SELECT dims, components FROM cube_table WHERE filters
     projection: list[ast.Column] = []
 
-    # Add dimension columns
+    # Add all dimension columns (requested + filter-only)
     for dim_col in dim_short_names:
         projection.append(ast.Column(name=ast.Name(dim_col)))
 
@@ -424,13 +438,24 @@ def build_synthetic_grain_group(
         cube_col_name = component_aliases[comp.name]
         projection.append(ast.Column(name=ast.Name(cube_col_name)))
 
-    # Build SELECT ... FROM cube_table
+    # Apply filters as WHERE clause on the cube table
+    # This ensures filters are applied before aggregation in generate_metrics_sql
+    where_clause = None
+    if ctx.filters:
+        where_clause = parse_and_resolve_filters(
+            ctx.filters,
+            dimension_aliases,
+            cte_alias=None,  # No CTE alias - selecting directly from cube table
+        )
+
+    # Build SELECT ... FROM cube_table WHERE filters
     synthetic_query = ast.Query(
         select=ast.Select(
             projection=projection,  # type: ignore
             from_=ast.From(
                 relations=[ast.Relation(primary=ast.Table(ast.Name(table_name)))],
             ),
+            where=where_clause,
         ),
         ctes=[],
     )
