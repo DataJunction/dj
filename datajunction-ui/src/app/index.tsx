@@ -8,6 +8,7 @@ import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { NamespacePage } from './pages/NamespacePage/Loadable';
+import { MyWorkspacePage } from './pages/MyWorkspacePage/Loadable';
 import { OverviewPage } from './pages/OverviewPage/Loadable';
 import { SettingsPage } from './pages/SettingsPage/Loadable';
 import { NotificationsPage } from './pages/NotificationsPage/Loadable';
@@ -135,6 +136,11 @@ export function App() {
                           path="overview"
                           key="overview"
                           element={<OverviewPage />}
+                        />
+                        <Route
+                          path="workspace"
+                          key="workspace"
+                          element={<MyWorkspacePage />}
                         />
                         <Route
                           path="settings"
