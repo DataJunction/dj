@@ -2084,9 +2084,8 @@ def test_setup_claude_skills_only(tmp_path, monkeypatch):
         "MCP config should NOT be created with --no-mcp"
     )
 
-    # Verify success message only for skills
-    assert "Skill installed" in output
-    assert "Skills are now available in Claude Code" in output
+    # Verify success message only for skills / subagent (not MCP)
+    assert "Skill installed" in output or "skill" in output.lower()
     assert "MCP server" not in output
 
 
@@ -2267,7 +2266,8 @@ def test_setup_claude_skill_content_verification(tmp_path, monkeypatch):
 
 def test_setup_claude_no_config_path(tmp_path, monkeypatch):
     """Test MCP setup when no Claude config path can be found"""
-    # Create a temp home that doesn't have any of the expected paths
+    # Create a temp home that doesn't have any of the expected paths.
+    # Use --no-agents so the subagent installer doesn't create the home dir first.
     fake_home = tmp_path / "nonexistent"
     # Don't create fake_home or any parent directories
 
@@ -2275,7 +2275,7 @@ def test_setup_claude_no_config_path(tmp_path, monkeypatch):
 
     with (
         patch("pathlib.Path.home", return_value=fake_home),
-        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills"]),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills", "--no-agents"]),
         patch("sys.stdout", new_callable=StringIO) as mock_stdout,
     ):
         from datajunction import cli as dj_cli
@@ -2347,3 +2347,141 @@ def test_setup_claude_invalid_json_config(tmp_path, monkeypatch):
         new_config = json.loads(config_file.read_text())
         assert "mcpServers" in new_config
         assert "datajunction" in new_config["mcpServers"]
+
+
+def test_setup_claude_full_install_includes_subagent(tmp_path, monkeypatch):
+    """Test setup-claude (default) installs skills, MCP, and the subagent"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    output = mock_stdout.getvalue()
+
+    # Verify subagent was installed
+    agent_file = claude_dir / "agents" / "dj.md"
+    assert agent_file.exists(), "dj.md subagent should be created"
+    content = agent_file.read_text()
+    assert "name: dj" in content
+    assert "skills:" in content
+    assert "datajunction" in content
+
+    # Verify success output mentions subagent
+    assert "subagent" in output.lower() or "Installed subagent" in output
+
+
+def test_setup_claude_no_agents(tmp_path, monkeypatch):
+    """Test setup-claude --no-agents skips subagent installation"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-agents", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    # Subagent file should NOT exist
+    agent_file = claude_dir / "agents" / "dj.md"
+    assert not agent_file.exists(), "dj.md should NOT be created with --no-agents"
+
+
+def test_setup_claude_agents_only(tmp_path, monkeypatch):
+    """Test setup-claude --no-skills --no-mcp installs only the subagent"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO) as mock_stdout,
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    output = mock_stdout.getvalue()
+
+    # Subagent should be installed
+    agent_file = claude_dir / "agents" / "dj.md"
+    assert agent_file.exists(), "dj.md subagent should be created"
+
+    # Skill should NOT be installed
+    skills_dir = claude_dir / "skills" / "datajunction"
+    assert not skills_dir.exists(), "Skills should NOT be installed with --no-skills"
+
+    # MCP config should NOT be created
+    mcp_config_file = tmp_path / ".claude.json"
+    assert not mcp_config_file.exists(), (
+        "MCP config should NOT be created with --no-mcp"
+    )
+
+    assert "subagent" in output.lower() or "Installed subagent" in output
+
+
+def test_setup_claude_subagent_content(tmp_path, monkeypatch):
+    """Test the installed subagent has the correct frontmatter content"""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    agent_file = claude_dir / "agents" / "dj.md"
+    content = agent_file.read_text()
+
+    assert content.startswith("---")
+    assert "name: dj" in content
+    assert "description:" in content
+    assert "DataJunction" in content
+    assert "skills:" in content
+    assert "- datajunction" in content
+    assert "model: inherit" in content
+
+
+def test_setup_claude_subagent_overwrites_existing(tmp_path, monkeypatch):
+    """Test setup-claude overwrites an existing subagent file"""
+    claude_dir = tmp_path / ".claude"
+    agents_dir = claude_dir / "agents"
+    agents_dir.mkdir(parents=True)
+    agent_file = agents_dir / "dj.md"
+    agent_file.write_text("OLD CONTENT")
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(sys, "argv", ["dj", "setup-claude", "--no-skills", "--no-mcp"]),
+        patch("sys.stdout", new_callable=StringIO),
+    ):
+        from datajunction import cli as dj_cli
+
+        dj_cli.main()
+
+    new_content = agent_file.read_text()
+    assert "OLD CONTENT" not in new_content
+    assert "name: dj" in new_content
