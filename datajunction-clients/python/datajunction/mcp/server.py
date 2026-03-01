@@ -327,6 +327,48 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["metrics"],
             },
         ),
+        types.Tool(
+            name="file_oss_issue",
+            description=(
+                "Generate a properly formatted GitHub issue for the OSS DataJunction repository. "
+                "CRITICAL: This tool is for the PUBLIC open-source repository. "
+                "ALL proprietary information MUST be obfuscated (internal names, URLs, credentials, customer data, etc.). "
+                "The tool will provide a template with clear security warnings and submission instructions. "
+                "Use this when you encounter bugs, want to request features, or have questions about DataJunction."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Clear, concise issue title (e.g., 'Bug: Dimension link filter pushdown fails with self-joins')",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Detailed description of the issue (must be sanitized - no proprietary info)",
+                    },
+                    "issue_type": {
+                        "type": "string",
+                        "enum": ["bug", "feature", "documentation", "question"],
+                        "default": "bug",
+                        "description": "Type of issue (default: bug)",
+                    },
+                    "steps_to_reproduce": {
+                        "type": "string",
+                        "description": "For bugs: step-by-step instructions to reproduce (optional but recommended)",
+                    },
+                    "expected_behavior": {
+                        "type": "string",
+                        "description": "For bugs: what should happen (optional but recommended)",
+                    },
+                    "actual_behavior": {
+                        "type": "string",
+                        "description": "For bugs: what actually happens (optional but recommended)",
+                    },
+                },
+                "required": ["title", "description"],
+            },
+        ),
     ]
 
 
@@ -410,6 +452,16 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 chart_type=arguments.get("chart_type", "line"),
                 title=arguments.get("title"),
                 y_min=arguments.get("y_min"),
+            )
+
+        elif name == "file_oss_issue":
+            result = await tools.file_oss_issue(
+                title=arguments["title"],
+                description=arguments["description"],
+                issue_type=arguments.get("issue_type", "bug"),
+                steps_to_reproduce=arguments.get("steps_to_reproduce"),
+                expected_behavior=arguments.get("expected_behavior"),
+                actual_behavior=arguments.get("actual_behavior"),
             )
 
         else:

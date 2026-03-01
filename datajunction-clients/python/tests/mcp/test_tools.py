@@ -2232,3 +2232,141 @@ async def test_get_metric_data_no_materialized_cube():
         assert "No materialized cube available" in result
         assert "expensive ad-hoc computation" in result
         assert "test.metric" in result
+
+
+# ============================================================================
+# file_oss_issue Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_bug_basic():
+    """Test file_oss_issue with basic bug report"""
+    result = await tools.file_oss_issue(
+        title="Bug: Query fails with self-joins",
+        description="The SQL generation fails when a node references itself through dimension links",
+        issue_type="bug",
+    )
+
+    # Check for key components
+    assert "GITHUB ISSUE DRAFT FOR OSS DATAJUNCTION" in result
+    assert "SECURITY WARNING" in result
+    assert "Bug: Query fails with self-joins" in result
+    assert "SQL generation fails" in result
+    assert "🐛 Bug" in result
+    assert "https://github.com/DataJunction/dj/issues/new" in result
+    assert "Review and sanitize" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_bug_with_all_fields():
+    """Test file_oss_issue with all bug-specific fields"""
+    result = await tools.file_oss_issue(
+        title="Bug: Dimension link filter pushdown fails",
+        description="When filtering on a dimension accessed through a link, the filter is not pushed down correctly",
+        issue_type="bug",
+        steps_to_reproduce="1. Create metric with source S1\n2. Link dimension D1\n3. Query with filter on D1",
+        expected_behavior="Filter should be pushed down to the source query",
+        actual_behavior="Filter is applied after join, causing performance issues",
+    )
+
+    # Check all sections are present
+    assert "## Description" in result
+    assert "## Steps to Reproduce" in result
+    assert "1. Create metric with source S1" in result
+    assert "## Expected Behavior" in result
+    assert "Filter should be pushed down" in result
+    assert "## Actual Behavior" in result
+    assert "Filter is applied after join" in result
+    assert "## Environment" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_feature_request():
+    """Test file_oss_issue with feature request"""
+    result = await tools.file_oss_issue(
+        title="Feature: Add support for window functions in metrics",
+        description="Add capability to define metrics using window functions like LAG, LEAD, ROW_NUMBER",
+        issue_type="feature",
+    )
+
+    # Check feature-specific formatting
+    assert "✨ Feature Request" in result
+    assert "window functions" in result
+    # Bug-specific sections should not be present
+    assert "## Steps to Reproduce" not in result
+    assert "## Expected Behavior" not in result
+    assert "## Actual Behavior" not in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_documentation():
+    """Test file_oss_issue with documentation request"""
+    result = await tools.file_oss_issue(
+        title="Documentation: Add examples for dimension links",
+        description="The dimension links documentation lacks practical examples",
+        issue_type="documentation",
+    )
+
+    assert "📚 Documentation" in result
+    assert "dimension links documentation" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_question():
+    """Test file_oss_issue with question"""
+    result = await tools.file_oss_issue(
+        title="Question: How to handle temporal dimensions",
+        description="What is the recommended way to model time-based dimensions?",
+        issue_type="question",
+    )
+
+    assert "❓ Question" in result
+    assert "temporal dimensions" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_invalid_type():
+    """Test file_oss_issue with invalid issue type"""
+    result = await tools.file_oss_issue(
+        title="Test Issue",
+        description="Test description",
+        issue_type="invalid_type",
+    )
+
+    # Should return error
+    assert "❌ Error occurred" in result
+    assert "Invalid issue_type" in result
+    assert "invalid_type" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_security_warnings():
+    """Test that file_oss_issue includes all necessary security warnings"""
+    result = await tools.file_oss_issue(
+        title="Test Issue",
+        description="Test description",
+    )
+
+    # Check for comprehensive security warnings
+    assert "⚠️  SECURITY WARNING ⚠️" in result
+    assert "Review ALL content below for proprietary information" in result
+    assert "Replace internal service/table/metric names" in result
+    assert "Remove any URLs, hostnames, credentials" in result
+    assert "no customer data or PII" in result
+    assert "PUBLIC repository" in result
+
+
+@pytest.mark.asyncio
+async def test_file_oss_issue_submission_instructions():
+    """Test that file_oss_issue includes clear submission instructions"""
+    result = await tools.file_oss_issue(
+        title="Test Issue",
+        description="Test description",
+    )
+
+    # Check submission instructions
+    assert "## How to Submit" in result
+    assert "https://github.com/DataJunction/dj/issues/new" in result
+    assert "Copy the sanitized content" in result
+    assert "Paste into the GitHub issue form" in result

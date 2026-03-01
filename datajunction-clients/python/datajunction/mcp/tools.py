@@ -882,6 +882,150 @@ async def get_node_dimensions(node_name: str) -> str:
         )
 
 
+async def file_oss_issue(
+    title: str,
+    description: str,
+    issue_type: str = "bug",
+    steps_to_reproduce: Optional[str] = None,
+    expected_behavior: Optional[str] = None,
+    actual_behavior: Optional[str] = None,
+) -> str:
+    """
+    Generate a properly formatted GitHub issue for the OSS DataJunction repository.
+
+    ⚠️  CRITICAL SECURITY REQUIREMENT ⚠️
+    This tool helps you draft issues for the PUBLIC open-source DataJunction repository.
+    You MUST ensure ALL proprietary information is obfuscated before submission:
+
+    - Replace internal service names with generic equivalents (e.g., "my_company.metrics" → "acme.metrics")
+    - Remove internal URLs, hostnames, and IP addresses
+    - Redact database names, table names, and schema details
+    - Replace proprietary metric/dimension names with examples (e.g., "revenue" → "sales_amount")
+    - Remove any customer data, PII, or business-sensitive information
+    - Sanitize SQL queries to use generic table/column names
+    - Remove authentication tokens, credentials, or API keys
+
+    Args:
+        title: Clear, concise issue title (e.g., "Bug: Dimension link filter pushdown fails with self-joins")
+        description: Detailed description of the issue
+        issue_type: Type of issue - "bug", "feature", "documentation", or "question" (default: "bug")
+        steps_to_reproduce: For bugs - step-by-step instructions to reproduce (optional but recommended)
+        expected_behavior: For bugs - what should happen (optional but recommended)
+        actual_behavior: For bugs - what actually happens (optional but recommended)
+
+    Returns:
+        Formatted GitHub issue template with submission instructions
+
+    Example Usage:
+        await file_oss_issue(
+            title="Bug: Query fails when joining through multiple dimension links",
+            description="When querying a metric with dimensions that require multiple hops through dimension links, the SQL generation fails",
+            issue_type="bug",
+            steps_to_reproduce="1. Create metric M1 with source S1\\n2. Create dimension D1 linked to S1\\n3. Query M1 with D1.field",
+            expected_behavior="SQL should be generated successfully",
+            actual_behavior="Error: 'NoneType' object has no attribute 'join'"
+        )
+    """
+    # Validate issue type
+    valid_types = ["bug", "feature", "documentation", "question"]
+    if issue_type not in valid_types:
+        return format_error(
+            f"Invalid issue_type '{issue_type}'. Must be one of: {', '.join(valid_types)}",
+            "Creating GitHub issue draft",
+        )
+
+    # Build the issue body
+    lines = [
+        "=" * 80,
+        "GITHUB ISSUE DRAFT FOR OSS DATAJUNCTION",
+        "=" * 80,
+        "",
+        "⚠️  SECURITY WARNING ⚠️",
+        "Before submitting this issue to the PUBLIC repository, you MUST:",
+        "  1. Review ALL content below for proprietary information",
+        "  2. Replace internal service/table/metric names with generic examples",
+        "  3. Remove any URLs, hostnames, credentials, or business-sensitive data",
+        "  4. Ensure SQL examples use generic table/column names",
+        "  5. Verify no customer data or PII is included",
+        "",
+        "=" * 80,
+        "",
+    ]
+
+    # Add issue type label
+    issue_labels = {
+        "bug": "🐛 Bug",
+        "feature": "✨ Feature Request",
+        "documentation": "📚 Documentation",
+        "question": "❓ Question",
+    }
+    lines.append(f"Issue Type: {issue_labels[issue_type]}")
+    lines.append("")
+
+    # Add title
+    lines.append(f"Title: {title}")
+    lines.append("")
+    lines.append("-" * 80)
+    lines.append("")
+
+    # Add description
+    lines.append("## Description")
+    lines.append("")
+    lines.append(description)
+    lines.append("")
+
+    # Add bug-specific sections
+    if issue_type == "bug":
+        if steps_to_reproduce:
+            lines.append("## Steps to Reproduce")
+            lines.append("")
+            lines.append(steps_to_reproduce)
+            lines.append("")
+
+        if expected_behavior:
+            lines.append("## Expected Behavior")
+            lines.append("")
+            lines.append(expected_behavior)
+            lines.append("")
+
+        if actual_behavior:
+            lines.append("## Actual Behavior")
+            lines.append("")
+            lines.append(actual_behavior)
+            lines.append("")
+
+    # Add environment info (sanitized)
+    lines.append("## Environment")
+    lines.append("")
+    lines.append("- DataJunction Version: [specify version]")
+    lines.append("- Deployment Type: [e.g., Docker, Kubernetes, local]")
+    lines.append("- Database Backend: [e.g., PostgreSQL, DuckDB]")
+    lines.append("")
+
+    # Add submission instructions
+    lines.append("-" * 80)
+    lines.append("")
+    lines.append("## How to Submit")
+    lines.append("")
+    lines.append("1. **Review and sanitize** all content above")
+    lines.append("2. Visit: https://github.com/DataJunction/dj/issues/new")
+    lines.append("3. Copy the sanitized content (title + body)")
+    lines.append("4. Paste into the GitHub issue form")
+    lines.append("5. Add appropriate labels if needed")
+    lines.append("6. Submit!")
+    lines.append("")
+    lines.append("Repository: https://github.com/DataJunction/dj")
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append("")
+    lines.append(
+        "✅ Remember: This is a PUBLIC repository. Only share information that can be disclosed publicly.",
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 async def visualize_metrics(
     metrics: List[str],
     dimensions: Optional[List[str]] = None,
