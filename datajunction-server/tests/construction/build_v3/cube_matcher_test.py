@@ -1355,12 +1355,14 @@ class TestBuildSqlFromCube:
         assert result.sql is not None
 
         # Verify SQL structure with WHERE clause
+        # Filter is applied in both cube CTE and final SELECT (defensive, harmless redundancy)
         expected_sql = """
         WITH test_cube_with_filter_0 AS (
           SELECT
             category,
             line_total_sum_e1f61696
           FROM default.analytics.cube_filter_test
+          WHERE category = 'Electronics'
         )
         SELECT
           test_cube_with_filter_0.category AS category,
@@ -1432,6 +1434,7 @@ class TestBuildSqlFromCube:
         assert result.sql is not None
 
         # Verify SQL has WHERE clause
+        # Filter is applied in both cube CTE and final SELECT (defensive, harmless redundancy)
         expected_sql = """
         WITH test_cube_multi_filter_0 AS (
           SELECT
@@ -1439,6 +1442,7 @@ class TestBuildSqlFromCube:
             line_total_sum_e1f61696,
             quantity_sum_06b64d2e
           FROM default.analytics.cube_multi_filter_test
+          WHERE category = 'Electronics'
         )
         SELECT
           test_cube_multi_filter_0.category AS category,
@@ -1506,12 +1510,14 @@ class TestBuildSqlFromCube:
         assert result.sql is not None
 
         # Verify SQL structure with IN filter
+        # Filter is applied in both cube CTE and final SELECT (defensive, harmless redundancy)
         expected_sql = """
         WITH test_cube_in_filter_0 AS (
           SELECT
             category,
             line_total_sum_e1f61696
           FROM default.analytics.cube_in_filter_test
+          WHERE category IN ('Electronics', 'Clothing')
         )
         SELECT
           test_cube_in_filter_0.category AS category,
@@ -1521,6 +1527,110 @@ class TestBuildSqlFromCube:
         GROUP BY  test_cube_in_filter_0.category
         """
         assert_sql_equal(result.sql, expected_sql)
+
+    @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_filter_on_non_grouped_dimension(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """
+        Should apply filters on dimensions not in GROUP BY to the cube CTE.
+
+        This is a regression test for GitHub issue #1806:
+        When querying a metric with a filter on a dimension that exists in the
+        materialized cube but is NOT part of the requested grouping dimensions,
+        the filter must be applied in the CTE that reads from the cube table,
+        not in the final SELECT after aggregation.
+
+        Example query:
+          metrics: [my_metric]
+          dimensions: [date]
+          filters: [country = 'US']
+
+        Where 'country' is in the cube but not in the requested dimensions.
+        The filter must be in the cube CTE's WHERE clause.
+        """
+        # Create a cube with multiple dimensions
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_filter_only_dim",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.product.subcategory",
+                ],
+                "mode": "published",
+                "description": "Test cube for filter-only dimension tests",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # Set availability
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_filter_only_dim/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_filter_test",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Find the cube
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.product.category",
+                "v3.product.subcategory",
+            ],
+        )
+        assert cube is not None
+
+        # Build SQL from the cube with:
+        # - Requested dimension: v3.product.category (will be in GROUP BY)
+        # - Filter on v3.product.subcategory (NOT in requested dimensions)
+        # The filter should be in the cube CTE's WHERE clause
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],  # Only category, not subcategory
+            filters=["v3.product.subcategory = 'Smartphones'"],  # Filter on subcategory
+            dialect=Dialect.SPARK,
+        )
+
+        # Verify result structure
+        assert result is not None
+        assert result.sql is not None
+
+        # Verify SQL structure: filter should be in the CTE, not in final SELECT
+        expected_sql = """
+        WITH test_cube_filter_only_dim_0 AS (
+          SELECT
+            category,
+            subcategory,
+            line_total_sum_e1f61696
+          FROM default.analytics.cube_filter_test
+          WHERE subcategory = 'Smartphones'
+        )
+        SELECT
+          test_cube_filter_only_dim_0.category AS category,
+          SUM(test_cube_filter_only_dim_0.line_total_sum_e1f61696) AS total_revenue
+        FROM test_cube_filter_only_dim_0
+        GROUP BY test_cube_filter_only_dim_0.category
+        """
+        assert_sql_equal(result.sql, expected_sql)
+
+        # Verify columns - only category should be in output, not subcategory
+        column_names = [col.name for col in result.columns]
+        assert "category" in column_names
+        assert "total_revenue" in column_names
+        assert "subcategory" not in column_names  # Filter-only dimension excluded
 
 
 class TestBuildSyntheticGrainGroup:
