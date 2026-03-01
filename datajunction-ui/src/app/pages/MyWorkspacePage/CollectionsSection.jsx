@@ -32,18 +32,19 @@ export function CollectionsSection({ collections, loading, currentUser }) {
   const collectionsToUse =
     allCollections.length > 0 ? allCollections : collections;
   const myCollections = collectionsToUse.filter(
-    c => c.createdBy === currentUser?.username || !c.createdBy,
+    c => c.createdBy?.username === currentUser?.username || !c.createdBy,
   );
   const otherCollections = collectionsToUse.filter(
-    c => c.createdBy && c.createdBy !== currentUser?.username,
+    c => c.createdBy && c.createdBy?.username !== currentUser?.username,
   );
   const allToShow = [...myCollections, ...otherCollections].slice(0, 8);
 
   const collectionsGrid = allToShow.map(collection => {
-    const isOwner = collection.createdBy === currentUser?.username;
+    const createdByUsername = collection.createdBy?.username;
+    const isOwner = createdByUsername === currentUser?.username;
     const ownerDisplay = isOwner
       ? 'you'
-      : collection.createdBy?.split('@')[0] || 'unknown';
+      : createdByUsername?.split('@')[0] || 'unknown';
 
     return (
       <a

@@ -13,6 +13,17 @@ jest.mock('../NodeList', () => ({
     </div>
   ),
 }));
+jest.mock('../TypeGroupGrid', () => ({
+  TypeGroupGrid: ({ groupedData }) => (
+    <div data-testid="type-group-grid">
+      {groupedData.map(group => (
+        <div key={group.type}>
+          {group.type}: {group.count} nodes
+        </div>
+      ))}
+    </div>
+  ),
+}));
 
 describe('<MyNodesSection />', () => {
   const mockOwnedNodes = [
@@ -240,5 +251,139 @@ describe('<MyNodesSection />', () => {
 
     // Watched tab should only show 1 (watched-only nodes)
     expect(screen.getByText('Watched (1)')).toBeInTheDocument();
+  });
+
+  describe('Group by Type feature', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('should show group by type toggle when nodes exist', () => {
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={mockOwnedNodes}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByLabelText('Group by Type')).toBeInTheDocument();
+    });
+
+    it('should not show toggle when no nodes', () => {
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={[]}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByLabelText('Group by Type')).not.toBeInTheDocument();
+    });
+
+    it('should toggle between list and grouped view', () => {
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={mockOwnedNodes}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      // Initially should show list view
+      expect(screen.getByTestId('node-list')).toBeInTheDocument();
+      expect(screen.queryByTestId('type-group-grid')).not.toBeInTheDocument();
+
+      // Click toggle
+      const toggle = screen.getByLabelText('Group by Type');
+      fireEvent.click(toggle);
+
+      // Should now show grouped view
+      expect(screen.queryByTestId('node-list')).not.toBeInTheDocument();
+      expect(screen.getByTestId('type-group-grid')).toBeInTheDocument();
+    });
+
+    it('should persist toggle state to localStorage', () => {
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={mockOwnedNodes}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      const toggle = screen.getByLabelText('Group by Type');
+      fireEvent.click(toggle);
+
+      expect(localStorage.getItem('workspace_groupByType')).toBe('true');
+
+      fireEvent.click(toggle);
+      expect(localStorage.getItem('workspace_groupByType')).toBe('false');
+    });
+
+    it('should load toggle state from localStorage', () => {
+      localStorage.setItem('workspace_groupByType', 'true');
+
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={mockOwnedNodes}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      // Should show grouped view on mount
+      expect(screen.getByTestId('type-group-grid')).toBeInTheDocument();
+      expect(screen.getByLabelText('Group by Type')).toBeChecked();
+    });
+
+    it('should group nodes by type correctly', () => {
+      const mixedNodes = [
+        { name: 'metric1', type: 'metric', current: {} },
+        { name: 'metric2', type: 'metric', current: {} },
+        { name: 'dim1', type: 'dimension', current: {} },
+        { name: 'source1', type: 'source', current: {} },
+      ];
+
+      render(
+        <MemoryRouter>
+          <MyNodesSection
+            ownedNodes={mixedNodes}
+            watchedNodes={[]}
+            recentlyEdited={[]}
+            username="test.user@example.com"
+            loading={false}
+          />
+        </MemoryRouter>,
+      );
+
+      const toggle = screen.getByLabelText('Group by Type');
+      fireEvent.click(toggle);
+
+      expect(screen.getByText('metric: 2 nodes')).toBeInTheDocument();
+      expect(screen.getByText('dimension: 1 nodes')).toBeInTheDocument();
+      expect(screen.getByText('source: 1 nodes')).toBeInTheDocument();
+    });
   });
 });

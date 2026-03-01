@@ -73,8 +73,10 @@ export const DataJunctionAPI = {
                 mode
                 updatedAt
               }
-              createdBy {
-                username
+              gitInfo {
+                repo
+                branch
+                defaultBranch
               }
             }
           }
@@ -2034,7 +2036,9 @@ export const DataJunctionAPI = {
           name
           description
           nodeCount
-          createdBy
+          createdBy {
+            username
+          }
         }
       }
     `;

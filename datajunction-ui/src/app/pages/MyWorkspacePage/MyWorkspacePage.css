@@ -479,6 +479,105 @@
   color: #666;
 }
 
+/* TypeGroupGrid */
+.type-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.type-group-card {
+  background-color: var(--card-bg, #f8f9fa);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.type-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color, #dee2e6);
+}
+
+.type-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+}
+
+.type-group-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.type-group-node {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.type-group-node-status-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.type-group-node-git-info {
+  font-size: 9px;
+  padding: 2px 6px;
+  background-color: #fff;
+  color: #666;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.type-group-node-git-info--default {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.type-group-node-time {
+  font-size: 10px;
+  color: #888;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.type-group-node-actions {
+  display: inline-flex;
+  transform: scale(0.75);
+  transform-origin: right center;
+  flex-shrink: 0;
+}
+
+.type-group-more {
+  display: block;
+  text-align: center;
+  padding: 0.5rem 0 0 0;
+  font-size: 11px;
+  color: var(--primary-color, #4a90d9);
+  text-decoration: none;
+  border-top: 1px solid var(--border-color, #dee2e6);
+  margin-top: 0.25rem;
+  font-weight: 500;
+}
+
+.type-group-more:hover {
+  text-decoration: underline;
+}
+
 /* NodeList */
 .node-list {
   display: flex;
