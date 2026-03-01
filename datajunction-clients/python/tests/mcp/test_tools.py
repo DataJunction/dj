@@ -490,13 +490,13 @@ async def test_get_node_details_with_git_info():
 
 
 # ============================================================================
-# get_common_dimensions Tests
+# get_common Tests (bidirectional: metrics→dimensions, dimensions→metrics)
 # ============================================================================
 
 
 @pytest.mark.asyncio
-async def test_get_common_dimensions_success():
-    """Test getting common dimensions"""
+async def test_get_common_metrics_to_dimensions():
+    """Test get_common: metrics path returns common dimensions via GraphQL"""
     mock_response = {
         "commonDimensions": [
             {
@@ -529,18 +529,21 @@ async def test_get_common_dimensions_success():
         mock_client.query.return_value = mock_response
         mock_get_client.return_value = mock_client
 
-        result = await tools.get_common_dimensions(
-            metric_names=["finance.revenue", "growth.users"],
+        result = await tools.get_common(
+            metrics=["finance.revenue", "growth.users"],
         )
 
         assert "Found 2 common dimensions" in result
         assert "core.date" in result
         assert "core.region" in result
+        # Verify GraphQL was called with the right nodes variable
+        call_args = mock_client.query.call_args
+        assert call_args[0][1]["nodes"] == ["finance.revenue", "growth.users"]
 
 
 @pytest.mark.asyncio
-async def test_get_common_dimensions_none():
-    """Test getting common dimensions when none exist"""
+async def test_get_common_metrics_no_dimensions():
+    """Test get_common: metrics path with no shared dimensions"""
     mock_response = {"commonDimensions": []}
 
     with patch.object(tools, "get_client") as mock_get_client:
@@ -548,27 +551,175 @@ async def test_get_common_dimensions_none():
         mock_client.query.return_value = mock_response
         mock_get_client.return_value = mock_client
 
-        result = await tools.get_common_dimensions(
-            metric_names=["finance.revenue", "growth.users"],
+        result = await tools.get_common(
+            metrics=["finance.revenue", "growth.users"],
         )
 
         assert "No common dimensions found" in result
 
 
 @pytest.mark.asyncio
-async def test_get_common_dimensions_error():
-    """Test common dimensions error handling"""
+async def test_get_common_metrics_error():
+    """Test get_common: metrics path GraphQL error handling"""
     with patch.object(tools, "get_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_client.query.side_effect = Exception("Query failed")
         mock_get_client.return_value = mock_client
 
-        result = await tools.get_common_dimensions(
-            metric_names=["finance.revenue"],
+        result = await tools.get_common(
+            metrics=["finance.revenue"],
         )
 
         assert "Error" in result
         assert "Query failed" in result
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_to_metrics():
+    """Test get_common: dimensions path returns compatible metrics via REST"""
+    mock_nodes = [
+        {"name": "finance.revenue"},
+        {"name": "finance.orders"},
+    ]
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_nodes
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client.settings.dj_api_url = "http://localhost:8000"
+        mock_client.settings.request_timeout = 30.0
+        mock_client._get_headers.return_value = {}
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_common(
+            dimensions=[
+                "common.dimensions.date.dateint",
+                "common.dimensions.region.id",
+            ],
+        )
+
+        assert "Metrics compatible with dimensions" in result
+        assert "Found 2 compatible metric(s)" in result
+        assert "finance.revenue" in result
+        assert "finance.orders" in result
+        # Verify REST endpoint was called with correct params
+        call_kwargs = mock_http_client.get.call_args
+        assert "dimension" in call_kwargs.kwargs[
+            "params"
+        ] or "dimension" in call_kwargs[1].get("params", {})
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_no_metrics():
+    """Test get_common: dimensions path with no compatible metrics"""
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = []
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client.settings.dj_api_url = "http://localhost:8000"
+        mock_client.settings.request_timeout = 30.0
+        mock_client._get_headers.return_value = {}
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_common(
+            dimensions=["common.dimensions.date.dateint"],
+        )
+
+        assert "No metrics found" in result
+
+
+@pytest.mark.asyncio
+async def test_get_common_no_args():
+    """Test get_common returns error when neither metrics nor dimensions are given"""
+    result = await tools.get_common()
+
+    assert "Error" in result
+    assert "Either" in result or "metrics" in result
+
+
+@pytest.mark.asyncio
+async def test_get_common_both_args():
+    """Test get_common returns error when both metrics and dimensions are given"""
+    result = await tools.get_common(
+        metrics=["finance.revenue"],
+        dimensions=["common.dimensions.date.dateint"],
+    )
+
+    assert "Error" in result
+    assert "not both" in result or "either" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_http_error():
+    """Test get_common: dimensions path HTTP error handling"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client.settings.dj_api_url = "http://localhost:8000"
+        mock_client.settings.request_timeout = 30.0
+        mock_client._get_headers.return_value = {}
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = httpx.HTTPStatusError(
+            "404 Not Found",
+            request=MagicMock(),
+            response=MagicMock(status_code=404, text="Not found"),
+        )
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_common(
+            dimensions=["common.dimensions.date.dateint"],
+        )
+
+        assert "Error" in result
+        assert "404" in result
+
+
+@pytest.mark.asyncio
+async def test_get_common_dimensions_generic_error():
+    """Test get_common: dimensions path generic exception handling"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client.settings.dj_api_url = "http://localhost:8000"
+        mock_client.settings.request_timeout = 30.0
+        mock_client._get_headers.return_value = {}
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = Exception("Connection refused")
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_common(
+            dimensions=["common.dimensions.date.dateint"],
+        )
+
+        assert "Error" in result
+        assert "Connection refused" in result
 
 
 # ============================================================================
@@ -2232,3 +2383,656 @@ async def test_get_metric_data_no_materialized_cube():
         assert "No materialized cube available" in result
         assert "expensive ad-hoc computation" in result
         assert "test.metric" in result
+
+
+# ============================================================================
+# search_nodes — new filter parameters
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_tags():
+    """Test search_nodes passes tags to GraphQL"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(tags=["revenue", "core"])
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["tags"] == ["revenue", "core"]
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_statuses():
+    """Test search_nodes uppercases and passes statuses to GraphQL"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(statuses=["valid"])
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["statuses"] == ["VALID"]
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_invalid_status():
+    """Test search_nodes with 'invalid' status is uppercased correctly"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(statuses=["invalid"])
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["statuses"] == ["INVALID"]
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_mode_published():
+    """Test search_nodes with mode='published' is uppercased"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(mode="published")
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["mode"] == "PUBLISHED"
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_mode_draft():
+    """Test search_nodes with mode='draft' is uppercased"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(mode="draft")
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["mode"] == "DRAFT"
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_owned_by():
+    """Test search_nodes passes owned_by to GraphQL"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(owned_by="alice@example.com")
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["ownedBy"] == "alice@example.com"
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_with_has_materialization():
+    """Test search_nodes passes has_materialization=True to GraphQL"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(has_materialization=True)
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["hasMaterialization"] is True
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_has_materialization_defaults_false():
+    """Test search_nodes has_materialization defaults to False"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(query="revenue")
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["hasMaterialization"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_empty_query_no_fragment():
+    """Test search_nodes with empty query sends None as fragment"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes(query="")
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["fragment"] is None
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_no_args_sends_none_fragment():
+    """Test search_nodes with no args sends None fragment"""
+    mock_response = {"findNodes": []}
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        await tools.search_nodes()
+
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["fragment"] is None
+        assert variables["tags"] is None
+        assert variables["statuses"] is None
+        assert variables["mode"] is None
+        assert variables["ownedBy"] is None
+
+
+@pytest.mark.asyncio
+async def test_search_nodes_combined_new_filters():
+    """Test search_nodes with all new filters combined"""
+    mock_response = {
+        "findNodes": [
+            {
+                "name": "finance.revenue",
+                "type": "METRIC",
+                "createdAt": "2024-01-01T00:00:00Z",
+                "current": {
+                    "displayName": "Revenue",
+                    "description": "Total revenue",
+                    "status": "VALID",
+                    "mode": "PUBLISHED",
+                },
+                "tags": [{"name": "core", "tagType": "category"}],
+                "owners": [{"username": "alice", "email": "alice@example.com"}],
+            },
+        ],
+    }
+
+    with patch.object(tools, "get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_client.query.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        result = await tools.search_nodes(
+            query="revenue",
+            tags=["core"],
+            statuses=["valid"],
+            mode="published",
+            owned_by="alice@example.com",
+            has_materialization=True,
+        )
+
+        assert "finance.revenue" in result
+        call_args = mock_client.query.call_args
+        variables = call_args[0][1]
+        assert variables["tags"] == ["core"]
+        assert variables["statuses"] == ["VALID"]
+        assert variables["mode"] == "PUBLISHED"
+        assert variables["ownedBy"] == "alice@example.com"
+        assert variables["hasMaterialization"] is True
+
+
+# ============================================================================
+# get_query_plan Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_success():
+    """Test get_query_plan with a full response"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": ["common.dimensions.date.dateint"],
+        "grain_groups": [
+            {
+                "metrics": ["finance.revenue", "finance.orders"],
+                "grain": ["common.dimensions.date.dateint"],
+                "aggregability": "FULL",
+                "parent_name": "finance.revenue_cube",
+                "scan_estimate": 1000000,
+                "components": [
+                    {
+                        "name": "revenue_sum",
+                        "expression": "SUM(amount)",
+                        "aggregation": "SUM",
+                        "merge": "SUM",
+                    },
+                    {
+                        "name": "order_count",
+                        "expression": "COUNT(*)",
+                        "aggregation": "COUNT",
+                        "merge": "SUM",
+                    },
+                ],
+                "sql": "SELECT dateint, SUM(amount), COUNT(*) FROM orders GROUP BY dateint",
+            },
+        ],
+        "metric_formulas": [
+            {
+                "name": "finance.revenue",
+                "query": "SUM(amount)",
+                "combiner": "SUM(revenue_sum)",
+                "is_derived": False,
+                "components": ["revenue_sum"],
+                "parent_name": "finance.revenue_cube",
+            },
+            {
+                "name": "finance.orders",
+                "query": "COUNT(*)",
+                "combiner": "SUM(order_count)",
+                "is_derived": False,
+                "components": ["order_count"],
+            },
+        ],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(
+            metrics=["finance.revenue", "finance.orders"],
+            dimensions=["common.dimensions.date.dateint"],
+        )
+
+        assert "Query Execution Plan" in result
+        assert "Dialect:   spark" in result
+        assert "finance.revenue" in result
+        assert "finance.orders" in result
+        assert "Grain Groups: 1" in result
+        assert "Group 1:" in result
+        assert "1,000,000 rows" in result
+        assert "finance.revenue_cube" in result
+        assert "Metric Formulas" in result
+        assert "SUM(amount)" in result
+        assert "Components:" in result
+        assert "revenue_sum" in result
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_scan_estimate_as_dict():
+    """Test get_query_plan handles dict scan_estimate without crashing"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [
+            {
+                "metrics": ["finance.revenue"],
+                "grain": [],
+                "aggregability": "FULL",
+                "scan_estimate": {"rows": 500, "bytes": 1024},  # dict, not int
+                "components": [],
+                "sql": "SELECT SUM(amount) FROM orders",
+            },
+        ],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue"])
+
+        # Should not raise a format error; dict is rendered as string
+        assert "Query Execution Plan" in result
+        assert "Scan estimate:" in result
+        assert "rows" not in result or "rows" in result  # dict repr, no ":," format
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_derived_metric():
+    """Test get_query_plan shows [derived] tag for derived metrics"""
+    mock_response_json = {
+        "dialect": "trino",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [
+            {
+                "name": "finance.revenue_per_order",
+                "query": "SUM(amount) / COUNT(*)",
+                "combiner": "SUM(revenue_sum) / SUM(order_count)",
+                "is_derived": True,
+                "components": ["revenue_sum", "order_count"],
+                "parent_name": "finance.orders_cube",
+            },
+        ],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue_per_order"])
+
+        assert "[derived]" in result
+        assert "finance.revenue_per_order" in result
+        assert "Dialect:   trino" in result
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_with_dialect_and_lookback():
+    """Test get_query_plan passes dialect and lookback_window params"""
+    mock_response_json = {
+        "dialect": "trino",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        await tools.get_query_plan(
+            metrics=["finance.revenue"],
+            dialect="trino",
+            include_temporal_filters=True,
+            lookback_window="7 DAY",
+        )
+
+        call_kwargs = mock_http_client.get.call_args
+        # Extract params regardless of positional/keyword style
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert params.get("dialect") == "trino"
+        assert params.get("lookback_window") == "7 DAY"
+        assert params.get("include_temporal_filters") is True
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_no_dialect_or_lookback_not_in_params():
+    """Test get_query_plan omits dialect and lookback_window when not provided"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        await tools.get_query_plan(metrics=["finance.revenue"])
+
+        call_kwargs = mock_http_client.get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert "dialect" not in params
+        assert "lookback_window" not in params
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_http_error():
+    """Test get_query_plan handles HTTP errors"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = httpx.HTTPStatusError(
+            "500 Internal Server Error",
+            request=MagicMock(),
+            response=MagicMock(status_code=500, text="Internal error"),
+        )
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue"])
+
+        assert "Error" in result
+        assert "500" in result
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_generic_error():
+    """Test get_query_plan handles generic exceptions"""
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = Exception("Unexpected failure")
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue"])
+
+        assert "Error" in result
+        assert "Unexpected failure" in result
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_empty_grain_groups():
+    """Test get_query_plan with no grain groups"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [
+            {
+                "name": "finance.revenue",
+                "query": "SUM(amount)",
+                "combiner": "SUM(revenue_sum)",
+                "is_derived": False,
+                "components": [],
+            },
+        ],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue"])
+
+        assert "Query Execution Plan" in result
+        assert "Grain Groups: 0" in result
+        assert "finance.revenue" in result
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_no_scan_estimate():
+    """Test get_query_plan with missing scan_estimate in grain group"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [
+            {
+                "metrics": ["finance.revenue"],
+                "grain": [],
+                "aggregability": "FULL",
+                # no scan_estimate key
+                "components": [],
+                "sql": "SELECT SUM(amount) FROM orders",
+            },
+        ],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        result = await tools.get_query_plan(metrics=["finance.revenue"])
+
+        assert "Query Execution Plan" in result
+        assert "Scan estimate:" not in result
