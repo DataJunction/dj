@@ -1509,7 +1509,7 @@ model: inherit
 
             # Final success message
             anything_installed = skills or mcp or agents
-            if anything_installed:
+            if anything_installed:  # pragma: no branch
                 console.print(
                     "\n[bold green]✓ Claude Code integration complete[/bold green]",
                 )
