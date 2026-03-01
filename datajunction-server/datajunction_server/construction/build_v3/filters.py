@@ -177,3 +177,32 @@ def parse_and_resolve_filters(
         parsed_filters.append(resolved)
 
     return combine_filters(parsed_filters)
+
+
+def get_filter_column_references(filter_str: str) -> list[str]:
+    """
+    Extract all column references from a filter string.
+
+    Args:
+        filter_str: A SQL predicate expression
+
+    Returns:
+        List of full column reference strings (e.g., ["v3.product.category", "v3.status"])
+
+    Example::
+
+        refs = get_filter_column_references("v3.product.category = 'Electronics'")
+        # Returns: ["v3.product.category"]
+
+        refs = get_filter_column_references("v3.total_revenue > 10000 AND v3.order_count > 100")
+        # Returns: ["v3.total_revenue", "v3.order_count"]
+    """
+    filter_ast = parse_filter(filter_str)
+    references = []
+
+    for col in filter_ast.find_all(ast.Column):
+        full_ref = _extract_full_column_ref(col)
+        if full_ref and full_ref not in references:  # pragma: no branch
+            references.append(full_ref)
+
+    return references
