@@ -4791,12 +4791,42 @@ class Range(TableFunction):
 
 
 @Range.register
-def infer_type(
-    *args: ct.IntegerBase,
-) -> List[ct.NestedField]:
-    from datajunction_server.sql.parsing.ast import Name
+def infer_type(end: ct.IntegerBase) -> List[ct.NestedField]:
+    """range(end) - generates 0 to end-1"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
 
-    return [ct.NestedField(name=Name("id"), field_type=ct.BigIntType())]
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end)"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+    step: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end, step)"""
+    print(f"DEBUG: Range.infer_type called with start={start}, end={end}, step={step}")
+    result = [ct.NestedField(name="id", field_type=ct.BigIntType())]
+    print(f"DEBUG: Returning {result}")
+    return result
+
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+    step: ct.IntegerBase,
+    num_slices: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end, step, numSlices)"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
 
 
 class FunctionRegistryDict(dict):
