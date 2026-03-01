@@ -1396,70 +1396,66 @@ mode: published
 
 **Temporal partitions** enable automatic partition filtering for performance optimization. When configured, DJ automatically adds partition filters to SQL queries, dramatically improving query performance on large datasets.
 
-#### How Temporal Partitions Work
+#### How Partitions Work
 
-When you set a temporal partition on a cube, DJ will:
-1. Generate SQL with `${dj_logical_timestamp}` template variables in partition filters
-2. These template variables get replaced with actual timestamp values at query execution time
-3. Push down these filters to all upstream nodes that have the same dimension linked
-4. Reduce data scanned by limiting to only relevant partitions based on the time range
+A partition is always declared on a **column**. When that column is a dimension attribute on a cube, DJ uses it as the partition boundary and pushes the filter down to all upstream nodes that link to that same dimension.
 
-#### Configuring Temporal Partitions
+**Partition field format:**
+```yaml
+partition:
+  type: temporal        # or: categorical
+  granularity: day      # second, minute, hour, day, week, month, quarter, year
+  format: yyyyMMdd      # Java/Spark date format (e.g. yyyyMMdd → 20240101, yyyy-MM-dd → 2024-01-01)
+```
 
-**Cube YAML with temporal partition:**
+#### Declaring a Partition on a Cube
+
+In a cube, declare the partition in the **`columns:` section** using the **full dimension attribute path** as the column name:
+
 ```yaml
 # cubes/revenue_cube.yaml
-name: finance.revenue_cube
-description: Pre-computed revenue metrics by date and region
+name: ${prefix}revenue_cube
+node_type: cube
 metrics:
-  - finance.total_revenue
-  - finance.avg_transaction_value
+  - ${prefix}total_revenue
+  - ${prefix}order_count
 
 dimensions:
   - common.dimensions.date.dateint
-  - common.dimensions.date.month
-  - common.dimensions.users.country_code
+  - common.dimensions.geo.country_code
 
-# Temporal partition configuration
-temporal_partition:
-  dimension_attribute: common.dimensions.date.dateint
-  granularity: day
-
-mode: published
+columns:
+  - name: common.dimensions.date.dateint   # ← must match exactly the entry in dimensions
+    display_name: Date
+    attributes:
+      - primary_key
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
 ```
 
-**Temporal partition fields:**
-- `dimension_attribute` - The dimension attribute used for partitioning (typically a date field)
-- `granularity` - Time granularity: `day`, `month`, `quarter`, `year`
+#### How Partition Filter Pushdown Works
 
-#### Requirements for Partition Filtering
+Once a cube column has a partition spec, DJ:
+1. Generates SQL with `${dj_logical_timestamp}` template variables when `include_temporal_filters=True`
+2. Pushes those filters down to all upstream nodes that link to the same dimension
+3. Reduces data scanned by limiting to relevant partitions
 
-For DJ to generate partition filters, **all upstream nodes** (sources, transforms, dimensions) must:
-1. Have the **same dimension linked** that's used in the temporal partition
-2. Use the **same join key** (e.g., `dateint`)
+For filter pushdown to work, upstream nodes (sources, transforms) must have a **dimension link to the same dimension**:
 
-**Example - Upstream node with matching dimension link:**
 ```yaml
-# nodes/sources/transactions.yaml
-name: finance.transactions
-type: source
-# ...
-
+# transforms/orders.yaml
 dimension_links:
-  - dimension: common.dimensions.date
-    join_on: finance.transactions.transaction_date = common.dimensions.date.dateint
-    # ↑ This matches the temporal_partition.dimension_attribute in the cube
+  - type: join
+    dimension_node: common.dimensions.date
+    join_type: left
+    join_on: ${prefix}orders.order_date = common.dimensions.date.dateint
+    # ↑ DJ traces this link and pushes WHERE order_date >= X AND order_date <= Y
 ```
 
-**What happens:**
-- ✅ If cube has `temporal_partition.dimension_attribute: common.dimensions.date.dateint`
-- ✅ And upstream node links to `common.dimensions.date` on `dateint`
-- ✅ Then DJ automatically adds partition filters like `WHERE transaction_date >= X AND transaction_date <= Y`
-
-**What if dimension links don't match:**
-- ❌ Cube has temporal partition on `common.dimensions.date.dateint`
-- ❌ But upstream node doesn't link to `common.dimensions.date`
-- ❌ Result: No automatic partition filtering, full table scan!
+- ✅ Upstream node links to `common.dimensions.date` on `order_date` → DJ pushes `WHERE order_date >= X AND order_date <= Y`
+- ❌ Upstream node has no link to `common.dimensions.date` → no filter pushed, full table scan
 
 #### Regular Filters vs Temporal Filters
 
@@ -1480,17 +1476,17 @@ WHERE transaction_date = 20240101  -- ← Direct filter value
 GROUP BY transaction_date
 ```
 
-**Temporal filters** - Use when you want template variables for incremental processing:
+**Temporal filters** - Use when you want to see the pre-aggregation SQL with `${dj_logical_timestamp}` template variables for incremental processing. Use the `get_query_plan` MCP tool:
 ```
-build_metric_sql(
+get_query_plan(
   metrics=["finance.total_revenue"],
   dimensions=["common.dimensions.date.dateint"],
-  include_temporal_filters=True,  # Enable temporal filter template generation
+  include_temporal_filters=True,  # Inject temporal filter templates into the grain group SQL
   lookback_window="7 DAY"          # Optional: lookback window
 )
 ```
 
-**Generated SQL:**
+This shows the grain group SQL with template variables that get substituted at materialization time:
 ```sql
 SELECT SUM(amount_usd) AS total_revenue, transaction_date
 FROM finance.transactions
@@ -1499,106 +1495,97 @@ WHERE transaction_date >= ${dj_logical_timestamp}  -- ← Template variable
 GROUP BY transaction_date
 ```
 
-**When to use temporal filters:**
-- Materialization jobs that run incrementally
-- Scheduled queries that need dynamic time ranges
-- Pre-aggregation pipelines
+**When to use temporal filters (via `get_query_plan`):**
+- Generating SQL for materialization jobs that run incrementally
+- Understanding how pre-aggregation SQL will look with partition filters applied
+- Debugging whether partition filter pushdown is working correctly
 
-**When to use regular filters:**
+**When to use regular filters (via `build_metric_sql`):**
 - Ad-hoc queries with specific date ranges
-- One-time analysis
-- When you know the exact filter values
-
-**How temporal filters work:**
-- `include_temporal_filters=True` generates SQL with `${dj_logical_timestamp}` template variables
-- These placeholders get replaced with actual timestamp values at query execution time
-- `lookback_window` parameter controls the time range (e.g., '3 DAY', '1 WEEK', '30 DAY')
-- The actual filter values are calculated based on cube's temporal partition configuration and execution time
+- One-time analysis with known filter values
 
 #### Best Practices for Temporal Partitions
 
-1. **Always set temporal partitions on cubes used for dashboards**
-   - Dramatically improves query performance
-   - Reduces data scanned
+1. **Declare the partition on the cube's `columns:` block**
+   - Use the full dimension attribute path as the column name (must match exactly what's in `dimensions:`)
+   - Without a `partition:` declared on a cube column, DJ cannot enable partition filtering for that cube
 
 2. **Ensure consistent dimension links across all nodes**
-   - Check that all upstream sources/transforms link to the same date dimension
-   - Use the same join key (e.g., always `dateint`, not mixing `dateint` and `date_str`)
+   - All upstream sources/transforms must link to the same dimension that carries the partition
+   - Use the same join key everywhere (e.g., always `dateint`, not mixing `dateint` and `date_str`)
 
-3. **Use appropriate granularity**
-   - `day` - For daily metrics and dashboards (most common)
-   - `month` - For monthly aggregations
-   - `quarter`, `year` - For higher-level reporting
+3. **Use appropriate granularity and format**
+   - `granularity: day` with `format: yyyyMMdd` — for integer date partitions like `20240101`
+   - `granularity: day` with `format: yyyy-MM-dd` — for string date partitions like `2024-01-01`
+   - `granularity: month`, `quarter`, `year` — for coarser partitioning
 
 4. **Verify partition filtering is working**
    - Use `build_metric_sql` with `include_temporal_filters=True`
    - Check generated SQL includes partition filters on upstream tables
-   - If filters missing, check dimension link consistency
+   - If filters are missing, check that upstream nodes have dimension links pointing to the partitioned dimension column
 
-5. **Match physical partition scheme**
-   - If your data warehouse partitions by `date`, use `dateint` in temporal partition
-   - Align with how data is actually partitioned in storage
+5. **Match the physical partition scheme of your warehouse**
+   - The `format` must match how partition values are actually stored in the table
+   - Align granularity with how data is physically partitioned in storage
 
 #### Example: Complete Temporal Partition Setup
 
-**Step 1: Source with date dimension link**
+The partition is declared on the cube's `dateint` column. DJ pushes the filter down to `orders` because it has a dimension link to `common.dimensions.date`.
+
+**Step 1: Transform with date dimension link**
 ```yaml
-# nodes/sources/orders.yaml
-name: ecommerce.orders
-type: source
-catalog: prod
-schema_: ecommerce
-table: orders_partitioned
+# transforms/orders.yaml
+name: ${prefix}orders
+node_type: transform
+columns:
+  - name: order_date
+  - name: product_id
+  - name: order_count
+  - name: total_revenue
 
 dimension_links:
-  - dimension: common.dimensions.date
-    join_on: ecommerce.orders.order_date = common.dimensions.date.dateint
-```
+  - type: join
+    dimension_node: common.dimensions.time.date
+    join_type: left
+    join_on: ${prefix}orders.order_date = common.dimensions.time.date.dateint
 
-**Step 2: Transform with same date dimension link**
-```yaml
-# nodes/transforms/daily_orders.yaml
-name: ecommerce.daily_orders
-type: transform
 query: |
-  SELECT
-    product_id,
-    order_date,
-    COUNT(*) AS order_count,
-    SUM(amount_usd) AS total_revenue
-  FROM ecommerce.orders
+  SELECT product_id, order_date, COUNT(*) AS order_count, SUM(amount_usd) AS total_revenue
+  FROM source.prod.orders_f
   GROUP BY product_id, order_date
-
-dimension_links:
-  - dimension: common.dimensions.date
-    join_on: ecommerce.daily_orders.order_date = common.dimensions.date.dateint
 ```
 
-**Step 3: Metrics on the transform**
+**Step 2: Metrics**
 ```yaml
-# nodes/metrics/total_orders.yaml
-name: ecommerce.total_orders
-type: metric
-query: SELECT SUM(order_count) FROM ecommerce.daily_orders
+# metrics/total_orders.yaml
+name: ${prefix}total_orders
+node_type: metric
+query: SELECT SUM(order_count) FROM ${prefix}orders
 ```
 
-**Step 4: Cube with temporal partition**
+**Step 3: Cube — declare the partition on the external dimension attribute**
 ```yaml
-# cubes/ecommerce_cube.yaml
-name: ecommerce.ecommerce_cube
+# cubes/orders_cube.yaml
+name: ${prefix}orders_cube
+node_type: cube
 metrics:
-  - ecommerce.total_orders
-  - ecommerce.total_revenue
+  - ${prefix}total_orders
 dimensions:
-  - common.dimensions.date.dateint
-  - ecommerce.daily_orders.product_id
+  - common.dimensions.time.date.dateint
+  - ${prefix}orders.product_id
 
-temporal_partition:
-  dimension_attribute: common.dimensions.date.dateint
-  granularity: day
+columns:
+  - name: common.dimensions.time.date.dateint   # ← full attribute path, matches dimensions entry
+    display_name: Date
+    attributes:
+      - primary_key
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
 ```
 
-**Result**: Queries on `ecommerce.ecommerce_cube` will automatically include partition filters on both `ecommerce.orders` and `ecommerce.daily_orders` tables!
+**Result**: The cube has a temporal partition on `common.dimensions.time.date.dateint`. Queries with `include_temporal_filters=True` will push `WHERE order_date >= X AND order_date <= Y` to the `orders` transform.
 
 ---
 

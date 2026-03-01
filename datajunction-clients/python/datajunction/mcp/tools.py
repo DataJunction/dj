@@ -248,9 +248,14 @@ async def list_namespaces() -> str:
 
 
 async def search_nodes(
-    query: str,
+    query: str = "",
     node_type: Optional[str] = None,
     namespace: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    statuses: Optional[List[str]] = None,
+    mode: Optional[str] = None,
+    owned_by: Optional[str] = None,
+    has_materialization: bool = False,
     limit: int = 100,
     prefer_main_branch: bool = True,
 ) -> str:
@@ -258,9 +263,14 @@ async def search_nodes(
     Search for nodes (metrics, dimensions, cubes, etc.)
 
     Args:
-        query: Search term (fragment of node name)
+        query: Search term (fragment of node name) — can be empty when filtering by other params
         node_type: Optional filter by type (metric, dimension, cube, source, transform)
         namespace: Optional filter by namespace (highly recommended for narrowing results)
+        tags: Optional list of tag names — returns nodes tagged with ALL specified tags
+        statuses: Optional list of statuses to filter by (e.g., ['valid'], ['invalid'])
+        mode: Optional filter by mode: 'published' or 'draft'
+        owned_by: Optional filter to nodes owned by this username or email
+        has_materialization: If True, return only nodes with materializations configured
         limit: Maximum number of results (default: 100, max: 1000)
         prefer_main_branch: If True and namespace provided, automatically uses .main branch (default: True)
 
@@ -323,12 +333,22 @@ async def search_nodes(
         $fragment: String,
         $nodeTypes: [NodeType!],
         $namespace: String,
+        $tags: [String!],
+        $statuses: [NodeStatus!],
+        $mode: NodeMode,
+        $ownedBy: String,
+        $hasMaterialization: Boolean!,
         $limit: Int
     ) {
         findNodes(
             fragment: $fragment,
             nodeTypes: $nodeTypes,
             namespace: $namespace,
+            tags: $tags,
+            statuses: $statuses,
+            mode: $mode,
+            ownedBy: $ownedBy,
+            hasMaterialization: $hasMaterialization,
             limit: $limit
         ) {
             name
@@ -362,9 +382,14 @@ async def search_nodes(
         data = await client.query(
             graphql_query,
             {
-                "fragment": query,
+                "fragment": query or None,
                 "nodeTypes": [node_type.upper()] if node_type else None,
                 "namespace": actual_namespace,
+                "tags": tags or None,
+                "statuses": [s.upper() for s in statuses] if statuses else None,
+                "mode": mode.upper() if mode else None,
+                "ownedBy": owned_by or None,
+                "hasMaterialization": has_materialization,
                 "limit": limit,
             },
         )
@@ -447,45 +472,106 @@ async def get_node_details(name: str) -> str:
         return format_error(str(e), f"Fetching details for node '{name}'")
 
 
-async def get_common_dimensions(metric_names: List[str]) -> str:
+async def get_common(
+    metrics: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
+) -> str:
     """
-    Find dimensions that are common across multiple metrics
+    Bidirectional compatibility lookup:
+    - Pass metrics → returns dimensions common across all those metrics
+    - Pass dimensions → returns metrics that can be queried by all those dimensions
+
+    Exactly one of metrics or dimensions must be provided.
 
     Args:
-        metric_names: List of metric node names
+        metrics: List of metric node names to find common dimensions for
+        dimensions: List of dimension attribute names to find compatible metrics for
 
     Returns:
-        Formatted dimension compatibility report
+        Formatted compatibility report
     """
-    graphql_query = """
-    query GetCommonDimensions($nodes: [String!]) {
-        commonDimensions(nodes: $nodes) {
-            name
-            type
-            dimensionNode {
+    if not metrics and not dimensions:
+        return format_error(
+            "Either 'metrics' or 'dimensions' must be provided.",
+            "get_common",
+        )
+    if metrics and dimensions:
+        return format_error(
+            "Provide either 'metrics' or 'dimensions', not both.",
+            "get_common",
+        )
+
+    if metrics:
+        graphql_query = """
+        query GetCommonDimensions($nodes: [String!]) {
+            commonDimensions(nodes: $nodes) {
                 name
-                current {
-                    description
-                    displayName
+                type
+                dimensionNode {
+                    name
+                    current {
+                        description
+                        displayName
+                    }
                 }
             }
         }
-    }
-    """
+        """
+        try:
+            client = get_client()
+            data = await client.query(graphql_query, {"nodes": metrics})
+            dims = data.get("commonDimensions", [])
+            return format_dimensions_compatibility(metrics, dims)
+        except Exception as e:
+            logger.error(f"Error getting common dimensions: {str(e)}")
+            return format_error(
+                str(e),
+                f"Finding common dimensions for: {', '.join(metrics)}",
+            )
 
-    try:
-        client = get_client()
-        data = await client.query(graphql_query, {"nodes": metric_names})
+    else:
+        dim_list: List[str] = dimensions  # type: ignore[assignment]  # non-None guaranteed by guard above
+        try:
+            client = get_client()
+            await client._ensure_token()
+            async with httpx.AsyncClient(
+                timeout=client.settings.request_timeout,
+            ) as http_client:
+                response = await http_client.get(
+                    f"{client.settings.dj_api_url.rstrip('/')}/dimensions/common/",
+                    params={"dimension": dim_list, "node_type": "metric"},
+                    headers=client._get_headers(),
+                )
+                response.raise_for_status()
+                nodes = response.json()
 
-        dimensions = data.get("commonDimensions", [])
-        return format_dimensions_compatibility(metric_names, dimensions)
+            lines = [
+                "Metrics compatible with dimensions:",
+                "=" * 60,
+                "",
+                f"Dimensions: {', '.join(dim_list)}",
+                "",
+            ]
+            if not nodes:
+                lines.append("No metrics found that share all specified dimensions.")
+            else:
+                lines.append(f"Found {len(nodes)} compatible metric(s):\n")
+                for node in nodes:
+                    lines.append(f"  • {node['name']}")
+            return "\n".join(lines)
 
-    except Exception as e:
-        logger.error(f"Error getting common dimensions: {str(e)}")
-        return format_error(
-            str(e),
-            f"Finding common dimensions for metrics: {', '.join(metric_names)}",
-        )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+            return format_error(
+                f"API request failed: {e.response.status_code} - {e.response.text}",
+                f"Finding metrics for dimensions: {', '.join(dim_list)}",
+            )
+        except Exception as e:
+            logger.error(f"Error getting common metrics: {str(e)}")
+            return format_error(
+                str(e),
+                f"Finding metrics for dimensions: {', '.join(dim_list)}",
+            )
 
 
 async def build_metric_sql(
@@ -585,6 +671,147 @@ async def build_metric_sql(
         return format_error(
             str(e),
             f"Building SQL for metrics: {', '.join(metrics)}",
+        )
+
+
+async def get_query_plan(
+    metrics: List[str],
+    dimensions: Optional[List[str]] = None,
+    filters: Optional[List[str]] = None,
+    dialect: Optional[str] = None,
+    use_materialized: bool = True,
+    include_temporal_filters: bool = False,
+    lookback_window: Optional[str] = None,
+) -> str:
+    """
+    Get the query execution plan for a set of metrics.
+
+    Shows how DJ decomposes metrics into grain groups (sets of metrics that share
+    a common dimensional grain), the atomic aggregation components within each group,
+    and the combiner expressions that reassemble components into final metric values.
+
+    Args:
+        metrics: List of metric node names to analyze
+        dimensions: Optional list of dimensions to group by
+        filters: Optional list of SQL filter conditions
+        dialect: Optional SQL dialect (e.g., 'spark', 'trino', 'postgres')
+        use_materialized: Whether to use materialized tables when available (default: True)
+        include_temporal_filters: Whether to include temporal partition filters (default: False)
+        lookback_window: Lookback window for temporal filters (e.g., '3 DAY', '1 WEEK')
+
+    Returns:
+        Human-readable query plan showing grain groups, components, and metric formulas
+    """
+    try:
+        client = get_client()
+        await client._ensure_token()
+
+        params: Dict[str, Any] = {
+            "metrics": metrics,
+            "dimensions": dimensions or [],
+            "filters": filters or [],
+            "use_materialized": use_materialized,
+            "include_temporal_filters": include_temporal_filters,
+        }
+        if dialect:
+            params["dialect"] = dialect
+        if lookback_window:
+            params["lookback_window"] = lookback_window
+
+        async with httpx.AsyncClient(
+            timeout=client.settings.request_timeout,
+        ) as http_client:
+            response = await http_client.get(
+                f"{client.settings.dj_api_url.rstrip('/')}/sql/measures/v3/",
+                params=params,
+                headers=client._get_headers(),
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        grain_groups = result.get("grain_groups", [])
+        metric_formulas = result.get("metric_formulas", [])
+        requested_dimensions = result.get("requested_dimensions", [])
+        dialect_str = result.get("dialect", "N/A")
+
+        lines = [
+            "Query Execution Plan",
+            "=" * 60,
+            "",
+            f"Dialect:   {dialect_str}",
+            f"Metrics:   {', '.join(metrics)}",
+            f"Dimensions: {', '.join(requested_dimensions) if requested_dimensions else 'none'}",
+            f"Grain Groups: {len(grain_groups)}",
+            "",
+        ]
+
+        # Metric formulas section
+        lines += ["Metric Formulas", "-" * 60]
+        for formula in metric_formulas:
+            derived_tag = " [derived]" if formula.get("is_derived") else ""
+            lines.append(f"  {formula['name']}{derived_tag}")
+            lines.append(f"    Original query:  {formula.get('query', 'N/A')}")
+            lines.append(f"    Combiner:        {formula.get('combiner', 'N/A')}")
+            components = formula.get("components", [])
+            if components:
+                lines.append(f"    Components:      {', '.join(components)}")
+            if formula.get("parent_name"):
+                lines.append(f"    Parent node:     {formula['parent_name']}")
+            lines.append("")
+
+        # Grain groups section
+        lines += ["Grain Groups", "-" * 60]
+        for i, gg in enumerate(grain_groups, 1):
+            gg_metrics = gg.get("metrics", [])
+            grain = gg.get("grain", [])
+            aggregability = gg.get("aggregability", "N/A")
+            parent_name = gg.get("parent_name")
+            scan_estimate = gg.get("scan_estimate")
+
+            lines.append(f"  Group {i}: {', '.join(gg_metrics)}")
+            lines.append(
+                f"    Grain:           {', '.join(grain) if grain else 'none'}",
+            )
+            lines.append(f"    Aggregability:   {aggregability}")
+            if parent_name:
+                lines.append(f"    Source node:     {parent_name}")
+            if scan_estimate is not None:
+                if isinstance(scan_estimate, (int, float)):
+                    lines.append(f"    Scan estimate:   {scan_estimate:,} rows")
+                else:
+                    lines.append(f"    Scan estimate:   {scan_estimate}")
+
+            components = gg.get("components", [])
+            if components:
+                lines.append("    Components:")
+                for comp in components:
+                    merge = comp.get("merge", "N/A")
+                    agg = comp.get("aggregation", "N/A")
+                    lines.append(
+                        f"      • {comp['name']}: {comp.get('expression', 'N/A')}"
+                        f" (agg={agg}, merge={merge})",
+                    )
+
+            lines.append("")
+            lines.append("    SQL:")
+            lines.append("    " + "-" * 56)
+            for sql_line in gg.get("sql", "").splitlines():
+                lines.append(f"    {sql_line}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+        return format_error(
+            f"API request failed: {e.response.status_code} - {e.response.text}",
+            f"Getting query plan for metrics: {', '.join(metrics)}",
+        )
+    except Exception as e:
+        logger.error(f"Error getting query plan: {str(e)}")
+        return format_error(
+            str(e),
+            f"Getting query plan for metrics: {', '.join(metrics)}",
         )
 
 
