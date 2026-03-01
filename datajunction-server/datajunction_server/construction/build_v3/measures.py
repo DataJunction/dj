@@ -1139,7 +1139,7 @@ def build_grain_group_sql(
             resolved_dimensions=resolved_dimensions,
             parent_node=parent_node,
             grain_columns=pass_through_columns,
-            filters=ctx.filters,
+            filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
             skip_aggregation=True,  # Don't add GROUP BY
         )
     else:
@@ -1151,7 +1151,7 @@ def build_grain_group_sql(
             resolved_dimensions=resolved_dimensions,
             parent_node=parent_node,
             grain_columns=effective_grain_columns,
-            filters=ctx.filters,
+            filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
         )
 
     # Build column metadata
