@@ -1,5 +1,5 @@
 ---
-title: "Using DataJunction with AI Assistants"
+title: "Using DJ with AI Assistants"
 draft: false
 images: []
 menu:
