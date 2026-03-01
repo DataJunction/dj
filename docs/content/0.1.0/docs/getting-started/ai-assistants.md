@@ -1,5 +1,5 @@
 ---
-title: "Using DataJunction with AI Assistants (MCP)"
+title: "Using DJ with AI Assistants"
 draft: false
 images: []
 menu:
@@ -9,11 +9,13 @@ weight: 10
 toc: true
 ---
 
-The DataJunction MCP (Model Context Protocol) server allows AI assistants like Claude to interact directly with your DataJunction semantic layer. Instead of writing code or crafting API queries, you can have natural conversations with AI to discover metrics, explore relationships, generate SQL, and query data.
+DataJunction integrates with AI assistants like Claude, letting you explore your semantic layer, generate SQL, and query metrics through natural conversation — without writing code or crafting API requests directly.
 
-## What is MCP?
+The integration has three components that work together:
 
-The Model Context Protocol (MCP) is an open-source standard created by Anthropic for connecting AI assistants to external systems. MCP allows Claude to discover available tools, call them with appropriate parameters, and use the results to help you work with DataJunction.
+- **MCP tools** — give Claude the ability to query your live DJ instance: search nodes, generate SQL, inspect lineage, run queries, and more. Built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io), an open standard for connecting AI assistants to external tools.
+- **DJ skill** — teaches Claude about DJ concepts: node types, YAML syntax, dimension links, cube partitions, and semantic modeling best practices. Shapes how Claude reasons about DJ, not just what it can call.
+- **DJ subagent** — a Claude Code agent with the DJ skill pre-loaded, so DJ expertise is automatically available in any Claude Code session without needing to invoke it manually.
 
 ## Installation
 
@@ -21,142 +23,51 @@ The Model Context Protocol (MCP) is an open-source standard created by Anthropic
 
 - Python 3.10 or higher
 - Access to a running DataJunction server instance
-- Claude Desktop or Claude Code (CLI)
+- Claude Code (CLI) or Claude Desktop
 
-### Install from PyPI
+### Install and set up
+
+Install the DataJunction Python client with the MCP extra:
 
 ```bash
 pip install datajunction[mcp]
 ```
 
-### Install from GitHub
-
-Install the latest version directly from GitHub:
+Then run the setup command to configure Claude Code:
 
 ```bash
-pip install git+https://github.com/DataJunction/dj.git#subdirectory=datajunction-clients/python
+dj setup-claude
 ```
 
-Install a specific branch:
+This installs all three components described above:
+1. **DJ skill** — adds DataJunction knowledge to Claude Code under `~/.claude/skills/datajunction/`
+2. **DJ subagent** — creates `~/.claude/agents/dj.md` so DJ expertise is always available
+3. **MCP server config** — adds `dj-mcp` to `~/.claude.json` pointing at your DJ instance
+
+Restart Claude Code after running to pick up the changes.
+
+**Custom DJ server URL:**
 
 ```bash
-pip install git+https://github.com/DataJunction/dj.git@branch-name#subdirectory=datajunction-clients/python
+DJ_URL=https://dj.yourcompany.com dj setup-claude
 ```
 
-### Install from Source
-
-If you've cloned the repository:
+**Selective installation** (if you only want some components):
 
 ```bash
-cd datajunction-clients/python
-uv pip install -e .
+dj setup-claude --no-mcp         # Skill + subagent only
+dj setup-claude --no-skills      # MCP + subagent only
+dj setup-claude --no-agents      # Skill + MCP only
 ```
 
-Or for development:
+## Claude Desktop
 
-```bash
-uv install
-```
-
-### Verify Installation
-
-Check that the MCP server is installed correctly:
-
-```bash
-dj-mcp --help
-```
-
-The server will start and wait for stdin/stdout communication (this is normal - it communicates via pipes, not HTTP).
-
-## Configuration
-
-{{< alert icon="💡" >}}
-**You don't need to manually run `dj-mcp`** - Claude automatically starts and stops it as needed based on your configuration.
-{{< /alert >}}
-
-### Claude Desktop
-
-The Claude Desktop configuration file is located at:
+`dj setup-claude` only configures Claude Code. For Claude Desktop, add the DJ MCP server manually to your config file:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-Edit the configuration file and add the DataJunction MCP server:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-After saving, restart Claude Desktop to load the MCP server.
-
-### Claude Code (CLI)
-
-For Claude Code, add the configuration to `~/.claude/mcp_settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-**Alternative:** You can also use a project-specific configuration by creating `.mcp.json` in your project directory:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "dj-mcp",
-      "args": [],
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
-
-### Configuration Options
-
-The MCP server supports the following environment variables:
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `DJ_API_URL` | URL of your DataJunction server | `http://localhost:8000` | Yes |
-| `DJ_API_TOKEN` | JWT token for authentication | - | No* |
-| `DJ_USERNAME` | Username for basic auth | - | No* |
-| `DJ_PASSWORD` | Password for basic auth | - | No* |
-
-\* Either provide `DJ_API_TOKEN` OR both `DJ_USERNAME` and `DJ_PASSWORD`
-
-### Configuration Examples
-
-**Local Development:**
-
 ```json
 {
   "mcpServers": {
@@ -172,7 +83,7 @@ The MCP server supports the following environment variables:
 }
 ```
 
-**Production with JWT Token:**
+To authenticate with a JWT token instead of username/password, use `DJ_API_TOKEN`:
 
 ```json
 {
@@ -188,24 +99,7 @@ The MCP server supports the following environment variables:
 }
 ```
 
-**Using a Virtual Environment:**
-
-If you installed the MCP server in a virtual environment, specify the full path:
-
-```json
-{
-  "mcpServers": {
-    "datajunction": {
-      "command": "/path/to/venv/bin/dj-mcp",
-      "env": {
-        "DJ_API_URL": "http://localhost:8000",
-        "DJ_USERNAME": "admin",
-        "DJ_PASSWORD": "admin"
-      }
-    }
-  }
-}
-```
+Restart Claude Desktop after saving.
 
 ## Available Tools
 
@@ -217,14 +111,19 @@ Once configured, the following tools are available to Claude:
 List all available namespaces with node counts. Namespaces are the primary organizational structure in DataJunction (e.g., `finance.metrics`, `growth.dimensions`).
 
 **`search_nodes`**
-Search for nodes (metrics, dimensions, cubes, sources, transforms) by name fragment. Supports filtering by type and namespace. When searching git-backed namespaces, automatically resolves to main branches (e.g., `namespace="finance"` → `"finance.main"`).
+Search for nodes (metrics, dimensions, cubes, sources, transforms). All filters are optional and combinable. When searching git-backed namespaces, automatically resolves to main branches (e.g., `namespace="finance"` → `"finance.main"`).
 
 Parameters:
-- `query` (required): Search term
-- `node_type` (optional): Filter by type (metric, dimension, cube, source, transform)
-- `namespace` (optional): Filter by namespace (highly recommended)
+- `query` (optional): Fragment of node name to search for (e.g., `revenue`)
+- `node_type` (optional): Filter by type — `metric`, `dimension`, `cube`, `source`, `transform`
+- `namespace` (optional): Filter by namespace (highly recommended to narrow results)
+- `tags` (optional): Filter to nodes tagged with ALL of these tag names (e.g., `["revenue", "core"]`)
+- `statuses` (optional): Filter by validity — `["valid"]` for healthy nodes, `["invalid"]` to find broken ones
+- `mode` (optional): Filter by `published` (production) or `draft` (in-progress work on a branch)
+- `owned_by` (optional): Filter to nodes owned by this username or email
+- `has_materialization` (optional): If `true`, return only nodes with materializations configured (default: `false`)
 - `limit` (optional): Maximum results (default: 100, max: 1000)
-- `prefer_main_branch` (optional): Auto-resolve to .main branches (default: true)
+- `prefer_main_branch` (optional): Auto-resolve to `.main` branches (default: `true`)
 
 **`get_node_details`**
 Get detailed information about a specific node including its SQL definition, metadata, tags, owners, and dependencies.
@@ -239,7 +138,7 @@ Explore upstream dependencies (what this node depends on) and downstream depende
 
 Parameters:
 - `node_name` (required): Full node name
-- `direction` (optional): "upstream", "downstream", or "both" (default: "both")
+- `direction` (optional): `upstream`, `downstream`, or `both` (default: `both`)
 - `max_depth` (optional): Maximum traversal depth
 
 **`get_node_dimensions`**
@@ -250,11 +149,33 @@ Parameters:
 
 ### Analysis & Querying
 
-**`get_common_dimensions`**
-Find dimensions that work across multiple metrics. Essential for determining whether metrics can be queried together.
+**`get_common`**
+Bidirectional semantic compatibility lookup. Provide exactly one of `metrics` or `dimensions`:
+
+- Pass `metrics` → returns the dimensions shared across all of those metrics (i.e., what can I slice these metrics by?)
+- Pass `dimensions` → returns the metrics that can be queried using all of those dimensions (i.e., what can I analyze by this dimension?)
 
 Parameters:
-- `metric_names` (required): List of metric names to analyze
+- `metrics` (optional): List of metric node names
+- `dimensions` (optional): List of dimension attribute names
+
+**`get_query_plan`**
+Get the query execution plan for a set of metrics, showing how DataJunction decomposes them internally. The plan includes:
+
+- **Grain groups** — sets of metrics that share a common dimensional grain and can be computed in a single SQL query
+- **Components** — the atomic aggregations (e.g., `SUM(amount)`, `COUNT(*)`) that feed into each metric
+- **Metric formulas** — the combiner expressions that reassemble components into final metric values
+
+Use this to understand multi-metric query structure, debug unexpected results, or validate your semantic model design.
+
+Parameters:
+- `metrics` (required): List of metric names to analyze
+- `dimensions` (optional): Dimensions to group by — affects grain group assignment
+- `filters` (optional): SQL filter conditions
+- `dialect` (optional): Target SQL dialect (e.g., `spark`, `trino`, `postgres`)
+- `use_materialized` (optional): Use materialized tables when available (default: `true`)
+- `include_temporal_filters` (optional): Include partition filters if metrics resolve to a cube with partitions (default: `false`)
+- `lookback_window` (optional): Lookback window for temporal filters when `include_temporal_filters` is `true` (e.g., `7 DAY`, `1 WEEK`)
 
 **`build_metric_sql`**
 Generate executable SQL for querying metrics with specified dimensions and filters. Returns the SQL query, output columns, and dialect.
@@ -263,28 +184,31 @@ Parameters:
 - `metrics` (required): List of metric names
 - `dimensions` (optional): List of dimensions to group by
 - `filters` (optional): SQL filter conditions
-- `orderby` (optional): Columns to order by
+- `orderby` (optional): Columns to order by (use full node names, e.g., `finance.revenue DESC`)
 - `limit` (optional): Row limit
 - `dialect` (optional): Target SQL dialect
 
 **`get_metric_data`**
-Execute a query and return actual data results. Use this when you want to see data values, not just SQL.
+Execute a query and return actual data results. Only works with materialized cubes — refuses to run expensive ad-hoc queries.
 
 Parameters:
 - `metrics` (required): List of metric names
 - `dimensions` (optional): List of dimensions to group by
 - `filters` (optional): SQL filter conditions
 - `orderby` (optional): Columns to order by
-- `limit` (optional): Row limit (recommended to avoid large result sets)
-- `use_materialized` (optional): Whether to use materialized tables (default: true)
+- `limit` (optional): Row limit (recommended)
 
 ## Usage Examples
 
 Once configured, you can ask Claude questions like:
 
 - "What namespaces are available in DataJunction?"
-- "Show me revenue metrics in the finance namespace"
+- "Show me all published revenue metrics in the finance namespace"
+- "Which metrics have a materialization configured?"
+- "Find all invalid nodes in the growth namespace"
 - "What dimensions do revenue and cost metrics have in common?"
+- "Which metrics can I slice by `common.dimensions.date.dateint`?"
+- "Show me the query plan for `finance.revenue` and `finance.orders` together"
 - "Generate SQL to query daily revenue grouped by region"
 - "What nodes depend on the users dimension?"
 - "Show me actual revenue data for the last 7 days by region"
@@ -361,7 +285,7 @@ Enable debug logging by checking Claude Code's debug logs:
 tail -f ~/.claude/debug/latest
 ```
 
-This shows all MCP communication and API requests.
+The MCP server also writes its own debug log to `~/.dj_mcp_debug.log`.
 
 ## Architecture
 
