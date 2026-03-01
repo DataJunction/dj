@@ -490,7 +490,7 @@ async def test_get_node_details_with_git_info():
 
 
 # ============================================================================
-# get_common_dimensions Tests
+# get_common Tests (bidirectional: metrics→dimensions, dimensions→metrics)
 # ============================================================================
 
 
