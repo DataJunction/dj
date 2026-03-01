@@ -2811,14 +2811,19 @@ class FunctionTable(FunctionTableExpression):
             if ctx:
                 await arg.compile(ctx)
             arg_types.append(arg.type)
-        return dj_func.infer_type(*arg_types)
+        print(f"DEBUG _type: About to call {name}.infer_type")
+        result = dj_func.infer_type(*arg_types)
+        print(f"DEBUG _type: result={result}")
+        return result
 
     async def compile(self, ctx):
         if self.is_compiled():
             return
         self._is_compiled = True
         types = await self._type(ctx)
-        for type, col in zip_longest(types, self.column_list):
+        print(f"DEBUG compile: types={types}")
+        print(f"DEBUG compile: self.column_list={self.column_list}")
+        for type, col in zip_longest(types, self.column_list or []):
             if self.column_list:
                 if (type is None) or (col is None):
                     ctx.exception.errors.append(

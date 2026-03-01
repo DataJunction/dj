@@ -1609,6 +1609,21 @@ async def test_explode_outer_func(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_range(session: AsyncSession):
+    """
+    Test the `range` function
+    """
+    query = parse(
+        "SELECT id FROM range(1, 10, 2)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_expm1_func(session: AsyncSession):
     """
     Test the `expm1` function
