@@ -1,5 +1,5 @@
 ---
-title: "Using DataJunction with AI Assistants (MCP)"
+title: "Using DataJunction with AI Assistants"
 draft: false
 images: []
 menu:
@@ -74,7 +74,42 @@ The server will start and wait for stdin/stdout communication (this is normal - 
 **You don't need to manually run `dj-mcp`** - Claude automatically starts and stops it as needed based on your configuration.
 {{< /alert >}}
 
-### Claude Desktop
+### Quick Setup with `dj setup-claude` (Recommended)
+
+The fastest way to configure everything is to run the setup command after installing the client:
+
+```bash
+pip install datajunction[mcp]
+dj setup-claude
+```
+
+This single command:
+1. **Installs the DJ skill** — adds DataJunction-specific knowledge to Claude Code under `~/.claude/skills/datajunction/`
+2. **Installs the DJ subagent** — creates `~/.claude/agents/dj.md`, a Claude Code subagent with the datajunction skill pre-loaded so it activates automatically for DJ work
+3. **Configures the MCP server** — adds `dj-mcp` to your `~/.claude.json` config with the right environment variables
+
+After running, restart Claude Code to pick up the changes.
+
+**Options:**
+
+```bash
+dj setup-claude                  # Install everything (default)
+dj setup-claude --no-mcp         # Skills + subagent only (no MCP config)
+dj setup-claude --no-skills      # MCP + subagent only
+dj setup-claude --no-agents      # Skills + MCP only (no subagent)
+```
+
+**Custom DJ server URL:**
+
+```bash
+DJ_URL=https://dj.yourcompany.com dj setup-claude
+```
+
+### Manual Configuration
+
+If you prefer to configure manually or are using Claude Desktop, follow the steps below.
+
+#### Claude Desktop
 
 The Claude Desktop configuration file is located at:
 
@@ -102,9 +137,9 @@ Edit the configuration file and add the DataJunction MCP server:
 
 After saving, restart Claude Desktop to load the MCP server.
 
-### Claude Code (CLI)
+#### Claude Code (CLI)
 
-For Claude Code, add the configuration to `~/.claude/mcp_settings.json`:
+For Claude Code, add the configuration to `~/.claude.json`:
 
 ```json
 {
@@ -217,14 +252,19 @@ Once configured, the following tools are available to Claude:
 List all available namespaces with node counts. Namespaces are the primary organizational structure in DataJunction (e.g., `finance.metrics`, `growth.dimensions`).
 
 **`search_nodes`**
-Search for nodes (metrics, dimensions, cubes, sources, transforms) by name fragment. Supports filtering by type and namespace. When searching git-backed namespaces, automatically resolves to main branches (e.g., `namespace="finance"` → `"finance.main"`).
+Search for nodes (metrics, dimensions, cubes, sources, transforms). All filters are optional and combinable. When searching git-backed namespaces, automatically resolves to main branches (e.g., `namespace="finance"` → `"finance.main"`).
 
 Parameters:
-- `query` (required): Search term
-- `node_type` (optional): Filter by type (metric, dimension, cube, source, transform)
-- `namespace` (optional): Filter by namespace (highly recommended)
+- `query` (optional): Fragment of node name to search for (e.g., `revenue`)
+- `node_type` (optional): Filter by type — `metric`, `dimension`, `cube`, `source`, `transform`
+- `namespace` (optional): Filter by namespace (highly recommended to narrow results)
+- `tags` (optional): Filter to nodes tagged with ALL of these tag names (e.g., `["revenue", "core"]`)
+- `statuses` (optional): Filter by validity — `["valid"]` for healthy nodes, `["invalid"]` to find broken ones
+- `mode` (optional): Filter by `published` (production) or `draft` (in-progress work on a branch)
+- `owned_by` (optional): Filter to nodes owned by this username or email
+- `has_materialization` (optional): If `true`, return only nodes with materializations configured (default: `false`)
 - `limit` (optional): Maximum results (default: 100, max: 1000)
-- `prefer_main_branch` (optional): Auto-resolve to .main branches (default: true)
+- `prefer_main_branch` (optional): Auto-resolve to `.main` branches (default: `true`)
 
 **`get_node_details`**
 Get detailed information about a specific node including its SQL definition, metadata, tags, owners, and dependencies.
@@ -239,7 +279,7 @@ Explore upstream dependencies (what this node depends on) and downstream depende
 
 Parameters:
 - `node_name` (required): Full node name
-- `direction` (optional): "upstream", "downstream", or "both" (default: "both")
+- `direction` (optional): `upstream`, `downstream`, or `both` (default: `both`)
 - `max_depth` (optional): Maximum traversal depth
 
 **`get_node_dimensions`**
@@ -250,11 +290,33 @@ Parameters:
 
 ### Analysis & Querying
 
-**`get_common_dimensions`**
-Find dimensions that work across multiple metrics. Essential for determining whether metrics can be queried together.
+**`get_common`**
+Bidirectional semantic compatibility lookup. Provide exactly one of `metrics` or `dimensions`:
+
+- Pass `metrics` → returns the dimensions shared across all of those metrics (i.e., what can I slice these metrics by?)
+- Pass `dimensions` → returns the metrics that can be queried using all of those dimensions (i.e., what can I analyze by this dimension?)
 
 Parameters:
-- `metric_names` (required): List of metric names to analyze
+- `metrics` (optional): List of metric node names
+- `dimensions` (optional): List of dimension attribute names
+
+**`get_query_plan`**
+Get the query execution plan for a set of metrics, showing how DataJunction decomposes them internally. The plan includes:
+
+- **Grain groups** — sets of metrics that share a common dimensional grain and can be computed in a single SQL query
+- **Components** — the atomic aggregations (e.g., `SUM(amount)`, `COUNT(*)`) that feed into each metric
+- **Metric formulas** — the combiner expressions that reassemble components into final metric values
+
+Use this to understand multi-metric query structure, debug unexpected results, or validate your semantic model design.
+
+Parameters:
+- `metrics` (required): List of metric names to analyze
+- `dimensions` (optional): Dimensions to group by — affects grain group assignment
+- `filters` (optional): SQL filter conditions
+- `dialect` (optional): Target SQL dialect (e.g., `spark`, `trino`, `postgres`)
+- `use_materialized` (optional): Use materialized tables when available (default: `true`)
+- `include_temporal_filters` (optional): Include partition filters if metrics resolve to a cube with partitions (default: `false`)
+- `lookback_window` (optional): Lookback window for temporal filters when `include_temporal_filters` is `true` (e.g., `7 DAY`, `1 WEEK`)
 
 **`build_metric_sql`**
 Generate executable SQL for querying metrics with specified dimensions and filters. Returns the SQL query, output columns, and dialect.
@@ -263,28 +325,31 @@ Parameters:
 - `metrics` (required): List of metric names
 - `dimensions` (optional): List of dimensions to group by
 - `filters` (optional): SQL filter conditions
-- `orderby` (optional): Columns to order by
+- `orderby` (optional): Columns to order by (use full node names, e.g., `finance.revenue DESC`)
 - `limit` (optional): Row limit
 - `dialect` (optional): Target SQL dialect
 
 **`get_metric_data`**
-Execute a query and return actual data results. Use this when you want to see data values, not just SQL.
+Execute a query and return actual data results. Only works with materialized cubes — refuses to run expensive ad-hoc queries.
 
 Parameters:
 - `metrics` (required): List of metric names
 - `dimensions` (optional): List of dimensions to group by
 - `filters` (optional): SQL filter conditions
 - `orderby` (optional): Columns to order by
-- `limit` (optional): Row limit (recommended to avoid large result sets)
-- `use_materialized` (optional): Whether to use materialized tables (default: true)
+- `limit` (optional): Row limit (recommended)
 
 ## Usage Examples
 
 Once configured, you can ask Claude questions like:
 
 - "What namespaces are available in DataJunction?"
-- "Show me revenue metrics in the finance namespace"
+- "Show me all published revenue metrics in the finance namespace"
+- "Which metrics have a materialization configured?"
+- "Find all invalid nodes in the growth namespace"
 - "What dimensions do revenue and cost metrics have in common?"
+- "Which metrics can I slice by `common.dimensions.date.dateint`?"
+- "Show me the query plan for `finance.revenue` and `finance.orders` together"
 - "Generate SQL to query daily revenue grouped by region"
 - "What nodes depend on the users dimension?"
 - "Show me actual revenue data for the last 7 days by region"
@@ -361,7 +426,7 @@ Enable debug logging by checking Claude Code's debug logs:
 tail -f ~/.claude/debug/latest
 ```
 
-This shows all MCP communication and API requests.
+The MCP server also writes its own debug log to `~/.dj_mcp_debug.log`.
 
 ## Architecture
 
