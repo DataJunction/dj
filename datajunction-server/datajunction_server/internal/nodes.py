@@ -2787,6 +2787,7 @@ async def mark_node_as_missing_parent(
     node_name: str,
     node: Optional[Node],
     invalidate_downstreams: bool = True,
+    remove_parent_relationships: bool = False,
     current_user: Optional[User] = None,
     save_history: Optional[Callable] = None,
 ) -> tuple[MissingParent, list[Node]]:
@@ -2798,6 +2799,7 @@ async def mark_node_as_missing_parent(
         node_name: Name of the missing/deleted node
         node: The Node object (if available, for removing from parents)
         invalidate_downstreams: Whether to mark downstream nodes as invalid
+        remove_parent_relationships: Whether to remove from parents (True for hard delete, False for deactivation)
         current_user: Current user (required if invalidate_downstreams=True)
         save_history: History callback (required if invalidate_downstreams=True)
 
@@ -2849,8 +2851,8 @@ async def mark_node_as_missing_parent(
         if missing_parent not in downstream.current.missing_parents:
             downstream.current.missing_parents.append(missing_parent)
 
-        # Remove from parents if node object is available
-        if node and node in downstream.current.parents:
+        # Remove from parents only if requested (for hard delete, not deactivation)
+        if remove_parent_relationships and node and node in downstream.current.parents:
             downstream.current.parents.remove(node)
 
         session.add(downstream)
@@ -2874,11 +2876,13 @@ async def deactivate_node(
     node = await Node.get_by_name(session, name)
 
     # Mark node as missing parent and update downstream nodes
+    # For deactivation, we keep parent relationships intact so upstream queries can still find them
     _, _ = await mark_node_as_missing_parent(
         session=session,
         node_name=name,
         node=node,
         invalidate_downstreams=True,
+        remove_parent_relationships=False,  # Keep relationships for deactivation
         current_user=current_user,
         save_history=save_history,
     )
@@ -2953,56 +2957,30 @@ async def activate_node(
         f"Activating node {name}, missing_parent found: {missing_parent is not None}",
     )
 
-    # Find downstream nodes using BOTH methods:
-    # 1. Via NodeRelationship (for nodes that still have the relationship)
-    # 2. Via MissingParent (for nodes that were invalidated and had parent removed)
-    loading_options = [
-        selectinload(Node.current).options(
-            selectinload(NodeRevision.columns).options(
-                selectinload(Column.attributes).joinedload(
-                    ColumnAttribute.attribute_type,
-                ),
-                selectinload(Column.dimension),
-            ),
-            selectinload(NodeRevision.parents),
-            selectinload(NodeRevision.missing_parents),
-            selectinload(NodeRevision.cube_elements).selectinload(
-                Column.node_revision,
-            ),
-        ),
-    ]
-
-    # Get downstreams via NodeRelationship
-    downstreams_via_relationship = await get_downstream_nodes(
+    # Find downstream nodes that need revalidation
+    # Since we keep parent relationships during deactivation (only remove on hard delete),
+    # we can use the normal get_downstream_nodes which uses NodeRelationship
+    downstreams = await get_downstream_nodes(
         session,
         node.name,
-        options=loading_options,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    selectinload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    selectinload(Column.dimension),
+                ),
+                selectinload(NodeRevision.parents),
+                selectinload(NodeRevision.missing_parents),
+                selectinload(NodeRevision.cube_elements).selectinload(
+                    Column.node_revision,
+                ),
+            ),
+        ],
     )
     _logger.info(
-        f"Found {len(downstreams_via_relationship)} downstreams via NodeRelationship",
-    )
-
-    # Get downstreams via MissingParent
-    downstreams_via_missing = []
-    if missing_parent:
-        downstreams_via_missing = await get_downstreams_via_missing_parent(
-            session,
-            missing_parent,
-            options=loading_options,
-        )
-        _logger.info(
-            f"Found {len(downstreams_via_missing)} downstreams via MissingParent",
-        )
-
-    # Combine and deduplicate by node ID
-    downstreams_dict = {node.id: node for node in downstreams_via_relationship}
-    for node_obj in downstreams_via_missing:
-        if node_obj.id not in downstreams_dict:
-            downstreams_dict[node_obj.id] = node_obj
-    downstreams = list(downstreams_dict.values())
-
-    _logger.info(
-        f"Found {len(downstreams)} total downstream nodes to revalidate (after deduplication)",
+        f"Found {len(downstreams)} downstream nodes to revalidate",
     )
     for downstream in downstreams:
         _logger.info(f"Processing downstream: {downstream.name}")
@@ -3290,11 +3268,13 @@ async def hard_delete_node(
     )
 
     # Mark node as missing parent and update downstream nodes (without invalidating)
+    # For hard delete, we remove parent relationships since the node is being permanently deleted
     _, downstream_nodes = await mark_node_as_missing_parent(
         session=session,
         node_name=name,
         node=node,
         invalidate_downstreams=False,
+        remove_parent_relationships=True,  # Remove relationships for hard delete
     )
 
     linked_nodes = []
