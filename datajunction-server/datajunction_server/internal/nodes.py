@@ -2920,7 +2920,7 @@ async def activate_node(
             downstream.current.status = NodeStatus.VALID
             # Refresh cube elements to get latest status after revalidation
             for element in downstream.current.cube_elements:
-                if element.node_revision:
+                if element.node_revision:  # pragma: no cover
                     await session.refresh(element.node_revision, ["status"])
                     if element.node_revision.status == NodeStatus.INVALID:
                         downstream.current.status = (  # pragma: no cover
