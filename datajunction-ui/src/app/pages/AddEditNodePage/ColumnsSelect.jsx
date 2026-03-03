@@ -21,10 +21,12 @@ export const ColumnsSelect = ({
 
   // The available columns, determined from validating the node query
   const [availableColumns, setAvailableColumns] = useState([]);
+  const [validationError, setValidationError] = useState(null);
   const selectableOptions = useMemo(() => {
     if (availableColumns && availableColumns.length > 0) {
       return availableColumns;
     }
+    return [];
   }, [availableColumns]);
 
   // Fetch columns by validating the latest node query
@@ -41,9 +43,18 @@ export const ColumnsSelect = ({
         setAvailableColumns(
           json.columns.map(col => ({ value: col.name, label: col.name })),
         );
+        setValidationError(null);
+      } else if (json?.message) {
+        setValidationError(json.message);
+        setAvailableColumns([]);
       }
     } catch (error) {
       console.error('Error fetching columns:', error);
+      setValidationError(
+        error.message ||
+          'Failed to validate query. Please check your query syntax.',
+      );
+      setAvailableColumns([]);
     }
   };
 
@@ -57,6 +68,22 @@ export const ColumnsSelect = ({
       <label htmlFor={fieldName} style={labelStyle}>
         {label}
       </label>
+      {validationError && (
+        <div
+          className="validation-error"
+          style={{
+            color: '#d32f2f',
+            fontSize: '0.875rem',
+            marginBottom: '8px',
+            padding: '8px',
+            backgroundColor: '#ffebee',
+            borderRadius: '4px',
+            border: '1px solid #ef9a9a',
+          }}
+        >
+          <strong>Validation Error:</strong> {validationError}
+        </div>
+      )}
       <span data-testid={`select-${fieldName}`}>
         <FormikSelect
           className={isMulti ? 'MultiSelectInput' : 'SelectInput'}

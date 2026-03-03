@@ -325,6 +325,7 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_unit',
       'metric_direction',
       'significant_digits',
+      'required_dimensions',
       'owners',
       'custom_metadata',
     ];
