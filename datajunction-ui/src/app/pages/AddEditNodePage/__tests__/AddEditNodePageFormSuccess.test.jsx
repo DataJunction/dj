@@ -201,7 +201,7 @@ describe('AddEditNodePage submission succeeded', () => {
         '',
         '',
         '',
-        undefined,
+        '',
         ['dj'],
         null,
       );
@@ -270,7 +270,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'neutral',
         'unitless',
         5,
-        undefined,
+        '',
         ['dj'],
         { key1: 'value1', key2: 'value2' },
       );
