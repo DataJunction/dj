@@ -8,6 +8,7 @@ import LoadingIcon from '../icons/LoadingIcon';
  * @param {Object} props
  * @param {string} props.title - Section title
  * @param {string} [props.actionLink] - Optional link URL for "View All" or other action
+ * @param {Function} [props.onActionClick] - Optional click handler (takes precedence over actionLink)
  * @param {string} [props.actionText] - Text for action link (defaults to "View All →")
  * @param {boolean} [props.loading] - Show loading spinner
  * @param {React.ReactNode} [props.emptyState] - Content to show when empty (if loading is false and no children)
@@ -19,6 +20,7 @@ import LoadingIcon from '../icons/LoadingIcon';
 export function DashboardCard({
   title,
   actionLink,
+  onActionClick,
   actionText = 'View All →',
   loading = false,
   emptyState = null,
@@ -39,11 +41,26 @@ export function DashboardCard({
       {showHeader && (
         <div className="section-title-row">
           <h2 className="settings-section-title">{title}</h2>
-          {actionLink && (
+          {onActionClick ? (
+            <button
+              onClick={onActionClick}
+              style={{
+                fontSize: '13px',
+                background: 'none',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                padding: 0,
+                textDecoration: 'underline',
+              }}
+            >
+              {actionText}
+            </button>
+          ) : actionLink ? (
             <Link to={actionLink} style={{ fontSize: '13px' }}>
               {actionText}
             </Link>
-          )}
+          ) : null}
         </div>
       )}
       <div

@@ -2770,4 +2770,119 @@ export const DataJunctionAPI = {
     }
     return result;
   },
+
+  // ============================================================
+  // Collection Management APIs
+  // ============================================================
+
+  // Create a new collection
+  createCollection: async function (name, description) {
+    const response = await fetch(`${DJ_URL}/collections/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, description }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || result.detail || 'Failed to create collection',
+      };
+    }
+    return result;
+  },
+
+  // Get a collection with its nodes
+  getCollection: async function (name) {
+    const response = await fetch(`${DJ_URL}/collections/${name}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || result.detail || 'Failed to fetch collection',
+      };
+    }
+    return await response.json();
+  },
+
+  // Add nodes to a collection
+  addNodesToCollection: async function (collectionName, nodeNames) {
+    const response = await fetch(
+      `${DJ_URL}/collections/${collectionName}/nodes/`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(nodeNames),
+      },
+    );
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || result.detail || 'Failed to add nodes',
+      };
+    }
+    // 204 No Content on success
+    return { success: true };
+  },
+
+  // Remove nodes from a collection
+  removeNodesFromCollection: async function (collectionName, nodeNames) {
+    const response = await fetch(
+      `${DJ_URL}/collections/${collectionName}/remove/`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(nodeNames),
+      },
+    );
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || result.detail || 'Failed to remove nodes',
+      };
+    }
+    // 204 No Content on success
+    return { success: true };
+  },
+
+  // Delete a collection
+  deleteCollection: async function (name) {
+    const response = await fetch(`${DJ_URL}/collections/${name}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return {
+        ...result,
+        _error: true,
+        _status: response.status,
+        message: result.message || result.detail || 'Failed to delete collection',
+      };
+    }
+    // 204 No Content on success
+    return { success: true };
+  },
 };

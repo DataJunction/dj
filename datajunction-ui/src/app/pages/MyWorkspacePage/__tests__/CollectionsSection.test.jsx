@@ -6,9 +6,26 @@ import DJClientContext from '../../../providers/djclient';
 
 jest.mock('../MyWorkspacePage.css', () => ({}));
 
+// Mock the modal components
+jest.mock('../../../components/collections/CreateCollectionModal', () => ({
+  __esModule: true,
+  default: ({ isOpen }) =>
+    isOpen ? <div data-testid="create-modal">Create Modal</div> : null,
+}));
+
+jest.mock('../../../components/collections/ViewCollectionModal', () => ({
+  __esModule: true,
+  default: ({ isOpen, collectionName }) =>
+    isOpen ? (
+      <div data-testid="view-modal">View Modal: {collectionName}</div>
+    ) : null,
+}));
+
 describe('<CollectionsSection />', () => {
   const mockDjClient = {
     listAllCollections: jest.fn(),
+    createCollection: jest.fn(),
+    getCollection: jest.fn(),
   };
 
   const mockCollections = [
@@ -195,9 +212,9 @@ describe('<CollectionsSection />', () => {
     });
 
     await waitFor(() => {
-      const links = screen.getAllByRole('link');
-      // Should have at most 9 links (8 collections + 1 "Create Collection")
-      expect(links.length).toBeLessThanOrEqual(9);
+      // Should display only 8 collections
+      const displayedCollections = screen.queryAllByText(/^collection_/);
+      expect(displayedCollections.length).toBeLessThanOrEqual(8);
     });
   });
 
@@ -263,16 +280,67 @@ describe('<CollectionsSection />', () => {
       expect(screen.getByText('my_collection')).toBeInTheDocument();
     });
 
-    const collectionLink = screen.getByText('my_collection').closest('a');
+    const collectionCard = screen.getByText('my_collection').closest('div');
 
     // Test mouse enter - should change styles
-    if (collectionLink) {
-      fireEvent.mouseEnter(collectionLink);
-      expect(collectionLink).toBeInTheDocument();
+    if (collectionCard) {
+      fireEvent.mouseEnter(collectionCard);
+      expect(collectionCard).toBeInTheDocument();
 
       // Test mouse leave - should reset styles
-      fireEvent.mouseLeave(collectionLink);
-      expect(collectionLink).toBeInTheDocument();
+      fireEvent.mouseLeave(collectionCard);
+      expect(collectionCard).toBeInTheDocument();
+    }
+  });
+
+  it('should open create modal when clicking create button', async () => {
+    mockDjClient.listAllCollections.mockResolvedValue({
+      data: { listCollections: [] },
+    });
+
+    renderWithContext({
+      collections: [],
+      loading: false,
+      currentUser: mockCurrentUser,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('+ Create Collection')).toBeInTheDocument();
+    });
+
+    const createButton = screen.getByText('+ Create Collection');
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-modal')).toBeInTheDocument();
+    });
+  });
+
+  it('should open view modal when clicking a collection card', async () => {
+    mockDjClient.listAllCollections.mockResolvedValue({
+      data: { listCollections: mockCollections },
+    });
+
+    renderWithContext({
+      collections: [],
+      loading: false,
+      currentUser: mockCurrentUser,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('my_collection')).toBeInTheDocument();
+    });
+
+    const collectionCard = screen.getByText('my_collection').closest('div');
+    if (collectionCard) {
+      fireEvent.click(collectionCard);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('view-modal')).toBeInTheDocument();
+        expect(
+          screen.getByText('View Modal: my_collection'),
+        ).toBeInTheDocument();
+      });
     }
   });
 });

@@ -3,29 +3,60 @@ import { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DJClientContext from '../../providers/djclient';
 import DashboardCard from '../../components/DashboardCard';
+import CreateCollectionModal from '../../components/collections/CreateCollectionModal';
+import ViewCollectionModal from '../../components/collections/ViewCollectionModal';
 
 // Collections Section (includes featured + my collections)
 export function CollectionsSection({ collections, loading, currentUser }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [allCollections, setAllCollections] = useState([]);
   const [allLoading, setAllLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedCollection, setSelectedCollection] = useState(null);
+
+  const fetchAllCollections = async () => {
+    try {
+      const response = await djClient.listAllCollections();
+      console.log('All collections response:', response);
+      const all = response?.data?.listCollections || [];
+      setAllCollections(all);
+    } catch (error) {
+      console.error('Error fetching all collections:', error);
+      // Fall back to user's collections if fetching all fails
+      setAllCollections(collections);
+    }
+    setAllLoading(false);
+  };
 
   useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const response = await djClient.listAllCollections();
-        console.log('All collections response:', response);
-        const all = response?.data?.listCollections || [];
-        setAllCollections(all);
-      } catch (error) {
-        console.error('Error fetching all collections:', error);
-        // Fall back to user's collections if fetching all fails
-        setAllCollections(collections);
-      }
-      setAllLoading(false);
-    };
-    fetchAll();
+    fetchAllCollections();
   }, [djClient, collections]);
+
+  const handleCreateCollection = async (name, description) => {
+    const result = await djClient.createCollection(name, description);
+    if (!result._error) {
+      // Refresh collections list after creation
+      await fetchAllCollections();
+    }
+    return result;
+  };
+
+  const handleCloseCreateModal = () => {
+    setShowCreateModal(false);
+  };
+
+  const handleOpenViewModal = collectionName => {
+    setSelectedCollection(collectionName);
+    setShowViewModal(true);
+  };
+
+  const handleCloseViewModal = () => {
+    setShowViewModal(false);
+    setSelectedCollection(null);
+    // Refresh collections list in case nodes were removed
+    fetchAllCollections();
+  };
 
   // Sort: user's collections first, then others
   // If allCollections is empty, fall back to the collections prop
@@ -47,10 +78,12 @@ export function CollectionsSection({ collections, loading, currentUser }) {
       : createdByUsername?.split('@')[0] || 'unknown';
 
     return (
-      <a
+      <div
         key={collection.name}
-        href={`/collections/${collection.name}`}
+        onClick={() => handleOpenViewModal(collection.name)}
         style={{
+          cursor: 'pointer',
+          cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
           padding: '1rem',
@@ -60,7 +93,6 @@ export function CollectionsSection({ collections, loading, currentUser }) {
           color: 'inherit',
           transition: 'all 0.15s ease',
           backgroundColor: 'var(--card-bg, #fff)',
-          cursor: 'pointer',
         }}
         onMouseEnter={e => {
           e.currentTarget.style.borderColor = 'var(--primary-color, #007bff)';
@@ -123,18 +155,29 @@ export function CollectionsSection({ collections, loading, currentUser }) {
             by {ownerDisplay}
           </span>
         </div>
-      </a>
+      </div>
     );
   });
 
   return (
-    <DashboardCard
-      title="Collections"
-      actionLink="/collections"
-      actionText="+ Create"
-      loading={loading || allLoading}
-      cardStyle={{ padding: '0.75rem', minHeight: '200px' }}
-      emptyState={
+    <>
+      <CreateCollectionModal
+        isOpen={showCreateModal}
+        onClose={handleCloseCreateModal}
+        onCreate={handleCreateCollection}
+      />
+      <ViewCollectionModal
+        isOpen={showViewModal}
+        onClose={handleCloseViewModal}
+        collectionName={selectedCollection}
+      />
+      <DashboardCard
+        title="Collections"
+        actionText="+ Create"
+        onActionClick={() => setShowCreateModal(true)}
+        loading={loading || allLoading}
+        cardStyle={{ padding: '0.75rem', minHeight: '200px' }}
+        emptyState={
         <div style={{ padding: '1rem', textAlign: 'center' }}>
           <div
             style={{ fontSize: '48px', marginBottom: '0.5rem', opacity: 0.3 }}
@@ -154,21 +197,22 @@ export function CollectionsSection({ collections, loading, currentUser }) {
           >
             Group related metrics and dimensions together for easier discovery
           </p>
-          <Link
-            to="/collections"
+          <button
+            onClick={() => setShowCreateModal(true)}
             style={{
               display: 'inline-block',
               padding: '6px 12px',
               fontSize: '11px',
               backgroundColor: 'var(--primary-color, #4a90d9)',
               color: '#fff',
+              border: 'none',
               borderRadius: '6px',
-              textDecoration: 'none',
+              cursor: 'pointer',
               fontWeight: '500',
             }}
           >
             + Create Collection
-          </Link>
+          </button>
         </div>
       }
     >
@@ -184,5 +228,6 @@ export function CollectionsSection({ collections, loading, currentUser }) {
         </div>
       )}
     </DashboardCard>
+    </>
   );
 }
