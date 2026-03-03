@@ -41,7 +41,7 @@ export const FormikSelect = ({
 
   // Convert Formik field value to React Select format
   const getSelectValue = () => {
-    if (!field.value) {
+    if (!field.value || !selectOptions) {
       return isMulti ? [] : null;
     }
 
