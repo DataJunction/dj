@@ -201,7 +201,7 @@ describe('AddEditNodePage submission succeeded', () => {
         '',
         '',
         '',
-        '',
+        undefined,
         ['dj'],
         null,
       );
