@@ -2907,7 +2907,9 @@ async def activate_node(
         _logger.info(f"Processing downstream: {downstream.name}")
 
         # Remove from missing_parents and add back to parents
-        if missing_parent and missing_parent in downstream.current.missing_parents:
+        if (  # pragma: no branch
+            missing_parent and missing_parent in downstream.current.missing_parents
+        ):
             downstream.current.missing_parents.remove(missing_parent)
         if node not in downstream.current.parents:
             downstream.current.parents.append(node)
