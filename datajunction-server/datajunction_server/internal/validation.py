@@ -21,6 +21,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 
 @dataclass
@@ -104,6 +105,45 @@ async def validate_node_data(
             DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions)),
         )
         return node_validator
+
+    # Parse parent column types before type inference
+    # This ensures that map/list/struct types are properly parsed before being used
+    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+
+    for parent in dependencies_map.keys():
+        for col in parent.columns:
+            # If the column type is a string or plain ColumnType, parse it
+            if isinstance(col.type, str) or (
+                type(col.type).__name__ == "ColumnType"
+                and not isinstance(col.type, (MapType, ListType, StructType))
+            ):
+                try:
+                    col.type = parse_rule(str(col.type), "dataType")
+                except Exception:
+                    # If parsing fails, leave the original type
+                    pass
+
+    # Update AST Column nodes with the newly parsed types
+    # During extract_dependencies/compilation, AST Columns were created with _type from
+    # database columns. Now that we've parsed the types, update the AST Column cache.
+    def update_ast_column_types(node):
+        """Recursively update AST Column _type from parsed database columns"""
+        if (
+            isinstance(node, ast.Column)
+            and node._table
+            and hasattr(node._table, "dj_node")
+        ):
+            # Find the corresponding database column
+            for db_col in node._table.dj_node.columns:
+                if db_col.name == node.name.name:
+                    # Update the cached type
+                    node._type = db_col.type
+                    break
+        # Recursively update child nodes
+        for child in node.children:
+            update_ast_column_types(child)
+
+    update_ast_column_types(query_ast)
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -216,7 +256,9 @@ async def validate_node_data(
         column_name = col.alias_or_name.name  # type: ignore
         existing_column = column_mapping.get(column_name)
         try:
-            column_type = str(col.type)  # type: ignore
+            # Use the parsed ColumnType object directly instead of converting to string
+            # This ensures proper type information (MapType, ListType, etc.) is preserved
+            column_type = col.type  # type: ignore
             column = Column(
                 name=column_name.lower()
                 if validated_node.type != NodeType.METRIC
@@ -251,7 +293,7 @@ async def validate_node_data(
     # Find required dimension columns from full dimension paths
     # e.g., "dimensions.date.dateint" -> find column "dateint" on node "dimensions.date"
     try:
-        # Get parent columns for short name lookups
+        # Get parent columns for short name lookups (already parsed above)
         parent_columns = [
             col for parent in dependencies_map.keys() for col in parent.columns
         ]
