@@ -1105,7 +1105,8 @@ class NodeRevision(
         secondary="nodemissingparents",
         primaryjoin="NodeRevision.id==NodeMissingParents.referencing_node_id",
         secondaryjoin="MissingParent.id==NodeMissingParents.missing_parent_id",
-        cascade="all, delete",
+        # Don't cascade delete MissingParents - they may be referenced by other nodes
+        # Only delete the association (join table entry) when NodeRevision is deleted
     )
 
     columns: Mapped[List["Column"]] = relationship(
