@@ -147,7 +147,10 @@ export function AddEditNodePage({ extensions = {} }) {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_unit,
-      values.required_dimensions,
+      // Only send required_dimensions if it's set (for metrics)
+      values.required_dimensions && Array.isArray(values.required_dimensions)
+        ? values.required_dimensions
+        : undefined,
       parseCustomMetadata(values.custom_metadata),
     );
     if (status === 200 || status === 201) {
@@ -182,7 +185,10 @@ export function AddEditNodePage({ extensions = {} }) {
       values.metric_direction,
       values.metric_unit,
       values.significant_digits,
-      values.required_dimensions,
+      // Only send required_dimensions if it's set (for metrics)
+      values.required_dimensions && Array.isArray(values.required_dimensions)
+        ? values.required_dimensions
+        : undefined,
       values.owners,
       parseCustomMetadata(values.custom_metadata),
     );
