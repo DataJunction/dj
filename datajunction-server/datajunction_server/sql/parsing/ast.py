@@ -2479,19 +2479,22 @@ class Subscript(Expression):
 
     @property
     def type(self) -> ColumnType:
-        if isinstance(self.expr.type, MapType):
-            type_ = cast(MapType, self.expr.type)
+        expr_type = self.expr.type
+
+        if isinstance(expr_type, MapType):
+            type_ = cast(MapType, expr_type)
             return type_.value.type
-        if isinstance(self.expr.type, StructType):
-            nested_field = self.expr.type.fields_mapping.get(
+        if isinstance(expr_type, StructType):
+            nested_field = expr_type.fields_mapping.get(
                 self.index.value.replace("'", ""),
             )
             return nested_field.type
-        if isinstance(self.expr.type, ListType):
-            return self.expr.type.element.type
+        if isinstance(expr_type, ListType):
+            return expr_type.element.type
         # If it's not a subscriptable type, raise an error
         raise DJParseException(
-            f"Cannot subscript expression of type {self.expr.type}. "
+            f"Cannot subscript expression of type {expr_type} "
+            f"(Python type: {type(expr_type).__name__}). "
             f"Expected MapType, StructType, or ListType.",
         )
 
