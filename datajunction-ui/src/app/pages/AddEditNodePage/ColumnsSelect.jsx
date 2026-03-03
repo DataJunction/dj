@@ -51,7 +51,8 @@ export const ColumnsSelect = ({
     } catch (error) {
       console.error('Error fetching columns:', error);
       setValidationError(
-        error.message || 'Failed to validate query. Please check your query syntax.',
+        error.message ||
+          'Failed to validate query. Please check your query syntax.',
       );
       setAvailableColumns([]);
     }
