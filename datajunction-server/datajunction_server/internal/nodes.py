@@ -2689,8 +2689,24 @@ async def deactivate_node(
     """
     node = await Node.get_by_name(session, name)
 
+    # Get or create MissingParent for this node
+    missing_parent_result = await session.execute(
+        select(MissingParent).where(MissingParent.name == name),
+    )
+    missing_parent = missing_parent_result.scalar_one_or_none()
+    if not missing_parent:
+        _logger.info(f"Creating MissingParent for deleted node: {name}")
+        missing_parent = MissingParent(name=name)
+        session.add(missing_parent)
+        await session.flush()  # Get the id
+    else:
+        _logger.info(f"MissingParent already exists for: {name}")
+
     # Find all downstream nodes and mark them as invalid
     downstreams = await get_downstream_nodes(session, name)
+    _logger.info(
+        f"Found {len(downstreams)} downstream nodes for {name}: {[d.name for d in downstreams]}",
+    )
     for downstream in downstreams:
         if downstream.current.status != NodeStatus.INVALID:
             downstream.current.status = NodeStatus.INVALID
@@ -2704,7 +2720,14 @@ async def deactivate_node(
                 ),
                 session=session,
             )
-            session.add(downstream)
+        # Add deleted node to missing_parents and remove from parents
+        # Load relationships before accessing
+        await session.refresh(downstream.current, ["missing_parents", "parents"])
+        if missing_parent not in downstream.current.missing_parents:
+            downstream.current.missing_parents.append(missing_parent)
+        if node in downstream.current.parents:
+            downstream.current.parents.remove(node)
+        session.add(downstream)
 
     # If the node has materializations, deactivate them
     for materialization in (
@@ -2847,6 +2870,7 @@ async def revalidate_node(
         ],
         raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     current_node_revision = node.current  # type: ignore
 
     # Revalidate source node
@@ -2915,6 +2939,31 @@ async def revalidate_node(
     # Update the status
     node.current.status = node_validator.status  # type: ignore
 
+    # Update parent relationships from validation
+    parent_names = {
+        str(parent_node)  # Convert AST Name to string
+        for parents in node_validator.dependencies_map.values()
+        for parent_node in parents
+    }
+    if parent_names:
+        _logger.info(f"Updating parents for {node.name} to: {parent_names}")
+        parent_refs = (
+            (
+                await session.execute(
+                    select(Node)
+                    .where(Node.name.in_(parent_names))
+                    .options(joinedload(Node.current)),
+                )
+            )
+            .unique()
+            .scalars()
+            .all()
+        )
+        node.current.parents = list(parent_refs)  # type: ignore
+        _logger.info(f"Updated parents to: {[p.name for p in parent_refs]}")
+    else:
+        _logger.info(f"No parents found in dependencies for {node.name}")
+
     existing_columns = {col.name: col for col in node.current.columns}  # type: ignore
 
     # Validate dimension links
@@ -2930,6 +2979,9 @@ async def revalidate_node(
         if existing_col := existing_columns.get(col.name):
             # Update type if changed
             if existing_col.type != col.type:
+                _logger.info(
+                    f"Column {col.name} type changed: {existing_col.type} -> {col.type}",
+                )
                 existing_col.type = col.type
                 updated_columns = True
             # Set order if not already set (based on position in validated columns)
@@ -2938,10 +2990,14 @@ async def revalidate_node(
                 updated_columns = True
         else:
             # New column - add with order
+            _logger.info(f"New column detected: {col.name}")
             col.order = idx
             node.current.columns.append(col)  # type: ignore  # pragma: no cover
             updated_columns = True  # pragma: no cover
 
+    _logger.info(
+        f"Columns updated: {updated_columns} for node {node.name} (current version: {node.current.version})",
+    )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
         new_revision = copy_existing_node_revision(node.current, current_user)  # type: ignore
@@ -2996,6 +3052,42 @@ async def hard_delete_node(
         raise_if_not_exists=True,
     )
     downstream_nodes = await get_downstream_nodes(session=session, node_name=name)
+
+    # Get or create MissingParent for this node
+    missing_parent_result = await session.execute(
+        select(MissingParent).where(MissingParent.name == name),
+    )
+    missing_parent = missing_parent_result.scalar_one_or_none()
+    if not missing_parent:
+        _logger.info(f"Creating MissingParent for hard-deleted node: {name}")
+        missing_parent = MissingParent(name=name)
+        session.add(missing_parent)
+        await session.flush()  # Get the id
+    else:
+        _logger.info(f"MissingParent already exists for: {name}")
+
+    _logger.info(
+        f"Found {len(downstream_nodes)} downstream nodes for hard delete of {name}: {[d.name for d in downstream_nodes]}",
+    )
+
+    # Add deleted node to missing_parents before deletion
+    for downstream in downstream_nodes:
+        _logger.info(
+            f"Processing downstream {downstream.name} (current revision id={downstream.current.id})",
+        )
+        # Load missing_parents relationship before accessing
+        await session.refresh(downstream.current, ["missing_parents", "parents"])
+        _logger.info(
+            f"  Current missing_parents: {[mp.name for mp in downstream.current.missing_parents]}",
+        )
+        if missing_parent not in downstream.current.missing_parents:
+            _logger.info(f"  Adding {name} (id={missing_parent.id}) to missing_parents")
+            downstream.current.missing_parents.append(missing_parent)
+        else:
+            _logger.info(f"  {name} already in missing_parents")
+        if node in downstream.current.parents:
+            downstream.current.parents.remove(node)
+        session.add(downstream)
 
     linked_nodes = []
     if node.type == NodeType.DIMENSION:  # type: ignore

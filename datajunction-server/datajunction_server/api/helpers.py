@@ -367,6 +367,8 @@ async def resolve_downstream_references(
         .scalars()
         .all()
     )
+    print(f"resolve_downstream_references called for: {node_revision.name}")
+    print(f"Found {len(missing_parents)} MissingParent records")
     newly_valid_nodes = []
     for missing_parent in missing_parents:
         missing_parent_links = (
@@ -380,10 +382,19 @@ async def resolve_downstream_references(
             .scalars()
             .all()
         )
+        print(
+            f"MissingParent {missing_parent.name} (id={missing_parent.id}) has {len(missing_parent_links)} links",
+        )
         for (
             link
         ) in missing_parent_links:  # Remove from missing parents and add to parents
             downstream_node_id = link.referencing_node_id
+            print(
+                "Resolving downstream reference for node revision:",
+                node_revision.name,
+                "on downstream node id",
+                downstream_node_id,
+            )
             downstream_node_revision = (
                 (
                     await session.execute(
@@ -405,12 +416,30 @@ async def resolve_downstream_references(
             )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
+            print(
+                f"Validating downstream {downstream_node_revision.name} after resolving parent {node_revision.name}",
+            )
             node_validator = await validate_node_data(
                 data=downstream_node_revision,
                 session=session,
             )
+            print(f"Validation result: status={node_validator.status}")
+            if node_validator.status == NodeStatus.INVALID:
+                print(
+                    f"  Type inference failures: {node_validator.type_inference_failures}",
+                )
+                print(
+                    f"  Missing parents: {list(node_validator.missing_parents_map.keys())}",
+                )
+                print(
+                    f"  Errors: {[f'{e.code}: {e.message}' for e in node_validator.errors]}",
+                )
+                print(f"  Number of columns: {len(node_validator.columns)}")
             event = None
             if downstream_node_revision.status != node_validator.status:
+                print(
+                    f"Status change: {downstream_node_revision.status} -> {node_validator.status}",
+                )
                 event = status_change_history(
                     downstream_node_revision,
                     downstream_node_revision.status,
@@ -420,6 +449,7 @@ async def resolve_downstream_references(
                 )
 
             downstream_node_revision.status = node_validator.status
+            print(f"Set downstream status to: {downstream_node_revision.status}")
 
             await session.refresh(downstream_node_revision, ["columns"])
             downstream_node_revision.columns = node_validator.columns
