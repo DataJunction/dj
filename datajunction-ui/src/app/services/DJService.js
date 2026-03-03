@@ -673,23 +673,30 @@ export const DataJunctionAPI = {
             unit: metric_unit,
           }
         : null;
+    // Build request body, filtering out undefined values
+    const requestBody = {
+      name: name,
+      display_name: display_name,
+      description: description,
+      query: query,
+      mode: mode,
+      namespace: namespace,
+      primary_key: primary_key,
+      metric_metadata: metricMetadata,
+      required_dimensions: required_dimensions,
+      custom_metadata: custom_metadata,
+    };
+    // Remove undefined fields to avoid sending them to the API
+    Object.keys(requestBody).forEach(
+      key => requestBody[key] === undefined && delete requestBody[key],
+    );
+
     const response = await fetch(`${DJ_URL}/nodes/${nodeType}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        name: name,
-        display_name: display_name,
-        description: description,
-        query: query,
-        mode: mode,
-        namespace: namespace,
-        primary_key: primary_key,
-        metric_metadata: metricMetadata,
-        required_dimensions: required_dimensions,
-        custom_metadata: custom_metadata,
-      }),
+      body: JSON.stringify(requestBody),
       credentials: 'include',
     });
     return { status: response.status, json: await response.json() };
@@ -718,22 +725,29 @@ export const DataJunctionAPI = {
               significant_digits: significant_digits || null,
             }
           : null;
+      // Build request body, filtering out undefined values
+      const requestBody = {
+        display_name: display_name,
+        description: description,
+        query: query,
+        mode: mode,
+        primary_key: primary_key,
+        metric_metadata: metricMetadata,
+        required_dimensions: required_dimensions,
+        owners: owners,
+        custom_metadata: custom_metadata,
+      };
+      // Remove undefined fields to avoid sending them to the API
+      Object.keys(requestBody).forEach(
+        key => requestBody[key] === undefined && delete requestBody[key],
+      );
+
       const response = await fetch(`${DJ_URL}/nodes/${name}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          display_name: display_name,
-          description: description,
-          query: query,
-          mode: mode,
-          primary_key: primary_key,
-          metric_metadata: metricMetadata,
-          required_dimensions: required_dimensions,
-          owners: owners,
-          custom_metadata: custom_metadata,
-        }),
+        body: JSON.stringify(requestBody),
         credentials: 'include',
       });
       return { status: response.status, json: await response.json() };
