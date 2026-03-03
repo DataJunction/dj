@@ -2703,85 +2703,6 @@ async def delete_orphaned_missing_parents(session: AsyncSession) -> None:
         await session.delete(orphan)
 
 
-async def get_downstreams_via_missing_parent(
-    session: AsyncSession,
-    missing_parent: MissingParent,
-    options: Optional[List] = None,
-) -> List[Node]:
-    """
-    Find downstream nodes that reference a MissingParent.
-
-    This is used during node restoration to find nodes that were invalidated
-    when a parent was deactivated/deleted. These nodes won't be found via
-    NodeRelationship queries because the parent was removed from their parents list.
-
-    Args:
-        session: Database session
-        missing_parent: The MissingParent to find references to
-        options: Optional SQLAlchemy loading options for the returned nodes
-
-    Returns:
-        List of Node objects that reference the MissingParent
-    """
-    from datajunction_server.database.node import NodeMissingParents
-
-    # Find NodeRevisions that have this MissingParent
-    downstream_revisions = (
-        (
-            await session.execute(
-                select(NodeRevision)
-                .join(
-                    NodeMissingParents,
-                    NodeRevision.id == NodeMissingParents.referencing_node_id,
-                )
-                .where(NodeMissingParents.missing_parent_id == missing_parent.id)
-                .options(
-                    selectinload(NodeRevision.columns).options(
-                        selectinload(Column.attributes).joinedload(
-                            ColumnAttribute.attribute_type,
-                        ),
-                        selectinload(Column.dimension),
-                    ),
-                    selectinload(NodeRevision.parents),
-                    selectinload(NodeRevision.missing_parents),
-                    selectinload(NodeRevision.cube_elements).selectinload(
-                        Column.node_revision,
-                    ),
-                ),
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    # Get the Node objects for these revisions
-    query = select(Node).where(
-        Node.id.in_([rev.node_id for rev in downstream_revisions]),
-    )
-    if options:
-        query = query.options(*options)
-    else:
-        # Default loading options
-        query = query.options(
-            joinedload(Node.current).options(
-                selectinload(NodeRevision.columns).options(
-                    selectinload(Column.attributes).joinedload(
-                        ColumnAttribute.attribute_type,
-                    ),
-                    selectinload(Column.dimension),
-                ),
-                selectinload(NodeRevision.parents),
-                selectinload(NodeRevision.missing_parents),
-                selectinload(NodeRevision.cube_elements).selectinload(
-                    Column.node_revision,
-                ),
-            ),
-        )
-
-    downstreams = (await session.execute(query)).unique().scalars().all()
-    return list(downstreams)
-
-
 async def mark_node_as_missing_parent(
     session: AsyncSession,
     node_name: str,
@@ -2984,25 +2905,13 @@ async def activate_node(
     )
     for downstream in downstreams:
         _logger.info(f"Processing downstream: {downstream.name}")
-        _logger.info(
-            f"  Current missing_parents: {[mp.name for mp in downstream.current.missing_parents]}",
-        )
-        _logger.info(
-            f"  Current parents: {[p.name for p in downstream.current.parents]}",
-        )
+
         # Remove from missing_parents and add back to parents
         if missing_parent and missing_parent in downstream.current.missing_parents:
-            _logger.info(f"  Removing {name} from missing_parents")
             downstream.current.missing_parents.remove(missing_parent)
-        else:
-            _logger.info(
-                f"  {name} not in missing_parents (missing_parent exists: {missing_parent is not None})",
-            )
         if node not in downstream.current.parents:
-            _logger.info(f"  Adding {name} to parents")
             downstream.current.parents.append(node)
-        else:
-            _logger.info(f"  {name} already in parents")
+
         _logger.info(
             f"Revalidating downstream: {downstream.name} (type={downstream.type}, old_status={downstream.current.status})",
         )
@@ -3013,25 +2922,20 @@ async def activate_node(
             for element in downstream.current.cube_elements:
                 if element.node_revision:
                     await session.refresh(element.node_revision, ["status"])
-                    _logger.info(
-                        f"  Cube element {element.node_revision.name} status: {element.node_revision.status}",
-                    )
                     if element.node_revision.status == NodeStatus.INVALID:
-                        downstream.current.status = (
+                        downstream.current.status = (  # pragma: no cover
                             NodeStatus.INVALID
-                        )  # pragma: no cover
+                        )
         else:
             # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
             node_validator = await validate_node_data(downstream.current, session)
             downstream.current.status = node_validator.status
-            _logger.info(f"  After validation: status={node_validator.status}")
             if node_validator.errors:
                 _logger.info(
                     f"  Validation errors: {[str(e) for e in node_validator.errors]}",
                 )
                 downstream.current.status = NodeStatus.INVALID
-            _logger.info(f"  Final status: {downstream.current.status}")
         session.add(downstream)
         await session.flush()  # Flush so other nodes can see the updated status
         if old_status != downstream.current.status:
@@ -3194,9 +3098,6 @@ async def revalidate_node(
         if existing_col := existing_columns.get(col.name):
             # Update type if changed
             if existing_col.type != col.type:
-                _logger.info(
-                    f"Column {col.name} type changed: {existing_col.type} -> {col.type}",
-                )
                 existing_col.type = col.type
                 updated_columns = True
             # Set order if not already set (based on position in validated columns)
@@ -3205,7 +3106,6 @@ async def revalidate_node(
                 updated_columns = True
         else:
             # New column - add with order
-            _logger.info(f"New column detected: {col.name}")
             col.order = idx
             node.current.columns.append(col)  # type: ignore  # pragma: no cover
             updated_columns = True  # pragma: no cover
