@@ -2487,7 +2487,13 @@ class Subscript(Expression):
                 self.index.value.replace("'", ""),
             )
             return nested_field.type
-        return cast(ListType, self.expr.type).element.type
+        if isinstance(self.expr.type, ListType):
+            return self.expr.type.element.type
+        # If it's not a subscriptable type, raise an error
+        raise DJParseException(
+            f"Cannot subscript expression of type {self.expr.type}. "
+            f"Expected MapType, StructType, or ListType.",
+        )
 
 
 @dataclass(eq=False)

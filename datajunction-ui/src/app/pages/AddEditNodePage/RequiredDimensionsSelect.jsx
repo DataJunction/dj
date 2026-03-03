@@ -31,10 +31,18 @@ export const RequiredDimensionsSelect = ({
             };
           }),
         );
+      } else if (values.required_dimensions && values.required_dimensions.length > 0) {
+        // For derived metrics or when no upstream node, show existing required dimensions as options
+        setSelectOptions(
+          values.required_dimensions.map(dim => ({
+            value: dim,
+            label: dim,
+          })),
+        );
       }
     };
     fetchData().catch(console.error);
-  }, [djClient, values.upstream_node]);
+  }, [djClient, values.upstream_node, values.required_dimensions]);
 
   return (
     <div className="RequiredDimensionsInput CubeCreationInput">
