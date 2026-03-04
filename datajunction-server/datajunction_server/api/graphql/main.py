@@ -13,6 +13,7 @@ from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.api.graphql.dataloaders import (
     create_node_by_name_loader,
     create_collection_nodes_loader,
+    create_node_version_loader,
 )
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.collections import list_collections
@@ -29,6 +30,8 @@ from datajunction_server.api.graphql.queries.nodes import (
 from datajunction_server.api.graphql.queries.sql import (
     measures_sql,
     materialization_plan,
+    sql,
+    sql_v2,
 )
 from datajunction_server.api.graphql.queries.tags import list_tag_types, list_tags
 from datajunction_server.api.graphql.scalars import Connection
@@ -103,6 +106,7 @@ async def get_context(
         "session": db_session,  # Keep for backward compatibility with existing code
         "node_loader": create_node_by_name_loader(request),
         "collection_nodes_loader": create_collection_nodes_loader(request),
+        "node_version_loader": create_node_version_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,
@@ -162,6 +166,17 @@ class Query:
     materialization_plan: MaterializationPlan = strawberry.field(
         resolver=log_resolver(materialization_plan),
         description="Get materialization plan for a list of metrics, dimensions, and filters.",
+    )
+    sql: list[GeneratedSQL] = strawberry.field(
+        resolver=log_resolver(sql),
+        description="SQL generation for MEASURES and METRICS queries using V3 builder (recommended). "
+        "Uses DataLoader for efficient cache key building to minimize database load.",
+    )
+    sql_v2: list[GeneratedSQL] = strawberry.field(
+        resolver=log_resolver(sql_v2),
+        description="SQL generation using V2 builder (legacy, deprecated). "
+        "Use `sql` query instead for improved performance with V3 builder.",
+        deprecation_reason="Use `sql` query instead for V3 builder with better performance",
     )
 
     # Tags queries

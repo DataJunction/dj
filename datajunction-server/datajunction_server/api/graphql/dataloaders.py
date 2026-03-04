@@ -161,3 +161,55 @@ def create_collection_nodes_loader(
     return DataLoader(
         load_fn=lambda keys: batch_load_collection_nodes(keys, request),
     )
+
+
+async def batch_load_node_versions(
+    node_names: list[str],
+    request: Request,
+) -> list[str | None]:
+    """
+    Batch load node versions (current_version) for multiple nodes.
+
+    This is critical for building cache keys efficiently - instead of fetching
+    each node's version individually (N queries), we fetch all versions in a
+    single query.
+
+    Args:
+        node_names: List of node names
+        request: The Starlette request object for creating sessions
+
+    Returns:
+        List of versions in the same order as node_names
+    """
+    async with session_context(request) as session:
+        # Fetch all node versions in one query
+        stmt = select(DBNode.name, DBNode.current_version).where(
+            DBNode.name.in_(node_names),
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        # Create a lookup map
+        version_map = {row.name: row.current_version for row in rows}
+
+        # Return versions in the same order as requested
+        return [version_map.get(name) for name in node_names]
+
+
+def create_node_version_loader(request: Request) -> DataLoader[str, str | None]:
+    """
+    Create a DataLoader for loading node versions.
+
+    This loader batches version lookups, which is critical for building cache
+    keys efficiently. Instead of hitting the DB once per node to get versions,
+    we batch them into a single query.
+
+    Args:
+        request: The Starlette request object
+
+    Returns:
+        A DataLoader instance for batching node version lookups
+    """
+    return DataLoader(
+        load_fn=lambda keys: batch_load_node_versions(keys, request),
+    )
