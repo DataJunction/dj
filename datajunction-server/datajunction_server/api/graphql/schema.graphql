@@ -590,6 +590,59 @@ type Query {
   """
   materializationPlan(cube: CubeDefinition!): MaterializationPlan!
 
+  """
+  SQL generation for MEASURES and METRICS queries using V3 builder (recommended). Uses DataLoader for efficient cache key building to minimize database load.
+  """
+  sql(
+    """Query type: MEASURES or METRICS (NODE not supported)"""
+    queryType: QueryBuildType!
+    cube: CubeDefinition!
+
+    """Whether to use materialized nodes where applicable"""
+    useMaterialized: Boolean! = true
+
+    """Maximum number of rows to return (METRICS queries only)"""
+    limit: Int = null
+
+    """SQL dialect for the generated query. Auto-resolves if not specified."""
+    dialect: Dialect = null
+
+    """Whether to include temporal partition filters (MEASURES only)"""
+    includeTemporalFilters: Boolean! = false
+
+    """
+    Lookback window for temporal filters (MEASURES only, e.g., '3 DAY', '1 WEEK')
+    """
+    lookbackWindow: String = null
+  ): [GeneratedSQL!]!
+
+  """
+  SQL generation using V2 builder (legacy, deprecated). Use `sql` query instead for improved performance with V3 builder.
+  """
+  sqlV2(
+    """Query type: MEASURES or METRICS (NODE not supported)"""
+    queryType: QueryBuildType!
+    cube: CubeDefinition!
+
+    """Whether to use materialized nodes where applicable"""
+    useMaterialized: Boolean! = true
+
+    """Maximum number of rows to return (METRICS queries only)"""
+    limit: Int = null
+
+    """Engine settings"""
+    engine: EngineSettings = null
+
+    """Whether to include all columns (MEASURES only)"""
+    includeAllColumns: Boolean! = false
+
+    """Whether to pre-aggregate to requested dimensions (MEASURES only)"""
+    preaggregate: Boolean! = false
+
+    """Query parameters to include in the SQL"""
+    queryParameters: JSON = null
+  ): [GeneratedSQL!]! @deprecated(reason: "Use `sql` query instead for V3 builder with better performance")
+
   """Find DJ node tags based on the search parameters."""
   listTags(tagNames: [String!] = null, tagTypes: [String!] = null): [Tag!]!
 
@@ -607,6 +660,12 @@ type Query {
     """Limit collections"""
     limit: Int = 100
   ): [Collection!]!
+}
+
+enum QueryBuildType {
+  METRICS
+  MEASURES
+  NODE
 }
 
 type SemanticEntity {
