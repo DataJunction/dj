@@ -87,7 +87,7 @@ class Settings(BaseSettings):  # pragma: no cover
     # [optional] `reader_db` is used for read operations and defaults to `writer_db`
     # if no dedicated read replica is configured.
     writer_db: DatabaseConfig = DatabaseConfig(
-        uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
+        uri="postgresql+psycopg://dj:dj@host.docker.internal:4000/dj",
     )
     reader_db: DatabaseConfig = writer_db
 
