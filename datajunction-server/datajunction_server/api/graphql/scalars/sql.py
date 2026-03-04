@@ -11,14 +11,29 @@ from datajunction_server.api.graphql.scalars.errors import DJError
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.queryrequest import QueryBuildType as QueryBuildType_
+from datajunction_server.enum import StrEnum
 from datajunction_server.models.column import SemanticType as SemanticType_
 from datajunction_server.models.engine import Dialect as Dialect_
 from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_
 from datajunction_server.utils import SEPARATOR
 
+
+class SQLVersion(StrEnum):
+    """
+    SQL builder version.
+
+    V2 uses the legacy build_v2.py builder.
+    V3 uses the newer construction/build_v3/ builder (default and recommended).
+    """
+
+    V2 = "v2"
+    V3 = "v3"
+
+
 SemanticType = strawberry.enum(SemanticType_)
 Dialect = strawberry.enum(Dialect_)
 QueryBuildType = strawberry.enum(QueryBuildType_)
+SQLVersion = strawberry.enum(SQLVersion)
 
 
 @strawberry.type

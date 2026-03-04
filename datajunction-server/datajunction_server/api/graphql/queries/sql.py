@@ -16,7 +16,17 @@ from datajunction_server.api.graphql.resolvers.nodes import (
     resolve_metrics_and_dimensions,
     find_nodes_by,
 )
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.construction.build_v3 import (
+    build_metrics_sql,
+    build_measures_sql,
+    resolve_dialect_and_engine_for_metrics,
+)
+from datajunction_server.internal.access.authorization import (
+    get_access_checker,
+    AuthContext,
+)
+from datajunction_server.models.dialect import Dialect as Dialect_
+from datajunction_server.utils import get_current_user, SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
 from datajunction_server.models.cube_materialization import Aggregability
 from datajunction_server.api.graphql.scalars.sql import (
@@ -27,6 +37,8 @@ from datajunction_server.api.graphql.scalars.sql import (
     MaterializationUnit,
     VersionedRef,
     MetricComponent,
+    Dialect,
+    QueryBuildType as QueryBuildType_GQL,
 )
 from datajunction_server.construction.build import group_metrics_by_parent
 
@@ -190,3 +202,288 @@ async def materialization_plan(
         units.append(unit)
 
     return MaterializationPlan(units=units)  # type: ignore
+
+
+async def sql(
+    query_type: Annotated[
+        QueryBuildType_GQL,
+        strawberry.argument(
+            description="Query type: MEASURES or METRICS (NODE not supported)",
+        ),
+    ],
+    cube: CubeDefinition,
+    use_materialized: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to use materialized nodes where applicable",
+        ),
+    ] = True,
+    limit: Annotated[
+        int | None,
+        strawberry.argument(
+            description="Maximum number of rows to return (METRICS queries only)",
+        ),
+    ] = None,
+    dialect: Annotated[
+        Dialect | None,
+        strawberry.argument(
+            description="SQL dialect for the generated query. Auto-resolves if not specified.",
+        ),
+    ] = None,
+    include_temporal_filters: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to include temporal partition filters (MEASURES only)",
+        ),
+    ] = False,
+    lookback_window: Annotated[
+        str | None,
+        strawberry.argument(
+            description="Lookback window for temporal filters (MEASURES only, e.g., '3 DAY', '1 WEEK')",
+        ),
+    ] = None,
+    *,
+    info: Info,
+) -> list[GeneratedSQL]:
+    """
+    SQL generation endpoint using V3 builder (recommended).
+
+    Supports MEASURES and METRICS queries (NODE not supported).
+    Always returns a list of GeneratedSQL:
+    - MEASURES: Multiple queries (one per grain group)
+    - METRICS: Single-item list
+
+    Uses DataLoader for efficient cache key building to minimize database load.
+    """
+    session = info.context["session"]
+    metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
+
+    # Validate query type
+    if query_type == QueryBuildType.NODE:
+        raise ValueError("NODE queries are not supported in this endpoint")
+
+    # Get current user for access control
+    current_user = await get_current_user(info.context["request"])
+    auth_context = await AuthContext.from_user(session, current_user)
+    access_checker = get_access_checker(auth_context)
+
+    # Resolve dialect
+    resolved_dialect = None
+    if dialect:
+        resolved_dialect = Dialect_(dialect.value)
+    else:
+        # Auto-resolve dialect based on cube availability
+        execution_ctx = await resolve_dialect_and_engine_for_metrics(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+        )
+        resolved_dialect = execution_ctx.dialect if execution_ctx else None
+
+    if query_type == QueryBuildType.MEASURES:
+        # Build measures SQL (V3)
+        from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_Pydantic
+        from datajunction_server.models.node_type import NodeNameVersion
+        from datajunction_server.models.query import (
+            ColumnMetadata as ColumnMetadata_Pydantic,
+        )
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=cube.filters or [],
+            use_materialized=use_materialized,
+            dialect=resolved_dialect,
+            include_temporal_filters=include_temporal_filters,
+            lookback_window=lookback_window,
+            access_checker=access_checker,
+        )
+
+        # Convert MeasuresSQLResponse to List[GeneratedSQL]
+        # Each grain group becomes a separate GeneratedSQL
+        generated_sqls = []
+        for grain_group in result.grain_groups:
+            # Convert V3ColumnMetadata to ColumnMetadata
+            converted_columns = [
+                ColumnMetadata_Pydantic(
+                    name=col.name,
+                    type=col.type,
+                    semantic_entity=col.semantic_name,
+                    semantic_type=col.semantic_type,
+                )
+                for col in grain_group.columns
+            ]
+
+            gen_sql = GeneratedSQL_Pydantic(
+                node=NodeNameVersion(name=grain_group.parent_name, version=""),
+                sql=grain_group.sql,
+                columns=converted_columns,
+                grain=grain_group.grain,
+                dialect=Dialect_(result.dialect)
+                if result.dialect
+                else resolved_dialect,
+                upstream_tables=[],
+                errors=[],
+                scan_estimate=grain_group.scan_estimate,
+            )
+            generated_sqls.append(await GeneratedSQL.from_pydantic(info, gen_sql))
+        return generated_sqls
+
+    else:  # METRICS
+        # Build metrics SQL (V3)
+        from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_Pydantic
+        from datajunction_server.models.node_type import NodeNameVersion
+        from datajunction_server.models.query import (
+            ColumnMetadata as ColumnMetadata_Pydantic,
+        )
+
+        result = await build_metrics_sql(
+            session=session,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=cube.filters or [],
+            orderby=cube.orderby or [],
+            limit=limit,
+            use_materialized=use_materialized,
+            dialect=resolved_dialect,
+            # access_checker=access_checker,
+        )
+
+        # Convert V3TranslatedSQL to List[GeneratedSQL] (single item)
+        # Use the cube name if available, otherwise use first metric name
+        node_name = result.cube_name if result.cube_name else metrics[0]
+
+        # Convert V3ColumnMetadata to ColumnMetadata
+        converted_columns = [
+            ColumnMetadata_Pydantic(
+                name=col.name,
+                type=col.type,
+                semantic_entity=col.semantic_name,
+                semantic_type=col.semantic_type,
+            )
+            for col in result.columns
+        ]
+
+        gen_sql = GeneratedSQL_Pydantic(
+            node=NodeNameVersion(name=node_name, version=""),
+            sql=result.sql,
+            columns=converted_columns,
+            dialect=result.dialect,
+            upstream_tables=[],
+            errors=[],
+            scan_estimate=result.scan_estimate,
+        )
+        return [await GeneratedSQL.from_pydantic(info, gen_sql)]
+
+
+async def sql_v2(
+    query_type: Annotated[
+        QueryBuildType_GQL,
+        strawberry.argument(
+            description="Query type: MEASURES or METRICS (NODE not supported)",
+        ),
+    ],
+    cube: CubeDefinition,
+    use_materialized: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to use materialized nodes where applicable",
+        ),
+    ] = True,
+    limit: Annotated[
+        int | None,
+        strawberry.argument(
+            description="Maximum number of rows to return (METRICS queries only)",
+        ),
+    ] = None,
+    engine: Annotated[
+        EngineSettings | None,
+        strawberry.argument(
+            description="Engine settings",
+        ),
+    ] = None,
+    include_all_columns: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to include all columns (MEASURES only)",
+        ),
+    ] = False,
+    preaggregate: Annotated[
+        bool,
+        strawberry.argument(
+            description="Whether to pre-aggregate to requested dimensions (MEASURES only)",
+        ),
+    ] = False,
+    query_parameters: Annotated[
+        JSON | None,
+        strawberry.argument(
+            description="Query parameters to include in the SQL",
+        ),
+    ] = None,
+    *,
+    info: Info,
+) -> list[GeneratedSQL]:
+    """
+    SQL generation endpoint using V2 builder (legacy, deprecated).
+
+    Use the `sql` query instead for V3 builder with improved performance.
+
+    Supports MEASURES and METRICS queries (NODE not supported).
+    Always returns a list of GeneratedSQL:
+    - MEASURES: Multiple queries (one per grain group)
+    - METRICS: Single-item list
+
+    Uses DataLoader for efficient cache key building to minimize database load.
+    """
+    session = info.context["session"]
+    metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
+
+    # Validate query type
+    if query_type == QueryBuildType.NODE:
+        raise ValueError("NODE queries are not supported in this endpoint")
+
+    # Use V2 builder with QueryCacheManager
+    query_cache_manager = QueryCacheManager(
+        cache=info.context["cache"],
+        query_type=query_type,
+        node_version_loader=info.context.get("node_version_loader"),
+    )
+    result = await query_cache_manager.get_or_load(
+        info.context["background_tasks"],
+        info.context["request"],
+        QueryRequestParams(
+            nodes=metrics,
+            dimensions=dimensions,
+            filters=cube.filters or [],
+            engine_name=engine.name if engine else None,
+            engine_version=engine.version if engine else None,
+            orderby=cube.orderby or [],
+            limit=limit,
+            query_params=str(query_parameters) if query_parameters else None,
+            include_all_columns=include_all_columns,
+            preaggregate=preaggregate,
+            use_materialized=use_materialized,
+        ),
+    )
+
+    # Handle different return types
+    # MEASURES returns list[GeneratedSQL], METRICS returns single TranslatedSQL
+    if query_type == QueryBuildType.MEASURES:
+        return [await GeneratedSQL.from_pydantic(info, query) for query in result]
+    else:  # METRICS
+        # TranslatedSQL doesn't have 'node' field, need to convert to GeneratedSQL
+        from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_Pydantic
+        from datajunction_server.models.node_type import NodeNameVersion
+
+        # Use first metric name as the node name
+        gen_sql = GeneratedSQL_Pydantic(
+            node=NodeNameVersion(name=metrics[0], version=""),
+            sql=result.sql,
+            columns=result.columns or [],
+            dialect=result.dialect,
+            upstream_tables=result.upstream_tables or [],
+            errors=[],
+            scan_estimate=result.scan_estimate,
+        )
+        return [await GeneratedSQL.from_pydantic(info, gen_sql)]
