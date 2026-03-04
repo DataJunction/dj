@@ -132,8 +132,18 @@ class SecureAPIRouter(TrailingSlashAPIRouter):
 
     def __init__(self, *args: Any, **kwargs: Any):
         settings = get_settings()
+
+        # Extract any dependencies passed by the caller
+        extra_dependencies = kwargs.pop("dependencies", [])
+
+        # Merge authentication dependency with any extra dependencies
+        merged_dependencies = []
+        if settings.secret:
+            merged_dependencies.append(Depends(DJHTTPBearer()))
+        merged_dependencies.extend(extra_dependencies)
+
         super().__init__(
             *args,
-            dependencies=[Depends(DJHTTPBearer())] if settings.secret else [],
+            dependencies=merged_dependencies,
             **kwargs,
         )
