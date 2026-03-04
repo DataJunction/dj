@@ -35,6 +35,7 @@ from datajunction_server.database.user import User
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.rate_limiting import enforce_rate_limit
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import V3ColumnMetadata
@@ -53,7 +54,14 @@ from datajunction_server.utils import (
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = SecureAPIRouter(tags=["sql"])
+
+# SQL router with rate limiting applied to all /sql/* endpoints
+router = SecureAPIRouter(
+    tags=["sql"],
+    dependencies=[Depends(enforce_rate_limit)]
+    if settings.rate_limiting_enabled
+    else [],
+)
 
 
 @router.get(
