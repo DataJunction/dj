@@ -11,6 +11,7 @@ from datajunction_server.database.queryrequest import (
     QueryRequestKey,
     QueryBuildType,
     VersionedQueryKey,
+    VersionedNodeKey,
 )
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -77,9 +78,15 @@ class QueryCacheManager(RefreshAheadCacheManager):
     _cache_key_prefix = "sql"
     default_timeout = settings.query_cache_timeout
 
-    def __init__(self, cache: Cache, query_type: QueryBuildType):
+    def __init__(
+        self,
+        cache: Cache,
+        query_type: QueryBuildType,
+        node_version_loader=None,
+    ):
         super().__init__(cache)
         self.query_type = query_type
+        self.node_version_loader = node_version_loader
 
     @property
     def cache_key_prefix(self) -> str:
@@ -131,28 +138,58 @@ class QueryCacheManager(RefreshAheadCacheManager):
     ) -> str:
         """
         Returns a cache key for the query request.
+
+        Uses DataLoader (self.node_version_loader) if available in GraphQL context,
+        otherwise falls back to direct DB query for compatibility.
         """
-        async with session_context(request) as session:
-            versioned_request = await VersionedQueryKey.version_query_request(
-                session=session,
-                nodes=sorted(params.nodes),
-                dimensions=sorted(params.dimensions),
+        # Try to use DataLoader if available (GraphQL context)
+        if self.node_version_loader:
+            # Batch-load versions using DataLoader - NO DB HIT per call!
+            all_node_names = sorted(params.nodes) + sorted(params.dimensions)
+            versions = await self.node_version_loader.load_many(all_node_names)
+            version_map = dict(zip(all_node_names, versions))
+
+            # Build a simpler versioned key using the batched versions
+            # Note: This is a simplified version that doesn't include all parent relationships
+            # For full fidelity, we'd need to batch-load parents too, but this gives us
+            # the main performance win by avoiding per-node DB queries
+            versioned_request = VersionedQueryKey(
+                nodes=[
+                    VersionedNodeKey(name=node, version=version_map.get(node) or "")
+                    for node in sorted(params.nodes)
+                ],
+                parents=[],  # Simplified - not including parents in cache key
+                dimensions=[
+                    VersionedNodeKey(name=dim, version=version_map.get(dim) or "")
+                    for dim in sorted(params.dimensions)
+                ],
                 filters=sorted(params.filters),
                 orderby=params.orderby or [],
             )
-            query_request = QueryRequestKey(
-                key=versioned_request,
-                query_type=self.query_type,
-                engine_name=params.engine_name or "",
-                engine_version=params.engine_version or "",
-                limit=params.limit or None,
-                include_all_columns=params.include_all_columns or False,
-                preaggregate=params.preaggregate or False,
-                use_materialized=params.use_materialized or False,
-                query_parameters=json.loads(params.query_params or "{}"),
-                other_args=params.other_args or {},
-            )
-            return await super().build_cache_key(request, asdict(query_request))
+        else:
+            # Fall back to original behavior with session
+            async with session_context(request) as session:
+                versioned_request = await VersionedQueryKey.version_query_request(
+                    session=session,
+                    nodes=sorted(params.nodes),
+                    dimensions=sorted(params.dimensions),
+                    filters=sorted(params.filters),
+                    orderby=params.orderby or [],
+                )
+
+        query_request = QueryRequestKey(
+            key=versioned_request,
+            query_type=self.query_type,
+            engine_name=params.engine_name or "",
+            engine_version=params.engine_version or "",
+            limit=params.limit or None,
+            include_all_columns=params.include_all_columns or False,
+            preaggregate=params.preaggregate or False,
+            use_materialized=params.use_materialized or False,
+            query_parameters=json.loads(params.query_params or "{}"),
+            other_args=params.other_args or {},
+        )
+        return await super().build_cache_key(request, asdict(query_request))
 
     async def _build_measures_query(
         self,
