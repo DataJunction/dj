@@ -71,6 +71,7 @@ async def measures_sql(
     query_cache_manager = QueryCacheManager(
         cache=info.context["cache"],
         query_type=QueryBuildType.MEASURES,
+        node_version_loader=info.context.get("node_version_loader"),  # Use DataLoader!
     )
     queries = await query_cache_manager.get_or_load(
         info.context["background_tasks"],
