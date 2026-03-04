@@ -21,12 +21,8 @@ from datajunction_server.construction.build_v3 import (
     build_measures_sql,
     resolve_dialect_and_engine_for_metrics,
 )
-from datajunction_server.internal.access.authorization import (
-    get_access_checker,
-    AuthContext,
-)
 from datajunction_server.models.dialect import Dialect as Dialect_
-from datajunction_server.utils import get_current_user, SEPARATOR
+from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
 from datajunction_server.models.cube_materialization import Aggregability
 from datajunction_server.api.graphql.scalars.sql import (
@@ -262,13 +258,8 @@ async def sql(
     if query_type == QueryBuildType.NODE:
         raise ValueError("NODE queries are not supported in this endpoint")
 
-    # Get current user for access control
-    current_user = await get_current_user(info.context["request"])
-    auth_context = await AuthContext.from_user(session, current_user)
-    access_checker = get_access_checker(auth_context)
-
-    # Resolve dialect
-    resolved_dialect = None
+    # Resolve dialect (required for V3)
+    resolved_dialect = Dialect_.SPARK  # Default
     if dialect:
         resolved_dialect = Dialect_(dialect.value)
     else:
@@ -278,32 +269,35 @@ async def sql(
             metrics=metrics,
             dimensions=dimensions,
         )
-        resolved_dialect = execution_ctx.dialect if execution_ctx else None
+        if execution_ctx:
+            resolved_dialect = execution_ctx.dialect
 
     if query_type == QueryBuildType.MEASURES:
         # Build measures SQL (V3)
+        from datajunction_server.construction.build_v3.types import (
+            GeneratedMeasuresSQL,
+        )
         from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_Pydantic
         from datajunction_server.models.node_type import NodeNameVersion
         from datajunction_server.models.query import (
             ColumnMetadata as ColumnMetadata_Pydantic,
         )
 
-        result = await build_measures_sql(
+        measures_result: GeneratedMeasuresSQL = await build_measures_sql(
             session=session,
             metrics=metrics,
             dimensions=dimensions,
             filters=cube.filters or [],
-            use_materialized=use_materialized,
             dialect=resolved_dialect,
+            use_materialized=use_materialized,
             include_temporal_filters=include_temporal_filters,
             lookback_window=lookback_window,
-            access_checker=access_checker,
         )
 
-        # Convert MeasuresSQLResponse to List[GeneratedSQL]
+        # Convert GeneratedMeasuresSQL to List[GeneratedSQL]
         # Each grain group becomes a separate GeneratedSQL
         generated_sqls = []
-        for grain_group in result.grain_groups:
+        for grain_group in measures_result.grain_groups:
             # Convert V3ColumnMetadata to ColumnMetadata
             converted_columns = [
                 ColumnMetadata_Pydantic(
@@ -320,9 +314,7 @@ async def sql(
                 sql=grain_group.sql,
                 columns=converted_columns,
                 grain=grain_group.grain,
-                dialect=Dialect_(result.dialect)
-                if result.dialect
-                else resolved_dialect,
+                dialect=measures_result.dialect,
                 upstream_tables=[],
                 errors=[],
                 scan_estimate=grain_group.scan_estimate,
@@ -331,30 +323,34 @@ async def sql(
         return generated_sqls
 
     else:  # METRICS
-        # Build metrics SQL (V3)
+        # Build metrics SQL (V3) - returns build_v3.GeneratedSQL (not pydantic model)
+        from datajunction_server.construction.build_v3.types import (
+            GeneratedSQL as GeneratedSQL_V3,
+        )
         from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_Pydantic
         from datajunction_server.models.node_type import NodeNameVersion
         from datajunction_server.models.query import (
             ColumnMetadata as ColumnMetadata_Pydantic,
         )
 
-        result = await build_metrics_sql(
+        metrics_result: GeneratedSQL_V3 = await build_metrics_sql(
             session=session,
             metrics=metrics,
             dimensions=dimensions,
             filters=cube.filters or [],
             orderby=cube.orderby or [],
             limit=limit,
-            use_materialized=use_materialized,
             dialect=resolved_dialect,
-            # access_checker=access_checker,
+            use_materialized=use_materialized,
         )
 
-        # Convert V3TranslatedSQL to List[GeneratedSQL] (single item)
-        # Use the cube name if available, otherwise use first metric name
-        node_name = result.cube_name if result.cube_name else metrics[0]
+        # Convert build_v3 GeneratedSQL to pydantic GeneratedSQL
 
-        # Convert V3ColumnMetadata to ColumnMetadata
+        # Use cube name if available, otherwise first metric name
+        node_name = metrics_result.cube_name if metrics_result.cube_name else metrics[0]
+
+        # Convert columns (build_v3 ColumnMetadata -> pydantic ColumnMetadata)
+        # build_v3: semantic_name -> pydantic: semantic_entity
         converted_columns = [
             ColumnMetadata_Pydantic(
                 name=col.name,
@@ -362,17 +358,17 @@ async def sql(
                 semantic_entity=col.semantic_name,
                 semantic_type=col.semantic_type,
             )
-            for col in result.columns
+            for col in metrics_result.columns
         ]
 
         gen_sql = GeneratedSQL_Pydantic(
             node=NodeNameVersion(name=node_name, version=""),
-            sql=result.sql,
+            sql=metrics_result.sql,  # This is a property that renders the AST
             columns=converted_columns,
-            dialect=result.dialect,
+            dialect=metrics_result.dialect,
             upstream_tables=[],
             errors=[],
-            scan_estimate=result.scan_estimate,
+            scan_estimate=metrics_result.scan_estimate,
         )
         return [await GeneratedSQL.from_pydantic(info, gen_sql)]
 

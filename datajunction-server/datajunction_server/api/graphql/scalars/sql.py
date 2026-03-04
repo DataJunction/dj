@@ -18,7 +18,7 @@ from datajunction_server.models.sql import GeneratedSQL as GeneratedSQL_
 from datajunction_server.utils import SEPARATOR
 
 
-class SQLVersion(StrEnum):
+class SQLVersion_(StrEnum):
     """
     SQL builder version.
 
@@ -33,7 +33,7 @@ class SQLVersion(StrEnum):
 SemanticType = strawberry.enum(SemanticType_)
 Dialect = strawberry.enum(Dialect_)
 QueryBuildType = strawberry.enum(QueryBuildType_)
-SQLVersion = strawberry.enum(SQLVersion)
+SQLVersion = strawberry.enum(SQLVersion_)
 
 
 @strawberry.type
