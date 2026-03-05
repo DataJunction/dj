@@ -87,7 +87,7 @@ class Settings(BaseSettings):  # pragma: no cover
     # [optional] `reader_db` is used for read operations and defaults to `writer_db`
     # if no dedicated read replica is configured.
     writer_db: DatabaseConfig = DatabaseConfig(
-        uri="postgresql+psycopg://dj:dj@postgres_metadata:5432/dj",
+        uri="postgresql+psycopg://dj:dj@host.docker.internal:4000/dj",
     )
     reader_db: DatabaseConfig = writer_db
 
@@ -204,6 +204,22 @@ class Settings(BaseSettings):  # pragma: no cover
     github_app_id: Optional[str] = None
     github_app_private_key: Optional[str] = None  # PEM-encoded private key
     github_app_installation_id: Optional[str] = None
+
+    # Rate limiting configuration
+    # Enable/disable rate limiting globally
+    rate_limiting_enabled: bool = True
+
+    # Time window for rate limiting (in seconds)
+    rate_limit_window_seconds: int = 1
+
+    # Default rate limit for most endpoints (requests per second per user)
+    rate_limit_default_rps: int = 3
+
+    # Rate limit for standard read operations (GET requests)
+    rate_limit_standard_rps: int = 5
+
+    # Rate limit for expensive operations (data queries, SQL generation, refreshes)
+    rate_limit_expensive_rps: int = 2
 
     @property
     def celery(self) -> Celery:
