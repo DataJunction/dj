@@ -590,6 +590,9 @@ async def get_sql_for_metrics(
 
     start_time = time.time()
 
+    # Label this session for debugging
+    session.info["session_label"] = "initial node loading"
+
     # make sure all metrics exist and have correct node type
     # Use get_by_names (plural) to fetch all nodes in a single query instead of N queries
     t1 = time.time()
@@ -635,6 +638,7 @@ async def get_sql_for_metrics(
             use_materialized=use_materialized,
             ignore_errors=ignore_errors,
         ),
+        session=session,  # Pass the session to reuse it
     )
 
     total_time = time.time() - start_time
@@ -643,6 +647,9 @@ async def get_sql_for_metrics(
         f"[PERF] /sql/ total={total_time * 1000:.0f}ms "
         f"(build={build_time * 1000:.0f}ms, "
         f"metrics={len(metrics)}, dims={len(dimensions)})",
+    )
+    _logger.info(
+        "[REQUEST_END] /sql/ request completed - add up QUERY_COUNT from sessions above",
     )
 
     return result
