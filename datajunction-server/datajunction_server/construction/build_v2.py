@@ -16,7 +16,7 @@ from typing import (
 
 from sqlalchemy import text, bindparam, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, selectinload, noload
 
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -723,6 +723,8 @@ class QueryBuilder:
 
         This is O(1) database calls instead of O(nodes * depth) individual queries.
         """
+        # Filter out empty strings and check if we have any valid dimension names
+        target_dimension_names = {name for name in target_dimension_names if name}
         if not target_dimension_names:
             return {}  # pragma: no cover
 
@@ -800,18 +802,24 @@ class QueryBuilder:
             .where(DimensionLink.id.in_(link_ids))
             .options(
                 joinedload(DimensionLink.dimension).options(
+                    noload(Node.created_by),
                     joinedload(Node.current).options(
+                        noload(NodeRevision.created_by),
                         selectinload(NodeRevision.columns).options(
                             joinedload(Column.attributes).joinedload(
                                 ColumnAttribute.attribute_type,
                             ),
-                            joinedload(Column.dimension),
+                            joinedload(Column.dimension).options(
+                                noload(Node.created_by),
+                            ),
                             joinedload(Column.partition),
                         ),
                         joinedload(NodeRevision.catalog),
                         selectinload(NodeRevision.availability),
                         selectinload(NodeRevision.dimension_links).options(
-                            joinedload(DimensionLink.dimension),
+                            joinedload(DimensionLink.dimension).options(
+                                noload(Node.created_by),
+                            ),
                         ),
                     ),
                 ),
@@ -1323,6 +1331,8 @@ class CubeQueryBuilder:
         Builds SQL for multiple metrics with the requested set of dimensions,
         filter expressions, order by, and limit clauses.
         """
+        # Always add dimensions referenced in the metric queries themselves
+        # (e.g., if a metric references a joinable dimension in its SQL definition)
         self.add_dimensions(get_dimensions_referenced_in_metrics(self.metric_nodes))
 
         measures_queries = await self.build_measures_queries()

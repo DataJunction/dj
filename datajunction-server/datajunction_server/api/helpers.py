@@ -527,11 +527,14 @@ async def validate_cube(
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    await validate_shared_dimensions(
-        session,
-        metric_nodes,
-        dimension_names,
-    )
+    # Only validate shared dimensions if dimensions were actually requested
+    # This avoids expensive dimension graph loading when dimensions=[]
+    if dimension_names:
+        await validate_shared_dimensions(
+            session,
+            metric_nodes,
+            dimension_names,
+        )
     return metrics, metric_nodes, list(dimension_nodes.values()), dimensions, catalog
 
 

@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Tuple
 
 from sqlalchemy import or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from io import StringIO
 
 from ruamel.yaml import YAML
@@ -122,6 +122,7 @@ async def get_nodes_in_namespace_detailed(
         .options(
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
+                selectinload(NodeRevision.cube_elements),  # Needed for cube exports
             ),
             joinedload(Node.tags),
         )

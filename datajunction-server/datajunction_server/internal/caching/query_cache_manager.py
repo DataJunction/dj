@@ -3,7 +3,7 @@ from dataclasses import asdict, dataclass
 import json
 import logging
 from typing import Any, OrderedDict
-from fastapi import Request
+from fastapi import BackgroundTasks, Request
 from datajunction_server.internal.caching.cache_manager import RefreshAheadCacheManager
 from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.internal.caching.interface import Cache
@@ -85,17 +85,75 @@ class QueryCacheManager(RefreshAheadCacheManager):
     def cache_key_prefix(self) -> str:
         return f"{self._cache_key_prefix}:{self.query_type}"
 
+    async def get_or_load(
+        self,
+        background_tasks: BackgroundTasks,
+        request: Request,
+        params: QueryRequestParams,
+        session: AsyncSession | None = None,
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Override parent to pass session through to build_cache_key and fallback.
+        """
+        cache_control = request.headers.get("Cache-Control", "").lower()
+        no_store = "no-store" in cache_control
+        no_cache = "no-cache" in cache_control
+
+        key: str = await self.build_cache_key(request, params, session)
+        if not no_cache:
+            try:
+                if cached := self.cache.get(key):
+                    if not no_store:
+                        background_tasks.add_task(
+                            self._refresh_cache,
+                            key,
+                            request,
+                            params,
+                        )
+                    return cached
+                self.logger.info(
+                    "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
+                    key,
+                    params,
+                )
+            except Exception as e:
+                self.logger.error(
+                    "Cache backend error when getting key=%s: %s. Falling back to computing fresh value.",
+                    key,
+                    str(e),
+                    exc_info=True,
+                )
+        else:
+            self.logger.info(
+                "no-cache header present for request with parameters=%s, computing fresh value.",
+                params,
+            )
+
+        result = await self.fallback(request, params, session)
+
+        if not no_store:
+            background_tasks.add_task(
+                self._set_cache_with_error_handling,
+                key,
+                result,
+                self.default_timeout,
+            )
+
+        return result
+
     async def fallback(
         self,
         request: Request,
         params: QueryRequestParams,
+        session: AsyncSession | None = None,
     ) -> list[GeneratedSQL] | TranslatedSQL:
         """
         The fallback function to call if the cache is not hit. This should be overridden
         in subclasses.
         """
         params = deepcopy(params)
-        async with session_context(request) as session:
+
+        async def _build_with_session(session: AsyncSession):
             access_checker = await build_access_checker_from_request(request, session)
             params.nodes = list(OrderedDict.fromkeys(params.nodes))
             query_parameters = (
@@ -124,15 +182,27 @@ class QueryCacheManager(RefreshAheadCacheManager):
                         access_checker,
                     )
 
+        # Use provided session or create a new one
+        if session:
+            return await _build_with_session(session)
+        else:
+            async with session_context(
+                request,
+                session_label="SQL building",
+            ) as new_session:
+                return await _build_with_session(new_session)
+
     async def build_cache_key(
         self,
         request: Request,
         params: QueryRequestParams,
+        session: AsyncSession | None = None,
     ) -> str:
         """
         Returns a cache key for the query request.
         """
-        async with session_context(request) as session:
+
+        async def _build_key_with_session(session: AsyncSession):
             versioned_request = await VersionedQueryKey.version_query_request(
                 session=session,
                 nodes=sorted(params.nodes),
@@ -152,7 +222,22 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 query_parameters=json.loads(params.query_params or "{}"),
                 other_args=params.other_args or {},
             )
-            return await super().build_cache_key(request, asdict(query_request))
+            # Call parent method directly (can't use super() in nested function)
+            return await RefreshAheadCacheManager.build_cache_key(
+                self,
+                request,
+                asdict(query_request),
+            )
+
+        # Use provided session or create a new one
+        if session:
+            return await _build_key_with_session(session)
+        else:
+            async with session_context(
+                request,
+                session_label="cache key generation",
+            ) as new_session:
+                return await _build_key_with_session(new_session)
 
     async def _build_measures_query(
         self,

@@ -16,7 +16,7 @@ from typing import AsyncIterator, List, Optional
 from dotenv import load_dotenv
 from fastapi import Depends
 from rich.logging import RichHandler
-from sqlalchemy import AsyncAdaptedQueuePool
+from sqlalchemy import AsyncAdaptedQueuePool, event
 from sqlalchemy.exc import MissingGreenlet, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -223,7 +223,10 @@ async def is_graphql_query(request: Request) -> bool:
         return False
 
 
-async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
+async def get_session(
+    request: Request = None,
+    session_label: str = None,
+) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
     """
@@ -234,16 +237,45 @@ async def get_session(request: Request = None) -> AsyncIterator[AsyncSession]:
         and (request.method.upper() == "GET" or await is_graphql_query(request))
         else session_manager.writer_sessionmaker
     )
-    async with session_maker() as session:
-        try:
-            yield session
-        except Exception as exc:
-            await session.rollback()
-            raise exc
+
+    # Query counter - will be incremented by the event listener
+    query_count = {"count": 0}
+
+    # Event listener to count queries on the engine
+    def count_query(conn, cursor, statement, parameters, context, executemany):
+        query_count["count"] += 1
+
+    # Get the engine for this session maker
+    engine = session_maker.kw.get("bind")
+
+    # Add event listener to the engine
+    event.listen(engine.sync_engine, "after_cursor_execute", count_query)
+
+    try:
+        async with session_maker() as session:
+            session.info["query_count"] = query_count
+            session.info["session_label"] = session_label
+            try:
+                yield session
+            except Exception as exc:
+                await session.rollback()
+                raise exc
+            finally:
+                # Log total query count for this session with label
+                label_str = f" ({session_label})" if session_label else ""
+                logger.debug(
+                    f"[QUERY_COUNT] Total queries in session{label_str}: {query_count['count']}",
+                )
+    finally:
+        # Remove event listener to avoid memory leaks
+        event.remove(engine.sync_engine, "after_cursor_execute", count_query)
 
 
 @asynccontextmanager
-async def session_context(request: Request = None) -> AsyncIterator[AsyncSession]:
+async def session_context(
+    request: Request = None,
+    session_label: str = None,
+) -> AsyncIterator[AsyncSession]:
     """
     Create a session context, using a test session if available.
 
@@ -257,7 +289,7 @@ async def session_context(request: Request = None) -> AsyncIterator[AsyncSession
         return
 
     # Normal path: create a new session
-    gen = get_session(request)
+    gen = get_session(request, session_label)
     session = await gen.__anext__()
     try:
         yield session
