@@ -2,6 +2,7 @@
 DataLoaders for batching and caching GraphQL queries.
 """
 
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -109,48 +110,52 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
 
 
 async def batch_load_collection_nodes(
-    collection_ids: list[int],
+    keys: list[tuple[int, str]],
     request: Request,
 ) -> list[list[DBNode]]:
     """
-    Batch load nodes for multiple collections.
+    Batch load nodes for multiple collections with field-aware eager loading.
 
-    This batches multiple collection node lookups into a single query,
-    avoiding N+1 queries when fetching nodes for multiple collections.
+    Keys are (collection_id, fields_json) tuples where fields_json is a
+    JSON-serialized dict of requested GraphQL fields (for load_node_options).
 
     Args:
-        collection_ids: List of collection IDs
+        keys: List of (collection_id, fields_json) tuples
         request: The Starlette request object for creating sessions
 
     Returns:
-        List of node lists, one per collection ID, in the same order
+        List of node lists, one per key, in the same order
     """
+    collection_ids = [cid for cid, _ in keys]
+
+    # Merge all requested fields across all loaders in this batch
+    all_fields: dict[str, Any] = {}
+    for _, fields_json in keys:
+        if fields_json:  # pragma: no branch
+            all_fields.update(json.loads(fields_json))
+
     async with session_context(request) as session:
-        # Load all requested collections with their nodes in one query
+        node_options = load_node_options(all_fields)
         stmt = (
             select(DBCollection)
             .where(DBCollection.id.in_(collection_ids))
-            .options(selectinload(DBCollection.nodes))
+            .options(selectinload(DBCollection.nodes).options(*node_options))
         )
         result = await session.execute(stmt)
         collections = result.unique().scalars().all()
 
-        # Create a lookup map: collection_id -> nodes
         collection_nodes_map = {c.id: c.nodes for c in collections}
-
-        # Return node lists in the same order as requested collection IDs
-        # Return empty list if collection not found
         return [collection_nodes_map.get(cid, []) for cid in collection_ids]
 
 
 def create_collection_nodes_loader(
     request: Request,
-) -> DataLoader[int, list[DBNode]]:
+) -> DataLoader[tuple[int, str], list[DBNode]]:
     """
     Create a DataLoader for loading nodes by collection ID.
 
-    This loader batches multiple collection node lookups within a single request
-    and caches the results to avoid N+1 queries.
+    Keys are (collection_id, fields_json) tuples so the loader can
+    eagerly load only the node relationships the query actually requests.
 
     Args:
         request: The Starlette request object

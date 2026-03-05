@@ -1014,7 +1014,7 @@ class NodeOutput(GenericNodeOutputModel):
     metric_metadata: MetricMetadataOutput | None = None
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime
-    created_by: UserNameOnly
+    created_by: UserNameOnly | None = None
     tags: list[TagOutput] = Field(default_factory=list)
     current_version: str
     missing_table: bool | None = False

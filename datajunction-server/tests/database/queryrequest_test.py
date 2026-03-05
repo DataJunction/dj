@@ -1,5 +1,7 @@
 import pytest
 from datajunction_server.database.queryrequest import (
+    QueryBuildType,
+    QueryRequestKey,
     VersionedNodeKey,
     VersionedQueryKey,
 )
@@ -377,3 +379,63 @@ async def test_version_query_request_filter_on_dim_role(
         filters=[f"default.hard_hat.state[stuff]@{hard_hat.current_version} = 'NY'"],
         orderby=[],
     )
+
+
+@pytest.mark.asyncio
+async def test_versioning_orderby_metric_node(
+    module__client_with_roads,
+    module__session,
+):
+    """
+    When a metric node name is used directly in ORDER BY, it should be versioned
+    using the metric node's current version rather than a dimension node version.
+    """
+    avg_repair_price = await Node.get_by_name(
+        module__session,
+        name="default.avg_repair_price",
+    )
+    versioned_orderby = await VersionedQueryKey.version_orderby(
+        module__session,
+        ["default.avg_repair_price DESC"],
+    )
+    assert versioned_orderby == [
+        f"default.avg_repair_price@{avg_repair_price.current_version} DESC",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_versioning_orderby_unknown_column(
+    module__client_with_roads,
+    module__session,
+):
+    """
+    When an ORDER BY column has no matching node in the database, it should be
+    kept as-is without versioning.
+    """
+    versioned_orderby = await VersionedQueryKey.version_orderby(
+        module__session,
+        ["nonexistent.bogus.column ASC"],
+    )
+    assert versioned_orderby == ["nonexistent.bogus.column ASC"]
+
+
+def test_query_request_key_instantiation():
+    """
+    QueryRequestKey can be instantiated with all required fields.
+    """
+    key = VersionedQueryKey(nodes=[], parents=[], dimensions=[], filters=[], orderby=[])
+    request_key = QueryRequestKey(
+        key=key,
+        query_type=QueryBuildType.METRICS,
+        engine_name="spark",
+        engine_version="3.3",
+        limit=100,
+        include_all_columns=False,
+        preaggregate=True,
+        use_materialized=True,
+        query_parameters={},
+        other_args={},
+    )
+    assert request_key.query_type == QueryBuildType.METRICS
+    assert request_key.engine_name == "spark"
+    assert request_key.limit == 100

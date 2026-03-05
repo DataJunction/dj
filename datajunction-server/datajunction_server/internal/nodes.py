@@ -772,6 +772,7 @@ async def copy_to_new_node(
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
                 joinedload(NodeRevision.missing_parents),
+                selectinload(NodeRevision.cube_elements),
             ),
             joinedload(Node.tags),
         ],

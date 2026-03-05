@@ -105,13 +105,13 @@ class User(Base):
         "Collection",
         back_populates="created_by",
         foreign_keys="Collection.created_by_id",
-        lazy="selectin",
+        lazy="noload",  # Don't load during SQL generation - not needed
     )
     created_nodes: Mapped[list["Node"]] = relationship(
         "Node",
         back_populates="created_by",
         foreign_keys="Node.created_by_id",
-        lazy="selectin",
+        lazy="noload",  # Don't load during SQL generation - not needed
     )
     created_node_revisions: Mapped[list["NodeRevision"]] = relationship(
         "NodeRevision",
@@ -122,12 +122,12 @@ class User(Base):
         "Tag",
         back_populates="created_by",
         foreign_keys="Tag.created_by_id",
-        lazy="selectin",
+        lazy="noload",  # Don't load during SQL generation - not needed
     )
     notification_preferences: Mapped[list["NotificationPreference"]] = relationship(
         "NotificationPreference",
         back_populates="user",
-        lazy="selectin",
+        lazy="noload",  # Don't load during SQL generation - not needed
     )
     owned_associations: Mapped[list[NodeOwner]] = relationship(
         "NodeOwner",

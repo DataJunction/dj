@@ -6386,8 +6386,15 @@ class TestCopyNode:
         for node in nodes:
             original = (await client_with_roads.get(f"/nodes/{node}")).json()
             copied = (await client_with_roads.get(f"/nodes/{node}_copy")).json()
-            for field in ["name", "node_id", "node_revision_id", "updated_at"]:
+            for field in [
+                "name",
+                "node_id",
+                "node_revision_id",
+                "updated_at",
+                "created_by",
+            ]:
                 copied[field] = mock.ANY
+            original["created_by"] = mock.ANY
             copied_dimension_links = sorted(
                 copied["dimension_links"],
                 key=lambda link: link["dimension"]["name"],
