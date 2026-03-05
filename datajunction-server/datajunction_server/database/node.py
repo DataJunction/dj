@@ -310,6 +310,7 @@ class Node(Base):
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
+        lazy="selectin",  # Eagerly load to avoid MissingGreenlet errors in to_spec()
     )
 
     namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
@@ -590,23 +591,18 @@ class Node(Base):
 
         options = options or [
             joinedload(Node.current).options(
-                noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                noload(NodeRevision.cube_elements),  # Not needed for SQL generation
                 # Only load essential data for SQL generation
                 selectinload(NodeRevision.columns).options(
-                    joinedload(Column.dimension).options(  # Need for dimension metadata
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                    ),
+                    joinedload(Column.dimension),
                 ),
                 joinedload(NodeRevision.catalog),  # Need for engine selection
                 selectinload(NodeRevision.dimension_links).options(
-                    joinedload(DimensionLink.dimension).options(  # Need for join paths
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                    ),
+                    joinedload(DimensionLink.dimension),
                 ),
                 selectinload(NodeRevision.metric_metadata),  # Need for metric type
             ),
-            # Prevent loading created_by to avoid User N+1 queries
-            noload(Node.created_by),
+            noload(Node.tags),  # Not needed for SQL generation
         ]
         statement = statement.options(*options)
         if not include_inactive:  # pragma: no cover
@@ -1101,7 +1097,7 @@ class NodeRevision(
         secondary="cube",
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
-        lazy="noload",  # Changed from selectin - only load when explicitly needed for cubes
+        # No lazy strategy - control via options (selectinload or noload)
         order_by="Column.order",
     )
 
@@ -1234,8 +1230,8 @@ class NodeRevision(
             ),
             selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.availability),
-            # Don't load created_by during SQL generation to avoid User N+1 queries
-            noload(NodeRevision.created_by),
+            # Load created_by for API responses (but noload in /sql/ endpoint's custom options)
+            selectinload(NodeRevision.created_by),
         )
 
     @classmethod
