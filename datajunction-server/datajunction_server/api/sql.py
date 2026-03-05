@@ -586,13 +586,27 @@ async def get_sql_for_metrics(
     """
     Return SQL for a set of metrics with dimensions and filters
     """
-    # make sure all metrics exist and have correct node type
-    nodes = [
-        await Node.get_by_name(session, node, raise_if_not_exists=True)
-        for node in metrics
-    ]
-    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
+    import time
 
+    start_time = time.time()
+
+    # make sure all metrics exist and have correct node type
+    # Use get_by_names (plural) to fetch all nodes in a single query instead of N queries
+    t1 = time.time()
+    nodes = await Node.get_by_names(session, metrics)
+    _logger.info(f"[PERF] get_by_names took {(time.time() - t1) * 1000:.0f}ms")
+
+    # Check if all requested nodes exist
+    found_names = {node.name for node in nodes}
+    missing_nodes = set(metrics) - found_names
+    if missing_nodes:
+        raise DJInvalidInputException(
+            message=f"The following nodes do not exist: {', '.join(missing_nodes)}",
+            http_status_code=HTTPStatus.NOT_FOUND,
+        )
+
+    # Validate node types
+    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
     if non_metric_nodes:
         raise DJInvalidInputException(
             message="All nodes must be of metric type, but some are not: "
@@ -604,7 +618,9 @@ async def get_sql_for_metrics(
         cache=cache,
         query_type=QueryBuildType.METRICS,
     )
-    return await query_cache_manager.get_or_load(
+
+    t2 = time.time()
+    result = await query_cache_manager.get_or_load(
         background_tasks,
         request,
         QueryRequestParams(
@@ -620,3 +636,13 @@ async def get_sql_for_metrics(
             ignore_errors=ignore_errors,
         ),
     )
+
+    total_time = time.time() - start_time
+    build_time = time.time() - t2
+    _logger.info(
+        f"[PERF] /sql/ total={total_time * 1000:.0f}ms "
+        f"(build={build_time * 1000:.0f}ms, "
+        f"metrics={len(metrics)}, dims={len(dimensions)})",
+    )
+
+    return result

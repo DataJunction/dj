@@ -7,7 +7,7 @@ import logging
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.base import ExecutableOption
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from datajunction_server.database.rbac import RoleAssignment, Role
 from datajunction_server.database.user import User
@@ -56,6 +56,12 @@ async def get_user(
             .selectinload(User.role_assignments)
             .selectinload(RoleAssignment.role)
             .selectinload(Role.scopes),
+            # Prevent loading unnecessary data during authentication
+            noload(User.notification_preferences),
+            noload(User.created_collections),
+            noload(User.created_tags),
+            noload(User.created_nodes),
+            noload(User.owned_nodes),
         ],
     )
     if not user:
