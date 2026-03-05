@@ -578,13 +578,23 @@ async def get_sql_for_metrics(
     """
     Return SQL for a set of metrics with dimensions and filters
     """
-    # make sure all metrics exist and have correct node type
-    nodes = [
-        await Node.get_by_name(session, node, raise_if_not_exists=True)
-        for node in metrics
-    ]
-    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
+    # Label this session for debugging
+    session.info["session_label"] = "initial node loading"
 
+    # Fetch all metric nodes in a single query (only name/type needed for validation here)
+    nodes = await Node.get_by_names(session, metrics, options=[])
+
+    # Check if all requested nodes exist
+    found_names = {node.name for node in nodes}
+    missing_nodes = set(metrics) - found_names
+    if missing_nodes:
+        raise DJInvalidInputException(
+            message=f"The following nodes do not exist: {', '.join(missing_nodes)}",
+            http_status_code=HTTPStatus.NOT_FOUND,
+        )
+
+    # Validate node types
+    non_metric_nodes = [node for node in nodes if node and node.type != NodeType.METRIC]
     if non_metric_nodes:
         raise DJInvalidInputException(
             message="All nodes must be of metric type, but some are not: "
@@ -596,6 +606,7 @@ async def get_sql_for_metrics(
         cache=cache,
         query_type=QueryBuildType.METRICS,
     )
+
     return await query_cache_manager.get_or_load(
         background_tasks,
         request,
@@ -611,4 +622,5 @@ async def get_sql_for_metrics(
             use_materialized=use_materialized,
             ignore_errors=ignore_errors,
         ),
+        session=session,  # Pass the session to reuse it
     )

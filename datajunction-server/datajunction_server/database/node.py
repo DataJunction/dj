@@ -31,6 +31,7 @@ from sqlalchemy.orm import (
     Mapped,
     joinedload,
     mapped_column,
+    noload,
     relationship,
     selectinload,
     MappedColumn,
@@ -309,6 +310,7 @@ class Node(Base):
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
         secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
+        lazy="selectin",
     )
 
     namespace_obj: Mapped[Optional["NodeNamespace"]] = relationship(
@@ -550,9 +552,6 @@ class Node(Base):
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
             ),
-            selectinload(Node.tags),
-            selectinload(Node.created_by),
-            selectinload(Node.owners),
         ]
         statement = statement.options(*options)
         if not include_inactive:
@@ -581,7 +580,12 @@ class Node(Base):
         """
         Get nodes by names
         """
+        # Early return if no names provided to avoid useless query
+        if not names:
+            return []
+
         statement = select(Node).where(Node.name.in_(names))
+
         options = options or [
             joinedload(Node.current).options(
                 *NodeRevision.default_load_options(),
@@ -1081,7 +1085,7 @@ class NodeRevision(
         secondary="cube",
         primaryjoin="NodeRevision.id==CubeRelationship.cube_id",
         secondaryjoin="Column.id==CubeRelationship.cube_element_id",
-        lazy="selectin",
+        # No lazy strategy - control via options (selectinload or noload)
         order_by="Column.order",
     )
 
@@ -1188,22 +1192,34 @@ class NodeRevision(
                 joinedload(Column.attributes).joinedload(
                     ColumnAttribute.attribute_type,
                 ),
-                joinedload(Column.dimension),
+                joinedload(Column.dimension).options(
+                    noload(Node.created_by),
+                ),
                 joinedload(Column.partition),
             ),
             joinedload(NodeRevision.catalog),
-            selectinload(NodeRevision.parents),
+            selectinload(NodeRevision.parents).options(
+                selectinload(Node.current).options(
+                    noload(NodeRevision.created_by),
+                ),
+                noload(Node.created_by),
+            ),
             selectinload(NodeRevision.materializations),
             selectinload(NodeRevision.metric_metadata),
             selectinload(NodeRevision.availability),
             selectinload(NodeRevision.dimension_links).options(
                 joinedload(DimensionLink.dimension).options(
-                    selectinload(Node.current),
+                    selectinload(Node.current).options(
+                        noload(NodeRevision.created_by),
+                    ),
+                    noload(Node.created_by),
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
             selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.availability),
+            # Load created_by for API responses (but noload in /sql/ endpoint's custom options)
+            selectinload(NodeRevision.created_by),
         )
 
     @classmethod

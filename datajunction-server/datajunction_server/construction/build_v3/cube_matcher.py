@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, selectinload, noload
 
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
 from datajunction_server.models.dialect import Dialect
@@ -87,9 +87,13 @@ async def find_matching_cube(
             ),
         )
         .options(
+            noload(Node.created_by),  # Prevent User N+1 queries
             joinedload(Node.current).options(
-                selectinload(NodeRevision.cube_elements).selectinload(
-                    Column.node_revision,
+                noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                selectinload(NodeRevision.cube_elements).options(
+                    selectinload(Column.node_revision).options(
+                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                    ),
                 ),
                 joinedload(NodeRevision.availability),
                 selectinload(NodeRevision.materializations),
@@ -225,7 +229,18 @@ async def resolve_dialect_and_engine_for_metrics(
                 )
 
     # Fallback: use first metric's catalog's default engine
-    node = await Node.get_by_name(session, metrics[0], raise_if_not_exists=True)
+    node = await Node.get_by_name(
+        session,
+        metrics[0],
+        raise_if_not_exists=True,
+        options=[
+            joinedload(Node.current).options(
+                noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                joinedload(NodeRevision.catalog),
+            ),
+            noload(Node.created_by),  # Prevent User N+1 queries
+        ],
+    )
     if not node:  # pragma: no cover
         raise ValueError(f"Metric not found: {metrics[0]}")
 
