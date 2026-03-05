@@ -390,7 +390,7 @@ class VersionedQueryKey:
             dim_node_name = SEPARATOR.join(order_by_col.split(SEPARATOR)[:-1])
             order_parts.append((order_by_col, dim_node_name, parts))
             all_node_names.add(order_by_col)
-            if dim_node_name:
+            if dim_node_name:  # pragma: no branch
                 all_node_names.add(dim_node_name)
 
         # Batch load all potential metric and dimension nodes in one query

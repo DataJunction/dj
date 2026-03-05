@@ -2062,3 +2062,18 @@ async def test_approx_count_distinct_metric_sql(
             "SELECT hll_sketch_estimate(hll_union_agg(user_id_hll_7a744b96)) FROM hll.events",
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_sql_nonexistent_metric_returns_404(
+    module__client_with_roads: AsyncClient,
+):
+    """
+    Requesting SQL for a metric that does not exist should return a 404.
+    """
+    response = await module__client_with_roads.get(
+        "/sql/",
+        params={"metrics": ["default.this_metric_does_not_exist"]},
+    )
+    assert response.status_code == 404
+    assert "default.this_metric_does_not_exist" in response.json()["message"]
