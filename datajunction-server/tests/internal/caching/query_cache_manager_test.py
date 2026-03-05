@@ -270,3 +270,38 @@ async def test_measures_get_or_load(
         result = await manager.get_or_load(background, request, params)
         assert result == expected_result
         cache.get(key) == [{"sql": "CACHED"}]  # still stale
+
+
+@pytest.mark.asyncio
+async def test_cache_backend_error_falls_back_to_fresh_value():
+    """
+    When the cache backend raises an exception on get, the manager should
+    log the error and fall back to computing a fresh value.
+    """
+    mock_access_checker = mock.AsyncMock(spec=AccessChecker)
+    broken_cache = mock.MagicMock()
+    broken_cache.get.side_effect = RuntimeError("cache unavailable")
+
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            return_value=[{"sql": "FRESH"}],
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+            return_value="versioned123",
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.build_access_checker_from_request",
+            return_value=mock_access_checker,
+        ),
+    ):
+        manager = QueryCacheManager(broken_cache, QueryBuildType.MEASURES)
+        params = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
+        background = BackgroundTasks()
+        request = DummyRequest()
+
+        result = await manager.get_or_load(background, request, params)
+
+        assert result == [{"sql": "FRESH"}]
+        broken_cache.get.assert_called_once()

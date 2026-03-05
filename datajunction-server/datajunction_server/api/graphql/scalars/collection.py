@@ -2,6 +2,7 @@
 Collection GraphQL scalar types.
 """
 
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,7 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.api.graphql.scalars.user import User
+from datajunction_server.api.graphql.utils import extract_fields
 
 if TYPE_CHECKING:
     from datajunction_server.database.collection import (
@@ -37,8 +39,8 @@ class Collection:
         Uses dataloader to batch requests efficiently.
         """
         loader = info.context["collection_nodes_loader"]
-        nodes = await loader.load(self.id)
-        return nodes  # type: ignore
+        node_fields = extract_fields(info)
+        return await loader.load((self.id, json.dumps(node_fields, sort_keys=True)))  # type: ignore
 
     @classmethod
     def from_db_collection(
