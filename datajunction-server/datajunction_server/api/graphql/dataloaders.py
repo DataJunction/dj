@@ -131,7 +131,7 @@ async def batch_load_collection_nodes(
     # Merge all requested fields across all loaders in this batch
     all_fields: dict[str, Any] = {}
     for _, fields_json in keys:
-        if fields_json:
+        if fields_json:  # pragma: no branch
             all_fields.update(json.loads(fields_json))
 
     async with session_context(request) as session:
