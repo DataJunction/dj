@@ -9,7 +9,7 @@ from collections import namedtuple
 
 from sqlalchemy import select, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload, load_only
+from sqlalchemy.orm import selectinload, joinedload, load_only, noload
 
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision, Column
@@ -275,7 +275,9 @@ async def load_dimension_links_batch(
         .where(DimensionLink.id.in_(link_ids))
         .options(
             joinedload(DimensionLink.dimension).options(
+                noload(Node.created_by),  # Prevent User N+1 queries
                 joinedload(Node.current).options(
+                    noload(NodeRevision.created_by),  # Prevent User N+1 queries
                     # Load what's needed for table references, parsing, and type lookups
                     joinedload(NodeRevision.catalog),
                     joinedload(NodeRevision.availability),
@@ -375,6 +377,7 @@ async def load_nodes(ctx: BuildContext) -> None:
                 Node.current_version,
             ),
             joinedload(Node.current).options(
+                noload(NodeRevision.created_by),  # Prevent User N+1 queries
                 load_only(
                     NodeRevision.name,
                     NodeRevision.query,
@@ -391,13 +394,18 @@ async def load_nodes(ctx: BuildContext) -> None:
                 selectinload(NodeRevision.required_dimensions).options(
                     # Load the node_revision and node to reconstruct full dimension path
                     joinedload(Column.node_revision).options(
-                        joinedload(NodeRevision.node),
+                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                        joinedload(NodeRevision.node).options(
+                            noload(Node.created_by),  # Prevent User N+1 queries
+                        ),
                     ),
                 ),
                 joinedload(NodeRevision.availability),  # For materialization support
                 selectinload(NodeRevision.dimension_links).options(
                     # Load dimension node for link matching in temporal filters
-                    joinedload(DimensionLink.dimension),
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),  # Prevent User N+1 queries
+                    ),
                 ),
             ),
         )
