@@ -5,16 +5,17 @@ DAG related functions.
 import asyncio
 import itertools
 import logging
+from collections import namedtuple
 from typing import Dict, List, Tuple, Union, cast
 
-from sqlalchemy import and_, func, join, literal, or_, select
+from sqlalchemy import and_, func, join, literal, or_, select, text, bindparam
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, joinedload, selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 from sqlalchemy.dialects.postgresql import array
 
-from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
@@ -31,6 +32,17 @@ from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# State during BFS traversal of the dimensions DAG in _get_dimensions_dag_bfs.
+# node_id:    ID of the current Node (not NodeRevision)
+# node_name:  name of the current node (used to build edge labels)
+# path_edges: list of edge labels like "A.b_id" or "A.role_name" accumulated so far
+# role_path:  accumulated "role_a->role_b" string for the name suffix (empty if no roles)
+# visited:    frozenset of node_ids already seen (cycle prevention)
+DimBFSState = namedtuple(
+    "DimBFSState",
+    ["node_id", "node_name", "path_edges", "role_path", "visited"],
+)
 
 
 def _node_output_options():
@@ -693,283 +705,304 @@ async def get_dimensions_dag(
     depth: int = 30,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
-    Gets the dimensions graph of the given node revision with a single recursive CTE query.
+    Gets the dimensions graph of the given node revision using layered BFS raw SQL queries.
     This graph is split out into dimension attributes or dimension nodes depending on the
     `with_attributes` flag.
+
+    Replaces the former recursive CTE approach with an iterative BFS that issues one
+    batched query per graph depth, avoiding Postgres recursive-CTE materialization overhead
+    on wide/deep graphs.
     """
+    return await _get_dimensions_dag_bfs(session, node_revision, with_attributes, depth)
 
-    initial_node = aliased(NodeRevision, name="initial_node")
-    dimension_node = aliased(Node, name="dimension_node")
-    dimension_rev = aliased(NodeRevision, name="dimension_rev")
-    current_node = aliased(Node, name="current_node")
-    current_rev = aliased(NodeRevision, name="current_rev")
-    next_node = aliased(Node, name="next_node")
-    next_rev = aliased(NodeRevision, name="next_rev")
-    column = aliased(Column, name="c")
 
-    # Merge both branching points of the dimensions graph (the column -> dimension
-    # branch and the node -> dimension branch) into a single CTE. We do this merge because
-    # subqueries with UNION are not allowed in the recursive CTE.
-    graph_branches = (
-        (
-            select(
-                Column.node_revision_id,
-                Column.dimension_id,
-                Column.name,
-                Column.dimension_column,
+async def _get_dimensions_dag_bfs(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+    with_attributes: bool = True,
+    depth: int = 30,
+) -> List[Union[DimensionAttributeOutput, Node]]:
+    """
+    BFS implementation of get_dimensions_dag.
+
+    Phase A: seed the frontier from the starting node revision.
+    Phase B: expand one layer per iteration using raw SQL.
+             - Depth 0: follows BOTH DimensionLink edges AND Column→dimension edges.
+             - Depth 1+: follows DimensionLink edges only (same as old CTE).
+    Phase C: batch-fetch column info for all discovered dimension nodes.
+    Phase D: assemble DimensionAttributeOutput objects.
+
+    The ``path`` on each output mirrors the old CTE: each element is an edge label
+    ``"from_node_name"`` (DimensionLink, no role), ``"from_node_name.role"``
+    (DimensionLink with role), or ``"from_node_name.col_name"`` (Column→dim edge).
+    """
+    is_sqlite = session.bind.dialect.name == "sqlite"
+
+    # -------------------------------------------------------------------------
+    # Phase A – seed frontier
+    # -------------------------------------------------------------------------
+    # Maps (node_id, role_path) -> (node_name, path_edges)
+    # Using (node_id, role_path) as key so that the same node reached via different
+    # role paths produces separate DimensionAttributeOutput entries (matching old CTE).
+    discovered: dict[tuple[int, str], tuple[str, list[str]]] = {}
+
+    frontier: list[DimBFSState] = [
+        DimBFSState(
+            node_id=node_revision.node_id,
+            node_name=node_revision.name,
+            path_edges=[],
+            role_path="",
+            visited=frozenset([node_revision.node_id]),
+        ),
+    ]
+
+    # -------------------------------------------------------------------------
+    # Phase B – BFS expansion
+    # -------------------------------------------------------------------------
+    for current_depth in range(depth + 1):
+        if not frontier:
+            break
+
+        # Group frontier items by node_id so we issue one query per layer
+        frontier_by_node: dict[int, list[DimBFSState]] = {}
+        for item in frontier:
+            frontier_by_node.setdefault(item.node_id, []).append(item)
+
+        frontier_node_ids = list(frontier_by_node.keys())
+
+        if current_depth == 0:
+            # Depth 0: expand via BOTH DimensionLink edges AND Column→dimension edges.
+            # col_name is NULL for DimensionLink rows, non-NULL for Column→dim rows.
+            expand_query = text("""
+                SELECT from_node_id, to_node_id, to_node_name, link_role, col_name FROM (
+                    SELECT
+                        nr.node_id AS from_node_id,
+                        n.id       AS to_node_id,
+                        n.name     AS to_node_name,
+                        COALESCE(dl.role, '') AS link_role,
+                        NULL       AS col_name
+                    FROM noderevision nr
+                    JOIN dimensionlink dl ON dl.node_revision_id = nr.id
+                    JOIN node n ON dl.dimension_id = n.id AND n.deactivated_at IS NULL
+                    WHERE nr.id = :node_revision_id
+                    UNION ALL
+                    SELECT
+                        nr2.node_id AS from_node_id,
+                        n2.id       AS to_node_id,
+                        n2.name     AS to_node_name,
+                        ''          AS link_role,
+                        c.name      AS col_name
+                    FROM noderevision nr2
+                    JOIN "column" c ON c.node_revision_id = nr2.id
+                    JOIN node n2 ON c.dimension_id = n2.id AND n2.deactivated_at IS NULL
+                    WHERE nr2.id = :node_revision_id
+                      AND c.dimension_id IS NOT NULL
+                ) edges
+            """)
+            rows_result = await session.execute(
+                expand_query,
+                {"node_revision_id": node_revision.id},
             )
-            .select_from(Column)
-            .where(Column.dimension_id.isnot(None))
-        )
-        .union_all(
-            select(
-                DimensionLink.node_revision_id,
-                DimensionLink.dimension_id,
-                (
-                    literal("[")
-                    + func.coalesce(
-                        DimensionLink.role,
-                        literal(""),
+        else:
+            # Depth 1+: expand via DimensionLink only (col_name always NULL)
+            expand_query = text("""
+                SELECT
+                    nr.node_id   AS from_node_id,
+                    n.id         AS to_node_id,
+                    n.name       AS to_node_name,
+                    COALESCE(dl.role, '') AS link_role,
+                    NULL         AS col_name
+                FROM noderevision nr
+                JOIN dimensionlink dl ON dl.node_revision_id = nr.id
+                JOIN node n ON dl.dimension_id = n.id AND n.deactivated_at IS NULL
+                WHERE nr.node_id IN :node_ids
+                  AND nr.version = (
+                      SELECT current_version FROM node WHERE id = nr.node_id
+                  )
+            """).bindparams(bindparam("node_ids", expanding=True))
+            rows_result = await session.execute(
+                expand_query,
+                {"node_ids": frontier_node_ids},
+            )
+
+        rows = rows_result.fetchall()
+
+        new_frontier: list[DimBFSState] = []
+        for row in rows:
+            for item in frontier_by_node.get(row.from_node_id, []):
+                if row.to_node_id in item.visited:
+                    continue  # cycle prevention
+
+                # Build role_path (same logic as find_join_paths_batch)
+                link_role = row.link_role or ""
+                if not item.role_path and not link_role:
+                    new_role_path = ""
+                elif not item.role_path:
+                    new_role_path = link_role
+                elif not link_role:
+                    new_role_path = item.role_path
+                else:
+                    new_role_path = item.role_path + "->" + link_role
+
+                # Build edge label matching the old CTE's join_path format:
+                #   - Column→dim: "from_node.col_name"
+                #   - DimensionLink with role: "from_node.role_name"
+                #   - DimensionLink without role: "from_node"
+                col_name = row.col_name
+                if col_name is not None:
+                    edge_label = f"{item.node_name}.{col_name}"
+                elif link_role:
+                    edge_label = f"{item.node_name}.{link_role}"
+                else:
+                    edge_label = item.node_name
+
+                new_path_edges = item.path_edges + [edge_label]
+                new_visited = item.visited | frozenset([row.to_node_id])
+                disc_key = (row.to_node_id, new_role_path)
+
+                # Record path for this (node, role_path) combination.
+                # Skip if already recorded to avoid re-exploring identical states.
+                if disc_key not in discovered:
+                    discovered[disc_key] = (row.to_node_name, new_path_edges)
+                    new_frontier.append(
+                        DimBFSState(
+                            node_id=row.to_node_id,
+                            node_name=row.to_node_name,
+                            path_edges=new_path_edges,
+                            role_path=new_role_path,
+                            visited=new_visited,
+                        ),
                     )
-                    + literal("]")
-                ).label("name"),
-                literal(None).label("dimension_column"),
-            ).select_from(DimensionLink),
-        )
-        .cte("graph_branches")
-    )
 
-    # Recursive CTE
-    dimensions_graph = (
-        select(
-            initial_node.id.label("path_start"),
-            graph_branches.c.name.label("col_name"),
-            graph_branches.c.dimension_column.label("dimension_column"),
-            dimension_node.id.label("path_end"),
-            (
-                initial_node.name
-                + "."
-                + graph_branches.c.name
-                + ","
-                + dimension_node.name
-            ).label(
-                "join_path",
-            ),
-            dimension_node.name.label("node_name"),
-            dimension_rev.id.label("node_revision_id"),
-            dimension_rev.display_name.label("node_display_name"),
-            literal(0).label("depth"),
-        )
-        .select_from(initial_node)
-        .join(graph_branches, node_revision.id == graph_branches.c.node_revision_id)
-        .join(
-            dimension_node,
-            (dimension_node.id == graph_branches.c.dimension_id)
-            & (is_(dimension_node.deactivated_at, None)),
-        )
-        .join(
-            dimension_rev,
-            and_(
-                dimension_rev.version == dimension_node.current_version,
-                dimension_rev.node_id == dimension_node.id,
-            ),
-        )
-        .where(initial_node.id == node_revision.id)
-    ).cte("dimensions_graph", recursive=True)
-    dimensions_graph = dimensions_graph.suffix_with(
-        "CYCLE node_revision_id SET is_cycle USING path",
-    )
+        frontier = new_frontier
 
-    paths = dimensions_graph.union_all(
-        select(
-            dimensions_graph.c.path_start,
-            graph_branches.c.name.label("col_name"),
-            graph_branches.c.dimension_column.label("dimension_column"),
-            next_node.id.label("path_end"),
-            (
-                dimensions_graph.c.join_path
-                + "."
-                + graph_branches.c.name
-                + ","
-                + next_node.name
-            ).label(
-                "join_path",
-            ),
-            next_node.name.label("node_name"),
-            next_rev.id.label("node_revision_id"),
-            next_rev.display_name.label("node_display_name"),
-            (dimensions_graph.c.depth + literal(1)).label("depth"),
-        )
-        .select_from(
-            dimensions_graph.join(
-                current_node,
-                (dimensions_graph.c.path_end == current_node.id),
-            )
-            .join(
-                current_rev,
-                and_(
-                    current_rev.version == current_node.current_version,
-                    current_rev.node_id == current_node.id,
-                ),
-            )
-            .join(
-                graph_branches,
-                (current_rev.id == graph_branches.c.node_revision_id)
-                & (is_(graph_branches.c.dimension_column, None)),
-            )
-            .join(
-                next_node,
-                (next_node.id == graph_branches.c.dimension_id)
-                & (is_(graph_branches.c.dimension_column, None))
-                & (is_(next_node.deactivated_at, None)),
-            )
-            .join(
-                next_rev,
-                and_(
-                    next_rev.version == next_node.current_version,
-                    next_rev.node_id == next_node.id,
-                ),
-            ),
-        )
-        .where(dimensions_graph.c.depth <= depth),
-    )
+    if not discovered:
+        # No dimension nodes reachable — still need to handle local dimension attributes
+        # on the starting node itself (e.g., when the node IS a dimension node).
+        if not with_attributes:
+            return []
+        # Fall through to Phase C/D with empty discovered set; local columns handled below.
 
-    # Final SELECT statements
-    # ----
-    # If attributes was set to False, we only need to return the dimension nodes
+    # -------------------------------------------------------------------------
+    # If with_attributes=False, return dimension Node objects via ORM
+    # -------------------------------------------------------------------------
     if not with_attributes:
+        discovered_names = list({name for (name, _) in discovered.values()})
+        if not discovered_names:
+            return []
         result = await session.execute(
             select(Node)
-            .select_from(paths)
-            .join(Node, paths.c.node_name == Node.name)
+            .where(Node.name.in_(discovered_names))
             .options(*_node_output_options()),
         )
         return result.unique().scalars().all()
 
-    # Otherwise return the dimension attributes, which include both the dimension
-    # attributes on the dimension nodes in the DAG as well as the local dimension
-    # attributes on the initial node
-    group_concat = (
-        func.group_concat
-        if session.bind.dialect.name in ("sqlite",)
-        else func.string_agg
+    # -------------------------------------------------------------------------
+    # Phase C – batch fetch columns for discovered dimension nodes
+    # -------------------------------------------------------------------------
+    agg_fn = "group_concat(at.name, ',')" if is_sqlite else "string_agg(at.name, ',')"
+
+    dim_columns: dict[str, list[tuple[str, str, str | None]]] = {}
+    # Maps node_name -> list of (col_name, col_type, attribute_types_csv)
+    dim_display_names: dict[str, str] = {}
+
+    discovered_names = list({name for (name, _) in discovered.values()})
+    if discovered_names:
+        dim_col_query = text(f"""
+            SELECT
+                n.name          AS node_name,
+                nr.display_name AS node_display_name,
+                c.name          AS col_name,
+                CAST(c.type AS TEXT) AS col_type,
+                {agg_fn}        AS attribute_types
+            FROM node n
+            JOIN noderevision nr
+                ON nr.node_id = n.id AND nr.version = n.current_version
+            JOIN "column" c ON c.node_revision_id = nr.id
+            LEFT JOIN columnattribute ca ON ca.column_id = c.id
+            LEFT JOIN attributetype at ON at.id = ca.attribute_type_id
+            WHERE n.name IN :dim_names
+            GROUP BY n.name, nr.display_name, c.name, c.type
+        """).bindparams(bindparam("dim_names", expanding=True))
+
+        dim_col_result = await session.execute(
+            dim_col_query,
+            {"dim_names": discovered_names},
+        )
+        for row in dim_col_result.fetchall():
+            dim_columns.setdefault(row.node_name, []).append(
+                (row.col_name, row.col_type, row.attribute_types),
+            )
+            dim_display_names[row.node_name] = row.node_display_name
+
+    # Also fetch local columns on the starting node revision (for local dimension attrs)
+    local_col_query = text(f"""
+        SELECT
+            nr.name         AS node_name,
+            nr.display_name AS node_display_name,
+            c.name          AS col_name,
+            CAST(c.type AS TEXT) AS col_type,
+            {agg_fn}        AS attribute_types
+        FROM noderevision nr
+        JOIN "column" c ON c.node_revision_id = nr.id
+        LEFT JOIN columnattribute ca ON ca.column_id = c.id
+        LEFT JOIN attributetype at ON at.id = ca.attribute_type_id
+        WHERE nr.id = :node_revision_id
+        GROUP BY nr.name, nr.display_name, c.name, c.type
+    """)
+    local_col_result = await session.execute(
+        local_col_query,
+        {"node_revision_id": node_revision.id},
     )
-    final_query = (
-        select(
-            paths.c.node_name,
-            paths.c.node_display_name,
-            column.name,
-            column.type,
-            group_concat(AttributeType.name, ",").label(
-                "column_attribute_type_name",
-            ),
-            paths.c.join_path,
-        )
-        .select_from(paths)
-        .join(column, column.node_revision_id == paths.c.node_revision_id)
-        .join(ColumnAttribute, column.id == ColumnAttribute.column_id, isouter=True)
-        .join(
-            AttributeType,
-            ColumnAttribute.attribute_type_id == AttributeType.id,
-            isouter=True,
-        )
-        .group_by(
-            paths.c.node_name,
-            paths.c.node_display_name,
-            column.name,
-            column.type,
-            paths.c.join_path,
-        )
-        .union_all(
-            select(
-                NodeRevision.name,
-                NodeRevision.display_name,
-                Column.name,
-                Column.type,
-                group_concat(AttributeType.name, ",").label(
-                    "column_attribute_type_name",
+    local_node_display_name = node_revision.name
+    local_columns: list[tuple[str, str, str | None]] = []
+    for row in local_col_result.fetchall():
+        local_node_display_name = row.node_display_name
+        local_columns.append((row.col_name, row.col_type, row.attribute_types))
+
+    # -------------------------------------------------------------------------
+    # Phase D – build DimensionAttributeOutput objects
+    # -------------------------------------------------------------------------
+    results: list[DimensionAttributeOutput] = []
+
+    # Columns from discovered dimension nodes
+    for (_, role_path), (node_name, path_edges) in discovered.items():
+        role_suffix = f"[{role_path}]" if role_path else ""
+        node_display_name = dim_display_names.get(node_name, node_name)
+        for col_name, col_type, attribute_types in dim_columns.get(node_name, []):
+            attr_list = attribute_types.split(",") if attribute_types else []
+            results.append(
+                DimensionAttributeOutput(
+                    name=f"{node_name}.{col_name}{role_suffix}",
+                    node_name=node_name,
+                    node_display_name=node_display_name,
+                    properties=attr_list,
+                    type=col_type,
+                    path=list(path_edges),
                 ),
-                literal("").label("join_path"),
             )
-            .select_from(NodeRevision)
-            .join(Column, Column.node_revision_id == NodeRevision.id)
-            .join(
-                ColumnAttribute,
-                Column.id == ColumnAttribute.column_id,
-                isouter=True,
-            )
-            .join(
-                AttributeType,
-                ColumnAttribute.attribute_type_id == AttributeType.id,
-                isouter=True,
-            )
-            .group_by(
-                NodeRevision.name,
-                NodeRevision.display_name,
-                Column.name,
-                Column.type,
-                "join_path",
-            )
-            .where(NodeRevision.id == node_revision.id),
+
+    # Local columns on starting node: only include if tagged dimension or primary_key,
+    # or if the starting node itself is a dimension
+    for col_name, col_type, attribute_types in local_columns:
+        attr_list = attribute_types.split(",") if attribute_types else []
+        is_dim_attr = (
+            ColumnAttributes.DIMENSION.value in attr_list
+            or ColumnAttributes.PRIMARY_KEY.value in attr_list
         )
-    )
+        if is_dim_attr or node_revision.type == NodeType.DIMENSION:
+            results.append(
+                DimensionAttributeOutput(
+                    name=f"{node_revision.name}.{col_name}",
+                    node_name=node_revision.name,
+                    node_display_name=local_node_display_name,
+                    properties=attr_list,
+                    type=col_type,
+                    path=[],
+                ),
+            )
 
-    def _extract_roles_from_path(join_path) -> str:
-        """Extracts dimension roles from the query results' join path"""
-        roles = [
-            path.replace("[", "").replace("]", "").split(".")[-1]
-            for path in join_path.split(",")
-            if "[" in path  # this indicates that this a role
-        ]
-        non_empty_roles = [role for role in roles if role]
-        return f"[{'->'.join(non_empty_roles)}]" if non_empty_roles else ""
-
-    # Only include a given column it's an attribute on a dimension node or
-    # if the column is tagged with the attribute type 'dimension'
-    dimension_attributes = (await session.execute(final_query)).all()
-    return sorted(
-        [
-            DimensionAttributeOutput(
-                name=f"{node_name}.{column_name}{_extract_roles_from_path(join_path)}",
-                node_name=node_name,
-                node_display_name=node_display_name,
-                properties=attribute_types.split(",") if attribute_types else [],
-                type=str(column_type),
-                path=[
-                    (path.replace("[", "").replace("]", "")[:-1])
-                    if path.replace("[", "").replace("]", "").endswith(".")
-                    else path.replace("[", "").replace("]", "")
-                    for path in join_path.split(",")[:-1]
-                ]
-                if join_path
-                else [],
-            )
-            for (
-                node_name,
-                node_display_name,
-                column_name,
-                column_type,
-                attribute_types,
-                join_path,
-            ) in dimension_attributes
-            if (  # column has dimension attribute
-                join_path == ""
-                and attribute_types is not None
-                and (
-                    ColumnAttributes.DIMENSION.value in attribute_types
-                    or ColumnAttributes.PRIMARY_KEY.value in attribute_types
-                )
-            )
-            or (  # column is on dimension node
-                join_path != ""
-                or (
-                    node_name == node_revision.name
-                    and node_revision.type == NodeType.DIMENSION
-                )
-            )
-        ],
-        key=lambda x: (x.name, ",".join(x.path)),
-    )
+    return sorted(results, key=lambda x: (x.name, ",".join(x.path)))
 
 
 async def get_dimensions(
