@@ -2685,6 +2685,7 @@ async def propagate_valid_status(
                 session=session,
                 node_name=node_revision.name,
             )
+            downstream_nodes = topological_sort(downstream_nodes)
             newly_valid_nodes = []
             for node in downstream_nodes:
                 node_validator = await validate_node_data(
@@ -3229,7 +3230,9 @@ async def hard_delete_node(
     await session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 
-    # Revalidate all downstream nodes
+    # Revalidate all downstream nodes in topological order so that parents are
+    # revalidated (and marked invalid) before their children are checked.
+    downstream_nodes = topological_sort(downstream_nodes)
     for node in downstream_nodes:
         await save_history(  # Capture this in the downstream node's history
             event=History(
