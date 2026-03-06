@@ -219,6 +219,14 @@ async def setup_build_context(
     # nodes in the first (and ideally only) load.
     add_dimensions_from_filters(ctx)
 
+    # Snapshot dimension node names before load_nodes so we can detect any roots
+    # that load_nodes adds internally (via collect_required_dimensions).
+    dim_roots_before_load = {
+        parse_dimension_ref(d).node_name
+        for d in ctx.dimensions
+        if parse_dimension_ref(d).node_name
+    }
+
     # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
@@ -232,14 +240,19 @@ async def setup_build_context(
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
 
-    # If metric expressions introduced dimension nodes not yet loaded, fetch them now.
-    # This is rare (only when LAG/LEAD ORDER BY references a dim not upstream of any metric).
-    missing_dim_nodes = {
+    # A second load_nodes pass is needed when either:
+    # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
+    # 2. load_nodes itself added required dimension roots via collect_required_dimensions
+    #    whose upstream source nodes haven't been traversed yet (those nodes land in
+    #    ctx.nodes via preload_join_paths but without their upstream dependencies).
+    dim_roots_after = {
         parse_dimension_ref(d).node_name
         for d in ctx.dimensions
         if parse_dimension_ref(d).node_name
-    } - ctx.nodes.keys()
-    if missing_dim_nodes:
+    }
+    missing_dim_nodes = dim_roots_after - ctx.nodes.keys()
+    internally_added_roots = dim_roots_after - dim_roots_before_load
+    if missing_dim_nodes or internally_added_roots:
         await load_nodes(ctx)
 
     # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
