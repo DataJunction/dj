@@ -20,6 +20,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.sql import build_sql_for_multiple_metrics
 from datajunction_server.models.sql import GeneratedSQL
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.utils import get_current_user, session_context, get_settings
 from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.internal.sql import build_node_sql
@@ -123,13 +124,25 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 if cached := self.cache.get(key):
                     if not no_store and key not in _pending_refresh_keys:
                         _pending_refresh_keys.add(key)
+                        get_metrics_provider().gauge(
+                            "dj.cache.refresh.pending",
+                            len(_pending_refresh_keys),
+                        )
                         background_tasks.add_task(
                             self._refresh_cache_rate_limited,
                             key,
                             request,
                             params,
                         )
+                    get_metrics_provider().counter(
+                        "dj.cache.hit",
+                        tags={"query_type": str(self.query_type)},
+                    )
                     return cached
+                get_metrics_provider().counter(
+                    "dj.cache.miss",
+                    tags={"query_type": str(self.query_type)},
+                )
                 self.logger.info(
                     "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
                     key,
@@ -279,6 +292,10 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 await self._refresh_cache(key, request, params)
             finally:
                 _pending_refresh_keys.discard(key)
+                get_metrics_provider().gauge(
+                    "dj.cache.refresh.pending",
+                    len(_pending_refresh_keys),
+                )
 
     async def _build_measures_query(
         self,
