@@ -1551,13 +1551,11 @@ class DeploymentOrchestrator:
             if full_element_name in column_spec_map:
                 col_spec = column_spec_map[full_element_name]
                 if col_spec.partition:  # pragma: no branch
-                    partition = Partition(
-                        column=node_column,
+                    node_column.partition = Partition(
                         type_=col_spec.partition.type,
                         granularity=col_spec.partition.granularity,
                         format=col_spec.partition.format,
                     )
-                    self.session.add(partition)
 
             node_columns.append(node_column)
 
