@@ -358,7 +358,7 @@ async def get_upstream_nodes(
         "AND parent_n.deactivated_at IS NULL" if not include_deactivated else ""
     )
 
-    while frontier:
+    while frontier:  # pragma: no branch
         rows = await session.execute(
             text(f"""
                 SELECT DISTINCT parent_n.id
