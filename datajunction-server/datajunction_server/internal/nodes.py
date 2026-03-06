@@ -2444,6 +2444,15 @@ async def remove_dimension_link(
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
     """
+    role_label = f" (role={link_identifier.role})" if link_identifier.role else ""
+    _logger.info(
+        "remove_dimension_link: start node=%s dimension=%s%s user=%s",
+        node_name,
+        link_identifier.dimension_node,
+        role_label,
+        current_user.username,
+    )
+
     node = await Node.get_by_name(session, node_name)
 
     # Find the dimension node
@@ -2459,6 +2468,10 @@ async def remove_dimension_link(
     # Pass targeted options so we only load what cube_elements_with_nodes() needs, rather
     # than the full _node_output_options() which pulls columns, attributes, parents, and
     # nested dimension_links for every downstream node in the graph.
+    _logger.info(
+        "remove_dimension_link: finding downstream cubes of %s",
+        node_name,
+    )
     downstream_cubes = await get_downstream_nodes(
         session,
         node_name,
@@ -2466,10 +2479,14 @@ async def remove_dimension_link(
         options=[
             selectinload(Node.current).options(
                 selectinload(NodeRevision.cube_elements)
-                .selectinload(Column.node_revision)
-                .selectinload(NodeRevision.node),
+                .selectinload(Column.node_revision),
             ),
         ],
+    )
+    _logger.info(
+        "remove_dimension_link: found %d downstream cube(s) of %s",
+        len(downstream_cubes),
+        node_name,
     )
     for cube in downstream_cubes:
         cube_dimension_nodes = [
@@ -2478,6 +2495,11 @@ async def remove_dimension_link(
             if cube_elem_node and cube_elem_node.type == NodeType.DIMENSION
         ]
         if dimension_node.name in cube_dimension_nodes:
+            _logger.info(
+                "remove_dimension_link: invalidating cube %s (contains dimension %s)",
+                cube.name,
+                dimension_node.name,
+            )
             cube.current.status = NodeStatus.INVALID
             session.add(cube)
             await save_history(
@@ -2489,6 +2511,12 @@ async def remove_dimension_link(
                 ),
                 session=session,
             )
+        else:
+            _logger.debug(
+                "remove_dimension_link: cube %s does not contain dimension %s, skipping",
+                cube.name,
+                dimension_node.name,
+            )
     await session.flush()
 
     # Create a new revision for dimension link removal
@@ -2497,6 +2525,11 @@ async def remove_dimension_link(
         session,
         node,
         current_user,
+    )
+    _logger.info(
+        "remove_dimension_link: new revision %s created for %s",
+        new_revision.version,
+        node_name,
     )
 
     # Delete the dimension link if one exists
@@ -2508,6 +2541,12 @@ async def remove_dimension_link(
             removed = True
             await session.delete(link)
     if not removed:
+        _logger.warning(
+            "remove_dimension_link: link %s%s not found on %s",
+            link_identifier.dimension_node,
+            role_label,
+            node_name,
+        )
         return JSONResponse(
             status_code=HTTPStatus.NOT_FOUND,
             content={

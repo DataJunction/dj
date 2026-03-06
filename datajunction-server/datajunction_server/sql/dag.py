@@ -8,7 +8,7 @@ import logging
 from collections import namedtuple
 from typing import Dict, List, Tuple, Union, cast
 
-from sqlalchemy import and_, func, join, literal, or_, select, text, bindparam
+from sqlalchemy import and_, func, join, or_, select, text, bindparam
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -82,12 +82,14 @@ async def get_downstream_nodes(
 ) -> list[Node]:
     """
     Gets all downstream children of the given node, filterable by node type.
-    Uses a recursive CTE query to build out all descendants from the node.
+
+    Uses layered BFS over the noderelationship table — one raw SQL query per depth level —
+    collecting node IDs cheaply, then loading all matched nodes in a single batched query
+    with the caller-supplied options. This avoids the Postgres recursive CTE materialization
+    overhead on wide/deep graphs and the per-node ORM queries of the old BFS fallback.
     """
-    # Use full options if none provided (for REST API DAGNodeOutput compatibility)
     result_options = options if options is not None else _node_output_options()
 
-    # Initial lookup always uses light options (only need node.id)
     node = await Node.get_by_name(
         session,
         node_name,
@@ -95,97 +97,70 @@ async def get_downstream_nodes(
     )
     if not node:
         return []
-    initial_dag = (
-        select(
-            NodeRelationship.parent_id,
-            NodeRevision.node_id,
-            literal(0).label("depth"),
+
+    visited: set[int] = {node.id}
+    frontier: list[int] = [node.id]
+    current_depth = 0
+
+    deactivated_filter = (
+        "AND n.deactivated_at IS NULL" if not include_deactivated else ""
+    )
+    cube_filter = "AND nr.type != 'cube'::nodetype" if not include_cubes else ""
+
+    while frontier and (depth == -1 or current_depth < depth):
+        rows = await session.execute(
+            text(f"""
+                SELECT DISTINCT n.id
+                FROM noderelationship rel
+                JOIN noderevision nr ON rel.child_id = nr.id
+                JOIN node n ON n.id = nr.node_id
+                    AND n.current_version = nr.version
+                WHERE rel.parent_id IN :parent_ids
+                  {deactivated_filter}
+                  {cube_filter}
+            """).bindparams(bindparam("parent_ids", expanding=True)),
+            {"parent_ids": frontier},
         )
-        .where(NodeRelationship.parent_id == node.id)
-        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-        .join(
-            Node,
-            (Node.id == NodeRevision.node_id)
-            & (Node.current_version == NodeRevision.version),
+        child_ids = [r[0] for r in rows if r[0] not in visited]
+        if not child_ids:
+            break
+        visited.update(child_ids)
+        frontier = child_ids
+        current_depth += 1
+
+        if len(visited) >= settings.node_list_max:
+            logger.warning(
+                "get_downstream_nodes: hit node_list_max (%d) at depth %d for %s",
+                settings.node_list_max,
+                current_depth,
+                node_name,
+            )
+            break
+
+    all_downstream_ids = visited - {node.id}
+    if not all_downstream_ids:
+        return []
+
+    results = (
+        (
+            await session.execute(
+                select(Node)
+                .where(Node.id.in_(all_downstream_ids))
+                .options(*result_options),
+            )
         )
-    )
-    if not include_cubes:
-        initial_dag = initial_dag.where((NodeRevision.type != NodeType.CUBE))
-    if not include_deactivated:
-        initial_dag = initial_dag.where(Node.deactivated_at.is_(None))
-
-    initial_count = await session.scalar(
-        select(func.count()).select_from(initial_dag.subquery()),
-    )
-    if initial_count >= settings.fanout_threshold:
-        logger.info(
-            "Initial fanout for node %s (%d) is greater than threshold %d. Switching to BFS...",
-            node_name,
-            initial_count,
-            settings.fanout_threshold,
-        )
-        return await get_downstream_nodes_bfs(
-            session,
-            node,
-            depth,
-            include_deactivated,
-            include_cubes,
-            node_type,
-        )
-
-    dag = initial_dag.cte("downstreams", recursive=True).suffix_with(
-        "CYCLE node_id SET is_cycle USING path",
+        .unique()
+        .scalars()
+        .all()
     )
 
-    next_layer = (
-        select(
-            dag.c.parent_id,
-            NodeRevision.node_id,
-            (dag.c.depth + literal(1)).label("depth"),
-        )
-        .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
-        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-        .join(Node, Node.id == NodeRevision.node_id)
-    )
-    if not include_cubes:
-        next_layer = next_layer.where(NodeRevision.type != NodeType.CUBE)
-    if not include_deactivated:
-        next_layer = next_layer.where(Node.deactivated_at.is_(None))
-
-    paths = dag.union_all(next_layer)
-
-    # Calculate the maximum depth for each node
-    max_depths = (
-        select(
-            paths.c.node_id,
-            func.max(paths.c.depth).label("max_depth"),
-        )
-        .group_by(paths.c.node_id)
-        .cte("max_depths")
-    )
-
-    # Select nodes with the maximum depth
-    final_select = select(Node, max_depths.c.max_depth).join(
-        max_depths,
-        max_depths.c.node_id == Node.id,
-    )
-
-    if not include_deactivated:
-        final_select = final_select.where(is_(Node.deactivated_at, None))
-
-    # Add depth filter
-    if depth > -1:
-        final_select = final_select.where(max_depths.c.max_depth < depth)
-
-    statement = final_select.order_by(max_depths.c.max_depth, Node.id).options(
-        *result_options,
-    )
-    results = (await session.execute(statement)).unique().scalars().all()
-    return [
-        downstream
-        for downstream in results
-        if downstream.type == node_type or node_type is None
+    filtered = [
+        n
+        for n in results
+        if (node_type is None or n.type == node_type)
+        and (include_deactivated or n.deactivated_at is None)
     ]
+    return filtered[: settings.node_list_max]
 
 
 async def get_downstream_nodes_bfs(
