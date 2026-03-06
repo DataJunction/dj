@@ -888,8 +888,6 @@ async def _get_dimensions_dag_bfs(
     # -------------------------------------------------------------------------
     if not with_attributes:
         discovered_names = list({name for (name, _) in discovered.values()})
-        if not discovered_names:
-            return []
         result = await session.execute(
             select(Node)
             .where(Node.name.in_(discovered_names))
