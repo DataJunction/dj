@@ -367,10 +367,7 @@ async def get_upstream_nodes(
                     ON child_n.id = child_nr.node_id
                     AND child_n.current_version = child_nr.version
                 JOIN noderelationship rel ON rel.child_id = child_nr.id
-                JOIN noderevision parent_nr ON rel.parent_id = parent_nr.id
-                JOIN node parent_n
-                    ON parent_n.id = parent_nr.node_id
-                    AND parent_n.current_version = parent_nr.version
+                JOIN node parent_n ON parent_n.id = rel.parent_id
                 WHERE child_n.id IN :frontier_ids
                 {deactivated_filter}
             """).bindparams(bindparam("frontier_ids", expanding=True)),
