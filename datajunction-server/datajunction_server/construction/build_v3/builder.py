@@ -40,6 +40,7 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
@@ -213,7 +214,12 @@ async def setup_build_context(
         lookback_window=lookback_window,
     )
 
-    # Load all required nodes (single DB round trip)
+    # Add filter-driven dimensions upfront — this only parses filter strings and
+    # needs no DB data, so we do it before load_nodes to include those dimension
+    # nodes in the first (and ideally only) load.
+    add_dimensions_from_filters(ctx)
+
+    # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
     # Validate we have at least one metric
@@ -226,14 +232,15 @@ async def setup_build_context(
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
 
-    # Add dimensions referenced in filters (for WHERE clause resolution)
-    # This processes ALL filters initially - we'll classify them later
-    add_dimensions_from_filters(ctx)
-
-    # Load any missing dimension nodes (and their upstreams, including sources)
-    # This is needed for dimensions discovered from metric expressions and filters
-    # load_nodes adds to ctx.nodes rather than replacing, so this is safe to call again
-    await load_nodes(ctx)
+    # If metric expressions introduced dimension nodes not yet loaded, fetch them now.
+    # This is rare (only when LAG/LEAD ORDER BY references a dim not upstream of any metric).
+    missing_dim_nodes = {
+        parse_dimension_ref(d).node_name
+        for d in ctx.dimensions
+        if parse_dimension_ref(d).node_name
+    } - ctx.nodes.keys()
+    if missing_dim_nodes:
+        await load_nodes(ctx)
 
     # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
     # This MUST happen AFTER all nodes are loaded so we can correctly identify
