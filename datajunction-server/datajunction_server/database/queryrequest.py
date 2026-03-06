@@ -222,56 +222,130 @@ class VersionedQueryKey:
     ) -> "VersionedQueryKey":
         """
         Versions a query request (e.g., nodes, dimensions, filters, and orderby).
+
+        Collects all node names needed across all sub-operations and performs a
+        single batch DB lookup instead of one per sub-operation.
         """
-        versioned_nodes, versioned_parents = await cls.version_nodes(session, nodes)
+        # Collect all node names needed by all sub-operations upfront
+        all_node_names: set[str] = set(nodes)
+
+        # From dimensions: "a.b.c.col" -> node "a.b.c"
+        for dim in dimensions:
+            dim_node = SEPARATOR.join(dim.split(SEPARATOR)[:-1])
+            if dim_node:
+                all_node_names.add(dim_node)
+
+        # From filters: parse ASTs once and collect column + dim-node names
+        filter_asts = []
+        for filter_ in filters:
+            if not filter_:
+                continue  # pragma: no cover
+            ast_tree = parse(f"SELECT 1 WHERE {filter_}")
+            filter_asts.append(ast_tree)
+            for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
+                if isinstance(col.parent, ast.Subscript):
+                    if isinstance(col.parent.index, ast.Lambda):
+                        col.role = str(col.parent.index)  # pragma: no cover
+                    else:
+                        col.role = col.parent.index.identifier()  # type: ignore
+                    col.parent.swap(col)
+                col_name = col.identifier()
+                all_node_names.add(col_name)
+                dim_node = SEPARATOR.join(col_name.split(SEPARATOR)[:-1])
+                if dim_node:
+                    all_node_names.add(dim_node)
+
+        # From orderby: collect column name + parent dim-node name
+        order_parts = []
+        for order in orderby:
+            parts = order.split(" ")
+            order_by_col = parts[0]
+            dim_node = SEPARATOR.join(order_by_col.split(SEPARATOR)[:-1])
+            order_parts.append((order_by_col, dim_node, parts))
+            all_node_names.add(order_by_col)
+            if dim_node:
+                all_node_names.add(dim_node)
+
+        # Single batch load for all names — only need version + parents
+        nodes_by_name = {
+            node.name: node
+            for node in await Node.get_by_names(
+                session,
+                list(all_node_names),
+                options=[
+                    joinedload(Node.current).options(
+                        selectinload(NodeRevision.parents),
+                    ),
+                ],
+            )
+        }
+
+        versioned_nodes, versioned_parents = await cls.version_nodes(
+            session,
+            nodes,
+            nodes_by_name=nodes_by_name,
+        )
         versioned_dims = await cls.version_dimensions(
             session,
             dimensions,
             current_node=versioned_nodes[0] if versioned_nodes else None,
+            nodes_by_name=nodes_by_name,
         )
         return VersionedQueryKey(
             nodes=versioned_nodes,
             parents=versioned_parents,
             dimensions=versioned_dims,
-            filters=await cls.version_filters(session, filters),
-            orderby=await cls.version_orderby(session, orderby),
+            filters=await cls.version_filters(
+                session,
+                filters,
+                filter_asts=filter_asts,
+                nodes_by_name=nodes_by_name,
+            ),
+            orderby=await cls.version_orderby(
+                session,
+                orderby,
+                order_parts=order_parts,
+                nodes_by_name=nodes_by_name,
+            ),
         )
 
     @staticmethod
     async def version_nodes(
         session: AsyncSession,
         nodes: list[str],
+        nodes_by_name: dict[str, "Node"] | None = None,
     ) -> tuple[list[VersionedNodeKey], list[VersionedNodeKey]]:
         """
         Creates a versioned node key for each node in the list of nodes, and
         returns a list of versioned parents for the nodes.
         """
-        # Only load minimal data needed for versioning: node name, version, and parent list
-        # Don't load columns, dimension_links, or other heavy relationships
-        nodes_objs = {
-            node.name: node
-            for node in await Node.get_by_names(
-                session,
-                nodes,
-                options=[
-                    joinedload(Node.current).options(
-                        # Only load parents - we just need their names and versions
-                        selectinload(NodeRevision.parents),
-                    ),
-                ],
-            )
-        }
+        if nodes_by_name is None:
+            # Only load minimal data needed for versioning: node name, version, and parent list
+            # Don't load columns, dimension_links, or other heavy relationships
+            nodes_by_name = {
+                node.name: node
+                for node in await Node.get_by_names(
+                    session,
+                    nodes,
+                    options=[
+                        joinedload(Node.current).options(
+                            selectinload(NodeRevision.parents),
+                        ),
+                    ],
+                )
+            }
         versioned_parents = sorted(
             {
                 VersionedNodeKey.from_node(parent)
-                for node in nodes_objs.values()
+                for node in nodes_by_name.values()
+                if node.name in nodes
                 for parent in node.current.parents
             },
         )
         versioned_nodes = [
-            VersionedNodeKey.from_node(nodes_objs[node_name])
+            VersionedNodeKey.from_node(nodes_by_name[node_name])
             for node_name in nodes
-            if node_name in nodes_objs
+            if node_name in nodes_by_name
         ]
         return versioned_nodes, versioned_parents
 
@@ -280,27 +354,22 @@ class VersionedQueryKey:
         session: AsyncSession,
         dimensions: list[str],
         current_node: VersionedNodeKey | None = None,
+        nodes_by_name: dict[str, "Node"] | None = None,
     ) -> list[VersionedNodeKey]:
         """
         Versions the dimensions by creating a versioned node key for each dimension.
         """
-        node_names = [
-            name
-            for name in [".".join(dim.split(".")[:-1]) for dim in dimensions]
-            if name
-        ]
-        dimension_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(
-                session,
-                node_names,
-            )
-        }
+        node_names = [SEPARATOR.join(dim.split(SEPARATOR)[:-1]) for dim in dimensions]
+        if nodes_by_name is None:
+            nodes_by_name = {
+                node.name: node
+                for node in await Node.get_by_names(session, node_names, options=[])
+            }
         return [
             VersionedNodeKey(
                 dim,
-                dimension_nodes[name].current_version
-                if name in dimension_nodes and dimension_nodes[name]
+                nodes_by_name[name].current_version
+                if name in nodes_by_name and nodes_by_name[name]
                 else current_node.version
                 if current_node
                 else None,
@@ -309,56 +378,53 @@ class VersionedQueryKey:
         ]
 
     @staticmethod
-    async def version_filters(session: AsyncSession, filters: list[str]) -> list[str]:
+    async def version_filters(
+        session: AsyncSession,
+        filters: list[str],
+        filter_asts: list | None = None,
+        nodes_by_name: dict[str, "Node"] | None = None,
+    ) -> list[str]:
         """
         Versions the filters by parsing them and replacing dimension / metrics references
         with their versioned node keys.
         """
-        # First pass: collect all node names that need to be looked up
-        filter_asts = []
-        all_col_names = set()
-        all_dim_node_names = set()
-
-        for filter_ in filters:
-            if not filter_:
-                continue  # pragma: no cover
-            ast_tree = parse(f"SELECT 1 WHERE {filter_}")
-            filter_asts.append(ast_tree)
-
-            for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
-                # Extract role if column is subscripted
-                if isinstance(col.parent, ast.Subscript):
-                    if isinstance(col.parent.index, ast.Lambda):
-                        col.role = str(col.parent.index)  # pragma: no cover
-                    else:
-                        col.role = col.parent.index.identifier()  # type: ignore
-                    col.parent.swap(col)
-
-                col_name = col.identifier()
-                all_col_names.add(col_name)
-                # Also collect potential dimension node names
-                dim_node_name = SEPARATOR.join(col_name.split(SEPARATOR)[:-1])
-                if dim_node_name:
-                    all_dim_node_names.add(dim_node_name)
-
-        # Batch load all nodes (metrics and dimensions) in one query
-        all_node_names = list(all_col_names | all_dim_node_names)
-        nodes = await Node.get_by_names(session, all_node_names, options=[])
-        nodes_by_name = {node.name: node for node in nodes}
+        # First pass: parse ASTs and collect node names (skipped if pre-computed)
+        if filter_asts is None:
+            filter_asts = []
+            all_col_names = set()
+            all_dim_node_names = set()
+            for filter_ in filters:
+                if not filter_:
+                    continue  # pragma: no cover
+                ast_tree = parse(f"SELECT 1 WHERE {filter_}")
+                filter_asts.append(ast_tree)
+                for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
+                    if isinstance(col.parent, ast.Subscript):
+                        if isinstance(col.parent.index, ast.Lambda):
+                            col.role = str(col.parent.index)  # pragma: no cover
+                        else:
+                            col.role = col.parent.index.identifier()  # type: ignore
+                        col.parent.swap(col)
+                    col_name = col.identifier()
+                    all_col_names.add(col_name)
+                    dim_node_name = SEPARATOR.join(col_name.split(SEPARATOR)[:-1])
+                    if dim_node_name:
+                        all_dim_node_names.add(dim_node_name)
+            if nodes_by_name is None:
+                all_node_names = list(all_col_names | all_dim_node_names)
+                nodes = await Node.get_by_names(session, all_node_names, options=[])
+                nodes_by_name = {node.name: node for node in nodes}
 
         # Second pass: version each filter using the loaded nodes
         results = []
         for ast_tree in filter_asts:
             for col in ast_tree.select.where.find_all(ast.Column):  # type: ignore
                 col_name = col.identifier()
-
-                # Try resolving as metric node first
                 metric_node = nodes_by_name.get(col_name)
                 if metric_node:
                     versioned_node_name = str(VersionedNodeKey.from_node(metric_node))
                     col.name = to_namespaced_name(versioned_node_name)
                 else:
-                    # Fallback to dimension node
                     dim_node_name = SEPARATOR.join(col_name.split(SEPARATOR)[:-1])
                     dim_node = nodes_by_name.get(dim_node_name)
                     if dim_node:
@@ -371,7 +437,12 @@ class VersionedQueryKey:
         return results
 
     @staticmethod
-    async def version_orderby(session: AsyncSession, orderby: list[str]) -> list[str]:
+    async def version_orderby(
+        session: AsyncSession,
+        orderby: list[str],
+        order_parts: list[tuple] | None = None,
+        nodes_by_name: dict[str, "Node"] | None = None,
+    ) -> list[str]:
         """
         This handles versioning two types of ORDER BY clauses:
         * dimension order bys: <dimension attribute> <ordering>
@@ -380,22 +451,25 @@ class VersionedQueryKey:
         if not orderby:
             return []
 
-        # First pass: collect all column names and dimension node names
-        order_parts = []
-        all_node_names = set()
-
-        for order in orderby:
-            parts = order.split(" ")
-            order_by_col = parts[0]
-            dim_node_name = SEPARATOR.join(order_by_col.split(SEPARATOR)[:-1])
-            order_parts.append((order_by_col, dim_node_name, parts))
-            all_node_names.add(order_by_col)
-            if dim_node_name:  # pragma: no branch
-                all_node_names.add(dim_node_name)
-
-        # Batch load all potential metric and dimension nodes in one query
-        nodes = await Node.get_by_names(session, list(all_node_names), options=[])
-        nodes_by_name = {node.name: node for node in nodes}
+        # First pass: collect all column names and dimension node names (skipped if pre-computed)
+        if order_parts is None:
+            order_parts = []
+            all_node_names = set()
+            for order in orderby:
+                parts = order.split(" ")
+                order_by_col = parts[0]
+                dim_node_name = SEPARATOR.join(order_by_col.split(SEPARATOR)[:-1])
+                order_parts.append((order_by_col, dim_node_name, parts))
+                all_node_names.add(order_by_col)
+                if dim_node_name:  # pragma: no branch
+                    all_node_names.add(dim_node_name)
+            if nodes_by_name is None:
+                nodes = await Node.get_by_names(
+                    session,
+                    list(all_node_names),
+                    options=[],
+                )
+                nodes_by_name = {node.name: node for node in nodes}
 
         # Second pass: version each orderby using the loaded nodes
         results = []

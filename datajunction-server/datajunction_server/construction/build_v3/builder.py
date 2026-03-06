@@ -36,6 +36,7 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
@@ -165,6 +166,7 @@ async def setup_build_context(
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
+    cube: NodeRevision | None = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -185,6 +187,8 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
+        cube: Pre-resolved cube (if known). When provided, join path finding and
+            pre-agg loading are skipped since we're reading from the cube table.
 
     Returns:
         Fully initialized BuildContext
@@ -207,6 +211,7 @@ async def setup_build_context(
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
+        cube=cube,
     )
 
     # Load all required nodes (single DB round trip)
@@ -379,6 +384,7 @@ async def build_metrics_sql(
     limit: int | None = None,
     dialect: Dialect | None = None,
     use_materialized: bool = True,
+    cube: NodeRevision | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -402,7 +408,18 @@ async def build_metrics_sql(
     if dialect is None:
         dialect = Dialect.SPARK
 
-    # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
+    # Try cube match - if found, pass it into setup so node loading can skip
+    # join path finding (not needed when reading from a pre-aggregated cube table)
+    if use_materialized and cube is None:
+        cube = await find_matching_cube(
+            session,
+            metrics,
+            dimensions,
+            require_availability=True,
+        )
+
+    # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions).
+    # Passing cube skips join path BFS and pre-agg loading when cube path is used.
     ctx = await setup_build_context(
         session=session,
         metrics=metrics,
@@ -410,26 +427,13 @@ async def build_metrics_sql(
         filters=filters,
         dialect=dialect,
         use_materialized=use_materialized,
+        cube=cube,
     )
 
-    # Try cube match - if found, use cube path
-    if use_materialized:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
-        )
-        if cube:
-            logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
-            result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
-
-            # For cubes, scan estimate would be the cube table itself (already materialized)
-            # We could calculate it here if needed, but cubes are typically small compared to source tables
-            # For now, we'll leave it None for cube queries
-            # TODO: Add cube table size to scan estimate if cube availability has size metadata
-
-            return apply_orderby_limit(result, orderby, limit)
+    if cube:
+        logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
+        result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+        return apply_orderby_limit(result, orderby, limit)
 
     # No cube - build grain groups
     measures_result = await build_grain_groups(ctx, metrics)

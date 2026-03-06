@@ -353,19 +353,44 @@ async def load_nodes(ctx: BuildContext) -> None:
             initial_node_names.add(dim_ref.node_name)
             target_dim_names.add(dim_ref.node_name)
 
+    # Only process nodes not already loaded (handles the second load_nodes call
+    # in setup_build_context when new dims are discovered from metric expressions)
+    new_initial_names = initial_node_names - set(ctx.nodes.keys())
+    if not new_initial_names:
+        return
+
     # Find all upstream nodes using a recursive CTE query
     all_node_names, parent_map = await find_upstream_node_names(
         ctx.session,
-        list(initial_node_names),
+        list(new_initial_names),
     )
 
     # Store parent map in context for later use (e.g., get_parent_node)
-    ctx.parent_map = parent_map
+    ctx.parent_map.update(parent_map)
 
     # Also include the initial nodes themselves
-    all_node_names.update(initial_node_names)
+    all_node_names.update(new_initial_names)
+
+    # Filter out already-loaded nodes
+    all_node_names -= set(ctx.nodes.keys())
+
+    if not all_node_names:
+        return
 
     # Query 2: Batch load all nodes with appropriate eager loading
+    # When using a pre-aggregated cube, skip loading dimension links —
+    # join path traversal is not needed since we read from the cube table directly.
+    using_cube = ctx.cube is not None
+    dimension_links_option = (
+        noload(NodeRevision.dimension_links)
+        if using_cube
+        else selectinload(NodeRevision.dimension_links).options(
+            joinedload(DimensionLink.dimension).options(
+                noload(Node.created_by),  # Prevent User N+1 queries
+            ),
+        )
+    )
+
     stmt = (
         select(Node)
         .where(Node.name.in_(all_node_names))
@@ -401,12 +426,7 @@ async def load_nodes(ctx: BuildContext) -> None:
                     ),
                 ),
                 joinedload(NodeRevision.availability),  # For materialization support
-                selectinload(NodeRevision.dimension_links).options(
-                    # Load dimension node for link matching in temporal filters
-                    joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                    ),
-                ),
+                dimension_links_option,
             ),
         )
     )
@@ -479,10 +499,12 @@ async def load_nodes(ctx: BuildContext) -> None:
     for metric_name in ctx.metrics:
         collect_fact_parents(metric_name, set())
 
-    # Preload join paths for ALL parent nodes in a single batch
-    await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
+    # Skip join path preloading when using a cube — join traversal is not needed
+    # since we read from the pre-aggregated cube table directly.
+    if ctx.cube is None:
+        await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
 
-    # Store parent_revision_ids for pre-agg loading (if needed)
+    # Store parent_revision_ids for pre-agg loading (skipped for cube path)
     ctx._parent_revision_ids = parent_revision_ids
 
 
@@ -498,9 +520,15 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
     processing. The grain and measure matching is done at query time since
     we need to compare against the specific grain group requirements.
 
-    This function is only called when ctx.use_materialized=True.
+    This function is only called when ctx.use_materialized=True and no cube
+    has been pre-resolved (the cube path skips source table pre-aggs entirely).
     """
     if not ctx.use_materialized:
+        return
+
+    # When a cube is pre-resolved, we're reading from the cube table directly —
+    # source-level pre-aggs are irrelevant.
+    if ctx.cube is not None:
         return
 
     # Get parent revision IDs from the load_nodes step

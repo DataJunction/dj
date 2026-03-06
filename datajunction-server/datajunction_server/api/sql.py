@@ -518,7 +518,9 @@ async def get_metrics_sql_v3(
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
-    # Auto-resolve dialect if not explicitly provided
+    # Auto-resolve dialect if not explicitly provided; also retrieves the matching
+    # cube so we can pass it into build_metrics_sql and skip a second cube lookup.
+    resolved_cube = None
     resolved_dialect = dialect
     if resolved_dialect is None:  # pragma: no branch
         execution_ctx = await resolve_dialect_and_engine_for_metrics(
@@ -528,6 +530,7 @@ async def get_metrics_sql_v3(
             use_materialized=use_materialized,
         )
         resolved_dialect = execution_ctx.dialect
+        resolved_cube = execution_ctx.cube
 
     result = await build_metrics_sql(
         session=session,
@@ -538,6 +541,7 @@ async def get_metrics_sql_v3(
         limit=limit,
         dialect=resolved_dialect,
         use_materialized=use_materialized,
+        cube=resolved_cube,
     )
 
     return V3TranslatedSQL(

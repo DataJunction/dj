@@ -100,6 +100,11 @@ class BuildContext:
     # Example: "dimensions.time.date.dateint" -> "utc_date"
     skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
 
+    # Pre-resolved cube (from resolve_dialect_and_engine_for_metrics). When set,
+    # join path finding, dimension link loading, and pre-agg loading are skipped
+    # since we're reading from a pre-aggregated cube table instead of source tables.
+    cube: "NodeRevision | None" = field(default=None)
+
     def next_table_alias(self, base_name: str) -> str:
         """Generate a unique table alias."""
         self._table_alias_counter += 1

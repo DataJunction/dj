@@ -263,7 +263,7 @@ async def get_session(
             finally:
                 # Log total query count for this session with label
                 label_str = f" ({session_label})" if session_label else ""
-                logger.debug(
+                logger.info(
                     f"[QUERY_COUNT] Total queries in session{label_str}: {query_count['count']}",
                 )
     finally:
