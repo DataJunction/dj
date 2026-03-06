@@ -30,6 +30,7 @@ from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, QueryClientConfig, Settings
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.database.user import User, PrincipalKind, OAuthProvider
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
@@ -265,6 +266,11 @@ async def get_session(
                 label_str = f" ({session_label})" if session_label else ""
                 logger.debug(
                     f"[QUERY_COUNT] Total queries in session{label_str}: {query_count['count']}",
+                )
+                get_metrics_provider().timer(
+                    "dj.db.query_count",
+                    query_count["count"],
+                    {"session_label": session_label or ""},
                 )
     finally:
         # Remove event listener to avoid memory leaks
