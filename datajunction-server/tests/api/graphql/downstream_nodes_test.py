@@ -30,48 +30,22 @@ async def test_downstream_nodes(
     response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["downstreamNodes"] == [
-        {
-            "name": "default.avg_repair_order_discounts",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.avg_repair_price",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.avg_time_to_dispatch",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.discounted_orders_rate",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.num_repair_orders",
-            "type": "METRIC",
-            "current": {"customMetadata": {"foo": "bar"}},
-        },
-        {
-            "name": "default.num_unique_hard_hats_approx",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.total_repair_cost",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.total_repair_order_discounts",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-    ]
+    downstreams = data["data"]["downstreamNodes"]
+    assert {(d["name"], d["type"]) for d in downstreams} == {
+        ("default.avg_repair_order_discounts", "METRIC"),
+        ("default.avg_repair_price", "METRIC"),
+        ("default.avg_time_to_dispatch", "METRIC"),
+        ("default.discounted_orders_rate", "METRIC"),
+        ("default.num_repair_orders", "METRIC"),
+        ("default.num_unique_hard_hats_approx", "METRIC"),
+        ("default.total_repair_cost", "METRIC"),
+        ("default.total_repair_order_discounts", "METRIC"),
+    }
+    # Verify customMetadata is present for the node that has it
+    num_repair_orders = next(
+        d for d in downstreams if d["name"] == "default.num_repair_orders"
+    )
+    assert num_repair_orders["current"]["customMetadata"] == {"foo": "bar"}
 
     # of any type
     query = """
@@ -86,20 +60,20 @@ async def test_downstream_nodes(
     response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["downstreamNodes"] == [
-        {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.national_level_agg", "type": "TRANSFORM"},
-        {"name": "default.num_repair_orders", "type": "METRIC"},
-        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
-        {"name": "default.regional_level_agg", "type": "TRANSFORM"},
-        {"name": "default.regional_repair_efficiency", "type": "METRIC"},
-        {"name": "default.repair_orders_fact", "type": "TRANSFORM"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
-    ]
+    assert {(d["name"], d["type"]) for d in data["data"]["downstreamNodes"]} == {
+        ("default.avg_repair_order_discounts", "METRIC"),
+        ("default.avg_repair_price", "METRIC"),
+        ("default.avg_time_to_dispatch", "METRIC"),
+        ("default.discounted_orders_rate", "METRIC"),
+        ("default.national_level_agg", "TRANSFORM"),
+        ("default.num_repair_orders", "METRIC"),
+        ("default.num_unique_hard_hats_approx", "METRIC"),
+        ("default.regional_level_agg", "TRANSFORM"),
+        ("default.regional_repair_efficiency", "METRIC"),
+        ("default.repair_orders_fact", "TRANSFORM"),
+        ("default.total_repair_cost", "METRIC"),
+        ("default.total_repair_order_discounts", "METRIC"),
+    }
 
 
 @pytest.mark.asyncio
@@ -150,15 +124,15 @@ async def test_downstream_nodes_deactivated(
     response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["downstreamNodes"] == [
-        {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
-    ]
+    assert {(d["name"], d["type"]) for d in data["data"]["downstreamNodes"]} == {
+        ("default.avg_repair_order_discounts", "METRIC"),
+        ("default.avg_repair_price", "METRIC"),
+        ("default.avg_time_to_dispatch", "METRIC"),
+        ("default.discounted_orders_rate", "METRIC"),
+        ("default.num_unique_hard_hats_approx", "METRIC"),
+        ("default.total_repair_cost", "METRIC"),
+        ("default.total_repair_order_discounts", "METRIC"),
+    }
 
     query = """
     {
@@ -172,16 +146,16 @@ async def test_downstream_nodes_deactivated(
     response = await client_with_roads.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["downstreamNodes"] == [
-        {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.num_repair_orders", "type": "METRIC"},
-        {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
-    ]
+    assert {(d["name"], d["type"]) for d in data["data"]["downstreamNodes"]} == {
+        ("default.avg_repair_order_discounts", "METRIC"),
+        ("default.avg_repair_price", "METRIC"),
+        ("default.avg_time_to_dispatch", "METRIC"),
+        ("default.discounted_orders_rate", "METRIC"),
+        ("default.num_repair_orders", "METRIC"),
+        ("default.num_unique_hard_hats_approx", "METRIC"),
+        ("default.total_repair_cost", "METRIC"),
+        ("default.total_repair_order_discounts", "METRIC"),
+    }
 
 
 @pytest.mark.asyncio

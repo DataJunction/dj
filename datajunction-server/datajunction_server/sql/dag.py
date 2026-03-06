@@ -145,7 +145,6 @@ async def get_downstream_nodes(
             await session.execute(
                 select(Node)
                 .where(Node.id.in_(all_downstream_ids))
-                .order_by(Node.name)
                 .options(*result_options),
             )
         )
