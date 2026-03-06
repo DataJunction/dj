@@ -176,6 +176,10 @@ class Settings(BaseSettings):  # pragma: no cover
     # Cache expiration for SQL endpoints
     query_cache_timeout: int = 86400 * 300
 
+    # Maximum number of concurrent background cache refreshes.
+    # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.
+    query_cache_max_concurrent_refreshes: int = 3
+
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max: int = 10000
 
