@@ -5,8 +5,12 @@ SQL Generation (V3): Measures and Metrics SQL Builders.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from datajunction_server.database.node import NodeRevision
 
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube_impl,
@@ -379,6 +383,7 @@ async def build_metrics_sql(
     limit: int | None = None,
     dialect: Dialect | None = None,
     use_materialized: bool = True,
+    matched_cube: Optional[NodeRevision] = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -413,12 +418,17 @@ async def build_metrics_sql(
     )
 
     # Try cube match - if found, use cube path
+    # Use pre-resolved cube if available (avoids duplicate find_matching_cube call)
     if use_materialized:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
+        cube = (
+            matched_cube
+            if matched_cube is not None
+            else await find_matching_cube(
+                session,
+                metrics,
+                dimensions,
+                require_availability=True,
+            )
         )
         if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
