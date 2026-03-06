@@ -2,8 +2,10 @@
 DAG related functions.
 """
 
+import functools
 import itertools
 import logging
+import time
 from collections import namedtuple
 from typing import Dict, List, Union, cast
 
@@ -31,6 +33,38 @@ from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _dag_timed(operation: str):
+    """
+    Local timing decorator for DAG traversal functions.
+
+    Uses a lazy import of ``get_metrics_provider`` to avoid the circular
+    dependency that arises when ``dag.py`` imports ``instrumentation.provider``
+    at module level (database → models → dag creates a cycle).
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            _start = time.monotonic()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                from datajunction_server.instrumentation.provider import (  # noqa: PLC0415
+                    get_metrics_provider,
+                )
+
+                get_metrics_provider().timer(
+                    "dj.dag.traversal_ms",
+                    (time.monotonic() - _start) * 1000,
+                    {"operation": operation},
+                )
+
+        return wrapper
+
+    return decorator
+
 
 # State during BFS traversal of the dimensions DAG in _get_dimensions_dag_bfs.
 # node_id:    ID of the current Node (not NodeRevision)
@@ -70,6 +104,7 @@ def _node_output_options():
     ]
 
 
+@_dag_timed("get_downstream_nodes")
 async def get_downstream_nodes(
     session: AsyncSession,
     node_name: str,
@@ -162,6 +197,7 @@ async def get_downstream_nodes(
     return filtered[: settings.node_list_max]
 
 
+@_dag_timed("get_upstream_nodes")
 async def get_upstream_nodes(
     session: AsyncSession,
     node_name: Union[str, List[str]],
@@ -460,6 +496,7 @@ async def get_dimension_nodes(
     ]
 
 
+@_dag_timed("get_dimensions_dag")
 async def get_dimensions_dag(
     session: AsyncSession,
     node_revision: NodeRevision,
@@ -475,7 +512,12 @@ async def get_dimensions_dag(
     batched query per graph depth, avoiding Postgres recursive-CTE materialization overhead
     on wide/deep graphs.
     """
-    return await _get_dimensions_dag_bfs(session, node_revision, with_attributes, depth)
+    return await _get_dimensions_dag_bfs(
+        session,
+        node_revision,
+        with_attributes,
+        depth,
+    )
 
 
 async def _get_dimensions_dag_bfs(

@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import datajunction_server.instrumentation.middleware as mw_module
 from datajunction_server.instrumentation.middleware import (
     DJInstrumentationMiddleware,
     _emit_pool_gauges,
@@ -37,8 +38,10 @@ class _SpyProvider(MetricsProvider):
 @pytest.fixture(autouse=True)
 def reset_provider():
     original = get_metrics_provider()
+    original_in_flight = mw_module._in_flight
     yield
     set_metrics_provider(original)
+    mw_module._in_flight = original_in_flight
 
 
 def _make_app_with_route(status_code: int = 200) -> FastAPI:
@@ -137,6 +140,15 @@ def test_middleware_emits_request_timer_on_success():
     assert timer_tags["dj.request"]["status_code"] == "200"
     assert timer_tags["dj.request"]["method"] == "GET"
     assert timer_tags["dj.request"]["route"] == "/ping"
+
+    # in-flight should go up then back down to 0
+    gauge_names = [name for name, _, _ in spy.gauges]
+    assert "dj.request.in_flight" in gauge_names
+    in_flight_values = [
+        val for name, val, _ in spy.gauges if name == "dj.request.in_flight"
+    ]
+    assert in_flight_values[0] == 1  # incremented on entry
+    assert in_flight_values[-1] == 0  # back to 0 after exit
 
 
 def test_middleware_uses_url_path_when_route_missing():
