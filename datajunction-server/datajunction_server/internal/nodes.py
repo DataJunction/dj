@@ -2478,8 +2478,9 @@ async def remove_dimension_link(
         node_type=NodeType.CUBE,
         options=[
             selectinload(Node.current).options(
-                selectinload(NodeRevision.cube_elements)
-                .selectinload(Column.node_revision),
+                selectinload(NodeRevision.cube_elements).selectinload(
+                    Column.node_revision,
+                ),
             ),
         ],
     )
@@ -2511,12 +2512,7 @@ async def remove_dimension_link(
                 ),
                 session=session,
             )
-        else:
-            _logger.debug(
-                "remove_dimension_link: cube %s does not contain dimension %s, skipping",
-                cube.name,
-                dimension_node.name,
-            )
+
     await session.flush()
 
     # Create a new revision for dimension link removal
@@ -2541,12 +2537,6 @@ async def remove_dimension_link(
             removed = True
             await session.delete(link)
     if not removed:
-        _logger.warning(
-            "remove_dimension_link: link %s%s not found on %s",
-            link_identifier.dimension_node,
-            role_label,
-            node_name,
-        )
         return JSONResponse(
             status_code=HTTPStatus.NOT_FOUND,
             content={

@@ -2,11 +2,10 @@
 DAG related functions.
 """
 
-import asyncio
 import itertools
 import logging
 from collections import namedtuple
-from typing import Dict, List, Tuple, Union, cast
+from typing import Dict, List, Union, cast
 
 from sqlalchemy import and_, func, join, or_, select, text, bindparam
 from sqlalchemy.sql.base import ExecutableOption
@@ -105,7 +104,7 @@ async def get_downstream_nodes(
     deactivated_filter = (
         "AND n.deactivated_at IS NULL" if not include_deactivated else ""
     )
-    cube_filter = "AND nr.type != 'cube'::nodetype" if not include_cubes else ""
+    cube_filter = "AND nr.type != 'CUBE'::nodetype" if not include_cubes else ""
 
     while frontier and (depth == -1 or current_depth < depth):
         rows = await session.execute(
@@ -146,6 +145,7 @@ async def get_downstream_nodes(
             await session.execute(
                 select(Node)
                 .where(Node.id.in_(all_downstream_ids))
+                .order_by(Node.name)
                 .options(*result_options),
             )
         )
@@ -161,143 +161,6 @@ async def get_downstream_nodes(
         and (include_deactivated or n.deactivated_at is None)
     ]
     return filtered[: settings.node_list_max]
-
-
-async def get_downstream_nodes_bfs(
-    session,
-    start_node: Node,
-    max_depth: int = -1,
-    include_deactivated: bool = True,
-    include_cubes: bool = True,
-    node_type: NodeType = None,
-) -> list[Node]:
-    """
-    Get all downstream nodes of a given node using BFS, which is more efficient for large graphs.
-    Each level is processed concurrently, with a limit on the number of concurrent tasks
-    configured by `max_concurrency`.
-    """
-    visited = set()
-    results = []
-    current_level: list[Tuple[int, int]] = [(start_node.id, 0)]
-
-    while current_level:
-        depth = current_level[0][1]
-        logger.info("Processing downstreams for %s at depth %s", start_node.name, depth)
-
-        current_ids = list(set([nid for nid, _ in current_level if nid not in visited]))
-        if not current_ids:
-            break  # pragma: no cover
-        visited.update(current_ids)
-
-        # Process nodes at this level concurrently
-        nodes_at_level = await _bfs_process_level_concurrently(
-            session,
-            current_ids,
-            include_deactivated,
-            include_cubes,
-            node_type,
-        )
-        results.extend(
-            [
-                node
-                for node in nodes_at_level
-                if node.id != start_node.id
-                and (node.type == node_type or node_type is None)
-            ],
-        )
-
-        if len(results) >= settings.node_list_max:
-            return results[: settings.node_list_max]
-
-        # Stop BFS if max depth reached
-        if max_depth != -1 and current_level[0][1] >= max_depth:
-            break
-
-        # Fetch children for next level - batched query instead of per-node queries
-        parent_ids = [node.id for node in nodes_at_level]
-        if parent_ids:
-            children_query = (
-                select(NodeRelationship.parent_id, Node.id)
-                .select_from(NodeRelationship)
-                .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-                .join(Node, Node.id == NodeRevision.node_id)
-                .where(NodeRelationship.parent_id.in_(parent_ids))
-            )
-            if not include_deactivated:
-                children_query = children_query.where(Node.deactivated_at.is_(None))
-
-            children_rows = await session.execute(children_query)
-            all_children = children_rows.fetchall()
-
-            # Group children by parent and build next level
-            next_level = [
-                (child_id, depth + 1)
-                for _, child_id in all_children
-                if child_id not in visited
-            ]
-            if next_level:
-                logger.info(
-                    "Processing downstreams for %s: found %d children at depth %d",
-                    start_node.name,
-                    len(next_level),
-                    depth + 1,
-                )
-            current_level = next_level
-        else:
-            current_level = []
-
-    return results
-
-
-async def _bfs_process_level_concurrently(
-    session: AsyncSession,
-    node_ids: list[int],
-    include_deactivated: bool = True,
-    include_cubes: bool = True,
-    node_type: NodeType = None,
-):
-    """
-    Process all nodes at a BFS level concurrently with a concurrency limit.
-    """
-    effective_concurrency = min(
-        settings.max_concurrency,
-        max(1, settings.reader_db.pool_size // 2),
-    )
-    semaphore = asyncio.Semaphore(effective_concurrency)
-
-    async def _bfs_process_node(
-        session: AsyncSession,
-        node_id: int,
-        include_deactivated: bool = True,
-        include_cubes: bool = True,
-        node_type: NodeType = None,
-    ):
-        node = await Node.get_by_id(
-            session,
-            node_id,
-            options=_node_output_options(),
-        )
-        if not node:
-            return None  # pragma: no cover
-        if not include_deactivated and node.deactivated_at is not None:
-            return None  # pragma: no cover
-        if not include_cubes and node.type == NodeType.CUBE:
-            return None
-        return node
-
-    async def sem_task(node_id):
-        async with semaphore:
-            return await _bfs_process_node(
-                session,
-                node_id,
-                include_deactivated,
-                include_cubes,
-                node_type,
-            )
-
-    tasks = [sem_task(node_id) for node_id in node_ids]
-    processed = await asyncio.gather(*tasks)
-    return [node for node in processed if node is not None]
 
 
 async def get_upstream_nodes(
