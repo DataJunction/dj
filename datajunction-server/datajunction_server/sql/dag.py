@@ -171,145 +171,70 @@ async def get_upstream_nodes(
 ) -> List[Node]:
     """
     Gets all upstreams of the given node(s), filterable by node type.
-    Uses a recursive CTE query to build out all parents of the nodes.
 
-    For metrics, we first get immediate parent IDs and then run the recursive
-    CTE from those parents. This is more efficient because metrics only have
-    one parent, and it avoids unnecessary traversal of shared parents.
+    Uses layered BFS over noderelationship — one raw SQL query per depth level —
+    collecting parent node IDs cheaply, then loading all matched nodes in a single
+    batched query with the caller-supplied options.
     """
-    # Normalize to list
     node_names = [node_name] if isinstance(node_name, str) else node_name
-
-    # Use full options if none provided (for REST API DAGNodeOutput compatibility)
     result_options = options if options is not None else _node_output_options()
 
-    # Initial lookup always uses light options (only need type and current.id)
     nodes = await Node.get_by_names(
         session,
         node_names,
         options=[joinedload(Node.current)],
     )
-
     if not nodes:
         return []  # pragma: no cover
 
-    # Collect starting revision IDs and immediate parent IDs for metrics
-    starting_revision_ids: List[int] = []
-    immediate_parent_ids: List[int] = []
-    metric_revision_ids: List[int] = []
-    non_metric_revision_ids: List[int] = []
+    starting_node_ids = {n.id for n in nodes}
+    visited: set[int] = set(starting_node_ids)
+    frontier: list[int] = list(starting_node_ids)
 
-    for node in nodes:
-        if node.type == NodeType.METRIC:
-            metric_revision_ids.append(node.current.id)
-        else:
-            non_metric_revision_ids.append(node.current.id)
+    deactivated_filter = (
+        "AND parent_n.deactivated_at IS NULL" if not include_deactivated else ""
+    )
 
-    # For metrics, get immediate parent IDs in a single query
-    if metric_revision_ids:
-        parent_ids_query = select(NodeRelationship.parent_id).where(
-            NodeRelationship.child_id.in_(metric_revision_ids),
+    while frontier:  # pragma: no branch
+        rows = await session.execute(
+            text(f"""
+                SELECT DISTINCT parent_n.id
+                FROM node child_n
+                JOIN noderevision child_nr
+                    ON child_n.id = child_nr.node_id
+                    AND child_n.current_version = child_nr.version
+                JOIN noderelationship rel ON rel.child_id = child_nr.id
+                JOIN node parent_n ON parent_n.id = rel.parent_id
+                WHERE child_n.id IN :frontier_ids
+                {deactivated_filter}
+            """).bindparams(bindparam("frontier_ids", expanding=True)),
+            {"frontier_ids": frontier},
         )
-        immediate_parent_ids = list(
-            (await session.execute(parent_ids_query)).scalars().all(),
-        )
+        parent_ids = [r[0] for r in rows if r[0] not in visited]
+        if not parent_ids:
+            break
+        visited.update(parent_ids)
+        frontier = parent_ids
 
-        if immediate_parent_ids:
-            # Get the current revision IDs for those parent nodes
-            revision_ids_query = (
-                select(NodeRevision.id)
-                .join(Node, Node.id == NodeRevision.node_id)
-                .where(
-                    Node.id.in_(immediate_parent_ids),
-                    Node.current_version == NodeRevision.version,
-                )
-            )
-            starting_revision_ids.extend(
-                (await session.execute(revision_ids_query)).scalars().all(),
-            )
-
-    # Add non-metric revision IDs directly
-    starting_revision_ids.extend(non_metric_revision_ids)
-
-    if not starting_revision_ids:
-        # No parents to traverse
+    all_upstream_ids = visited - starting_node_ids
+    if not all_upstream_ids:
         return []
 
-    dag = (
+    results = (
         (
-            select(
-                NodeRelationship.child_id,
-                NodeRevision.id,
-                NodeRevision.node_id,
-            )
-            .where(NodeRelationship.child_id.in_(starting_revision_ids))
-            .join(Node, NodeRelationship.parent_id == Node.id)
-            .join(
-                NodeRevision,
-                (Node.id == NodeRevision.node_id)
-                & (Node.current_version == NodeRevision.version),
+            await session.execute(
+                select(Node)
+                .where(Node.id.in_(all_upstream_ids))
+                .order_by(Node.name)
+                .options(*result_options),
             )
         )
-        .cte("upstreams", recursive=True)
-        .suffix_with(
-            "CYCLE node_id SET is_cycle USING path",
-        )
+        .unique()
+        .scalars()
+        .all()
     )
 
-    paths = dag.union_all(
-        select(
-            dag.c.child_id,
-            NodeRevision.id,
-            NodeRevision.node_id,
-        )
-        .join(NodeRelationship, dag.c.id == NodeRelationship.child_id)
-        .join(Node, NodeRelationship.parent_id == Node.id)
-        .join(
-            NodeRevision,
-            (Node.id == NodeRevision.node_id)
-            & (Node.current_version == NodeRevision.version),
-        ),
-    )
-
-    node_selector = select(Node)
-    if not include_deactivated:
-        node_selector = node_selector.where(is_(Node.deactivated_at, None))
-    statement = (
-        node_selector.join(paths, paths.c.node_id == Node.id)
-        .join(
-            NodeRevision,
-            (Node.current_version == NodeRevision.version)
-            & (Node.id == NodeRevision.node_id),
-        )
-        .options(*result_options)
-    )
-
-    results = list((await session.execute(statement)).unique().scalars().all())
-
-    # For metrics, include the immediate parents in the results
-    # (they are the starting point for the CTE, so not included by default)
-    if immediate_parent_ids:
-        # Load parents with same options for consistent output
-        parent_query = (
-            select(Node)
-            .where(Node.id.in_(immediate_parent_ids))
-            .options(*result_options)
-        )
-        if not include_deactivated:
-            parent_query = parent_query.where(is_(Node.deactivated_at, None))
-        loaded_parents = (await session.execute(parent_query)).unique().scalars().all()
-
-        # Add parents that aren't already in results
-        existing_ids = {r.id for r in results}
-        for parent in loaded_parents:
-            if parent.id not in existing_ids:
-                results.append(parent)
-
-    return [
-        upstream
-        for upstream in results
-        if upstream.type == node_type or node_type is None
-    ]
+    return [n for n in results if node_type is None or n.type == node_type]
 
 
 async def build_reference_link(
