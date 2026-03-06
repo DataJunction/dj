@@ -635,21 +635,6 @@ class Node(Base):
         return node
 
     @classmethod
-    async def get_by_id(
-        cls,
-        session: AsyncSession,
-        node_id: int,
-        options: list[ExecutableOption] = None,
-    ) -> Optional["Node"]:
-        """
-        Get a node by id
-        """
-        statement = select(Node).where(Node.id == node_id).options(*(options or []))
-        result = await session.execute(statement)
-        node = result.unique().scalar_one_or_none()
-        return node
-
-    @classmethod
     async def find(
         cls,
         session: AsyncSession,

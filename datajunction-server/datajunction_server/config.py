@@ -179,13 +179,6 @@ class Settings(BaseSettings):  # pragma: no cover
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max: int = 10000
 
-    # DAG traversal configuration
-    # Threshold for switching from recursive CTE to BFS for downstream traversal.
-    # BFS has overhead from per-node eager loading, so recursive CTE is faster
-    # for flat trees (many nodes at depth 1). Set high to prefer recursive CTE.
-    fanout_threshold: int = 10000
-    max_concurrency: int = 20
-
     # Pre-aggregation output location
     # Used when generating combined SQL that references pre-agg tables
     preagg_catalog: str = "default"
