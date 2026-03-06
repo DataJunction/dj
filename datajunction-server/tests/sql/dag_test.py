@@ -17,6 +17,7 @@ from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     get_common_dimensions,
     get_dimensions,
+    get_dimensions_dag,
     get_downstream_nodes,
     get_metric_parents_map,
     get_nodes_with_common_dimensions,
@@ -2339,3 +2340,318 @@ class TestGetSharedDimensions:
 
         # No common dimensions between orders (date/customer) and inventory (warehouse)
         assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_dag_no_dimensions_with_attributes_false(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Branch coverage: get_dimensions_dag on a node with no dimension links and
+    with_attributes=False should return [] without hitting Phase C/D.
+    """
+    node_ref = Node(
+        name="nodims.fact",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    node_rev = NodeRevision(
+        node=node_ref,
+        name=node_ref.name,
+        type=node_ref.type,
+        display_name="nodims.fact",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+        ],
+        created_by_id=current_user.id,
+    )
+    node_ref.current = node_rev
+    session.add(node_rev)
+    session.add(node_ref)
+    await session.commit()
+
+    result = await get_dimensions_dag(session, node_rev, with_attributes=False)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_dag_depth_limit_stops_bfs(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Branch coverage: when depth=0, BFS runs through all `depth+1` iterations.
+    The starting node's dimension links should still be discovered (depth 0 expansion).
+    """
+    dim_ref = Node(
+        name="depthlimit.dim",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="depthlimit.dim",
+        version="1",
+        columns=[Column(name="id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+
+    fact_ref = Node(
+        name="depthlimit.fact",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact_rev = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="depthlimit.fact",
+        version="1",
+        columns=[Column(name="fact_id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact_rev
+    session.add(fact_rev)
+    session.add(fact_ref)
+    await session.flush()
+
+    link = DimensionLink(
+        dimension_id=dim_ref.id,
+        node_revision_id=fact_rev.id,
+        join_sql="depthlimit.fact.fact_id = depthlimit.dim.id",
+    )
+    session.add(link)
+    await session.commit()
+
+    # depth=0 means only depth-0 expansion runs; BFS loop goes depth+1 = 1 iteration
+    result = await get_dimensions_dag(session, fact_rev, depth=0)
+    node_names = {d.node_name for d in result}
+    assert "depthlimit.dim" in node_names
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_dag_accumulated_role_path_no_new_role(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Branch coverage: accumulated role_path with no new link_role (line 843).
+    Graph: fact --[role_a]--> dim_a --> dim_b (no role on second hop).
+    For dim_b, role_path should remain "role_a" (carried over, not extended).
+    """
+    dim_b_ref = Node(
+        name="rolecarry.dim_b",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_b_rev = NodeRevision(
+        node=dim_b_ref,
+        name=dim_b_ref.name,
+        type=dim_b_ref.type,
+        display_name="rolecarry.dim_b",
+        version="1",
+        columns=[Column(name="id_b", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_b_ref.current = dim_b_rev
+    session.add(dim_b_rev)
+    session.add(dim_b_ref)
+
+    dim_a_ref = Node(
+        name="rolecarry.dim_a",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_a_rev = NodeRevision(
+        node=dim_a_ref,
+        name=dim_a_ref.name,
+        type=dim_a_ref.type,
+        display_name="rolecarry.dim_a",
+        version="1",
+        columns=[Column(name="id_a", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_a_ref.current = dim_a_rev
+    session.add(dim_a_rev)
+    session.add(dim_a_ref)
+
+    fact_ref = Node(
+        name="rolecarry.fact",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact_rev = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="rolecarry.fact",
+        version="1",
+        columns=[Column(name="fact_id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact_rev
+    session.add(fact_rev)
+    session.add(fact_ref)
+    await session.flush()
+
+    # fact --[role_a]--> dim_a (role on first hop)
+    link_fact_to_a = DimensionLink(
+        dimension_id=dim_a_ref.id,
+        node_revision_id=fact_rev.id,
+        join_sql="rolecarry.fact.fact_id = rolecarry.dim_a.id_a",
+        role="role_a",
+    )
+    # dim_a --> dim_b (no role on second hop)
+    link_a_to_b = DimensionLink(
+        dimension_id=dim_b_ref.id,
+        node_revision_id=dim_a_rev.id,
+        join_sql="rolecarry.dim_a.id_a = rolecarry.dim_b.id_b",
+    )
+    session.add_all([link_fact_to_a, link_a_to_b])
+    await session.commit()
+
+    dims = await get_dimensions_dag(session, fact_rev)
+
+    dim_b_attrs = [d for d in dims if d.node_name == "rolecarry.dim_b"]
+    assert dim_b_attrs, "Expected attributes from rolecarry.dim_b"
+    # role should be carried over from first hop: [role_a]
+    assert all("[role_a]" in d.name for d in dim_b_attrs), (
+        f"Expected [role_a] suffix in dim_b attributes, got {[d.name for d in dim_b_attrs]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_dag_duplicate_disc_key_skipped(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Branch coverage: same (node_id, role_path) reached via two different paths (line 865->832).
+    Graph: fact --> dim_a --> dim_c
+           fact --> dim_b --> dim_c
+    Both paths reach dim_c with empty role; second discovery is a no-op.
+    """
+    dim_c_ref = Node(
+        name="duppath.dim_c",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_c_rev = NodeRevision(
+        node=dim_c_ref,
+        name=dim_c_ref.name,
+        type=dim_c_ref.type,
+        display_name="duppath.dim_c",
+        version="1",
+        columns=[Column(name="id_c", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_c_ref.current = dim_c_rev
+    session.add(dim_c_rev)
+    session.add(dim_c_ref)
+
+    dim_a_ref = Node(
+        name="duppath.dim_a",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_a_rev = NodeRevision(
+        node=dim_a_ref,
+        name=dim_a_ref.name,
+        type=dim_a_ref.type,
+        display_name="duppath.dim_a",
+        version="1",
+        columns=[Column(name="id_a", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_a_ref.current = dim_a_rev
+    session.add(dim_a_rev)
+    session.add(dim_a_ref)
+
+    dim_b_ref = Node(
+        name="duppath.dim_b",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_b_rev = NodeRevision(
+        node=dim_b_ref,
+        name=dim_b_ref.name,
+        type=dim_b_ref.type,
+        display_name="duppath.dim_b",
+        version="1",
+        columns=[Column(name="id_b", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_b_ref.current = dim_b_rev
+    session.add(dim_b_rev)
+    session.add(dim_b_ref)
+
+    fact_ref = Node(
+        name="duppath.fact",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact_rev = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="duppath.fact",
+        version="1",
+        columns=[Column(name="fact_id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact_rev
+    session.add(fact_rev)
+    session.add(fact_ref)
+    await session.flush()
+
+    # fact --> dim_a; fact --> dim_b; dim_a --> dim_c; dim_b --> dim_c
+    session.add_all(
+        [
+            DimensionLink(
+                dimension_id=dim_a_ref.id,
+                node_revision_id=fact_rev.id,
+                join_sql="duppath.fact.fact_id = duppath.dim_a.id_a",
+            ),
+            DimensionLink(
+                dimension_id=dim_b_ref.id,
+                node_revision_id=fact_rev.id,
+                join_sql="duppath.fact.fact_id = duppath.dim_b.id_b",
+            ),
+            DimensionLink(
+                dimension_id=dim_c_ref.id,
+                node_revision_id=dim_a_rev.id,
+                join_sql="duppath.dim_a.id_a = duppath.dim_c.id_c",
+            ),
+            DimensionLink(
+                dimension_id=dim_c_ref.id,
+                node_revision_id=dim_b_rev.id,
+                join_sql="duppath.dim_b.id_b = duppath.dim_c.id_c",
+            ),
+        ],
+    )
+    await session.commit()
+
+    dims = await get_dimensions_dag(session, fact_rev)
+
+    # dim_c should appear exactly once (no-role path, first found)
+    dim_c_attrs = [d for d in dims if d.node_name == "duppath.dim_c"]
+    assert len(dim_c_attrs) == 1, (
+        f"Expected exactly 1 entry for duppath.dim_c, got {len(dim_c_attrs)}"
+    )
