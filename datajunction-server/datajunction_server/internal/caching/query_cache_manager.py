@@ -1,3 +1,4 @@
+import asyncio
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
@@ -27,6 +28,23 @@ from datajunction_server.models.metric import TranslatedSQL
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Per-process state for rate-limited refresh-ahead.
+# _pending_refresh_keys: deduplicates — if a refresh is already queued for a key,
+#   don't schedule another one (prevents N redundant rebuilds for the same query).
+# _refresh_semaphore: caps total concurrent refreshes across all keys to prevent
+#   DB connection spikes when many different cache entries need refreshing.
+_pending_refresh_keys: set[str] = set()
+_refresh_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_refresh_semaphore() -> asyncio.Semaphore:
+    global _refresh_semaphore
+    if _refresh_semaphore is None:
+        _refresh_semaphore = asyncio.Semaphore(
+            settings.query_cache_max_concurrent_refreshes,
+        )
+    return _refresh_semaphore
 
 
 @dataclass
@@ -103,6 +121,14 @@ class QueryCacheManager(RefreshAheadCacheManager):
         if not no_cache:
             try:
                 if cached := self.cache.get(key):
+                    if not no_store and key not in _pending_refresh_keys:
+                        _pending_refresh_keys.add(key)
+                        background_tasks.add_task(
+                            self._refresh_cache_rate_limited,
+                            key,
+                            request,
+                            params,
+                        )
                     return cached
                 self.logger.info(
                     "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
@@ -231,6 +257,28 @@ class QueryCacheManager(RefreshAheadCacheManager):
                 session_label="cache key generation",
             ) as new_session:
                 return await _build_key_with_session(new_session)
+
+    async def _refresh_cache_rate_limited(
+        self,
+        key: str,
+        request: Request,
+        params: "QueryRequestParams",
+    ) -> None:
+        """
+        Refresh-ahead with concurrency control.
+
+        Waits to acquire a process-wide semaphore before rebuilding, capping the
+        number of simultaneous SQL rebuilds (and thus DB sessions) to
+        settings.query_cache_max_concurrent_refreshes.  The deduplication key is
+        removed from _pending_refresh_keys in the finally block so the next cache
+        hit can schedule a new refresh once this one finishes.
+        """
+        semaphore = _get_refresh_semaphore()
+        async with semaphore:
+            try:
+                await self._refresh_cache(key, request, params)
+            finally:
+                _pending_refresh_keys.discard(key)
 
     async def _build_measures_query(
         self,
