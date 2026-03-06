@@ -103,13 +103,6 @@ class QueryCacheManager(RefreshAheadCacheManager):
         if not no_cache:
             try:
                 if cached := self.cache.get(key):
-                    if not no_store:
-                        background_tasks.add_task(
-                            self._refresh_cache,
-                            key,
-                            request,
-                            params,
-                        )
                     return cached
                 self.logger.info(
                     "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
