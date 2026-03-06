@@ -2472,11 +2472,10 @@ async def remove_dimension_link(
         ],
     )
     for cube in downstream_cubes:
-        cube = cast(Node, await Node.get_cube_by_name(session, cube.name))
         cube_dimension_nodes = [
             cube_elem_node.name
             for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
-            if cube_elem_node.type == NodeType.DIMENSION
+            if cube_elem_node and cube_elem_node.type == NodeType.DIMENSION
         ]
         if dimension_node.name in cube_dimension_nodes:
             cube.current.status = NodeStatus.INVALID
@@ -2490,7 +2489,7 @@ async def remove_dimension_link(
                 ),
                 session=session,
             )
-        await session.commit()
+    await session.flush()
 
     # Create a new revision for dimension link removal
     node = cast(Node, node)
