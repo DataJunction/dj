@@ -2444,6 +2444,15 @@ async def remove_dimension_link(
     """
     Removes the dimension link identified by the origin node, the dimension node, and its role.
     """
+    role_label = f" (role={link_identifier.role})" if link_identifier.role else ""
+    _logger.info(
+        "remove_dimension_link: start node=%s dimension=%s%s user=%s",
+        node_name,
+        link_identifier.dimension_node,
+        role_label,
+        current_user.username,
+    )
+
     node = await Node.get_by_name(session, node_name)
 
     # Find the dimension node
@@ -2455,20 +2464,43 @@ async def remove_dimension_link(
     )
     removed = False
 
-    # Find cubes that are affected by this dimension link removal and update their statuses
+    # Find cubes that are affected by this dimension link removal and update their statuses.
+    # Pass targeted options so we only load what cube_elements_with_nodes() needs, rather
+    # than the full _node_output_options() which pulls columns, attributes, parents, and
+    # nested dimension_links for every downstream node in the graph.
+    _logger.info(
+        "remove_dimension_link: finding downstream cubes of %s",
+        node_name,
+    )
     downstream_cubes = await get_downstream_nodes(
         session,
         node_name,
         node_type=NodeType.CUBE,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.cube_elements).selectinload(
+                    Column.node_revision,
+                ),
+            ),
+        ],
+    )
+    _logger.info(
+        "remove_dimension_link: found %d downstream cube(s) of %s",
+        len(downstream_cubes),
+        node_name,
     )
     for cube in downstream_cubes:
-        cube = cast(Node, await Node.get_cube_by_name(session, cube.name))
         cube_dimension_nodes = [
             cube_elem_node.name
             for (element, cube_elem_node) in cube.current.cube_elements_with_nodes()
-            if cube_elem_node.type == NodeType.DIMENSION
+            if cube_elem_node and cube_elem_node.type == NodeType.DIMENSION
         ]
         if dimension_node.name in cube_dimension_nodes:
+            _logger.info(
+                "remove_dimension_link: invalidating cube %s (contains dimension %s)",
+                cube.name,
+                dimension_node.name,
+            )
             cube.current.status = NodeStatus.INVALID
             session.add(cube)
             await save_history(
@@ -2480,7 +2512,8 @@ async def remove_dimension_link(
                 ),
                 session=session,
             )
-        await session.commit()
+
+    await session.flush()
 
     # Create a new revision for dimension link removal
     node = cast(Node, node)
@@ -2488,6 +2521,11 @@ async def remove_dimension_link(
         session,
         node,
         current_user,
+    )
+    _logger.info(
+        "remove_dimension_link: new revision %s created for %s",
+        new_revision.version,
+        node_name,
     )
 
     # Delete the dimension link if one exists
@@ -2647,6 +2685,7 @@ async def propagate_valid_status(
                 session=session,
                 node_name=node_revision.name,
             )
+            downstream_nodes = topological_sort(downstream_nodes)
             newly_valid_nodes = []
             for node in downstream_nodes:
                 node_validator = await validate_node_data(
@@ -3191,7 +3230,9 @@ async def hard_delete_node(
     await session.commit()
     impact = []  # Aggregate all impact of this deletion to include in response
 
-    # Revalidate all downstream nodes
+    # Revalidate all downstream nodes in topological order so that parents are
+    # revalidated (and marked invalid) before their children are checked.
+    downstream_nodes = topological_sort(downstream_nodes)
     for node in downstream_nodes:
         await save_history(  # Capture this in the downstream node's history
             event=History(
