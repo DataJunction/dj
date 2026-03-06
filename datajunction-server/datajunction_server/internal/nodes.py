@@ -2455,11 +2455,21 @@ async def remove_dimension_link(
     )
     removed = False
 
-    # Find cubes that are affected by this dimension link removal and update their statuses
+    # Find cubes that are affected by this dimension link removal and update their statuses.
+    # Pass targeted options so we only load what cube_elements_with_nodes() needs, rather
+    # than the full _node_output_options() which pulls columns, attributes, parents, and
+    # nested dimension_links for every downstream node in the graph.
     downstream_cubes = await get_downstream_nodes(
         session,
         node_name,
         node_type=NodeType.CUBE,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.cube_elements)
+                .selectinload(Column.node_revision)
+                .selectinload(NodeRevision.node),
+            ),
+        ],
     )
     for cube in downstream_cubes:
         cube = cast(Node, await Node.get_cube_by_name(session, cube.name))
