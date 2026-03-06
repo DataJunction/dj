@@ -899,6 +899,171 @@ class TestCubeDeployment:
         assert date_cube_column.partition.granularity == Granularity.DAY
         assert date_cube_column.partition.format == "yyyyMMdd"
 
+    @pytest.mark.asyncio
+    async def test_multiple_cubes_with_partition_no_autoflush_error(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        Regression test: deploying multiple cubes where one has a partitioned column
+        must not raise an IntegrityError due to a premature autoflush.
+
+        Previously, self.session.add(partition) inside
+        _create_cube_node_revision_from_validation_data caused SQLAlchemy to silently
+        add the associated node_column to the session. After the no_autoflush block
+        exited, those columns were stranded in the session with node_revision_id=null.
+        The next DB query (triggered by processing the second cube) would autoflush
+        them, hitting the NOT NULL constraint on node_revision_id.
+        """
+        catalog = Catalog(name="test_catalog")
+        session.add(catalog)
+
+        date_node = Node(
+            name="test.date",
+            type="dimension",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        revenue_node = Node(
+            name="test.revenue",
+            type="metric",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_node, revenue_node])
+
+        date_revision = NodeRevision(
+            name="test.date",
+            display_name="Date",
+            type="dimension",
+            node=date_node,
+            version="v1.0",
+            query="SELECT dateint FROM dates",
+            created_by_id=current_user.id,
+        )
+        revenue_revision = NodeRevision(
+            name="test.revenue",
+            display_name="Revenue",
+            type="metric",
+            node=revenue_node,
+            version="v1.0",
+            query="SELECT SUM(amount) FROM sales",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_revision, revenue_revision])
+        await session.commit()
+
+        date_column = Column(
+            name="dateint",
+            type="int",
+            node_revision_id=date_revision.id,
+            node_revision=date_revision,
+            attributes=[],
+        )
+        revenue_column = Column(
+            name="revenue",
+            type="bigint",
+            node_revision_id=revenue_revision.id,
+            node_revision=revenue_revision,
+            attributes=[],
+        )
+        session.add_all([date_column, revenue_column])
+        await session.commit()
+
+        await session.refresh(date_column, ["node_revision", "attributes"])
+        await session.refresh(revenue_column, ["node_revision", "attributes"])
+
+        validation_data = CubeValidationData(
+            metric_columns=[revenue_column],
+            dimension_columns=[date_column],
+            metric_nodes=[revenue_node],
+            dimension_nodes=[date_node],
+            catalog=catalog,
+        )
+
+        # Two cube nodes — the second cube forces a DB query after the first
+        # cube's no_autoflush block exits, which triggers the bug.
+        cube_node_1 = Node(
+            name="test.cube_1",
+            type="cube",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        cube_node_2 = Node(
+            name="test.cube_2",
+            type="cube",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add_all([cube_node_1, cube_node_2])
+        await session.commit()
+
+        context = DeploymentContext(
+            current_user=current_user,
+            request=Mock(),
+            query_service_client=Mock(),
+            background_tasks=Mock(),
+            cache=Mock(),
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_id="test-deployment",
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            session=session,
+            context=context,
+        )
+
+        cube_spec_with_partition = CubeSpec(
+            name="test.cube_1",
+            node_type="cube",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            namespace="test",
+            columns=[
+                ColumnSpec(
+                    name="test.date.dateint",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+        cube_spec_plain = CubeSpec(
+            name="test.cube_2",
+            node_type="cube",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            namespace="test",
+        )
+
+        # Creating both revisions back-to-back reproduces the autoflush bug:
+        # after the first no_autoflush block exits, the second cube's session.refresh
+        # call triggers a flush that would expose the orphaned column.
+        revision_1 = await orchestrator._create_cube_node_revision_from_validation_data(
+            cube_spec=cube_spec_with_partition,
+            validation_data=validation_data,
+            new_node=cube_node_1,
+        )
+        revision_2 = await orchestrator._create_cube_node_revision_from_validation_data(
+            cube_spec=cube_spec_plain,
+            validation_data=validation_data,
+            new_node=cube_node_2,
+        )
+
+        session.add_all([revision_1, revision_2])
+        await session.commit()  # Would raise IntegrityError before the fix
+
+        await session.refresh(revision_1, ["columns"])
+        date_col = next(c for c in revision_1.columns if "dateint" in c.name)
+        await session.refresh(date_col, ["partition"])
+        assert date_col.partition is not None
+        assert date_col.partition.type_ == PartitionType.TEMPORAL
+
+        await session.refresh(revision_2, ["columns"])
+        assert len(revision_2.columns) == 2
+
 
 @pytest.mark.asyncio
 async def test_auto_register_sources_disabled(
