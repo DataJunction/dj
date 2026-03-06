@@ -5589,7 +5589,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
         "/nodes/default.regional_level_agg/dimensions/",
     )
     assert response.status_code in (200, 201)
-    assert sorted(response.json(), key=lambda x: x["name"]) == sorted(
+    assert sorted(response.json(), key=lambda x: (x["name"], str(x["path"]))) == sorted(
         [
             {
                 "filter_only": False,
@@ -5684,7 +5684,7 @@ async def test_list_dimension_attributes(client_with_roads: AsyncClient) -> None
                 "properties": ["primary_key"],
             },
         ],
-        key=lambda x: x["name"],  # type: ignore
+        key=lambda x: (x["name"], str(x["path"])),  # type: ignore
     )
 
 
