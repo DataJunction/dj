@@ -32,32 +32,12 @@ async def test_downstream_nodes(
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
         {
-            "name": "default.num_repair_orders",
+            "name": "default.avg_repair_order_discounts",
             "type": "METRIC",
-            "current": {"customMetadata": {"foo": "bar"}},
+            "current": {"customMetadata": None},
         },
         {
             "name": "default.avg_repair_price",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.total_repair_cost",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.discounted_orders_rate",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.total_repair_order_discounts",
-            "type": "METRIC",
-            "current": {"customMetadata": None},
-        },
-        {
-            "name": "default.avg_repair_order_discounts",
             "type": "METRIC",
             "current": {"customMetadata": None},
         },
@@ -67,11 +47,29 @@ async def test_downstream_nodes(
             "current": {"customMetadata": None},
         },
         {
-            "current": {
-                "customMetadata": None,
-            },
+            "name": "default.discounted_orders_rate",
+            "type": "METRIC",
+            "current": {"customMetadata": None},
+        },
+        {
+            "name": "default.num_repair_orders",
+            "type": "METRIC",
+            "current": {"customMetadata": {"foo": "bar"}},
+        },
+        {
             "name": "default.num_unique_hard_hats_approx",
             "type": "METRIC",
+            "current": {"customMetadata": None},
+        },
+        {
+            "name": "default.total_repair_cost",
+            "type": "METRIC",
+            "current": {"customMetadata": None},
+        },
+        {
+            "name": "default.total_repair_order_discounts",
+            "type": "METRIC",
+            "current": {"customMetadata": None},
         },
     ]
 
@@ -89,18 +87,18 @@ async def test_downstream_nodes(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
-        {"name": "default.regional_level_agg", "type": "TRANSFORM"},
-        {"name": "default.national_level_agg", "type": "TRANSFORM"},
-        {"name": "default.repair_orders_fact", "type": "TRANSFORM"},
-        {"name": "default.regional_repair_efficiency", "type": "METRIC"},
-        {"name": "default.num_repair_orders", "type": "METRIC"},
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_repair_price", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.discounted_orders_rate", "type": "METRIC"},
+        {"name": "default.national_level_agg", "type": "TRANSFORM"},
+        {"name": "default.num_repair_orders", "type": "METRIC"},
         {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
+        {"name": "default.regional_level_agg", "type": "TRANSFORM"},
+        {"name": "default.regional_repair_efficiency", "type": "METRIC"},
+        {"name": "default.repair_orders_fact", "type": "TRANSFORM"},
+        {"name": "default.total_repair_cost", "type": "METRIC"},
+        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
     ]
 
 
@@ -153,13 +151,13 @@ async def test_downstream_nodes_deactivated(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_repair_price", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.discounted_orders_rate", "type": "METRIC"},
         {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
+        {"name": "default.total_repair_cost", "type": "METRIC"},
+        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
     ]
 
     query = """
@@ -175,14 +173,14 @@ async def test_downstream_nodes_deactivated(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["downstreamNodes"] == [
-        {"name": "default.num_repair_orders", "type": "METRIC"},
-        {"name": "default.avg_repair_price", "type": "METRIC"},
-        {"name": "default.total_repair_cost", "type": "METRIC"},
-        {"name": "default.discounted_orders_rate", "type": "METRIC"},
-        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
         {"name": "default.avg_repair_order_discounts", "type": "METRIC"},
+        {"name": "default.avg_repair_price", "type": "METRIC"},
         {"name": "default.avg_time_to_dispatch", "type": "METRIC"},
+        {"name": "default.discounted_orders_rate", "type": "METRIC"},
+        {"name": "default.num_repair_orders", "type": "METRIC"},
         {"name": "default.num_unique_hard_hats_approx", "type": "METRIC"},
+        {"name": "default.total_repair_cost", "type": "METRIC"},
+        {"name": "default.total_repair_order_discounts", "type": "METRIC"},
     ]
 
 
