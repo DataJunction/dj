@@ -3,6 +3,7 @@ Instrumentation middleware for the DJ server.
 
 Emits on every HTTP request:
   - dj.db.pool.size / checked_out / available / overflow  (gauges)
+  - dj.request.in_flight  (gauge — concurrent requests in progress)
   - dj.request  (timer in ms, tagged with route + method + status_code)
 """
 
@@ -15,6 +16,8 @@ from starlette.responses import Response
 
 from datajunction_server.instrumentation.provider import get_metrics_provider
 
+_in_flight: int = 0
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,8 +25,12 @@ class DJInstrumentationMiddleware(BaseHTTPMiddleware):
     """Emit DB pool gauges and per-request timing on every HTTP request."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        global _in_flight
         provider = get_metrics_provider()
         _emit_pool_gauges(provider)
+
+        _in_flight += 1
+        provider.gauge("dj.request.in_flight", _in_flight)
 
         start = time.monotonic()
         status_code = 500
@@ -32,6 +39,8 @@ class DJInstrumentationMiddleware(BaseHTTPMiddleware):
             status_code = response.status_code
             return response
         finally:
+            _in_flight -= 1
+            provider.gauge("dj.request.in_flight", _in_flight)
             elapsed_ms = (time.monotonic() - start) * 1000
             route = request.scope.get("route")
             route_path = route.path if route else request.url.path

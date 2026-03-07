@@ -20,7 +20,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.sql import build_sql_for_multiple_metrics
 from datajunction_server.models.sql import GeneratedSQL
-from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.utils import get_current_user, session_context, get_settings
 from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.internal.sql import build_node_sql
@@ -173,6 +173,10 @@ class QueryCacheManager(RefreshAheadCacheManager):
 
         return result
 
+    @timed(
+        "dj.sql.build_latency_ms",
+        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+    )
     async def fallback(
         self,
         request: Request,
@@ -217,13 +221,16 @@ class QueryCacheManager(RefreshAheadCacheManager):
         # Use provided session or create a new one
         if session:
             return await _build_with_session(session)
-        else:
-            async with session_context(
-                request,
-                session_label="SQL building",
-            ) as new_session:
-                return await _build_with_session(new_session)
+        async with session_context(
+            request,
+            session_label="SQL building",
+        ) as new_session:
+            return await _build_with_session(new_session)
 
+    @timed(
+        "dj.cache.key_build_ms",
+        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+    )
     async def build_cache_key(
         self,
         request: Request,
@@ -264,12 +271,11 @@ class QueryCacheManager(RefreshAheadCacheManager):
         # Use provided session or create a new one
         if session:
             return await _build_key_with_session(session)
-        else:
-            async with session_context(
-                request,
-                session_label="cache key generation",
-            ) as new_session:
-                return await _build_key_with_session(new_session)
+        async with session_context(
+            request,
+            session_label="cache key generation",
+        ) as new_session:
+            return await _build_key_with_session(new_session)
 
     async def _refresh_cache_rate_limited(
         self,
@@ -289,13 +295,25 @@ class QueryCacheManager(RefreshAheadCacheManager):
         semaphore = _get_refresh_semaphore()
         async with semaphore:
             try:
-                await self._refresh_cache(key, request, params)
+                await self._timed_refresh(key, request, params)
             finally:
                 _pending_refresh_keys.discard(key)
                 get_metrics_provider().gauge(
                     "dj.cache.refresh.pending",
                     len(_pending_refresh_keys),
                 )
+
+    @timed(
+        "dj.cache.refresh_latency_ms",
+        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+    )
+    async def _timed_refresh(
+        self,
+        key: str,
+        request: Request,
+        params: "QueryRequestParams",
+    ) -> None:
+        await self._refresh_cache(key, request, params)
 
     async def _build_measures_query(
         self,

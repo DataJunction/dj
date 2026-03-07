@@ -16,8 +16,10 @@ Usage (emit a metric anywhere in the codebase)::
     get_metrics_provider().counter("dj.cache.hit", tags={"query_type": "METRICS"})
 """
 
+import functools
+import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable, Union
 
 
 class MetricsProvider(ABC):
@@ -95,3 +97,38 @@ def set_metrics_provider(provider: MetricsProvider) -> None:
     """
     global _provider
     _provider = provider
+
+
+def timed(
+    name: str,
+    tags: Union[dict[str, Any], Callable[..., dict[str, Any]], None] = None,
+):
+    """
+    Decorator that times an async function and emits a timer metric on exit.
+
+    ``tags`` may be a plain dict for static tags, or a callable that receives
+    the same ``(*args, **kwargs)`` as the decorated function and returns a dict.
+    The callable form is useful for methods that need ``self`` attributes::
+
+        @timed("dj.sql.build_latency_ms",
+               lambda self, *a, **kw: {"query_type": str(self.query_type)})
+        async def fallback(self, ...): ...
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            _start = time.monotonic()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                resolved = tags(*args, **kwargs) if callable(tags) else tags
+                get_metrics_provider().timer(
+                    name,
+                    (time.monotonic() - _start) * 1000,
+                    resolved,
+                )
+
+        return wrapper
+
+    return decorator
