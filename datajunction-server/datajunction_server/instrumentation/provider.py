@@ -17,6 +17,7 @@ Usage (emit a metric anywhere in the codebase)::
 """
 
 import functools
+import inspect
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Union
@@ -104,7 +105,9 @@ def timed(
     tags: Union[dict[str, Any], Callable[..., dict[str, Any]], None] = None,
 ):
     """
-    Decorator that times an async function and emits a timer metric on exit.
+    Decorator that times a function and emits a timer metric on exit.
+
+    Works on both async and sync functions.
 
     ``tags`` may be a plain dict for static tags, or a callable that receives
     the same ``(*args, **kwargs)`` as the decorated function and returns a dict.
@@ -116,19 +119,37 @@ def timed(
     """
 
     def decorator(fn):
-        @functools.wraps(fn)
-        async def wrapper(*args, **kwargs):
-            _start = time.monotonic()
-            try:
-                return await fn(*args, **kwargs)
-            finally:
-                resolved = tags(*args, **kwargs) if callable(tags) else tags
-                get_metrics_provider().timer(
-                    name,
-                    (time.monotonic() - _start) * 1000,
-                    resolved,
-                )
+        if inspect.iscoroutinefunction(fn):
 
-        return wrapper
+            @functools.wraps(fn)
+            async def async_wrapper(*args, **kwargs):
+                _start = time.monotonic()
+                try:
+                    return await fn(*args, **kwargs)
+                finally:
+                    resolved = tags(*args, **kwargs) if callable(tags) else tags
+                    get_metrics_provider().timer(
+                        name,
+                        (time.monotonic() - _start) * 1000,
+                        resolved,
+                    )
+
+            return async_wrapper
+        else:
+
+            @functools.wraps(fn)
+            def sync_wrapper(*args, **kwargs):
+                _start = time.monotonic()
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    resolved = tags(*args, **kwargs) if callable(tags) else tags
+                    get_metrics_provider().timer(
+                        name,
+                        (time.monotonic() - _start) * 1000,
+                        resolved,
+                    )
+
+            return sync_wrapper
 
     return decorator
