@@ -16,11 +16,14 @@ if TYPE_CHECKING:
 
 try:  # pragma: no cover
     from google.cloud import bigquery
+    from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
     from google.oauth2 import service_account
 
     BIGQUERY_AVAILABLE = True
 except ImportError:  # pragma: no cover
     bigquery = None
+    QueryJobConfig = None
+    ScalarQueryParameter = None
     service_account = None
     BIGQUERY_AVAILABLE = False
 
@@ -126,9 +129,9 @@ class BigQueryClient(BaseQueryServiceClient):
                 ORDER BY ordinal_position
             """
 
-            job_config = bigquery.QueryJobConfig(
+            job_config = QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("table_name", "STRING", table),
+                    ScalarQueryParameter("table_name", "STRING", table),
                 ],
             )
 
@@ -196,8 +199,9 @@ class BigQueryClient(BaseQueryServiceClient):
             # Decimal/numeric types
             "NUMERIC": DecimalType(38, 9),
             "DECIMAL": DecimalType(38, 9),
-            "BIGNUMERIC": DecimalType(76, 38),
-            "BIGDECIMAL": DecimalType(76, 38),
+            # DJ caps DecimalType precision at 38, so BIGNUMERIC uses max values
+            "BIGNUMERIC": DecimalType(38, 38),
+            "BIGDECIMAL": DecimalType(38, 38),
             # Boolean
             "BOOL": BooleanType(),
             "BOOLEAN": BooleanType(),

@@ -67,7 +67,21 @@ def test_get_columns_for_table():
     mock_bq_client = MagicMock()
     mock_bq_client.query.return_value = mock_job
 
-    with patch.object(client, "_get_client", return_value=mock_bq_client):
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ),
+    ):
         columns = client.get_columns_for_table(
             catalog="my-project",
             schema="my_dataset",
@@ -103,7 +117,21 @@ def test_get_columns_for_table_not_found():
     mock_bq_client = MagicMock()
     mock_bq_client.query.return_value = mock_job
 
-    with patch.object(client, "_get_client", return_value=mock_bq_client):
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ),
+    ):
         with pytest.raises(DJDoesNotExistException):
             client.get_columns_for_table(
                 catalog="my-project",
@@ -121,7 +149,21 @@ def test_get_columns_for_table_query_error():
     mock_bq_client = MagicMock()
     mock_bq_client.query.side_effect = RuntimeError("network error")
 
-    with patch.object(client, "_get_client", return_value=mock_bq_client):
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ),
+    ):
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             client.get_columns_for_table(
                 catalog="my-project",
@@ -175,7 +217,8 @@ def test_map_bigquery_type_to_dj_decimal():
 
     result = client._map_bigquery_type_to_dj("BIGNUMERIC")
     assert isinstance(result, DecimalType)
-    assert result.precision == 76
+    # DJ's DecimalType caps precision at 38, so BIGNUMERIC uses max values
+    assert result.precision == 38
     assert result.scale == 38
 
     # Parameterized variant should strip the parameters
