@@ -313,3 +313,81 @@ def test_utils_bigquery_missing_project():
     )
     with pytest.raises(ValueError, match="'project'"):
         _create_configured_query_client(config)
+
+
+def test_get_client_no_credentials():
+    """_get_client creates a Client with no credentials (uses ADC)."""
+    client = _make_client()
+
+    mock_bq_class = MagicMock()
+    with patch(
+        "datajunction_server.query_clients.bigquery.bigquery",
+        mock_bq_class,
+    ):
+        client._get_client()
+
+    mock_bq_class.Client.assert_called_once_with(
+        project="my-project",
+        credentials=None,
+        location=None,
+    )
+
+
+def test_get_client_with_credentials_info():
+    """_get_client creates credentials from credentials_info dict."""
+    client = _make_client(credentials_info={"type": "service_account"})
+
+    mock_sa = MagicMock()
+    mock_bq = MagicMock()
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.service_account",
+            mock_sa,
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.bigquery",
+            mock_bq,
+        ),
+    ):
+        client._get_client()
+
+    mock_sa.Credentials.from_service_account_info.assert_called_once_with(
+        {"type": "service_account"},
+    )
+
+
+def test_get_client_with_credentials_path():
+    """_get_client creates credentials from a service account file path."""
+    client = _make_client(credentials_path="/path/to/sa.json")
+
+    mock_sa = MagicMock()
+    mock_bq = MagicMock()
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.service_account",
+            mock_sa,
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.bigquery",
+            mock_bq,
+        ),
+    ):
+        client._get_client()
+
+    mock_sa.Credentials.from_service_account_file.assert_called_once_with(
+        "/path/to/sa.json",
+    )
+
+
+def test_test_connection_success():
+    """test_connection returns True when the query succeeds."""
+    client = _make_client()
+
+    mock_bq_client = MagicMock()
+    mock_bq_client.query.return_value.result.return_value = iter([MagicMock()])
+
+    with patch.object(client, "_get_client", return_value=mock_bq_client):
+        result = client.test_connection()
+
+    assert result is True
+    mock_bq_client.query.assert_called_once_with("SELECT 1")
