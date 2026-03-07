@@ -41,6 +41,7 @@ from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
+from datajunction_server.instrumentation.provider import timed
 
 if TYPE_CHECKING:
     pass
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@timed("dj.cube_matching.ms")
 async def find_matching_cube(
     session: AsyncSession,
     metrics: list[str],
