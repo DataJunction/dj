@@ -821,6 +821,361 @@ async def test_cube_filters_merged_with_request_filters(
 
 
 @pytest.mark.asyncio
+async def test_cube_filters_applied_in_v3_sql_via_cube_param(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Tests that when a cube is explicitly passed to /sql/metrics/v3/ or
+    /sql/measures/v3/ via the `cube` parameter, its stored filters are
+    automatically prepended to the query filters.
+    """
+    metrics = [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+    ]
+    dimensions = [
+        "default.hard_hat.state",
+        "default.dispatcher.company_name",
+    ]
+    metrics_q = "&".join(f"metrics={m}" for m in metrics)
+    dims_q = "&".join(f"dimensions={d}" for d in dimensions)
+
+    # /sql/metrics/v3/ with explicit cube — cube filter should be injected
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}&cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        WHERE repair_orders_fact_0.state = 'AZ'
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+    # /sql/measures/v3/ with explicit cube — cube filter should appear in grain group SQL
+    response = await client_with_repairs_cube.get(
+        f"/sql/measures/v3/?{metrics_q}&{dims_q}&cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    grain_groups = response.json()["grain_groups"]
+    assert len(grain_groups) == 1
+    assert_sql_equal(
+        grain_groups[0]["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT t2.state, t3.company_name,
+          COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+          COUNT(t1.price) price_count_935e7117,
+          SUM(t1.price) price_sum_935e7117,
+          SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+        INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+        WHERE t2.state = 'AZ'
+        GROUP BY t2.state, t3.company_name
+        """,
+    )
+
+    # Without cube param — no implicit filter injection from matching cube
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+    # Cube filter merges with additional request-time filter
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}"
+        "&cube=default.repairs_cube"
+        "&filters=default.dispatcher.company_name='Potts LLC'",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          WHERE t2.state = 'AZ' AND t3.company_name = 'Potts LLC'
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        WHERE repair_orders_fact_0.state = 'AZ' AND repair_orders_fact_0.company_name = 'Potts LLC'
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClient):
+    """
+    When only a cube is specified (no metrics, no dimensions), the endpoint
+    automatically uses the cube's own metrics and dimensions and applies its
+    stored filters.
+    """
+    # /sql/metrics/v3/ with cube only — all cube metrics + dims + filter
+    response = await client_with_repairs_cube.get(
+        "/sql/metrics/v3/?cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, city, state, postal_code, country FROM default.roads.hard_hats
+        ),
+        default_hard_hat_to_delete AS (
+          SELECT hard_hat_id, hire_date FROM default.roads.hard_hats
+        ),
+        default_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id, local_region
+          FROM default.roads.municipality AS m
+          LEFT JOIN default.roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN default.roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_repair_order AS (
+          SELECT repair_order_id FROM default.roads.repair_orders
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.municipality_id,
+            repair_orders.hard_hat_id, repair_orders.dispatcher_id,
+            repair_order_details.discount, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_order_details_0 AS (
+          SELECT t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+            t5.local_region, t6.hire_date,
+            SUM(t1.price) price_sum_252381cf
+          FROM default.roads.repair_order_details t1
+          INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
+          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+          INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
+          INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
+          LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+            t5.local_region, t6.hire_date
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.country, t2.postal_code, t2.city, t2.state, t3.company_name,
+            t4.local_region, t5.hire_date,
+            SUM(if(t1.discount > 0.0, 1, 0)) discount_sum_30b84e6c,
+            COUNT(*) count_c8e42e74,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
+            SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
+          LEFT OUTER JOIN default_hard_hat_to_delete t5 ON t1.hard_hat_id = t5.hard_hat_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t2.country, t2.postal_code, t2.city, t2.state, t3.company_name,
+            t4.local_region, t5.hire_date
+        )
+        SELECT
+          COALESCE(repair_order_details_0.country, repair_orders_fact_0.country) AS country,
+          COALESCE(repair_order_details_0.postal_code, repair_orders_fact_0.postal_code) AS postal_code,
+          COALESCE(repair_order_details_0.city, repair_orders_fact_0.city) AS city,
+          COALESCE(repair_order_details_0.state, repair_orders_fact_0.state) AS state,
+          COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) AS company_name,
+          COALESCE(repair_order_details_0.local_region, repair_orders_fact_0.local_region) AS local_region,
+          COALESCE(repair_order_details_0.hire_date, repair_orders_fact_0.hire_date) AS hire_date,
+          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / SUM(repair_orders_fact_0.count_c8e42e74) AS discounted_orders_rate,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost,
+          SUM(repair_orders_fact_0.price_discount_sum_e4ba5456) AS total_repair_order_discounts,
+          SUM(repair_order_details_0.price_sum_252381cf) + SUM(repair_order_details_0.price_sum_252381cf) AS double_total_repair_cost
+        FROM repair_order_details_0
+        FULL OUTER JOIN repair_orders_fact_0
+          ON repair_order_details_0.country = repair_orders_fact_0.country
+          AND repair_order_details_0.postal_code = repair_orders_fact_0.postal_code
+          AND repair_order_details_0.city = repair_orders_fact_0.city
+          AND repair_order_details_0.state = repair_orders_fact_0.state
+          AND repair_order_details_0.company_name = repair_orders_fact_0.company_name
+          AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
+          AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
+        WHERE repair_order_details_0.state = 'AZ'
+        GROUP BY
+          repair_order_details_0.country, repair_order_details_0.postal_code,
+          repair_order_details_0.city, repair_order_details_0.state,
+          repair_order_details_0.company_name, repair_order_details_0.local_region,
+          repair_order_details_0.hire_date
+        """,
+    )
+
+    # /sql/measures/v3/ with cube only — first grain group
+    response = await client_with_repairs_cube.get(
+        "/sql/measures/v3/?cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    grain_groups = response.json()["grain_groups"]
+    assert len(grain_groups) == 2
+    assert_sql_equal(
+        grain_groups[0]["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, city, state, postal_code, country FROM default.roads.hard_hats
+        ),
+        default_hard_hat_to_delete AS (
+          SELECT hard_hat_id, hire_date FROM default.roads.hard_hats
+        ),
+        default_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id, local_region
+          FROM default.roads.municipality AS m
+          LEFT JOIN default.roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN default.roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_repair_order AS (
+          SELECT repair_order_id FROM default.roads.repair_orders
+        )
+        SELECT t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+          t5.local_region, t6.hire_date,
+          SUM(t1.price) price_sum_252381cf
+        FROM default.roads.repair_order_details t1
+        INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
+        INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+        INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
+        INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
+        LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
+        WHERE t2.state = 'AZ'
+        GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+          t5.local_region, t6.hire_date
+        """,
+    )
+
+
+@pytest.mark.asyncio
 async def test_cube_materialization_sql_and_measures(
     client_with_repairs_cube: AsyncClient,
     repair_orders_cube_measures,
