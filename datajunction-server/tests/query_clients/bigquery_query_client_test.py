@@ -33,7 +33,11 @@ def _make_client(project="my-project", **kwargs):
 
 def test_get_columns_for_table():
     """get_columns_for_table returns correct Column objects from INFORMATION_SCHEMA."""
-    from datajunction_server.sql.parsing.types import BigIntType, StringType, TimestampType
+    from datajunction_server.sql.parsing.types import (
+        BigIntType,
+        StringType,
+        TimestampType,
+    )
 
     client = _make_client()
 
@@ -53,7 +57,9 @@ def test_get_columns_for_table():
     mock_row_3.ordinal_position = 3
 
     mock_result = MagicMock()
-    mock_result.__iter__ = MagicMock(return_value=iter([mock_row_1, mock_row_2, mock_row_3]))
+    mock_result.__iter__ = MagicMock(
+        return_value=iter([mock_row_1, mock_row_2, mock_row_3]),
+    )
 
     mock_job = MagicMock()
     mock_job.result.return_value = mock_result
@@ -132,7 +138,15 @@ def test_map_bigquery_type_to_dj_integer_types():
 
     client = _make_client()
 
-    for bq_type in ("INT64", "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "BYTEINT"):
+    for bq_type in (
+        "INT64",
+        "INT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+        "BYTEINT",
+    ):
         result = client._map_bigquery_type_to_dj(bq_type)
         assert isinstance(result, BigIntType), f"Expected BigIntType for {bq_type}"
 
