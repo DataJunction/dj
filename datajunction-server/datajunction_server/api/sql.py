@@ -3,6 +3,7 @@ SQL related APIs.
 """
 
 import logging
+import time
 from http import HTTPStatus
 from typing import List, Optional
 
@@ -22,6 +23,7 @@ from datajunction_server.construction.build_v3.combiners import (
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.sql.parsing import ast
 
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.caching.query_cache_manager import (
@@ -178,6 +180,13 @@ async def get_measures_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    cube: Optional[str] = Query(
+        None,
+        description=(
+            "Cube node name. When provided, the cube's stored filters are "
+            "automatically prepended to the query filters."
+        ),
+    ),
     use_materialized: bool = Query(True),
     dialect: Dialect = Query(
         Dialect.SPARK,
@@ -220,6 +229,8 @@ async def get_measures_sql_v3(
         - Component details for downstream re-aggregation
 
     Args:
+        cube: Optional cube node name. When provided, the cube's stored filters are
+            automatically prepended to the query filters.
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
@@ -229,11 +240,22 @@ async def get_measures_sql_v3(
 
     See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
     """
+    merged_filters = list(filters)
+    if cube:
+        cube_node = await Node.get_cube_by_name(session, cube)
+        if cube_node:
+            if cube_node.current.cube_filters:
+                merged_filters = cube_node.current.cube_filters + merged_filters
+            if not metrics:
+                metrics = cube_node.current.cube_node_metrics
+                if not dimensions:
+                    dimensions = cube_node.current.cube_node_dimensions
+
     result = await build_measures_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=filters,
+        filters=merged_filters,
         dialect=dialect,
         use_materialized=use_materialized,
         include_temporal_filters=include_temporal_filters,
@@ -399,6 +421,7 @@ async def get_combined_measures_sql_v3(
         - `/sql/measures/v3/` for individual grain group queries
         - `/sql/metrics/v3/` for final metric computations with combiner expressions
     """
+    _t0 = time.monotonic()
     if use_preagg_tables:
         # Generate SQL that reads from pre-agg tables (deterministic names)
         (
@@ -439,6 +462,13 @@ async def get_combined_measures_sql_v3(
             # Extract table references from the query
             source_tables.append(gg.parent_name)
 
+    _tags = {"query_type": "measures_combined", "query_version": "v3"}
+    get_metrics_provider().timer(
+        "dj.sql.build_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _tags,
+    )
+    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
     return CombinedMeasuresSQLResponse(
         sql=combined_result.sql,
         columns=[
@@ -468,6 +498,14 @@ async def get_metrics_sql_v3(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    cube: Optional[str] = Query(
+        None,
+        description=(
+            "Cube node name. When provided, the cube's stored filters are "
+            "automatically prepended to the query filters, and the cube is used "
+            "directly without an additional matching lookup."
+        ),
+    ),
     orderby: List[str] = Query(
         [],
         description="ORDER BY clauses using semantic names (e.g., 'v3.total_revenue DESC', 'v3.date.month')",
@@ -512,15 +550,31 @@ async def get_metrics_sql_v3(
         metrics: List of metric names to include
         dimensions: List of dimensions to group by (the grain)
         filters: Optional filters to apply
+        cube: Optional cube node name. When provided, the cube's stored filters are
+            prepended and the cube is passed directly to avoid a redundant lookup.
         dialect: SQL dialect for the generated query. If not specified, auto-resolves
             based on cube availability (uses Druid if cube exists, else metric's catalog).
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
+    merged_filters = list(filters)
+    matched_cube = None
+
+    if cube:
+        # User explicitly specified a cube — load it directly, apply its filters.
+        cube_node = await Node.get_cube_by_name(session, cube)
+        if cube_node:
+            matched_cube = cube_node.current
+            if matched_cube.cube_filters:
+                merged_filters = matched_cube.cube_filters + merged_filters
+            if not metrics:
+                metrics = matched_cube.cube_node_metrics
+                if not dimensions:
+                    dimensions = matched_cube.cube_node_dimensions
+
     # Auto-resolve dialect if not explicitly provided
     resolved_dialect = dialect
-    matched_cube = None
     if resolved_dialect is None:  # pragma: no branch
         execution_ctx = await resolve_dialect_and_engine_for_metrics(
             session=session,
@@ -529,19 +583,29 @@ async def get_metrics_sql_v3(
             use_materialized=use_materialized,
         )
         resolved_dialect = execution_ctx.dialect
-        matched_cube = execution_ctx.cube  # Reuse cube to avoid duplicate lookup
+        # Only reuse the resolved cube if the user didn't explicitly provide one
+        if matched_cube is None:
+            matched_cube = execution_ctx.cube
 
+    _t0 = time.monotonic()
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=filters,
+        filters=merged_filters,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=resolved_dialect,
         use_materialized=use_materialized,
         matched_cube=matched_cube,
     )
+    _tags = {"query_type": "metrics", "query_version": "v3"}
+    get_metrics_provider().timer(
+        "dj.sql.build_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _tags,
+    )
+    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
 
     return V3TranslatedSQL(
         sql=result.sql,
