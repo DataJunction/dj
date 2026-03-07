@@ -428,6 +428,30 @@ def test_create_configured_query_client_snowflake_import_error(
     assert "pip install 'datajunction-server[snowflake]'" in str(exc_info.value)
 
 
+def test_create_configured_query_client_bigquery_import_error(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test _create_configured_query_client handles ImportError for BigQuery client.
+    """
+    from datajunction_server.config import QueryClientConfig
+
+    config = QueryClientConfig(
+        type="bigquery",
+        connection={"project": "my-project"},
+    )
+
+    mocker.patch(
+        "datajunction_server.query_clients.BigQueryClient",
+        side_effect=ImportError("No module named 'google.cloud.bigquery'"),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        _create_configured_query_client(config)
+    assert "BigQuery client dependencies not installed" in str(exc_info.value)
+    assert "pip install 'datajunction-server[bigquery]'" in str(exc_info.value)
+
+
 def test_create_configured_query_client_unsupported_type(mocker: MockerFixture) -> None:
     """
     Test _create_configured_query_client raises error for unsupported client type.

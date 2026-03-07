@@ -101,6 +101,7 @@ enum Dialect {
   REDSHIFT
   SNOWFLAKE
   SQLITE
+  BIGQUERY
 }
 
 type DialectInfo {
