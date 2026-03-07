@@ -18,6 +18,7 @@ from datajunction_server.errors import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.instrumentation.provider import timed
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -56,6 +57,10 @@ class NodeValidator:
         return updated_columns
 
 
+@timed(
+    "dj.node_validation.ms",
+    lambda data, session: {"node_type": str(data.type)},
+)
 async def validate_node_data(
     data: Union[NodeRevisionBase, NodeRevision],
     session: AsyncSession,

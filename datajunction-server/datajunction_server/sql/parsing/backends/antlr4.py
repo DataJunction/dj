@@ -236,12 +236,23 @@ def parse(sql: Optional[str]) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
     """
-    if not sql:
-        raise DJParseException("Empty query provided!")
+    import time as _time  # noqa: PLC0415
+
+    _start = _time.monotonic()
     try:
-        return cast(ast.Query, parse_rule(sql, "singleStatement"))
-    except SqlParsingError as exc:
-        raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
+        if not sql:
+            raise DJParseException("Empty query provided!")
+        try:
+            return cast(ast.Query, parse_rule(sql, "singleStatement"))
+        except SqlParsingError as exc:
+            raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
+    finally:
+        from datajunction_server.instrumentation.provider import get_metrics_provider  # noqa: PLC0415
+
+        get_metrics_provider().timer(
+            "dj.sql.parsing_ms",
+            (_time.monotonic() - _start) * 1000,
+        )
 
 
 def cached_parse(sql: Optional[str]) -> ast.Query:
