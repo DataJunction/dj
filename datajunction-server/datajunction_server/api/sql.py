@@ -251,6 +251,7 @@ async def get_measures_sql_v3(
                 if not dimensions:
                     dimensions = cube_node.current.cube_node_dimensions
 
+    _t0 = time.monotonic()
     result = await build_measures_sql(
         session=session,
         metrics=metrics,
@@ -356,6 +357,13 @@ async def get_measures_sql_v3(
             ),
         )
 
+    _tags = {"query_type": "measures", "query_version": "v3"}
+    get_metrics_provider().timer(
+        "dj.sql.build_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _tags,
+    )
+    get_metrics_provider().counter("dj.sql.requests", tags=_tags)
     return MeasuresSQLResponse(
         grain_groups=grain_group_responses,
         metric_formulas=metric_formulas,
