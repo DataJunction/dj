@@ -174,6 +174,84 @@ def test_get_columns_for_table_query_error():
     assert "network error" in str(exc_info.value)
 
 
+def test_get_project_from_engine_with_uri():
+    """_get_project_from_engine returns the netloc of the engine URI."""
+    client = _make_client(project="default-project")
+
+    engine = MagicMock()
+    engine.uri = "bigquery://my-gcp-project"
+
+    assert client._get_project_from_engine(engine, "catalog-alias") == "my-gcp-project"
+
+
+def test_get_project_from_engine_no_engine():
+    """_get_project_from_engine falls back to self.project when engine is None."""
+    client = _make_client(project="default-project")
+
+    assert client._get_project_from_engine(None, "catalog-alias") == "default-project"
+
+
+def test_get_project_from_engine_no_uri():
+    """_get_project_from_engine falls back to self.project when engine has no URI."""
+    client = _make_client(project="default-project")
+
+    engine = MagicMock()
+    engine.uri = None
+
+    assert client._get_project_from_engine(engine, "catalog-alias") == "default-project"
+
+
+def test_get_columns_for_table_uses_engine_uri_project():
+    """get_columns_for_table uses the project from the engine URI, not self.project."""
+    from datajunction_server.sql.parsing.types import StringType
+
+    client = _make_client(project="default-project")
+
+    mock_row = MagicMock()
+    mock_row.column_name = "name"
+    mock_row.data_type = "STRING"
+    mock_row.ordinal_position = 1
+
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([mock_row]))
+
+    mock_job = MagicMock()
+    mock_job.result.return_value = mock_result
+
+    mock_bq_client = MagicMock()
+    mock_bq_client.query.return_value = mock_job
+
+    engine = MagicMock()
+    engine.uri = "bigquery://my-gcp-project"
+
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ) as mock_get_client,
+    ):
+        columns = client.get_columns_for_table(
+            catalog="catalog-alias",
+            schema="my_dataset",
+            table="my_table",
+            engine=engine,
+        )
+
+    # Client should be created with the project from the engine URI
+    mock_get_client.assert_called_once_with(project="my-gcp-project")
+    assert len(columns) == 1
+    assert isinstance(columns[0].type, StringType)
+
+
 def test_map_bigquery_type_to_dj_integer_types():
     """_map_bigquery_type_to_dj maps all BigQuery integer types to BigIntType."""
     from datajunction_server.sql.parsing.types import BigIntType

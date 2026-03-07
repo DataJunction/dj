@@ -38,9 +38,14 @@ class BigQueryClient(BaseQueryServiceClient):
     It implements table introspection via INFORMATION_SCHEMA.
 
     In DJ's terminology:
-      - catalog  = GCP project ID
+      - catalog  = logical alias (GCP project resolved via engine URI, then config)
       - schema   = BigQuery dataset
       - table    = table name
+
+    Project resolution order (mirrors SnowflakeClient database resolution):
+      1. Engine URI netloc  — e.g. ``bigquery://my-gcp-project``
+      2. ``QUERY_CLIENT__CONNECTION__PROJECT`` config default (``self.project``)
+      3. DJ catalog name    — last-resort fallback
     """
 
     def __init__(
@@ -74,7 +79,39 @@ class BigQueryClient(BaseQueryServiceClient):
         self._credentials_info = credentials_info
         self._connection_kwargs = connection_kwargs
 
-    def _get_client(self):
+    def _get_project_from_engine(self, engine: Optional["Engine"], fallback_catalog: str) -> str:
+        """
+        Extract the actual GCP project ID from the engine URI.
+
+        BigQuery engine URIs look like: bigquery://project-id
+
+        Args:
+            engine: The DJ Engine object containing connection info
+            fallback_catalog: Fallback value if the URI cannot be parsed
+
+        Returns:
+            The GCP project ID to use for this request
+        """
+        if not engine or not engine.uri:
+            return self.project
+
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(engine.uri)
+            if parsed.netloc:
+                return parsed.netloc
+        except Exception as e:
+            _logger.warning(
+                "Failed to parse project from engine URI %s: %s. Using default: %s",
+                engine.uri,
+                e,
+                self.project,
+            )
+
+        return self.project
+
+    def _get_client(self, project: Optional[str] = None):
         """Return a configured google.cloud.bigquery.Client instance."""
         credentials = None
 
@@ -88,7 +125,7 @@ class BigQueryClient(BaseQueryServiceClient):
             )
 
         return bigquery.Client(
-            project=self.project,
+            project=project or self.project,
             credentials=credentials,
             location=self.location,
             **self._connection_kwargs,
@@ -106,18 +143,18 @@ class BigQueryClient(BaseQueryServiceClient):
         Retrieve columns for a BigQuery table via INFORMATION_SCHEMA.
 
         Args:
-            catalog: GCP project ID (may be overridden by engine URI)
+            catalog: DJ catalog name (logical alias; used as fallback project ID)
             schema: BigQuery dataset name
             table: Table name
             request_headers: Unused (kept for interface compatibility)
-            engine: Optional DJ engine (URI not used for BigQuery)
+            engine: Optional DJ engine whose URI overrides the default project
 
         Returns:
             List of Column objects
         """
-        project = self.project
+        project = self._get_project_from_engine(engine, catalog)
         try:
-            client = self._get_client()
+            client = self._get_client(project=project)
 
             query = f"""
                 SELECT
