@@ -16,6 +16,7 @@ from datajunction_server.internal.access.group_membership import (
 )
 from datajunction_server.database.rbac import RoleAssignment, Role
 from datajunction_server.database.user import User
+
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -23,6 +24,10 @@ from datajunction_server.utils import (
 )
 
 settings = get_settings()
+
+_ROLE_ASSIGNMENT_OPTIONS = [
+    selectinload(RoleAssignment.role).selectinload(Role.scopes),
+]
 
 
 @dataclass(frozen=True)
@@ -90,8 +95,17 @@ class AuthContext:
         """
         group_membership_service = get_group_membership_service()
 
-        # Start with user's direct assignments
-        assignments = list(user.role_assignments)
+        # Load user's direct role assignments fresh in the current session.
+        # We cannot rely on user.role_assignments here because the User object
+        # may have been loaded in a different session (e.g. DJHTTPBearer uses its
+        # own Depends(get_session)) and is now detached, making lazy loads fail.
+        direct_stmt = (
+            select(RoleAssignment)
+            .where(RoleAssignment.principal_id == user.id)
+            .options(*_ROLE_ASSIGNMENT_OPTIONS)
+        )
+        direct_result = await session.execute(direct_stmt)
+        assignments = list(direct_result.scalars().all())
 
         # Get groups from service (could be LDAP, local DB, etc.)
         group_usernames = await group_membership_service.get_user_groups(
@@ -107,9 +121,7 @@ class AuthContext:
             select(User)
             .where(User.username.in_(group_usernames))
             .options(
-                selectinload(User.role_assignments)
-                .selectinload(RoleAssignment.role)
-                .selectinload(Role.scopes),
+                selectinload(User.role_assignments).options(*_ROLE_ASSIGNMENT_OPTIONS),
             )
         )
         result = await session.execute(stmt)
