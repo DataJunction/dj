@@ -328,6 +328,27 @@ def test_get_project_from_engine_no_uri():
     assert client._get_project_from_engine(engine, "catalog-alias") == "default-project"
 
 
+def test_get_project_from_engine_empty_path_segment():
+    """_get_project_from_engine falls through when path segment is empty after split."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    # Path "/ " strips to empty, so path branch yields nothing → falls to query params
+    mock_engine.uri = "bigquery:////?project=qp-project"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "qp-project"
+
+
+def test_get_project_from_engine_query_params_without_project_key():
+    """_get_project_from_engine falls through when query params lack 'project' key."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///?location=US"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "default-project"
+
+
 def test_get_project_from_engine_fallback_to_client_project():
     """_get_project_from_engine falls back to configured client project."""
     client = _make_client(project="default-project")
