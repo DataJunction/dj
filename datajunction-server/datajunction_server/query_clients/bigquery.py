@@ -38,9 +38,14 @@ class BigQueryClient(BaseQueryServiceClient):
     It implements table introspection via INFORMATION_SCHEMA.
 
     In DJ's terminology:
-      - catalog  = GCP project ID
+      - catalog  = logical alias (GCP project resolved via engine URI, then config)
       - schema   = BigQuery dataset
       - table    = table name
+
+    Project resolution order (mirrors SnowflakeClient database resolution):
+      1. Engine URI netloc  — e.g. ``bigquery://my-gcp-project``
+      2. ``QUERY_CLIENT__CONNECTION__PROJECT`` config default (``self.project``)
+      3. DJ catalog name    — last-resort fallback
     """
 
     def __init__(
@@ -74,7 +79,7 @@ class BigQueryClient(BaseQueryServiceClient):
         self._credentials_info = credentials_info
         self._connection_kwargs = connection_kwargs
 
-    def _get_client(self):
+    def _get_client(self, project: Optional[str] = None):
         """Return a configured google.cloud.bigquery.Client instance."""
         credentials = None
 
@@ -88,7 +93,7 @@ class BigQueryClient(BaseQueryServiceClient):
             )
 
         return bigquery.Client(
-            project=self.project,
+            project=project or self.project,
             credentials=credentials,
             location=self.location,
             **self._connection_kwargs,
@@ -151,18 +156,18 @@ class BigQueryClient(BaseQueryServiceClient):
         Retrieve columns for a BigQuery table via INFORMATION_SCHEMA.
 
         Args:
-            catalog: GCP project ID (may be overridden by engine URI)
+            catalog: DJ catalog name (logical alias; used as fallback project ID)
             schema: BigQuery dataset name
             table: Table name
             request_headers: Unused (kept for interface compatibility)
-            engine: Optional DJ engine (URI may override project)
+            engine: Optional DJ engine whose URI overrides the default project
 
         Returns:
             List of Column objects
         """
         project = self._get_project_from_engine(engine, catalog)
         try:
-            client = self._get_client()
+            client = self._get_client(project=project)
 
             query = f"""
                 SELECT
@@ -192,7 +197,7 @@ class BigQueryClient(BaseQueryServiceClient):
                 Column(
                     name=row.column_name,
                     type=self._map_bigquery_type_to_dj(row.data_type),
-                    order=row.ordinal_position - 1,  # Convert to 0-based index
+                    order=row.ordinal_position - 1,
                 )
                 for row in rows
             ]

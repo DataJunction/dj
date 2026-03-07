@@ -1,8 +1,58 @@
 """Tests for BigQueryClient."""
 
+import importlib
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def test_bigquery_available_true_when_package_importable():
+    """BIGQUERY_AVAILABLE is True when google-cloud-bigquery can be imported."""
+    import datajunction_server.query_clients.bigquery as bq_module
+
+    # Ensure the real package is present in sys.modules so the reload succeeds
+    fake_bigquery = MagicMock()
+    fake_bigquery.QueryJobConfig = MagicMock()
+    fake_bigquery.ScalarQueryParameter = MagicMock()
+    fake_service_account = MagicMock()
+
+    with (
+        patch.dict(
+            sys.modules,
+            {
+                "google.cloud": MagicMock(bigquery=fake_bigquery),
+                "google.cloud.bigquery": fake_bigquery,
+                "google.oauth2": MagicMock(service_account=fake_service_account),
+                "google.oauth2.service_account": fake_service_account,
+            },
+        ),
+    ):
+        importlib.reload(bq_module)
+        assert bq_module.BIGQUERY_AVAILABLE is True
+
+    # Reload again to restore original state
+    importlib.reload(bq_module)
+
+
+def test_bigquery_available_false_when_package_missing():
+    """BIGQUERY_AVAILABLE is False when google-cloud-bigquery is not installed."""
+    import builtins
+
+    import datajunction_server.query_clients.bigquery as bq_module
+
+    original_import = builtins.__import__
+
+    def _block_google(name, *args, **kwargs):
+        if name.startswith("google"):
+            raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=_block_google):
+        importlib.reload(bq_module)
+        assert bq_module.BIGQUERY_AVAILABLE is False
+
+    importlib.reload(bq_module)
 
 
 def test_bigquery_client_import_error():
@@ -261,6 +311,23 @@ def test_get_project_from_engine_with_path_and_query_prefers_path():
     assert project == "path-project"
 
 
+def test_get_project_from_engine_no_engine():
+    """_get_project_from_engine falls back to self.project when engine is None."""
+    client = _make_client(project="default-project")
+
+    assert client._get_project_from_engine(None, "catalog-alias") == "default-project"
+
+
+def test_get_project_from_engine_no_uri():
+    """_get_project_from_engine falls back to self.project when engine has no URI."""
+    client = _make_client(project="default-project")
+
+    engine = MagicMock()
+    engine.uri = None
+
+    assert client._get_project_from_engine(engine, "catalog-alias") == "default-project"
+
+
 def test_get_project_from_engine_fallback_to_client_project():
     """_get_project_from_engine falls back to configured client project."""
     client = _make_client(project="default-project")
@@ -279,6 +346,56 @@ def test_get_project_from_engine_fallback_to_catalog():
 
     project = client._get_project_from_engine(mock_engine, "catalog-project")
     assert project == "catalog-project"
+
+
+def test_get_columns_for_table_uses_engine_uri_project():
+    """get_columns_for_table passes the engine URI project to _get_client."""
+    from datajunction_server.sql.parsing.types import StringType
+
+    client = _make_client(project="default-project")
+
+    mock_row = MagicMock()
+    mock_row.column_name = "name"
+    mock_row.data_type = "STRING"
+    mock_row.ordinal_position = 1
+
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([mock_row]))
+
+    mock_job = MagicMock()
+    mock_job.result.return_value = mock_result
+
+    mock_bq_client = MagicMock()
+    mock_bq_client.query.return_value = mock_job
+
+    engine = MagicMock()
+    engine.uri = "bigquery://my-gcp-project"
+
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ) as mock_get_client,
+    ):
+        columns = client.get_columns_for_table(
+            catalog="catalog-alias",
+            schema="my_dataset",
+            table="my_table",
+            engine=engine,
+        )
+
+    mock_get_client.assert_called_once_with(project="my-gcp-project")
+    assert len(columns) == 1
+    assert isinstance(columns[0].type, StringType)
 
 
 def test_map_bigquery_type_to_dj_integer_types():
