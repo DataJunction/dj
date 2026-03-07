@@ -615,3 +615,133 @@ def test_test_connection_success():
 
     assert result is True
     mock_bq_client.query.assert_called_once_with("SELECT 1")
+
+
+def test_get_client_with_project_override():
+    """_get_client uses the project override when provided."""
+    client = _make_client()
+
+    mock_bq_class = MagicMock()
+    with patch(
+        "datajunction_server.query_clients.bigquery.bigquery",
+        mock_bq_class,
+    ):
+        client._get_client(project="override-project")
+
+    mock_bq_class.Client.assert_called_once_with(
+        project="override-project",
+        credentials=None,
+        location=None,
+    )
+
+
+def test_get_client_with_location():
+    """_get_client passes location to the BigQuery Client."""
+    client = _make_client(location="EU")
+
+    mock_bq_class = MagicMock()
+    with patch(
+        "datajunction_server.query_clients.bigquery.bigquery",
+        mock_bq_class,
+    ):
+        client._get_client()
+
+    mock_bq_class.Client.assert_called_once_with(
+        project="my-project",
+        credentials=None,
+        location="EU",
+    )
+
+
+def test_utils_create_bigquery_client_with_all_options():
+    """_create_configured_query_client passes all connection params to BigQueryClient."""
+    from datajunction_server.config import QueryClientConfig
+    from datajunction_server.utils import _create_configured_query_client
+
+    with patch(
+        "datajunction_server.query_clients.bigquery.BIGQUERY_AVAILABLE",
+        True,
+    ):
+        config = QueryClientConfig(
+            type="bigquery",
+            connection={
+                "project": "my-project",
+                "credentials_path": "/path/to/creds.json",
+                "location": "US",
+            },
+        )
+        client = _create_configured_query_client(config)
+
+    from datajunction_server.query_clients.bigquery import BigQueryClient
+
+    assert isinstance(client, BigQueryClient)
+    assert client.project == "my-project"
+    assert client._credentials_path == "/path/to/creds.json"
+    assert client.location == "US"
+
+
+def test_utils_unsupported_client_type():
+    """_create_configured_query_client raises ValueError for unknown type."""
+    from datajunction_server.config import QueryClientConfig
+    from datajunction_server.utils import _create_configured_query_client
+
+    config = QueryClientConfig(
+        type="unknown_db",
+        connection={},
+    )
+    with pytest.raises(ValueError, match="Unsupported query client type"):
+        _create_configured_query_client(config)
+
+
+def test_get_columns_for_table_with_engine_project_override():
+    """get_columns_for_table uses project from engine URI over client default."""
+    client = _make_client()
+
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery://engine-project"
+
+    mock_bq_client = MagicMock()
+    mock_row = MagicMock()
+    mock_row.column_name = "id"
+    mock_row.data_type = "INT64"
+    mock_row.ordinal_position = 1
+    mock_bq_client.query.return_value.result.return_value = [mock_row]
+
+    with patch.object(client, "_get_client", return_value=mock_bq_client) as mock_get:
+        columns = client.get_columns_for_table(
+            catalog="fallback-catalog",
+            schema="my_dataset",
+            table="my_table",
+            engine=mock_engine,
+        )
+
+    # Should resolve project from engine URI, not client default
+    mock_get.assert_called_once_with(project="engine-project")
+    assert len(columns) == 1
+    assert columns[0].name == "id"
+
+
+def test_credentials_info_takes_precedence_over_path():
+    """When both credentials_info and credentials_path are set, info takes precedence."""
+    client = _make_client(
+        credentials_info={"type": "service_account"},
+        credentials_path="/path/to/sa.json",
+    )
+
+    mock_sa = MagicMock()
+    mock_bq = MagicMock()
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.service_account",
+            mock_sa,
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.bigquery",
+            mock_bq,
+        ),
+    ):
+        client._get_client()
+
+    # credentials_info should be used, not credentials_path
+    mock_sa.Credentials.from_service_account_info.assert_called_once()
+    mock_sa.Credentials.from_service_account_file.assert_not_called()

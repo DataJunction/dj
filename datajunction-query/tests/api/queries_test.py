@@ -4,6 +4,7 @@ Tests for the queries API.
 
 import datetime
 import json
+import os
 from dataclasses import asdict
 from http import HTTPStatus
 from unittest import mock
@@ -711,3 +712,340 @@ def test_submit_bigquery_query(
     assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert data["errors"] == []
+
+    # Verify BigQuery client was created with correct project from extra_params
+    mock_bigquery_module.Client.assert_called_once_with(project="test-project")
+    mock_bq_client.query.assert_called_once_with(
+        "SELECT 1 AS int_col, 'a' as str_col",
+    )
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_with_credentials_path(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query using credentials_path from extra_params.
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (42,)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    mock_credentials = mock.MagicMock()
+
+    settings = get_settings()
+    bq_engine = settings.find_engine("bigquery_test", "2.0")
+    original_extra_params = bq_engine.extra_params.copy()
+    bq_engine.extra_params["credentials_path"] = "/path/to/creds.json"
+
+    try:
+        mock_sa_module = mock.MagicMock()
+        mock_sa_module.Credentials.from_service_account_file.return_value = (
+            mock_credentials
+        )
+
+        with mock.patch.dict(
+            "sys.modules",
+            {"google.oauth2": mock.MagicMock(service_account=mock_sa_module),
+             "google.oauth2.service_account": mock_sa_module},
+        ):
+            query_create = QueryCreate(
+                catalog_name="bigquery_warehouse",
+                engine_name="bigquery_test",
+                engine_version="2.0",
+                submitted_query="SELECT 42",
+            )
+            payload = json.dumps(asdict(query_create))
+
+            with freeze_time("2021-01-01T00:00:00Z"):
+                response = client.post(
+                    "/queries/",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                )
+            data = response.json()
+
+            assert response.status_code == 200
+            assert data["state"] == QueryState.FINISHED.value
+            assert data["results"][0]["rows"] == [[42]]
+
+            mock_sa_module.Credentials.from_service_account_file.assert_called_once_with(
+                "/path/to/creds.json",
+            )
+            mock_bigquery_module.Client.assert_called_once_with(
+                project="test-project",
+                credentials=mock_credentials,
+            )
+    finally:
+        bq_engine.extra_params = original_extra_params
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_with_location(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query passes location to client when configured.
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (1,)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    settings = get_settings()
+    bq_engine = settings.find_engine("bigquery_test", "2.0")
+    original_extra_params = bq_engine.extra_params.copy()
+    bq_engine.extra_params["location"] = "EU"
+
+    try:
+        query_create = QueryCreate(
+            catalog_name="bigquery_warehouse",
+            engine_name="bigquery_test",
+            engine_version="2.0",
+            submitted_query="SELECT 1",
+        )
+        payload = json.dumps(asdict(query_create))
+
+        with freeze_time("2021-01-01T00:00:00Z"):
+            response = client.post(
+                "/queries/",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+        data = response.json()
+
+        assert response.status_code == 200
+        assert data["state"] == QueryState.FINISHED.value
+
+        mock_bigquery_module.Client.assert_called_once_with(
+            project="test-project",
+            location="EU",
+        )
+    finally:
+        bq_engine.extra_params = original_extra_params
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_with_env_credentials(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query falls back to GOOGLE_APPLICATION_CREDENTIALS env var.
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (1,)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    mock_credentials = mock.MagicMock()
+
+    mock_sa_module = mock.MagicMock()
+    mock_sa_module.Credentials.from_service_account_file.return_value = mock_credentials
+
+    with mock.patch.dict(
+        os.environ,
+        {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path/creds.json"},
+    ), mock.patch.dict(
+        "sys.modules",
+        {"google.oauth2": mock.MagicMock(service_account=mock_sa_module),
+         "google.oauth2.service_account": mock_sa_module},
+    ):
+        query_create = QueryCreate(
+            catalog_name="bigquery_warehouse",
+            engine_name="bigquery_test",
+            engine_version="2.0",
+            submitted_query="SELECT 1",
+        )
+        payload = json.dumps(asdict(query_create))
+
+        with freeze_time("2021-01-01T00:00:00Z"):
+            response = client.post(
+                "/queries/",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+        data = response.json()
+
+        assert response.status_code == 200
+        assert data["state"] == QueryState.FINISHED.value
+
+        mock_sa_module.Credentials.from_service_account_file.assert_called_once_with(
+            "/env/path/creds.json",
+        )
+        mock_bigquery_module.Client.assert_called_once_with(
+            project="test-project",
+            credentials=mock_credentials,
+        )
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_error(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query that raises an exception returns FAILED state.
+    """
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.side_effect = Exception("BigQuery error: table not found")
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT * FROM nonexistent_table",
+    )
+    payload = json.dumps(asdict(query_create))
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["state"] == QueryState.FAILED.value
+    assert data["results"] == []
+    assert "BigQuery error: table not found" in data["errors"][0]
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_multiple_rows(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query returning multiple rows.
+    """
+    mock_rows = []
+    for val in [(1, "alice"), (2, "bob"), (3, "charlie")]:
+        row = mock.MagicMock()
+        row.values.return_value = val
+        mock_rows.append(row)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter(mock_rows))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT id, name FROM users",
+    )
+    payload = json.dumps(asdict(query_create))
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["state"] == QueryState.FINISHED.value
+    assert len(data["results"]) == 1
+    assert data["results"][0]["rows"] == [[1, "alice"], [2, "bob"], [3, "charlie"]]
+    assert data["results"][0]["row_count"] == 3
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_empty_result(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query returning no rows.
+    """
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT * FROM empty_table WHERE 1=0",
+    )
+    payload = json.dumps(asdict(query_create))
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["state"] == QueryState.FINISHED.value
+    assert data["results"][0]["rows"] == []
+    assert data["results"][0]["row_count"] == 0
