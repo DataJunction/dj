@@ -860,7 +860,11 @@ def test_submit_bigquery_query_with_env_credentials(
     client: TestClient,
 ) -> None:
     """
-    Test BigQuery query falls back to GOOGLE_APPLICATION_CREDENTIALS env var.
+    Test BigQuery query uses ADC when no credentials_path in extra_params.
+
+    When GOOGLE_APPLICATION_CREDENTIALS is set but credentials_path is not in
+    extra_params, bigquery.Client() picks up ADC automatically — no explicit
+    service_account loading.
     """
     mock_row = mock.MagicMock()
     mock_row.values.return_value = (1,)
@@ -876,23 +880,9 @@ def test_submit_bigquery_query_with_env_credentials(
 
     mock_bigquery_module.Client.return_value = mock_bq_client
 
-    mock_credentials = mock.MagicMock()
-
-    mock_sa_module = mock.MagicMock()
-    mock_sa_module.Credentials.from_service_account_file.return_value = mock_credentials
-
-    with (
-        mock.patch.dict(
-            os.environ,
-            {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path/creds.json"},
-        ),
-        mock.patch.dict(
-            "sys.modules",
-            {
-                "google.oauth2": mock.MagicMock(service_account=mock_sa_module),
-                "google.oauth2.service_account": mock_sa_module,
-            },
-        ),
+    with mock.patch.dict(
+        os.environ,
+        {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path/creds.json"},
     ):
         query_create = QueryCreate(
             catalog_name="bigquery_warehouse",
@@ -916,12 +906,9 @@ def test_submit_bigquery_query_with_env_credentials(
         assert response.status_code == 200
         assert data["state"] == QueryState.FINISHED.value
 
-        mock_sa_module.Credentials.from_service_account_file.assert_called_once_with(
-            "/env/path/creds.json",
-        )
+        # No explicit credentials passed — ADC handles it via env var
         mock_bigquery_module.Client.assert_called_once_with(
             project="test-project",
-            credentials=mock_credentials,
         )
 
 
@@ -1012,6 +999,110 @@ def test_submit_bigquery_query_multiple_rows(
     assert len(data["results"]) == 1
     assert data["results"][0]["rows"] == [[1, "alice"], [2, "bob"], [3, "charlie"]]
     assert data["results"][0]["row_count"] == 3
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_strips_catalog_prefix(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test that BigQuery queries strip the catalog name prefix from table references.
+
+    DJ generates SQL like ``catalog.dataset.table`` but BigQuery interprets that as
+    ``project.dataset.table``. Since the client already has the project configured,
+    we strip the catalog prefix so BigQuery receives ``dataset.table``.
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (100,)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query=(
+            "SELECT COUNT(*) FROM bigquery_warehouse.serving.sales_bookings t1"
+        ),
+    )
+    payload = json.dumps(asdict(query_create))
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["state"] == QueryState.FINISHED.value
+    assert data["results"][0]["rows"] == [[100]]
+
+    # Verify the catalog prefix was stripped before sending to BigQuery
+    mock_bq_client.query.assert_called_once_with(
+        "SELECT COUNT(*) FROM serving.sales_bookings t1",
+    )
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query_no_catalog_name(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test BigQuery query without a catalog name skips prefix stripping.
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (1,)
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT 1",
+    )
+    payload = json.dumps(asdict(query_create))
+
+    # Override catalog_name to empty string after serialization — we need to
+    # go through the engine directly to test the no-catalog branch
+    from djqs.engine import run_bigquery_query
+
+    query_obj = Query(
+        catalog_name="",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT 1 FROM serving.table",
+    )
+    result = run_bigquery_query(query_obj, mock_bq_client)
+
+    # SQL should be unchanged since catalog_name is empty
+    mock_bq_client.query.assert_called_with("SELECT 1 FROM serving.table")
+    assert len(result) == 1
 
 
 @mock.patch("djqs.engine.bigquery")

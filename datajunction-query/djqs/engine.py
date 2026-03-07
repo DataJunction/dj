@@ -121,10 +121,7 @@ def run_query(  # pylint: disable=R0914
     elif engine.type == EngineType.BIGQUERY:
         _logger.info("Creating BigQuery client")
         project = engine.extra_params.get("project")
-        credentials_path = engine.extra_params.get(
-            "credentials_path",
-            os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-        )
+        credentials_path = engine.extra_params.get("credentials_path")
         location = engine.extra_params.get("location")
 
         client_kwargs = {}
@@ -193,12 +190,20 @@ def run_bigquery_query(
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query against BigQuery.
+
+    DJ prefixes table references with the catalog name (e.g. your-gcp-project.dataset.table),
+    but BigQuery interprets three-part names as project.dataset.table. Since the client
+    already has the correct project configured, we strip the catalog prefix so BigQuery
+    receives dataset.table references instead.
     """
+    sql = query.submitted_query
+    if query.catalog_name:
+        sql = sql.replace(f"{query.catalog_name}.", "")
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    result = client.query(query.submitted_query).result()
+    result = client.query(sql).result()
     rows = iter([tuple(row.values()) for row in result])
     columns: List[ColumnMetadata] = []
-    output.append((query.submitted_query, columns, rows))
+    output.append((sql, columns, rows))
     return output
 
 
