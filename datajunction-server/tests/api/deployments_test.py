@@ -2963,6 +2963,34 @@ async def test_node_to_spec_metric(module__session, module__client_with_roads):
     )
 
 
+@pytest.mark.asyncio
+async def test_node_to_spec_cube(module__session, module__client_with_roads):
+    """
+    Test that a cube node can be converted to a spec correctly, including cube_filters.
+    """
+    # Create a cube with filters via the API
+    response = await module__client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "name": "default.repairs_cube_spec_test",
+            "description": "Cube for to_spec test",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    cube_node = await Node.get_cube_by_name(
+        module__session,
+        "default.repairs_cube_spec_test",
+    )
+    spec = await cube_node.to_spec(module__session)
+    assert isinstance(spec, CubeSpec)
+    assert spec.filters == ["default.hard_hat.state='AZ'"]
+
+
 def test_node_spec_equality():
     """
     Test that two node specs are equal.

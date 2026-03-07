@@ -568,6 +568,7 @@ async def test_create_cube(
     assert results["name"] == "default.repairs_cube"
     assert results["display_name"] == "Repairs Cube"
     assert results["description"] == "Cube of various metrics related to repairs"
+    assert results["cube_filters"] == ["default.hard_hat.state='AZ'"]
 
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube")
     cube = response.json()
@@ -602,8 +603,9 @@ async def test_create_cube(
         f"/sql?{metrics_query}&{dimensions_query}&filters=default.hard_hat.state='AZ'",
     )
     metrics_sql_results = response.json()
+    # Cube-level filters are stored and applied automatically — no explicit filter needed
     response = await client_with_repairs_cube.get(
-        "/sql/default.repairs_cube?filters=default.hard_hat.state='AZ'",
+        "/sql/default.repairs_cube",
     )
     cube_sql_results = response.json()
     expected_query = """
@@ -796,6 +798,26 @@ FULL JOIN default_DOT_repair_order_details_metrics
    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date"""
     assert str(parse(metrics_sql_results["sql"])) == str(parse(expected_query))
     assert str(parse(cube_sql_results["sql"])) == str(parse(expected_query))
+
+
+@pytest.mark.asyncio
+async def test_cube_filters_merged_with_request_filters(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Tests that cube-level stored filters are merged with request-time filters.
+    The cube has cube_filters=["default.hard_hat.state='AZ'"], and when we add
+    an extra request filter, both should appear in the generated SQL.
+    """
+    # Call with an additional request-level filter beyond the cube's stored filter
+    response = await client_with_repairs_cube.get(
+        "/sql/default.repairs_cube?filters=default.dispatcher.company_name='Potts LLC'",
+    )
+    assert response.status_code == 200
+    sql = response.json()["sql"]
+    # Both the cube-stored filter and the request filter should appear in the SQL
+    assert "state = 'AZ'" in sql
+    assert "company_name = 'Potts LLC'" in sql
 
 
 @pytest.mark.asyncio
