@@ -1080,16 +1080,6 @@ def test_submit_bigquery_query_no_catalog_name(
 
     mock_bigquery_module.Client.return_value = mock_bq_client
 
-    query_create = QueryCreate(
-        catalog_name="bigquery_warehouse",
-        engine_name="bigquery_test",
-        engine_version="2.0",
-        submitted_query="SELECT 1",
-    )
-    payload = json.dumps(asdict(query_create))
-
-    # Override catalog_name to empty string after serialization — we need to
-    # go through the engine directly to test the no-catalog branch
     from djqs.engine import run_bigquery_query
 
     query_obj = Query(
