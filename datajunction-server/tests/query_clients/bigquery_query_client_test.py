@@ -707,7 +707,21 @@ def test_get_columns_for_table_with_engine_project_override():
     mock_row.ordinal_position = 1
     mock_bq_client.query.return_value.result.return_value = [mock_row]
 
-    with patch.object(client, "_get_client", return_value=mock_bq_client) as mock_get:
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ) as mock_get,
+    ):
         columns = client.get_columns_for_table(
             catalog="fallback-catalog",
             schema="my_dataset",
