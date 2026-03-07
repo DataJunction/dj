@@ -5,8 +5,12 @@ SQL Generation (V3): Measures and Metrics SQL Builders.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from datajunction_server.database.node import NodeRevision
 
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube_impl,
@@ -36,6 +40,7 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
@@ -209,7 +214,20 @@ async def setup_build_context(
         lookback_window=lookback_window,
     )
 
-    # Load all required nodes (single DB round trip)
+    # Add filter-driven dimensions upfront — this only parses filter strings and
+    # needs no DB data, so we do it before load_nodes to include those dimension
+    # nodes in the first (and ideally only) load.
+    add_dimensions_from_filters(ctx)
+
+    # Snapshot dimension node names before load_nodes so we can detect any roots
+    # that load_nodes adds internally (via collect_required_dimensions).
+    dim_roots_before_load = {
+        parse_dimension_ref(d).node_name
+        for d in ctx.dimensions
+        if parse_dimension_ref(d).node_name
+    }
+
+    # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
     # Validate we have at least one metric
@@ -222,14 +240,20 @@ async def setup_build_context(
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
 
-    # Add dimensions referenced in filters (for WHERE clause resolution)
-    # This processes ALL filters initially - we'll classify them later
-    add_dimensions_from_filters(ctx)
-
-    # Load any missing dimension nodes (and their upstreams, including sources)
-    # This is needed for dimensions discovered from metric expressions and filters
-    # load_nodes adds to ctx.nodes rather than replacing, so this is safe to call again
-    await load_nodes(ctx)
+    # A second load_nodes pass is needed when either:
+    # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
+    # 2. load_nodes itself added required dimension roots via collect_required_dimensions
+    #    whose upstream source nodes haven't been traversed yet (those nodes land in
+    #    ctx.nodes via preload_join_paths but without their upstream dependencies).
+    dim_roots_after = {
+        parse_dimension_ref(d).node_name
+        for d in ctx.dimensions
+        if parse_dimension_ref(d).node_name
+    }
+    missing_dim_nodes = dim_roots_after - ctx.nodes.keys()
+    internally_added_roots = dim_roots_after - dim_roots_before_load
+    if missing_dim_nodes or internally_added_roots:
+        await load_nodes(ctx)
 
     # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
     # This MUST happen AFTER all nodes are loaded so we can correctly identify
@@ -379,6 +403,7 @@ async def build_metrics_sql(
     limit: int | None = None,
     dialect: Dialect | None = None,
     use_materialized: bool = True,
+    matched_cube: Optional[NodeRevision] = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -413,12 +438,17 @@ async def build_metrics_sql(
     )
 
     # Try cube match - if found, use cube path
+    # Use pre-resolved cube if available (avoids duplicate find_matching_cube call)
     if use_materialized:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
+        cube = (
+            matched_cube
+            if matched_cube is not None
+            else await find_matching_cube(
+                session,
+                metrics,
+                dimensions,
+                require_availability=True,
+            )
         )
         if cube:
             logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
