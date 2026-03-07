@@ -28,6 +28,7 @@ class EngineType(Enum):
     SQLALCHEMY = "sqlalchemy"
     SNOWFLAKE = "snowflake"
     TRINO = "trino"
+    BIGQUERY = "bigquery"
 
 
 class EngineInfo:  # pylint: disable=too-few-public-methods

@@ -650,3 +650,64 @@ def test_submit_snowflake_query(
     assert data["state"] == QueryState.FINISHED.value
     assert data["progress"] == 1.0
     assert data["errors"] == []
+
+
+@mock.patch("djqs.engine.bigquery")
+def test_submit_bigquery_query(
+    mock_bigquery_module,
+    client: TestClient,
+) -> None:
+    """
+    Test submitting a BigQuery query
+    """
+    mock_row = mock.MagicMock()
+    mock_row.values.return_value = (1, "a")
+
+    mock_result = mock.MagicMock()
+    mock_result.__iter__ = mock.MagicMock(return_value=iter([mock_row]))
+
+    mock_query_job = mock.MagicMock()
+    mock_query_job.result.return_value = mock_result
+
+    mock_bq_client = mock.MagicMock()
+    mock_bq_client.query.return_value = mock_query_job
+
+    mock_bigquery_module.Client.return_value = mock_bq_client
+
+    query_create = QueryCreate(
+        catalog_name="bigquery_warehouse",
+        engine_name="bigquery_test",
+        engine_version="2.0",
+        submitted_query="SELECT 1 AS int_col, 'a' as str_col",
+    )
+    payload = json.dumps(asdict(query_create))
+    assert payload == json.dumps(
+        {
+            "catalog_name": "bigquery_warehouse",
+            "engine_name": "bigquery_test",
+            "engine_version": "2.0",
+            "submitted_query": "SELECT 1 AS int_col, 'a' as str_col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "bigquery_warehouse"
+    assert data["engine_name"] == "bigquery_test"
+    assert data["engine_version"] == "2.0"
+    assert data["submitted_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["executed_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["scheduled"] == "2021-01-01 00:00:00+00:00"
+    assert data["started"] == "2021-01-01 00:00:00+00:00"
+    assert data["finished"] == "2021-01-01 00:00:00+00:00"
+    assert data["state"] == QueryState.FINISHED.value
+    assert data["progress"] == 1.0
+    assert data["errors"] == []

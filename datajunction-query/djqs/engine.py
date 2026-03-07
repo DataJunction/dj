@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import snowflake.connector
+from google.cloud import bigquery
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import create_engine, text
 
@@ -117,6 +118,28 @@ def run_query(  # pylint: disable=R0914
         cur = conn.cursor()
 
         return run_snowflake_query(query, cur)
+    elif engine.type == EngineType.BIGQUERY:
+        _logger.info("Creating BigQuery client")
+        project = engine.extra_params.get("project")
+        credentials_path = engine.extra_params.get(
+            "credentials_path",
+            os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+        )
+        location = engine.extra_params.get("location")
+
+        client_kwargs = {}
+        if credentials_path:
+            from google.oauth2 import service_account
+
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+            )
+            client_kwargs["credentials"] = credentials
+        if location:
+            client_kwargs["location"] = location
+
+        bq_client = bigquery.Client(project=project, **client_kwargs)
+        return run_bigquery_query(query, bq_client)
 
     _logger.info(
         "Creating sqlalchemy engine using engine name and version defined on query",
@@ -159,6 +182,21 @@ def run_snowflake_query(
     """
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     rows = cur.execute(query.submitted_query).fetchall()
+    columns: List[ColumnMetadata] = []
+    output.append((query.submitted_query, columns, rows))
+    return output
+
+
+def run_bigquery_query(
+    query: Query,
+    client: bigquery.Client,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    """
+    Run a query against BigQuery.
+    """
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    result = client.query(query.submitted_query).result()
+    rows = [tuple(row.values()) for row in result]
     columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
