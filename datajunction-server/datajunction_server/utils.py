@@ -267,10 +267,9 @@ async def get_session(
                 logger.debug(
                     f"[QUERY_COUNT] Total queries in session{label_str}: {query_count['count']}",
                 )
-                get_metrics_provider().timer(
+                get_metrics_provider().counter(
                     "dj.db.query_count",
                     query_count["count"],
-                    {"session_label": session_label or ""},
                 )
     finally:
         # Remove event listener to avoid memory leaks

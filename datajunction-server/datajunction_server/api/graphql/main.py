@@ -1,7 +1,10 @@
 """DJ graphql"""
 
 import logging
+import time
 from functools import wraps
+
+from datajunction_server.instrumentation.provider import get_metrics_provider
 
 import strawberry
 from fastapi import Depends, Request, BackgroundTasks
@@ -69,17 +72,28 @@ def log_resolver(func):
         log_args = " ".join(
             [f"{tag}={value}" for tag, value in log_tags.items() if value],
         )
+        _start = time.monotonic()
         try:
             result = await func(*args, **kwargs)
             logger.info("[GQL] %s", log_args)
             return result
         except Exception as exc:  # pragma: no cover
+            get_metrics_provider().counter(  # pragma: no cover
+                "dj.graphql.errors",
+                tags={"operation": resolver_name},
+            )
             logger.error(  # pragma: no cover
                 "[GQL] status=error %s",
                 log_args,
                 exc_info=True,
             )
             raise exc  # pragma: no cover
+        finally:
+            get_metrics_provider().timer(
+                "dj.graphql.query_ms",
+                (time.monotonic() - _start) * 1000,
+                {"operation": resolver_name},
+            )
 
     return wrapper
 
