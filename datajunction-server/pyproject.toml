@@ -108,8 +108,13 @@ snowflake = [
     "snowflake-connector-python>=3.0.0",
 ]
 
+bigquery = [
+    "google-cloud-bigquery>=3.0.0",
+]
+
 all = [
     "snowflake-connector-python>=3.0.0",
+    "google-cloud-bigquery>=3.0.0",
 ]
 
 

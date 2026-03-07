@@ -413,6 +413,21 @@ def _create_configured_query_client(
                 "Install with: pip install 'datajunction-server[snowflake]'",
             ) from e
 
+    elif client_type == "bigquery":
+        if "project" not in connection_params:
+            raise ValueError(
+                "BigQuery client requires 'project' in connection parameters",
+            )
+        try:
+            from datajunction_server.query_clients import BigQueryClient
+
+            return BigQueryClient(**connection_params)
+        except ImportError as e:
+            raise ValueError(
+                "BigQuery client dependencies not installed. "
+                "Install with: pip install 'datajunction-server[bigquery]'",
+            ) from e
+
     else:
         raise ValueError(f"Unsupported query client type: {client_type}")
 

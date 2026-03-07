@@ -53,6 +53,7 @@ class SQLTranspilationPlugin:
         return query
 
 
+@dialect_plugin(Dialect.BIGQUERY.value)
 @dialect_plugin(Dialect.CLICKHOUSE.value)
 @dialect_plugin(Dialect.DRUID.value)
 @dialect_plugin(Dialect.DUCKDB.value)
