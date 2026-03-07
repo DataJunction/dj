@@ -196,7 +196,7 @@ def run_bigquery_query(
     """
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     result = client.query(query.submitted_query).result()
-    rows = [tuple(row.values()) for row in result]
+    rows = iter([tuple(row.values()) for row in result])
     columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output

@@ -757,8 +757,10 @@ def test_submit_bigquery_query_with_credentials_path(
 
         with mock.patch.dict(
             "sys.modules",
-            {"google.oauth2": mock.MagicMock(service_account=mock_sa_module),
-             "google.oauth2.service_account": mock_sa_module},
+            {
+                "google.oauth2": mock.MagicMock(service_account=mock_sa_module),
+                "google.oauth2.service_account": mock_sa_module,
+            },
         ):
             query_create = QueryCreate(
                 catalog_name="bigquery_warehouse",
@@ -879,13 +881,18 @@ def test_submit_bigquery_query_with_env_credentials(
     mock_sa_module = mock.MagicMock()
     mock_sa_module.Credentials.from_service_account_file.return_value = mock_credentials
 
-    with mock.patch.dict(
-        os.environ,
-        {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path/creds.json"},
-    ), mock.patch.dict(
-        "sys.modules",
-        {"google.oauth2": mock.MagicMock(service_account=mock_sa_module),
-         "google.oauth2.service_account": mock_sa_module},
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"GOOGLE_APPLICATION_CREDENTIALS": "/env/path/creds.json"},
+        ),
+        mock.patch.dict(
+            "sys.modules",
+            {
+                "google.oauth2": mock.MagicMock(service_account=mock_sa_module),
+                "google.oauth2.service_account": mock_sa_module,
+            },
+        ),
     ):
         query_create = QueryCreate(
             catalog_name="bigquery_warehouse",
