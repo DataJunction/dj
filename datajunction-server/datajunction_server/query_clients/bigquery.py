@@ -184,7 +184,7 @@ class BigQueryClient(BaseQueryServiceClient):
                 Column(
                     name=row.column_name,
                     type=self._map_bigquery_type_to_dj(row.data_type),
-                    order=row.ordinal_position - 1,  # Convert to 0-based index
+                    order=row.ordinal_position - 1,
                 )
                 for row in rows
             ]

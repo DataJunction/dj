@@ -110,6 +110,7 @@ snowflake = [
 
 bigquery = [
     "google-cloud-bigquery>=3.0.0",
+    "sqlglot>=18.0.1",
 ]
 
 all = [
