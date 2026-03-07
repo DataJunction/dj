@@ -520,6 +520,7 @@ async def get_metrics_sql_v3(
     """
     # Auto-resolve dialect if not explicitly provided
     resolved_dialect = dialect
+    matched_cube = None
     if resolved_dialect is None:  # pragma: no branch
         execution_ctx = await resolve_dialect_and_engine_for_metrics(
             session=session,
@@ -528,6 +529,7 @@ async def get_metrics_sql_v3(
             use_materialized=use_materialized,
         )
         resolved_dialect = execution_ctx.dialect
+        matched_cube = execution_ctx.cube  # Reuse cube to avoid duplicate lookup
 
     result = await build_metrics_sql(
         session=session,
@@ -538,6 +540,7 @@ async def get_metrics_sql_v3(
         limit=limit,
         dialect=resolved_dialect,
         use_materialized=use_materialized,
+        matched_cube=matched_cube,
     )
 
     return V3TranslatedSQL(
