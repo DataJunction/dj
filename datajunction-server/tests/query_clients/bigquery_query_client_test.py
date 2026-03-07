@@ -102,6 +102,53 @@ def test_get_columns_for_table():
     assert columns[2].order == 2
 
 
+def test_get_columns_for_table_uses_project_from_engine_uri():
+    """get_columns_for_table uses project resolved from the engine URI."""
+    client = _make_client(project="default-project")
+
+    mock_row = MagicMock()
+    mock_row.column_name = "id"
+    mock_row.data_type = "INT64"
+    mock_row.ordinal_position = 1
+
+    mock_result = MagicMock()
+    mock_result.__iter__ = MagicMock(return_value=iter([mock_row]))
+
+    mock_job = MagicMock()
+    mock_job.result.return_value = mock_result
+
+    mock_bq_client = MagicMock()
+    mock_bq_client.query.return_value = mock_job
+
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery://uri-project/my_dataset"
+
+    with (
+        patch(
+            "datajunction_server.query_clients.bigquery.QueryJobConfig",
+            MagicMock(),
+        ),
+        patch(
+            "datajunction_server.query_clients.bigquery.ScalarQueryParameter",
+            MagicMock(),
+        ),
+        patch.object(
+            client,
+            "_get_client",
+            return_value=mock_bq_client,
+        ),
+    ):
+        client.get_columns_for_table(
+            catalog="catalog-project",
+            schema="my_dataset",
+            table="my_table",
+            engine=mock_engine,
+        )
+
+    query_sql = mock_bq_client.query.call_args.args[0]
+    assert "`uri-project.my_dataset.INFORMATION_SCHEMA.COLUMNS`" in query_sql
+
+
 def test_get_columns_for_table_not_found():
     """get_columns_for_table raises DJDoesNotExistException when no columns are returned."""
     from datajunction_server.errors import DJDoesNotExistException
@@ -172,6 +219,66 @@ def test_get_columns_for_table_query_error():
             )
 
     assert "network error" in str(exc_info.value)
+
+
+def test_get_project_from_engine_with_host():
+    """_get_project_from_engine resolves project from URI host."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery://uri-project/my_dataset"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "uri-project"
+
+
+def test_get_project_from_engine_with_path_only_uri():
+    """_get_project_from_engine resolves project from path-only URI."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///path-project"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "path-project"
+
+
+def test_get_project_from_engine_with_query_params():
+    """_get_project_from_engine resolves project from query params when needed."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///?project=query-project"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "query-project"
+
+
+def test_get_project_from_engine_with_path_and_query_prefers_path():
+    """_get_project_from_engine prefers URI path over query param."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///path-project?project=query-project"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "path-project"
+
+
+def test_get_project_from_engine_fallback_to_client_project():
+    """_get_project_from_engine falls back to configured client project."""
+    client = _make_client(project="default-project")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "default-project"
+
+
+def test_get_project_from_engine_fallback_to_catalog():
+    """_get_project_from_engine falls back to catalog when client project is empty."""
+    client = _make_client(project="")
+    mock_engine = MagicMock()
+    mock_engine.uri = "bigquery:///"
+
+    project = client._get_project_from_engine(mock_engine, "catalog-project")
+    assert project == "catalog-project"
 
 
 def test_map_bigquery_type_to_dj_integer_types():

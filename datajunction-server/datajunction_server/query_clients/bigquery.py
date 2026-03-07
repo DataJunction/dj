@@ -94,6 +94,51 @@ class BigQueryClient(BaseQueryServiceClient):
             **self._connection_kwargs,
         )
 
+    def _get_project_from_engine(
+        self,
+        engine: Optional["Engine"],
+        fallback_catalog: str,
+    ) -> str:
+        """
+        Extract the BigQuery project from the engine URI.
+
+        Resolution order mirrors Snowflake's approach:
+        1. Project encoded in URI (host or first path segment)
+        2. "project" query parameter in URI
+        3. Configured client project
+        4. Fallback catalog
+        """
+        if not engine or not engine.uri:
+            return self.project or fallback_catalog
+
+        try:
+            from urllib.parse import parse_qs, urlparse
+
+            parsed = urlparse(engine.uri)
+
+            # Most BigQuery URIs put project in host, e.g. bigquery://my-project/dataset
+            if parsed.hostname:
+                return parsed.hostname
+
+            # Support path-only form, e.g. bigquery:///my-project
+            if parsed.path and len(parsed.path) > 1:
+                project_name = parsed.path.lstrip("/").split("/")[0]
+                if project_name:
+                    return project_name
+
+            if parsed.query:
+                query_params = parse_qs(parsed.query)
+                if "project" in query_params and query_params["project"]:
+                    return query_params["project"][0]
+
+        except Exception as e:  # pragma: no cover
+            _logger.warning(
+                f"Failed to parse project from engine URI {engine.uri}: {e}. "
+                f"Using fallback: {fallback_catalog}",
+            )
+
+        return self.project or fallback_catalog
+
     def get_columns_for_table(
         self,
         catalog: str,
@@ -110,12 +155,12 @@ class BigQueryClient(BaseQueryServiceClient):
             schema: BigQuery dataset name
             table: Table name
             request_headers: Unused (kept for interface compatibility)
-            engine: Optional DJ engine (URI not used for BigQuery)
+            engine: Optional DJ engine (URI may override project)
 
         Returns:
             List of Column objects
         """
-        project = self.project
+        project = self._get_project_from_engine(engine, catalog)
         try:
             client = self._get_client()
 
