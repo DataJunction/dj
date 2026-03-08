@@ -1775,6 +1775,8 @@ class TestDeployments:
         client,
         default_hard_hats,
         default_hard_hat,
+        default_us_states,
+        default_us_state,
         default_dispatchers,
         default_dispatcher,
         default_avg_length_of_employment,
@@ -1801,6 +1803,8 @@ class TestDeployments:
         )
         nodes_list = [
             default_hard_hats,
+            default_us_states,
+            default_us_state,
             default_hard_hat,
             default_dispatchers,
             default_dispatcher,
@@ -2549,20 +2553,28 @@ class TestDeployments:
             ),
         )
 
-        # Should succeed, not fail with "missing dependency: external.dimension"
-        assert data2["status"] == "success"
+        # The metric should succeed; the cube should fail because the external
+        # dimension attributes aren't reachable from the metric (no join path).
+        # Critically, the failure must NOT be "external.dimension is a missing
+        # dependency" — that intermediate namespace prefix must NOT be flagged
+        # as a missing node (regression test for Issue #1775).
         assert data2["namespace"] == "analytics"
-
-        # Verify metric and cube were created
         node_results = [r for r in data2["results"] if r["deploy_type"] == "node"]
         assert len(node_results) == 2
-        assert any(
-            "metric.user_count_by_type" in r["name"] and r["status"] == "success"
-            for r in node_results
+
+        metric_result = next(
+            r for r in node_results if "metric.user_count_by_type" in r["name"]
         )
-        assert any(
-            "cube.user_analysis" in r["name"] and r["status"] == "success"
-            for r in node_results
+        assert metric_result["status"] == "success"
+
+        cube_result = next(r for r in node_results if "cube.user_analysis" in r["name"])
+        assert cube_result["status"] == "failed"
+        # The failure is about dimension reachability, not a missing namespace prefix
+        assert "is not available on every metric" in cube_result["message"]
+        assert not any(
+            "external.dimension" in r.get("message", "")
+            and "missing" in r.get("message", "")
+            for r in data2["results"]
         )
 
 

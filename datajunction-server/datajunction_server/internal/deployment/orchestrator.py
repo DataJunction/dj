@@ -1323,7 +1323,7 @@ class DeploymentOrchestrator:
             )
 
         # Validate that each requested dimension is reachable from every metric
-        if cube_spec.rendered_dimensions:
+        if cube_spec.rendered_dimensions:  # pragma: no branch
             try:
                 await validate_shared_dimensions(
                     self.session,
