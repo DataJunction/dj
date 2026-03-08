@@ -17,7 +17,7 @@ from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import get_query_service_client
 from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
 
@@ -4537,7 +4537,6 @@ class TestCubeDeactivateSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4612,7 +4611,6 @@ class TestCubeDeactivateSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4693,7 +4691,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4776,7 +4773,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4847,7 +4843,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4874,6 +4869,7 @@ class TestCubeRefreshMaterialization:
     async def test_refresh_materialization_no_version_bump(
         self,
         client_with_repairs_cube: AsyncClient,
+        module__session,
         mocker,
     ):
         """
@@ -4881,6 +4877,15 @@ class TestCubeRefreshMaterialization:
         calls refresh_cube_materialization without bumping the version.
         """
         cube_name = "default.test_refresh_cube"
+        # Set up mock QS client before make_a_test_cube so the upsert_materialization
+        # endpoint has a properly configured mock (not a leaked one from a prior test).
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize.return_value = mocker.MagicMock(
+            urls=["http://workflow/setup"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
         await make_a_test_cube(
             client_with_repairs_cube,
             cube_name,
@@ -4901,9 +4906,7 @@ class TestCubeRefreshMaterialization:
         from datajunction_server.database.materialization import Materialization
         from datajunction_server.database.node import NodeRevision
 
-        session_factory = client_with_repairs_cube.app.dependency_overrides[get_session]
-        session = session_factory()
-        result = await session.execute(
+        result = await module__session.execute(
             select(NodeRevision).where(NodeRevision.name == cube_name),
         )
         node_rev = result.scalars().first()
@@ -4916,15 +4919,12 @@ class TestCubeRefreshMaterialization:
             job="DruidCubeMaterializationJob",
             deactivated_at=datetime.now(timezone.utc),
         )
-        session.add(deactivated_mat)
-        await session.commit()
+        module__session.add(deactivated_mat)
+        await module__session.commit()
 
-        # Mock the refresh method on the query service client
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
+        # Mock the refresh method on the query service client (set up above)
         mock_refresh = mocker.patch.object(
-            qs_client,
+            mock_qs_client,
             "refresh_cube_materialization",
             return_value=mocker.MagicMock(urls=["http://workflow/refreshed"]),
         )
@@ -4949,7 +4949,7 @@ class TestCubeRefreshMaterialization:
         assert "deactivated_mat" in mat_names
 
         # Verify the materialization was re-activated in the DB
-        await session.refresh(deactivated_mat)
+        await module__session.refresh(deactivated_mat)
         assert deactivated_mat.deactivated_at is None
 
         # Verify version didn't change

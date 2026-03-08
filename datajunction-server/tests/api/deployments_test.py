@@ -1770,6 +1770,64 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_fails_with_unreachable_dimension(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_dispatchers,
+        default_dispatcher,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube whose dimension is not reachable from every metric should fail
+        deployment with a clear 'not available on every metric' error.
+
+        default.avg_length_of_employment queries directly from default.hard_hat,
+        so only dimensions reachable from default.hard_hat are valid.
+        default.dispatcher.company_name exists as a valid dimension attribute but
+        has no join path to default.hard_hat, so it is unreachable.
+        """
+        namespace = "cube_dim_reachability"
+
+        # Deploy with a dimension that IS reachable — should succeed
+        cube = CubeSpec(
+            name="default.repairs_cube_dim_check",
+            display_name="Repairs Cube Dim Check",
+            description="Cube for validating dimension reachability",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_dispatchers,
+            default_dispatcher,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        # Update to add a dimension that EXISTS but is NOT reachable from
+        # avg_length_of_employment (dispatcher has no link to hard_hat)
+        cube.dimensions = [
+            "${prefix}default.hard_hat.state",
+            "${prefix}default.dispatcher.company_name",
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        failed_result = next(r for r in data["results"] if r["status"] == "failed")
+        assert "is not available on every metric" in failed_result["message"]
+
+    @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_links(
         self,
         client,
