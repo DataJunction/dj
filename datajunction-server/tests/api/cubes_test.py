@@ -1329,6 +1329,58 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
 
 
 @pytest.mark.asyncio
+async def test_v3_cube_param_edge_cases(client_with_repairs_cube: AsyncClient):
+    """
+    Tests edge cases for the cube= parameter in v3 SQL endpoints covering
+    the three uncovered branches:
+      1. cube_node is None (nonexistent cube name) — falls through, no filters applied
+      2. cube_node.current.cube_filters is empty — skips filter merge, still auto-populates
+      3. Explicit dimensions provided with cube= — auto-populates metrics, keeps dims
+    """
+    metrics_q = "metrics=default.num_repair_orders&metrics=default.avg_repair_price"
+    dims_q = "dimensions=default.hard_hat.state"
+
+    # Case 1: Invalid cube name — cube_node is None, falls through without applying filters.
+    # Explicit metrics + dims are provided so SQL generation still succeeds.
+    for endpoint in [
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}&cube=default.nonexistent_cube",
+        f"/sql/measures/v3/?{metrics_q}&{dims_q}&cube=default.nonexistent_cube",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
+
+    # Case 2: Cube with no cube_filters — the if-cube_filters branch is skipped,
+    # but metrics/dims are still auto-populated from the cube.
+    response = await client_with_repairs_cube.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "description": "Cube without filters for edge-case coverage",
+            "mode": "published",
+            "name": "default.repairs_cube_no_filters",
+        },
+    )
+    assert response.status_code == 201
+    for endpoint in [
+        "/sql/metrics/v3/?cube=default.repairs_cube_no_filters",
+        "/sql/measures/v3/?cube=default.repairs_cube_no_filters",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
+
+    # Case 3: Explicit dimensions provided with cube= but no metrics.
+    # Metrics are auto-populated from the cube; the if-not-dimensions branch is skipped
+    # because dimensions are already provided.
+    for endpoint in [
+        f"/sql/metrics/v3/?{dims_q}&cube=default.repairs_cube",
+        f"/sql/measures/v3/?{dims_q}&cube=default.repairs_cube",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_cube_materialization_sql_and_measures(
     client_with_repairs_cube: AsyncClient,
     repair_orders_cube_measures,
