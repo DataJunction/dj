@@ -47,6 +47,7 @@ from datajunction_server.internal.deployment.validation import (
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
+from datajunction_server.construction.build import validate_shared_dimensions
 from datajunction_server.internal.nodes import (
     hard_delete_node,
     validate_complex_dimension_link,
@@ -1321,6 +1322,23 @@ class DeploymentOrchestrator:
                 dependencies=[],
             )
 
+        # Validate that each requested dimension is reachable from every metric
+        if cube_spec.rendered_dimensions:  # pragma: no branch
+            try:
+                await validate_shared_dimensions(
+                    self.session,
+                    cube_metric_nodes,
+                    cube_spec.rendered_dimensions,
+                )
+            except DJInvalidInputException as exc:
+                return NodeValidationResult(
+                    spec=cube_spec,
+                    status=NodeStatus.INVALID,
+                    inferred_columns=[],
+                    errors=exc.errors,
+                    dependencies=[],
+                )
+
         # Get dimensions for this cube from batch-loaded data
         cube_dimension_nodes = []
         cube_dimensions = []
@@ -1578,6 +1596,7 @@ class DeploymentOrchestrator:
             node=new_node,
             version=new_node.current_version,
             mode=cube_spec.mode,
+            cube_filters=cube_spec.rendered_filters or [],
         )
         return node_revision
 

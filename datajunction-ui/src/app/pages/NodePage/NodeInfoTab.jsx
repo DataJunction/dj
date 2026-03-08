@@ -295,7 +295,7 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Cube Elements</h6>
-          <div className={`list-group-item`}>
+          <div style={{ marginTop: '0.5rem' }}>
             {cubeElements.map(cubeElem =>
               cubeElem.type === 'metric' ? displayCubeElement(cubeElem) : '',
             )}
@@ -303,6 +303,26 @@ export default function NodeInfoTab({ node }) {
               cubeElem.type !== 'metric' ? displayCubeElement(cubeElem) : '',
             )}
           </div>
+          {node?.cube_filters?.length > 0 && (
+            <>
+              <h6 className="mb-0 w-100" style={{ marginTop: '1rem' }}>
+                Cube Filters
+              </h6>
+              <div style={{ marginTop: '0.5rem' }}>
+                {node.cube_filters.map((filter, idx) => (
+                  <div
+                    key={idx}
+                    className="button-3 cube-element"
+                    role="cell"
+                    aria-label="CubeFilter"
+                    aria-hidden="false"
+                  >
+                    <code style={{ fontSize: '12px' }}>{filter}</code>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

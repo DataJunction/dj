@@ -642,6 +642,7 @@ async def create_cube_node_revision(
         catalog=catalog,
         created_by_id=current_user.id,
         mode=data.mode,
+        cube_filters=data.filters or None,
     )
     return node_revision
 
@@ -806,6 +807,7 @@ async def copy_to_new_node(
         required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
         cube_elements=list(old_revision.cube_elements),
+        cube_filters=old_revision.cube_filters,
         status=old_revision.status,
         parents=old_revision.parents,
         missing_parents=[
@@ -1293,7 +1295,9 @@ async def update_cube_node(
         metrics=data.metrics or old_metrics,
         dimensions=data.dimensions or old_dimensions,
         mode=data.mode or node_revision.mode,
-        filters=data.filters or [],
+        filters=data.filters
+        if data.filters is not None
+        else (node_revision.cube_filters or []),
         orderby=data.orderby or None,
         limit=data.limit or None,
     )

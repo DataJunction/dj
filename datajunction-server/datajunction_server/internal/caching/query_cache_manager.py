@@ -28,6 +28,12 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.metric import TranslatedSQL
 
 logger = logging.getLogger(__name__)
+
+_VERSION_BY_TYPE: dict[QueryBuildType, str] = {
+    QueryBuildType.METRICS: "v2",
+    QueryBuildType.MEASURES: "v3",
+    QueryBuildType.NODE: "v2",
+}
 settings = get_settings()
 
 # Per-process state for rate-limited refresh-ahead.
@@ -101,6 +107,13 @@ class QueryCacheManager(RefreshAheadCacheManager):
         self.query_type = query_type
 
     @property
+    def _metric_tags(self) -> dict[str, str]:
+        return {
+            "query_type": str(self.query_type),
+            "query_version": _VERSION_BY_TYPE[self.query_type],
+        }
+
+    @property
     def cache_key_prefix(self) -> str:
         return f"{self._cache_key_prefix}:{self.query_type}"
 
@@ -136,12 +149,12 @@ class QueryCacheManager(RefreshAheadCacheManager):
                         )
                     get_metrics_provider().counter(
                         "dj.cache.hit",
-                        tags={"query_type": str(self.query_type)},
+                        tags=self._metric_tags,
                     )
                     return cached
                 get_metrics_provider().counter(
                     "dj.cache.miss",
-                    tags={"query_type": str(self.query_type)},
+                    tags=self._metric_tags,
                 )
                 self.logger.info(
                     "Cache miss (key=%s) for request with parameters=%s, computing fresh value.",
@@ -175,7 +188,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
 
     @timed(
         "dj.sql.build_latency_ms",
-        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+        lambda self, *a, **kw: self._metric_tags,
     )
     async def fallback(
         self,
@@ -229,7 +242,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
 
     @timed(
         "dj.cache.key_build_ms",
-        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+        lambda self, *a, **kw: self._metric_tags,
     )
     async def build_cache_key(
         self,
@@ -305,7 +318,7 @@ class QueryCacheManager(RefreshAheadCacheManager):
 
     @timed(
         "dj.cache.refresh_latency_ms",
-        lambda self, *a, **kw: {"query_type": str(self.query_type)},
+        lambda self, *a, **kw: self._metric_tags,
     )
     async def _timed_refresh(
         self,

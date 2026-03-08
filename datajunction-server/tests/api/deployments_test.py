@@ -1770,6 +1770,68 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_fails_with_unreachable_dimension(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_dispatchers,
+        default_dispatcher,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube whose dimension is not reachable from every metric should fail
+        deployment with a clear 'not available on every metric' error.
+
+        default.avg_length_of_employment queries directly from default.hard_hat,
+        so only dimensions reachable from default.hard_hat are valid.
+        default.dispatcher.company_name exists as a valid dimension attribute but
+        has no join path to default.hard_hat, so it is unreachable.
+        """
+        namespace = "cube_dim_reachability"
+
+        # Deploy with a dimension that IS reachable — should succeed
+        cube = CubeSpec(
+            name="default.repairs_cube_dim_check",
+            display_name="Repairs Cube Dim Check",
+            description="Cube for validating dimension reachability",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            default_hard_hat,
+            default_dispatchers,
+            default_dispatcher,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        # Update to add a dimension that EXISTS but is NOT reachable from
+        # avg_length_of_employment (dispatcher has no link to hard_hat)
+        cube.dimensions = [
+            "${prefix}default.hard_hat.state",
+            "${prefix}default.dispatcher.company_name",
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "failed"
+        failed_result = next(r for r in data["results"] if r["status"] == "failed")
+        assert "is not available on every metric" in failed_result["message"]
+
+    @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_links(
         self,
         client,
@@ -2491,20 +2553,28 @@ class TestDeployments:
             ),
         )
 
-        # Should succeed, not fail with "missing dependency: external.dimension"
-        assert data2["status"] == "success"
+        # The metric should succeed; the cube should fail because the external
+        # dimension attributes aren't reachable from the metric (no join path).
+        # Critically, the failure must NOT be "external.dimension is a missing
+        # dependency" — that intermediate namespace prefix must NOT be flagged
+        # as a missing node (regression test for Issue #1775).
         assert data2["namespace"] == "analytics"
-
-        # Verify metric and cube were created
         node_results = [r for r in data2["results"] if r["deploy_type"] == "node"]
         assert len(node_results) == 2
-        assert any(
-            "metric.user_count_by_type" in r["name"] and r["status"] == "success"
-            for r in node_results
+
+        metric_result = next(
+            r for r in node_results if "metric.user_count_by_type" in r["name"]
         )
-        assert any(
-            "cube.user_analysis" in r["name"] and r["status"] == "success"
-            for r in node_results
+        assert metric_result["status"] == "success"
+
+        cube_result = next(r for r in node_results if "cube.user_analysis" in r["name"])
+        assert cube_result["status"] == "failed"
+        # The failure is about dimension reachability, not a missing namespace prefix
+        assert "is not available on every metric" in cube_result["message"]
+        assert not any(
+            "external.dimension" in r.get("message", "")
+            and "missing" in r.get("message", "")
+            for r in data2["results"]
         )
 
 
@@ -2961,6 +3031,34 @@ async def test_node_to_spec_metric(module__session, module__client_with_roads):
         min_decimal_exponent=None,
         max_decimal_exponent=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_node_to_spec_cube(module__session, module__client_with_roads):
+    """
+    Test that a cube node can be converted to a spec correctly, including cube_filters.
+    """
+    # Create a cube with filters via the API
+    response = await module__client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "name": "default.repairs_cube_spec_test",
+            "description": "Cube for to_spec test",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    cube_node = await Node.get_cube_by_name(
+        module__session,
+        "default.repairs_cube_spec_test",
+    )
+    spec = await cube_node.to_spec(module__session)
+    assert isinstance(spec, CubeSpec)
+    assert spec.filters == ["default.hard_hat.state='AZ'"]
 
 
 def test_node_spec_equality():

@@ -381,6 +381,15 @@ class NodeRevision:
         )
 
     @strawberry.field
+    def cube_filters(self, root: "DBNodeRevision") -> List[str]:
+        """
+        Filters for a cube node
+        """
+        if root.type != NodeType.CUBE:
+            return []
+        return root.cube_filters or []
+
+    @strawberry.field
     def cube_dimensions(self, root: "DBNodeRevision") -> List[DimensionAttribute]:
         """
         Dimensions for a cube node

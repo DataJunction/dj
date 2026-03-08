@@ -17,7 +17,7 @@ from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import get_query_service_client
 from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
 
@@ -568,6 +568,7 @@ async def test_create_cube(
     assert results["name"] == "default.repairs_cube"
     assert results["display_name"] == "Repairs Cube"
     assert results["description"] == "Cube of various metrics related to repairs"
+    assert results["cube_filters"] == ["default.hard_hat.state='AZ'"]
 
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube")
     cube = response.json()
@@ -602,8 +603,9 @@ async def test_create_cube(
         f"/sql?{metrics_query}&{dimensions_query}&filters=default.hard_hat.state='AZ'",
     )
     metrics_sql_results = response.json()
+    # Cube-level filters are stored and applied automatically — no explicit filter needed
     response = await client_with_repairs_cube.get(
-        "/sql/default.repairs_cube?filters=default.hard_hat.state='AZ'",
+        "/sql/default.repairs_cube",
     )
     cube_sql_results = response.json()
     expected_query = """
@@ -796,6 +798,586 @@ FULL JOIN default_DOT_repair_order_details_metrics
    default_DOT_repair_order_details_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date"""
     assert str(parse(metrics_sql_results["sql"])) == str(parse(expected_query))
     assert str(parse(cube_sql_results["sql"])) == str(parse(expected_query))
+
+
+@pytest.mark.asyncio
+async def test_cube_filters_merged_with_request_filters(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Tests that cube-level stored filters are merged with request-time filters.
+    The cube has cube_filters=["default.hard_hat.state='AZ'"], and when we add
+    an extra request filter, both should appear in the generated SQL.
+    """
+    # Call with an additional request-level filter beyond the cube's stored filter
+    response = await client_with_repairs_cube.get(
+        "/sql/default.repairs_cube?filters=default.dispatcher.company_name='Potts LLC'",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_DOT_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.municipality_id,
+            repair_orders.hard_hat_id, repair_orders.dispatcher_id,
+            repair_orders.order_date, repair_orders.dispatched_date,
+            repair_orders.required_date, repair_order_details.discount,
+            repair_order_details.price, repair_order_details.quantity,
+            repair_order_details.repair_type_id,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
+            repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
+            repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
+          FROM roads.repair_orders AS repair_orders
+          JOIN roads.repair_order_details AS repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        default_DOT_hard_hat AS (
+          SELECT default_DOT_hard_hats.hard_hat_id, default_DOT_hard_hats.last_name,
+            default_DOT_hard_hats.first_name, default_DOT_hard_hats.title,
+            default_DOT_hard_hats.birth_date, default_DOT_hard_hats.hire_date,
+            default_DOT_hard_hats.address, default_DOT_hard_hats.city,
+            default_DOT_hard_hats.state, default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.country, default_DOT_hard_hats.manager,
+            default_DOT_hard_hats.contractor_id
+          FROM roads.hard_hats AS default_DOT_hard_hats
+          WHERE default_DOT_hard_hats.state = 'AZ'
+        ),
+        default_DOT_dispatcher AS (
+          SELECT default_DOT_dispatchers.dispatcher_id,
+            default_DOT_dispatchers.company_name, default_DOT_dispatchers.phone
+          FROM roads.dispatchers AS default_DOT_dispatchers
+          WHERE default_DOT_dispatchers.company_name = 'Potts LLC'
+        ),
+        default_DOT_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id, m.contact_name, m.contact_title,
+            m.local_region, m.state_id,
+            mmt.municipality_type_id AS municipality_type_id,
+            mt.municipality_type_desc AS municipality_type_desc
+          FROM roads.municipality AS m
+          LEFT JOIN roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_DOT_hard_hat_to_delete AS (
+          SELECT default_DOT_hard_hats.hard_hat_id, default_DOT_hard_hats.last_name,
+            default_DOT_hard_hats.first_name, default_DOT_hard_hats.title,
+            default_DOT_hard_hats.birth_date, default_DOT_hard_hats.hire_date,
+            default_DOT_hard_hats.address, default_DOT_hard_hats.city,
+            default_DOT_hard_hats.state, default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.country, default_DOT_hard_hats.manager,
+            default_DOT_hard_hats.contractor_id
+          FROM roads.hard_hats AS default_DOT_hard_hats
+        ),
+        default_DOT_repair_order_details AS (
+          SELECT default_DOT_repair_order_details.repair_order_id,
+            default_DOT_repair_order_details.repair_type_id,
+            default_DOT_repair_order_details.price,
+            default_DOT_repair_order_details.quantity,
+            default_DOT_repair_order_details.discount
+          FROM roads.repair_order_details AS default_DOT_repair_order_details
+        ),
+        default_DOT_repair_order AS (
+          SELECT default_DOT_repair_orders.repair_order_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.order_date,
+            default_DOT_repair_orders.required_date,
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.dispatcher_id
+          FROM roads.repair_orders AS default_DOT_repair_orders
+        ),
+        default_DOT_repair_orders_fact_metrics AS (
+          SELECT
+            default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+            default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+            default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
+            default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+            default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+            default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
+            default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
+            CAST(sum(if(default_DOT_repair_orders_fact.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+            count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+            avg(default_DOT_repair_orders_fact.price) default_DOT_avg_repair_price,
+            sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost,
+            sum(default_DOT_repair_orders_fact.price * default_DOT_repair_orders_fact.discount) default_DOT_total_repair_order_discounts
+          FROM default_DOT_repair_orders_fact
+          INNER JOIN default_DOT_hard_hat
+            ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+          INNER JOIN default_DOT_dispatcher
+            ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+          INNER JOIN default_DOT_municipality_dim
+            ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
+          LEFT JOIN default_DOT_hard_hat_to_delete
+            ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
+          WHERE default_DOT_hard_hat.state = 'AZ' AND default_DOT_dispatcher.company_name = 'Potts LLC'
+          GROUP BY default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code,
+            default_DOT_hard_hat.city, default_DOT_hard_hat.state,
+            default_DOT_dispatcher.company_name,
+            default_DOT_municipality_dim.local_region,
+            default_DOT_hard_hat_to_delete.hire_date
+        ),
+        default_DOT_repair_order_details_metrics AS (
+          SELECT
+            default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
+            default_DOT_hard_hat.postal_code default_DOT_hard_hat_DOT_postal_code,
+            default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
+            default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+            default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+            default_DOT_municipality_dim.local_region default_DOT_municipality_dim_DOT_local_region,
+            default_DOT_hard_hat_to_delete.hire_date default_DOT_hard_hat_to_delete_DOT_hire_date,
+            sum(default_DOT_repair_order_details.price) + sum(default_DOT_repair_order_details.price) AS default_DOT_double_total_repair_cost
+          FROM default_DOT_repair_order_details
+          INNER JOIN default_DOT_repair_order
+            ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+          INNER JOIN default_DOT_hard_hat
+            ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+          INNER JOIN default_DOT_dispatcher
+            ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+          INNER JOIN default_DOT_municipality_dim
+            ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
+          LEFT JOIN default_DOT_hard_hat_to_delete
+            ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat_to_delete.hard_hat_id
+          WHERE default_DOT_hard_hat.state = 'AZ' AND default_DOT_dispatcher.company_name = 'Potts LLC'
+          GROUP BY default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code,
+            default_DOT_hard_hat.city, default_DOT_hard_hat.state,
+            default_DOT_dispatcher.company_name,
+            default_DOT_municipality_dim.local_region,
+            default_DOT_hard_hat_to_delete.hire_date
+        )
+        SELECT
+          default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_country,
+          default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_postal_code,
+          default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_city,
+          default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state,
+          default_DOT_repair_orders_fact_metrics.default_DOT_dispatcher_DOT_company_name,
+          default_DOT_repair_orders_fact_metrics.default_DOT_municipality_dim_DOT_local_region,
+          default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date,
+          default_DOT_repair_orders_fact_metrics.default_DOT_discounted_orders_rate,
+          default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
+          default_DOT_repair_orders_fact_metrics.default_DOT_avg_repair_price,
+          default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost,
+          default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_order_discounts,
+          default_DOT_repair_order_details_metrics.default_DOT_double_total_repair_cost
+        FROM default_DOT_repair_orders_fact_metrics
+        FULL JOIN default_DOT_repair_order_details_metrics
+          ON default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_country = default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_country
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_postal_code = default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_postal_code
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_city = default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_city
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state = default_DOT_repair_order_details_metrics.default_DOT_hard_hat_DOT_state
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_dispatcher_DOT_company_name = default_DOT_repair_order_details_metrics.default_DOT_dispatcher_DOT_company_name
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_municipality_dim_DOT_local_region = default_DOT_repair_order_details_metrics.default_DOT_municipality_dim_DOT_local_region
+          AND default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date = default_DOT_repair_order_details_metrics.default_DOT_hard_hat_to_delete_DOT_hire_date
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cube_filters_applied_in_v3_sql_via_cube_param(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Tests that when a cube is explicitly passed to /sql/metrics/v3/ or
+    /sql/measures/v3/ via the `cube` parameter, its stored filters are
+    automatically prepended to the query filters.
+    """
+    metrics = [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+    ]
+    dimensions = [
+        "default.hard_hat.state",
+        "default.dispatcher.company_name",
+    ]
+    metrics_q = "&".join(f"metrics={m}" for m in metrics)
+    dims_q = "&".join(f"dimensions={d}" for d in dimensions)
+
+    # /sql/metrics/v3/ with explicit cube — cube filter should be injected
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}&cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        WHERE repair_orders_fact_0.state = 'AZ'
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+    # /sql/measures/v3/ with explicit cube — cube filter should appear in grain group SQL
+    response = await client_with_repairs_cube.get(
+        f"/sql/measures/v3/?{metrics_q}&{dims_q}&cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    grain_groups = response.json()["grain_groups"]
+    assert len(grain_groups) == 1
+    assert_sql_equal(
+        grain_groups[0]["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        )
+        SELECT t2.state, t3.company_name,
+          COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+          COUNT(t1.price) price_count_935e7117,
+          SUM(t1.price) price_sum_935e7117,
+          SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+        FROM default_repair_orders_fact t1
+        INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+        INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+        WHERE t2.state = 'AZ'
+        GROUP BY t2.state, t3.company_name
+        """,
+    )
+
+    # Without cube param — no implicit filter injection from matching cube
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+    # Cube filter merges with additional request-time filter
+    response = await client_with_repairs_cube.get(
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}"
+        "&cube=default.repairs_cube"
+        "&filters=default.dispatcher.company_name='Potts LLC'",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, state FROM default.roads.hard_hats
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.hard_hat_id,
+            repair_orders.dispatcher_id, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.state, t3.company_name,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          WHERE t2.state = 'AZ' AND t3.company_name = 'Potts LLC'
+          GROUP BY t2.state, t3.company_name
+        )
+        SELECT repair_orders_fact_0.state AS state,
+          repair_orders_fact_0.company_name AS company_name,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost
+        FROM repair_orders_fact_0
+        WHERE repair_orders_fact_0.state = 'AZ' AND repair_orders_fact_0.company_name = 'Potts LLC'
+        GROUP BY repair_orders_fact_0.state, repair_orders_fact_0.company_name
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClient):
+    """
+    When only a cube is specified (no metrics, no dimensions), the endpoint
+    automatically uses the cube's own metrics and dimensions and applies its
+    stored filters.
+    """
+    # /sql/metrics/v3/ with cube only — all cube metrics + dims + filter
+    response = await client_with_repairs_cube.get(
+        "/sql/metrics/v3/?cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, city, state, postal_code, country FROM default.roads.hard_hats
+        ),
+        default_hard_hat_to_delete AS (
+          SELECT hard_hat_id, hire_date FROM default.roads.hard_hats
+        ),
+        default_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id, local_region
+          FROM default.roads.municipality AS m
+          LEFT JOIN default.roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN default.roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_repair_order AS (
+          SELECT repair_order_id FROM default.roads.repair_orders
+        ),
+        default_repair_orders_fact AS (
+          SELECT repair_orders.repair_order_id, repair_orders.municipality_id,
+            repair_orders.hard_hat_id, repair_orders.dispatcher_id,
+            repair_order_details.discount, repair_order_details.price,
+            repair_order_details.price * repair_order_details.quantity AS total_repair_cost
+          FROM default.roads.repair_orders repair_orders
+          JOIN default.roads.repair_order_details repair_order_details
+            ON repair_orders.repair_order_id = repair_order_details.repair_order_id
+        ),
+        repair_order_details_0 AS (
+          SELECT t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+            t5.local_region, t6.hire_date,
+            SUM(t1.price) price_sum_252381cf
+          FROM default.roads.repair_order_details t1
+          INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
+          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+          INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
+          INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
+          LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+            t5.local_region, t6.hire_date
+        ),
+        repair_orders_fact_0 AS (
+          SELECT t2.country, t2.postal_code, t2.city, t2.state, t3.company_name,
+            t4.local_region, t5.hire_date,
+            SUM(if(t1.discount > 0.0, 1, 0)) discount_sum_30b84e6c,
+            COUNT(*) count_c8e42e74,
+            COUNT(t1.repair_order_id) repair_order_id_count_bd241964,
+            COUNT(t1.price) price_count_935e7117,
+            SUM(t1.price) price_sum_935e7117,
+            SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
+            SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
+          FROM default_repair_orders_fact t1
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
+          LEFT OUTER JOIN default_hard_hat_to_delete t5 ON t1.hard_hat_id = t5.hard_hat_id
+          WHERE t2.state = 'AZ'
+          GROUP BY t2.country, t2.postal_code, t2.city, t2.state, t3.company_name,
+            t4.local_region, t5.hire_date
+        )
+        SELECT
+          COALESCE(repair_order_details_0.country, repair_orders_fact_0.country) AS country,
+          COALESCE(repair_order_details_0.postal_code, repair_orders_fact_0.postal_code) AS postal_code,
+          COALESCE(repair_order_details_0.city, repair_orders_fact_0.city) AS city,
+          COALESCE(repair_order_details_0.state, repair_orders_fact_0.state) AS state,
+          COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) AS company_name,
+          COALESCE(repair_order_details_0.local_region, repair_orders_fact_0.local_region) AS local_region,
+          COALESCE(repair_order_details_0.hire_date, repair_orders_fact_0.hire_date) AS hire_date,
+          CAST(SUM(repair_orders_fact_0.discount_sum_30b84e6c) AS DOUBLE) / SUM(repair_orders_fact_0.count_c8e42e74) AS discounted_orders_rate,
+          SUM(repair_orders_fact_0.repair_order_id_count_bd241964) AS num_repair_orders,
+          SUM(repair_orders_fact_0.price_sum_935e7117) / SUM(repair_orders_fact_0.price_count_935e7117) AS avg_repair_price,
+          SUM(repair_orders_fact_0.total_repair_cost_sum_67874507) AS total_repair_cost,
+          SUM(repair_orders_fact_0.price_discount_sum_e4ba5456) AS total_repair_order_discounts,
+          SUM(repair_order_details_0.price_sum_252381cf) + SUM(repair_order_details_0.price_sum_252381cf) AS double_total_repair_cost
+        FROM repair_order_details_0
+        FULL OUTER JOIN repair_orders_fact_0
+          ON repair_order_details_0.country = repair_orders_fact_0.country
+          AND repair_order_details_0.postal_code = repair_orders_fact_0.postal_code
+          AND repair_order_details_0.city = repair_orders_fact_0.city
+          AND repair_order_details_0.state = repair_orders_fact_0.state
+          AND repair_order_details_0.company_name = repair_orders_fact_0.company_name
+          AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
+          AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
+        WHERE repair_order_details_0.state = 'AZ'
+        GROUP BY
+          repair_order_details_0.country, repair_order_details_0.postal_code,
+          repair_order_details_0.city, repair_order_details_0.state,
+          repair_order_details_0.company_name, repair_order_details_0.local_region,
+          repair_order_details_0.hire_date
+        """,
+    )
+
+    # /sql/measures/v3/ with cube only — first grain group
+    response = await client_with_repairs_cube.get(
+        "/sql/measures/v3/?cube=default.repairs_cube",
+    )
+    assert response.status_code == 200
+    grain_groups = response.json()["grain_groups"]
+    assert len(grain_groups) == 2
+    assert_sql_equal(
+        grain_groups[0]["sql"],
+        """
+        WITH
+        default_dispatcher AS (
+          SELECT dispatcher_id, company_name FROM default.roads.dispatchers
+        ),
+        default_hard_hat AS (
+          SELECT hard_hat_id, city, state, postal_code, country FROM default.roads.hard_hats
+        ),
+        default_hard_hat_to_delete AS (
+          SELECT hard_hat_id, hire_date FROM default.roads.hard_hats
+        ),
+        default_municipality_dim AS (
+          SELECT m.municipality_id AS municipality_id, local_region
+          FROM default.roads.municipality AS m
+          LEFT JOIN default.roads.municipality_municipality_type AS mmt
+            ON m.municipality_id = mmt.municipality_id
+          LEFT JOIN default.roads.municipality_type AS mt
+            ON mmt.municipality_type_id = mt.municipality_type_desc
+        ),
+        default_repair_order AS (
+          SELECT repair_order_id FROM default.roads.repair_orders
+        )
+        SELECT t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+          t5.local_region, t6.hire_date,
+          SUM(t1.price) price_sum_252381cf
+        FROM default.roads.repair_order_details t1
+        INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
+        INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+        INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
+        INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
+        LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
+        WHERE t2.state = 'AZ'
+        GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
+          t5.local_region, t6.hire_date
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_v3_cube_param_edge_cases(client_with_repairs_cube: AsyncClient):
+    """
+    Tests edge cases for the cube= parameter in v3 SQL endpoints covering
+    the three uncovered branches:
+      1. cube_node is None (nonexistent cube name) — falls through, no filters applied
+      2. cube_node.current.cube_filters is empty — skips filter merge, still auto-populates
+      3. Explicit dimensions provided with cube= — auto-populates metrics, keeps dims
+    """
+    metrics_q = "metrics=default.num_repair_orders&metrics=default.avg_repair_price"
+    dims_q = "dimensions=default.hard_hat.state"
+
+    # Case 1: Invalid cube name — cube_node is None, falls through without applying filters.
+    # Explicit metrics + dims are provided so SQL generation still succeeds.
+    for endpoint in [
+        f"/sql/metrics/v3/?{metrics_q}&{dims_q}&cube=default.nonexistent_cube",
+        f"/sql/measures/v3/?{metrics_q}&{dims_q}&cube=default.nonexistent_cube",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
+
+    # Case 2: Cube with no cube_filters — the if-cube_filters branch is skipped,
+    # but metrics/dims are still auto-populated from the cube.
+    response = await client_with_repairs_cube.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.state"],
+            "description": "Cube without filters for edge-case coverage",
+            "mode": "published",
+            "name": "default.repairs_cube_no_filters",
+        },
+    )
+    assert response.status_code == 201
+    for endpoint in [
+        "/sql/metrics/v3/?cube=default.repairs_cube_no_filters",
+        "/sql/measures/v3/?cube=default.repairs_cube_no_filters",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
+
+    # Case 3: Explicit dimensions provided with cube= but no metrics.
+    # Metrics are auto-populated from the cube; the if-not-dimensions branch is skipped
+    # because dimensions are already provided.
+    for endpoint in [
+        f"/sql/metrics/v3/?{dims_q}&cube=default.repairs_cube",
+        f"/sql/measures/v3/?{dims_q}&cube=default.repairs_cube",
+    ]:
+        response = await client_with_repairs_cube.get(endpoint)
+        assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -3955,7 +4537,6 @@ class TestCubeDeactivateSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4030,7 +4611,6 @@ class TestCubeDeactivateSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4111,7 +4691,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4194,7 +4773,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4265,7 +4843,6 @@ class TestCubeBackfillSuccessPaths:
         client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
             lambda: mock_qs_client
         )
-
         # Create materialization
         response = await client_with_repairs_cube.post(
             f"/cubes/{cube_name}/materialize",
@@ -4292,6 +4869,7 @@ class TestCubeRefreshMaterialization:
     async def test_refresh_materialization_no_version_bump(
         self,
         client_with_repairs_cube: AsyncClient,
+        module__session,
         mocker,
     ):
         """
@@ -4299,6 +4877,15 @@ class TestCubeRefreshMaterialization:
         calls refresh_cube_materialization without bumping the version.
         """
         cube_name = "default.test_refresh_cube"
+        # Set up mock QS client before make_a_test_cube so the upsert_materialization
+        # endpoint has a properly configured mock (not a leaked one from a prior test).
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize.return_value = mocker.MagicMock(
+            urls=["http://workflow/setup"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
         await make_a_test_cube(
             client_with_repairs_cube,
             cube_name,
@@ -4319,9 +4906,7 @@ class TestCubeRefreshMaterialization:
         from datajunction_server.database.materialization import Materialization
         from datajunction_server.database.node import NodeRevision
 
-        session_factory = client_with_repairs_cube.app.dependency_overrides[get_session]
-        session = session_factory()
-        result = await session.execute(
+        result = await module__session.execute(
             select(NodeRevision).where(NodeRevision.name == cube_name),
         )
         node_rev = result.scalars().first()
@@ -4334,15 +4919,12 @@ class TestCubeRefreshMaterialization:
             job="DruidCubeMaterializationJob",
             deactivated_at=datetime.now(timezone.utc),
         )
-        session.add(deactivated_mat)
-        await session.commit()
+        module__session.add(deactivated_mat)
+        await module__session.commit()
 
-        # Mock the refresh method on the query service client
-        qs_client = client_with_repairs_cube.app.dependency_overrides[
-            get_query_service_client
-        ]()
+        # Mock the refresh method on the query service client (set up above)
         mock_refresh = mocker.patch.object(
-            qs_client,
+            mock_qs_client,
             "refresh_cube_materialization",
             return_value=mocker.MagicMock(urls=["http://workflow/refreshed"]),
         )
@@ -4367,7 +4949,7 @@ class TestCubeRefreshMaterialization:
         assert "deactivated_mat" in mat_names
 
         # Verify the materialization was re-activated in the DB
-        await session.refresh(deactivated_mat)
+        await module__session.refresh(deactivated_mat)
         assert deactivated_mat.deactivated_at is None
 
         # Verify version didn't change

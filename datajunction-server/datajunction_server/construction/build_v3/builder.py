@@ -437,8 +437,8 @@ async def build_metrics_sql(
         use_materialized=use_materialized,
     )
 
-    # Try cube match - if found, use cube path
-    # Use pre-resolved cube if available (avoids duplicate find_matching_cube call)
+    # Use materialized cube if available.
+    # Use pre-resolved cube if available (avoids duplicate find_matching_cube call).
     if use_materialized:
         cube = (
             matched_cube
@@ -450,16 +450,13 @@ async def build_metrics_sql(
                 require_availability=True,
             )
         )
-        if cube:
-            logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
-            result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+    else:
+        cube = None
 
-            # For cubes, scan estimate would be the cube table itself (already materialized)
-            # We could calculate it here if needed, but cubes are typically small compared to source tables
-            # For now, we'll leave it None for cube queries
-            # TODO: Add cube table size to scan estimate if cube availability has size metadata
-
-            return apply_orderby_limit(result, orderby, limit)
+    if use_materialized and cube and cube.availability:
+        logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
+        result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
+        return apply_orderby_limit(result, orderby, limit)
 
     # No cube - build grain groups
     measures_result = await build_grain_groups(ctx, metrics)

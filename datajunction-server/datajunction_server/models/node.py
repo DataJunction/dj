@@ -1020,6 +1020,7 @@ class NodeOutput(GenericNodeOutputModel):
     missing_table: bool | None = False
     custom_metadata: dict | None = None
     owners: list[UserNameOnly] = Field(default_factory=list)
+    cube_filters: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
