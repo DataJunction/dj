@@ -1579,5 +1579,5 @@ async def copy_node(
 
     # Copy existing node to the new name
     await copy_to_new_node(session, node_name, new_name, current_user, save_history)
-    new_node = await Node.get_by_name(session, new_name)
+    new_node = await get_node_by_name(session, new_name, with_current=True)
     return new_node  # type: ignore
