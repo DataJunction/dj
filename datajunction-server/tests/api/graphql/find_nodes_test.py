@@ -547,6 +547,7 @@ async def test_find_transform(
                     minTemporalPartition
                     maxTemporalPartition
                 }
+                cubeFilters
                 cubeMetrics {
                     name
                 }
@@ -576,6 +577,7 @@ async def test_find_transform(
         {
             "current": {
                 "availability": None,
+                "cubeFilters": [],
                 "cubeDimensions": [],
                 "cubeMetrics": [],
                 "materializations": [],
@@ -757,6 +759,7 @@ async def test_find_cubes(
             name
             type
             current {
+                cubeFilters
                 cubeMetrics {
                     name
                     description
@@ -778,6 +781,7 @@ async def test_find_cubes(
     assert data["data"]["findNodes"] == [
         {
             "current": {
+                "cubeFilters": ["default.hard_hat.state='AZ'"],
                 "cubeDimensions": [
                     {
                         "dimensionNode": {
