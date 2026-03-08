@@ -16,6 +16,12 @@ engines:
     version: ''
     type: sqlalchemy
     uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj
+  # - name: bigquery
+  #   version: ''
+  #   type: bigquery
+  #   uri: bigquery:///
+  #   extra_params:
+  #     project: <your-gcp-project>
 catalogs:
   - name: warehouse
     engines:
@@ -26,3 +32,6 @@ catalogs:
   - name: dj
     engines:
       - dj_system
+  # - name: <your-gcp-project>
+  #   engines:
+  #     - bigquery

@@ -27,6 +27,7 @@ class Dialect(StrEnum):
     REDSHIFT = "redshift"
     SNOWFLAKE = "snowflake"
     SQLITE = "sqlite"
+    BIGQUERY = "bigquery"
 
     @classmethod
     def _missing_(cls, value: object) -> "Dialect":

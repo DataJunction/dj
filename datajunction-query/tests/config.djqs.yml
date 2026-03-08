@@ -13,6 +13,12 @@ engines:
     version: 7.37
     type: snowflake
     uri: "snowflake:///"
+  - name: bigquery_test
+    version: "2.0"
+    type: bigquery
+    uri: "bigquery:///"
+    extra_params:
+      project: test-project
   - name: sqlite_inmemory
     version: 1.0
     type: sqlalchemy
@@ -27,6 +33,9 @@ catalogs:
   - name: snowflake_warehouse
     engines:
       - snowflake_test
+  - name: bigquery_warehouse
+    engines:
+      - bigquery_test
   - name: sqlite_warehouse
     engines:
       - sqlite_inmemory

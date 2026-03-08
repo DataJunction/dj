@@ -41,6 +41,38 @@ class DatabaseConfig(BaseModel):
 class QueryClientConfig(BaseModel):
     """
     Configuration for query service clients.
+
+    Set via environment variables using double-underscore delimiters, e.g.::
+
+        QUERY_CLIENT__TYPE=bigquery
+        QUERY_CLIENT__CONNECTION__PROJECT=my-gcp-project
+
+    Supported client types and their required connection parameters:
+
+    **http** (default)::
+
+        QUERY_CLIENT__TYPE=http
+        QUERY_CLIENT__CONNECTION__URI=http://djqs:8001
+
+    **snowflake**::
+
+        QUERY_CLIENT__TYPE=snowflake
+        QUERY_CLIENT__CONNECTION__ACCOUNT=my-account
+        QUERY_CLIENT__CONNECTION__USER=my-user
+        QUERY_CLIENT__CONNECTION__PASSWORD=my-password
+
+    **bigquery**::
+
+        QUERY_CLIENT__TYPE=bigquery
+        QUERY_CLIENT__CONNECTION__PROJECT=my-gcp-project
+        # Optional: path to a service account JSON key file
+        QUERY_CLIENT__CONNECTION__CREDENTIALS_PATH=/path/to/service-account.json
+        # Optional: BigQuery location (e.g. US, EU)
+        QUERY_CLIENT__CONNECTION__LOCATION=US
+
+    When multiple DJ catalogs map to different GCP projects, set the engine URI
+    on the DJ engine to ``bigquery://my-gcp-project`` — the project is resolved
+    from the engine URI first, falling back to ``PROJECT`` above.
     """
 
     # Type of query client: 'http', 'snowflake', 'bigquery', 'databricks', 'trino', etc.
