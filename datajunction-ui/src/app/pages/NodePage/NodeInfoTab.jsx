@@ -305,7 +305,9 @@ export default function NodeInfoTab({ node }) {
           </div>
           {node?.cube_filters?.length > 0 && (
             <>
-              <h6 className="mb-0 w-100" style={{ marginTop: '1rem' }}>Cube Filters</h6>
+              <h6 className="mb-0 w-100" style={{ marginTop: '1rem' }}>
+                Cube Filters
+              </h6>
               <div style={{ marginTop: '0.5rem' }}>
                 {node.cube_filters.map((filter, idx) => (
                   <div
