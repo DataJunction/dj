@@ -522,6 +522,7 @@ class Node(Base):
             extra_kwargs.update(
                 metrics=self.current.cube_node_metrics,
                 dimensions=self.current.cube_node_dimensions,
+                filters=self.current.cube_filters or None,
             )
 
         node_spec_cls = node_spec_class_map[self.type]
@@ -1063,6 +1064,13 @@ class NodeRevision(
         primaryjoin="NodeRevision.metric_metadata_id==MetricMetadata.id",
         cascade="all, delete",
         uselist=False,
+    )
+
+    # Filters that are always applied when generating SQL for a cube node
+    cube_filters: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
     )
 
     # A list of metric columns and dimension columns, only used by cube nodes

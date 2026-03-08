@@ -347,6 +347,7 @@ type NodeRevision {
   isDerivedMetric: Boolean!
   extractedMeasures: DecomposedMetric
   cubeMetrics: [NodeRevision!]!
+  cubeFilters: [String!]!
   cubeDimensions: [DimensionAttribute!]!
 }
 

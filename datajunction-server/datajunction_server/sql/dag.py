@@ -822,10 +822,21 @@ async def get_dimensions(
     all non-metric parents.
     """
     if node.type != NodeType.METRIC:
-        await session.refresh(node, attribute_names=["current"])
+        node_revision = (
+            (
+                await session.execute(
+                    select(NodeRevision).where(
+                        NodeRevision.node_id == node.id,
+                        NodeRevision.version == node.current_version,
+                    ),
+                )
+            )
+            .scalars()
+            .first()
+        )
         return await get_dimensions_dag(
             session,
-            node.current,
+            node_revision,
             with_attributes,
             depth=depth,
         )
@@ -841,10 +852,21 @@ async def get_dimensions(
     # Get dimensions for all ultimate parents
     all_dimensions: List[List[DimensionAttributeOutput]] = []
     for parent in ultimate_parents:
-        await session.refresh(parent, attribute_names=["current"])
+        node_revision = (
+            (
+                await session.execute(
+                    select(NodeRevision).where(
+                        NodeRevision.node_id == parent.id,
+                        NodeRevision.version == parent.current_version,
+                    ),
+                )
+            )
+            .scalars()
+            .first()
+        )
         parent_dims = await get_dimensions_dag(
             session,
-            parent.current,
+            node_revision,
             with_attributes,
             depth=depth,
         )

@@ -90,11 +90,14 @@ async def build_node_sql(
         dimensions = list(
             OrderedDict.fromkeys(node.current.cube_node_dimensions + dimensions),
         )
+        # Prepend cube-level stored filters before any request-provided filters
+        cube_stored_filters = node.current.cube_filters or []
+        combined_filters = cube_stored_filters + (filters or [])
         translated_sql, engine, _ = await build_sql_for_multiple_metrics(
             session=session,
             metrics=node.current.cube_node_metrics,
             dimensions=dimensions,
-            filters=filters,
+            filters=combined_filters,
             orderby=orderby,
             limit=limit,
             engine_name=engine.name if engine else None,
