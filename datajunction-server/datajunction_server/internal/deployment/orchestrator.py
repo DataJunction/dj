@@ -1578,6 +1578,7 @@ class DeploymentOrchestrator:
             node=new_node,
             version=new_node.current_version,
             mode=cube_spec.mode,
+            cube_filters=cube_spec.rendered_filters or [],
         )
         return node_revision
 
