@@ -157,7 +157,7 @@ class DeploymentService:
         table.add_column("Name", style="magenta")
         table.add_column("Operation", style="yellow")
         table.add_column("Status", style="green")
-        table.add_column("Message", style="white")
+        table.add_column("Message", style="white", overflow="fold", ratio=3)
 
         color_mapping = {
             "success": "bold green",
