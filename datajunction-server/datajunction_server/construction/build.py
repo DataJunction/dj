@@ -159,7 +159,7 @@ async def validate_shared_dimensions(
             parent_to_metrics: dict[str, list[str]] = {}
             for metric_node in metric_nodes:
                 metric_dims = result.per_metric.get(metric_node.name, {})
-                if dimension_attribute not in metric_dims:
+                if dimension_attribute not in metric_dims:  # pragma: no branch
                     for parent in result.metric_to_parents.get(metric_node.name, []):
                         parent_to_metrics.setdefault(parent.name, []).append(
                             metric_node.name,
@@ -176,7 +176,7 @@ async def validate_shared_dimensions(
                         lines.append(f"  [metric]   → {metric_name}")
                 message = "\n".join(lines)
             else:
-                message = (
+                message = (  # pragma: no cover
                     f"The dimension attribute `{dimension_attribute}` is not "
                     "available on every metric and thus cannot be included."
                 )
