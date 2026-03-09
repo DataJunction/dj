@@ -900,12 +900,28 @@ async def get_filter_only_dimensions(
     or retrieved as a part of the node's SELECT clause.
     """
     filter_only_dimensions = []
-    upstreams = await get_upstream_nodes(session, node_name, node_type=NodeType.SOURCE)
+    upstreams = await get_upstream_nodes(
+        session,
+        node_name,
+        node_type=NodeType.SOURCE,
+        options=[
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.dimension_links).options(
+                    selectinload(DimensionLink.dimension).options(
+                        selectinload(Node.current).options(
+                            selectinload(NodeRevision.columns).options(
+                                selectinload(Column.attributes).joinedload(
+                                    ColumnAttribute.attribute_type,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ],
+    )
     for upstream in upstreams:
-        await session.refresh(upstream.current, ["dimension_links"])
         for link in upstream.current.dimension_links:
-            await session.refresh(link.dimension, ["current"])
-            await session.refresh(link.dimension.current)
             column_mapping = {col.name: col for col in link.dimension.current.columns}
             filter_only_dimensions.extend(
                 [
