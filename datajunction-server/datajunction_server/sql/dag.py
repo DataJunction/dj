@@ -904,7 +904,7 @@ async def get_filter_only_dimensions(
         await session.refresh(upstream.current, ["dimension_links"])
         for link in upstream.current.dimension_links:
             await session.refresh(link.dimension, ["current"])
-            await session.refresh(link.dimension.current, ["columns"])
+            await session.refresh(link.dimension.current)
             column_mapping = {col.name: col for col in link.dimension.current.columns}
             filter_only_dimensions.extend(
                 [
