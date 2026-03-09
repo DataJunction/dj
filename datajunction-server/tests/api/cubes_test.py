@@ -190,20 +190,12 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
     )
     assert response.status_code == 422
     data = response.json()
-    assert data == {
-        "message": "The dimension attribute `default.payment_type.payment_type_name` "
-        "is not available on every metric and thus cannot be included.",
-        "errors": [
-            {
-                "code": 601,
-                "context": "",
-                "debug": None,
-                "message": "The dimension attribute `default.payment_type.payment_type_name` "
-                "is not available on every metric and thus cannot be included.",
-            },
-        ],
-        "warnings": [],
-    }
+    assert "default.payment_type.payment_type_name" in data["message"]
+    assert "is not available on every metric" in data["message"]
+    assert "[parent]" in data["message"]
+    assert "[metric]" in data["message"]
+    assert len(data["errors"]) == 1
+    assert data["errors"][0]["code"] == 601
 
     # Check that creating a cube with no metric nodes fails appropriately
     response = await module__client_with_account_revenue.post(
@@ -476,10 +468,8 @@ async def test_invalid_cube(module__client_with_roads: AsyncClient):
             "name": "default.repairs_cube",
         },
     )
-    assert response.json()["message"] == (
-        "The dimension attribute `default.contractor.company_name` "
-        "is not available on every metric and thus cannot be included."
-    )
+    assert "default.contractor.company_name" in response.json()["message"]
+    assert "is not available on every metric" in response.json()["message"]
 
 
 @pytest.mark.asyncio

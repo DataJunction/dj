@@ -7,6 +7,7 @@ import itertools
 import logging
 import time
 from collections import namedtuple
+from dataclasses import dataclass, field
 from typing import Dict, List, Union, cast
 
 from sqlalchemy import and_, func, join, or_, select, text, bindparam
@@ -941,10 +942,23 @@ async def group_dimensions_by_name(
     }
 
 
+@dataclass
+class SharedDimensionsResult:
+    """Result of get_shared_dimensions, carrying both the shared list and per-metric detail."""
+
+    shared: List[DimensionAttributeOutput] = field(default_factory=list)
+    # metric_name → {dim_name → [DimensionAttributeOutput]}
+    per_metric: Dict[str, Dict[str, List[DimensionAttributeOutput]]] = field(
+        default_factory=dict,
+    )
+    # metric_name → [parent Node]
+    metric_to_parents: Dict[str, List[Node]] = field(default_factory=dict)
+
+
 async def get_shared_dimensions(
     session: AsyncSession,
     metric_nodes: List[Node],
-) -> List[DimensionAttributeOutput]:
+) -> SharedDimensionsResult:
     """
     Return a list of dimensions that are common between the metric nodes.
 
@@ -959,7 +973,7 @@ async def get_shared_dimensions(
     while still ensuring compatibility when querying multiple metrics together.
     """
     if not metric_nodes:
-        return []
+        return SharedDimensionsResult()
 
     # Get the per-metric parent mapping (batched for efficiency)
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
@@ -977,8 +991,8 @@ async def get_shared_dimensions(
         parent_dims = await group_dimensions_by_name(session, parent)
         parent_dims_cache[parent_id] = parent_dims
 
-    # Map cached results back to each metric
-    per_metric_dimensions: List[Dict[str, List[DimensionAttributeOutput]]] = []
+    # Map cached results back to each metric, keyed by metric name
+    per_metric: Dict[str, Dict[str, List[DimensionAttributeOutput]]] = {}
     for metric_node in metric_nodes:
         parents = metric_to_parents.get(metric_node.name, [])
         if not parents:
@@ -993,35 +1007,45 @@ async def get_shared_dimensions(
                     dims_by_name[dim_name] = dim_list
                 # If already present, keep existing (they should be equivalent)
 
-        per_metric_dimensions.append(dims_by_name)
+        per_metric[metric_node.name] = dims_by_name
 
-    if not per_metric_dimensions:
-        return []  # pragma: no cover
+    if not per_metric:
+        return SharedDimensionsResult(
+            metric_to_parents=metric_to_parents,
+        )  # pragma: no cover
 
-    if len(per_metric_dimensions) == 1:
+    per_metric_list = list(per_metric.values())
+
+    if len(per_metric_list) == 1:
         # Single metric - return all its dimensions
-        return sorted(
-            [dim for dims in per_metric_dimensions[0].values() for dim in dims],
+        shared = sorted(
+            [dim for dims in per_metric_list[0].values() for dim in dims],
             key=lambda x: (x.name, x.path),
+        )
+        return SharedDimensionsResult(
+            shared=shared,
+            per_metric=per_metric,
+            metric_to_parents=metric_to_parents,
         )
 
     # Multiple metrics - find intersection across metrics
-    common_names = set(per_metric_dimensions[0].keys())
-    for dims_by_name in per_metric_dimensions[1:]:
+    common_names = set(per_metric_list[0].keys())
+    for dims_by_name in per_metric_list[1:]:
         common_names &= set(dims_by_name.keys())
 
-    if not common_names:
-        return []
-
-    # Return dimensions from first metric that are in the intersection
-    return sorted(
+    shared = sorted(
         [
             dim
-            for name, dims in per_metric_dimensions[0].items()
+            for name, dims in per_metric_list[0].items()
             if name in common_names
             for dim in dims
         ],
         key=lambda x: (x.name, x.path),
+    )
+    return SharedDimensionsResult(
+        shared=shared,
+        per_metric=per_metric,
+        metric_to_parents=metric_to_parents,
     )
 
 
