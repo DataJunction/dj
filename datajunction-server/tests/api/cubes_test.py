@@ -190,12 +190,26 @@ async def test_create_invalid_cube(module__client_with_account_revenue: AsyncCli
     )
     assert response.status_code == 422
     data = response.json()
-    assert "default.payment_type.payment_type_name" in data["message"]
-    assert "is not available on every metric" in data["message"]
-    assert "[parent]" in data["message"]
-    assert "[metric]" in data["message"]
-    assert len(data["errors"]) == 1
-    assert data["errors"][0]["code"] == 601
+    assert data == {
+        "errors": [
+            {
+                "code": 601,
+                "context": "",
+                "debug": None,
+                "message": "The dimension attribute `default.payment_type.payment_type_name` "
+                "is not available on every metric. Add a dimension link on:\n"
+                "\n"
+                "  [parent] default.account_type\n"
+                "  [metric]   → default.number_of_account_types",
+            },
+        ],
+        "message": "The dimension attribute `default.payment_type.payment_type_name` is not "
+        "available on every metric. Add a dimension link on:\n"
+        "\n"
+        "  [parent] default.account_type\n"
+        "  [metric]   → default.number_of_account_types",
+        "warnings": [],
+    }
 
     # Check that creating a cube with no metric nodes fails appropriately
     response = await module__client_with_account_revenue.post(
@@ -468,8 +482,34 @@ async def test_invalid_cube(module__client_with_roads: AsyncClient):
             "name": "default.repairs_cube",
         },
     )
-    assert "default.contractor.company_name" in response.json()["message"]
-    assert "is not available on every metric" in response.json()["message"]
+    assert response.json() == {
+        "errors": [
+            {
+                "code": 601,
+                "context": "",
+                "debug": None,
+                "message": "The dimension attribute `default.contractor.company_name` is not "
+                "available on every metric. Add a dimension link on:\n"
+                "\n"
+                "  [parent] default.repair_orders_fact\n"
+                "  [metric]   → default.discounted_orders_rate\n"
+                "  [metric]   → default.num_repair_orders\n"
+                "  [metric]   → default.avg_repair_price\n"
+                "  [metric]   → default.total_repair_cost\n"
+                "  [metric]   → default.total_repair_order_discounts",
+            },
+        ],
+        "message": "The dimension attribute `default.contractor.company_name` is not "
+        "available on every metric. Add a dimension link on:\n"
+        "\n"
+        "  [parent] default.repair_orders_fact\n"
+        "  [metric]   → default.discounted_orders_rate\n"
+        "  [metric]   → default.num_repair_orders\n"
+        "  [metric]   → default.avg_repair_price\n"
+        "  [metric]   → default.total_repair_cost\n"
+        "  [metric]   → default.total_repair_order_discounts",
+        "warnings": [],
+    }
 
 
 @pytest.mark.asyncio
