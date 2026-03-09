@@ -50,6 +50,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     activate_node,
     create_a_cube,
@@ -332,10 +333,10 @@ async def get_node(
         raise_if_not_exists=True,
     )
     assert node is not None  # raise_if_not_exists=True ensures this
-    # Create NodeOutput and explicitly populate git_info from the Node property
     output = NodeOutput.model_validate(node)
-    if node.git_info:
-        output.git_info = GitRepositoryInfo(**node.git_info)
+    git_info = await get_git_info_for_namespace(session, node.namespace)
+    if git_info:
+        output.git_info = GitRepositoryInfo(**git_info)
     return output
 
 
