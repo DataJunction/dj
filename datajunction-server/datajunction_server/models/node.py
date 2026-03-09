@@ -1029,7 +1029,6 @@ class NodeOutput(GenericNodeOutputModel):
         """
         ORM options to successfully load this object
         """
-        from datajunction_server.database.namespace import NodeNamespace
         from datajunction_server.database.node import (
             Node,
             NodeRevision,
@@ -1040,11 +1039,6 @@ class NodeOutput(GenericNodeOutputModel):
             joinedload(Node.tags),
             selectinload(Node.created_by),
             selectinload(Node.owners),
-            # Load namespace and its parent for git_info using selectinload
-            # to avoid conflicts with FOR UPDATE queries (can't use joinedload)
-            selectinload(Node.namespace_obj).selectinload(
-                NodeNamespace.parent_namespace_obj,
-            ),
         ]
 
 
