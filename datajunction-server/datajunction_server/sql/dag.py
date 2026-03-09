@@ -1010,9 +1010,9 @@ async def get_shared_dimensions(
         per_metric[metric_node.name] = dims_by_name
 
     if not per_metric:
-        return SharedDimensionsResult(
+        return SharedDimensionsResult(  # pragma: no cover
             metric_to_parents=metric_to_parents,
-        )  # pragma: no cover
+        )
 
     per_metric_list = list(per_metric.values())
 
