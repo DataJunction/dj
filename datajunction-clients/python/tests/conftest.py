@@ -311,6 +311,7 @@ def patch_session_contexts(
     @asynccontextmanager
     async def fake_session_context(
         request: Request = None,
+        **kwargs,
     ) -> AsyncGenerator[AsyncSession, None]:
         session = await session_factory()
         try:
