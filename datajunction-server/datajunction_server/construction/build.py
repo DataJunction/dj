@@ -151,15 +151,35 @@ async def validate_shared_dimensions(
     """
     Determine if dimensions are shared.
     """
-    shared_dimensions = [
-        dim.name for dim in await get_shared_dimensions(session, metric_nodes)
-    ]
+    result = await get_shared_dimensions(session, metric_nodes)
+    shared_dimension_names = {dim.name for dim in result.shared}
     for dimension_attribute in dimensions:
-        if dimension_attribute not in shared_dimensions:
-            message = (
-                f"The dimension attribute `{dimension_attribute}` is not "
-                "available on every metric and thus cannot be included."
-            )
+        if dimension_attribute not in shared_dimension_names:
+            # Group missing metrics by parent node for a more actionable error
+            parent_to_metrics: dict[str, list[str]] = {}
+            for metric_node in metric_nodes:
+                metric_dims = result.per_metric.get(metric_node.name, {})
+                if dimension_attribute not in metric_dims:
+                    for parent in result.metric_to_parents.get(metric_node.name, []):
+                        parent_to_metrics.setdefault(parent.name, []).append(
+                            metric_node.name,
+                        )
+
+            if parent_to_metrics:
+                lines = [
+                    f"The dimension attribute `{dimension_attribute}` is not "
+                    "available on every metric. Add a dimension link on:\n",
+                ]
+                for parent_name, metric_names in parent_to_metrics.items():
+                    lines.append(f"  [parent] {parent_name}")
+                    for metric_name in metric_names:
+                        lines.append(f"  [metric]   → {metric_name}")
+                message = "\n".join(lines)
+            else:
+                message = (
+                    f"The dimension attribute `{dimension_attribute}` is not "
+                    "available on every metric and thus cannot be included."
+                )
             raise DJInvalidInputException(
                 message,
                 errors=[DJError(code=ErrorCode.INVALID_DIMENSION, message=message)],

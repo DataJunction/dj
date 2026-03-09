@@ -2112,7 +2112,7 @@ class TestGetSharedDimensions:
         Test that an empty list of metrics returns an empty list.
         """
         result = await get_shared_dimensions(session, [])
-        assert result == []
+        assert result.shared == []
 
     @pytest.mark.asyncio
     async def test_single_base_metric_returns_all_dimensions(
@@ -2126,7 +2126,7 @@ class TestGetSharedDimensions:
         graph = shared_dims_test_graph
         result = await get_shared_dimensions(session, [graph["revenue"]])
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # revenue comes from orders_source which has date and customer dimensions
         assert "shared_dims.dim_date.id" in dim_names
         assert "shared_dims.dim_date.day" in dim_names
@@ -2149,7 +2149,7 @@ class TestGetSharedDimensions:
         graph = shared_dims_test_graph
         result = await get_shared_dimensions(session, [graph["revenue_per_order"]])
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # Both base metrics come from orders_source -> date + customer dims
         assert "shared_dims.dim_date.id" in dim_names
         assert "shared_dims.dim_customer.id" in dim_names
@@ -2169,7 +2169,7 @@ class TestGetSharedDimensions:
         graph = shared_dims_test_graph
         result = await get_shared_dimensions(session, [graph["revenue_per_pageview"]])
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # Both orders and events sources have date and customer dims
         assert "shared_dims.dim_date.id" in dim_names
         assert "shared_dims.dim_customer.id" in dim_names
@@ -2193,7 +2193,7 @@ class TestGetSharedDimensions:
         )
 
         # No shared dimensions between orders-based and inventory-based metrics
-        assert result == []
+        assert result.shared == []
 
     @pytest.mark.asyncio
     async def test_multiple_metrics_from_same_source(
@@ -2211,7 +2211,7 @@ class TestGetSharedDimensions:
             [graph["revenue"], graph["orders_count"]],
         )
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # Both from orders_source -> should have all date + customer dims
         assert "shared_dims.dim_date.id" in dim_names
         assert "shared_dims.dim_date.day" in dim_names
@@ -2234,7 +2234,7 @@ class TestGetSharedDimensions:
             [graph["revenue"], graph["page_views"]],
         )
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # Intersection of orders and events dimensions
         assert "shared_dims.dim_date.id" in dim_names
         assert "shared_dims.dim_customer.id" in dim_names
@@ -2264,9 +2264,9 @@ class TestGetSharedDimensions:
         revenue_dims = await get_shared_dimensions(session, [graph["revenue"]])
         pageviews_dims = await get_shared_dimensions(session, [graph["page_views"]])
 
-        derived_dim_names = {d.name for d in derived_dims}
-        revenue_dim_names = {d.name for d in revenue_dims}
-        pageviews_dim_names = {d.name for d in pageviews_dims}
+        derived_dim_names = {d.name for d in derived_dims.shared}
+        revenue_dim_names = {d.name for d in revenue_dims.shared}
+        pageviews_dim_names = {d.name for d in pageviews_dims.shared}
 
         # Derived metric should have union of its base metrics' dimensions
         # Since both have the same dims, the union equals each individual set
@@ -2285,7 +2285,7 @@ class TestGetSharedDimensions:
         graph = shared_dims_test_graph
         result = await get_shared_dimensions(session, [graph["inventory_total"]])
 
-        dim_names = {d.name for d in result}
+        dim_names = {d.name for d in result.shared}
         # Only warehouse dimension
         assert "shared_dims.dim_warehouse.id" in dim_names
         assert "shared_dims.dim_warehouse.location" in dim_names
