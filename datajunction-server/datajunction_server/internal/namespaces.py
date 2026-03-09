@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import or_, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -235,6 +235,43 @@ def get_parent_namespaces(namespace: str):
     """
     parts = namespace.split(SEPARATOR)
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
+
+
+async def get_git_info_for_namespace(
+    session: AsyncSession,
+    namespace: str,
+) -> Optional[dict]:
+    """
+    Return git repository info for a namespace by walking up the namespace
+    hierarchy (derived from the namespace string, not the parent_namespace FK).
+
+    Loads all ancestor NodeNamespace objects in one query, then walks from most
+    specific to least specific to find the first ancestor with git config.
+    """
+    ancestor_names = get_parent_namespaces(namespace) + [namespace]
+    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
+    rows = (await session.execute(stmt)).scalars().all()
+    ns_map = {ns.namespace: ns for ns in rows}
+
+    # Walk from most specific to least specific to find git config
+    for name in reversed(ancestor_names):
+        ns = ns_map.get(name)
+        if ns and ns.github_repo_path:
+            actual_ns = ns_map.get(namespace)
+            return {
+                "repo": ns.github_repo_path,
+                "branch": actual_ns.git_branch if actual_ns else None,
+                "default_branch": ns.default_branch,
+                "path": ns.git_path,
+                "is_default_branch": (
+                    actual_ns.git_branch == ns.default_branch
+                    if actual_ns and actual_ns.git_branch and ns.default_branch
+                    else True
+                ),
+                "parent_namespace": actual_ns.parent_namespace if actual_ns else None,
+                "git_only": ns.git_only,
+            }
+    return None
 
 
 async def create_namespace(
