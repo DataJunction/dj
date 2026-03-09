@@ -4884,10 +4884,10 @@ async def test_role_path_dimensions_error_handling(
         },
     )
     # Should return an error for invalid role
-    assert response.json()["message"] == (
-        "The dimension attribute `default.special_country_dim.name[invalid_role]` "
-        "is not available on every metric and thus cannot be included."
+    assert (
+        "default.special_country_dim.name[invalid_role]" in response.json()["message"]
     )
+    assert "is not available on every metric" in response.json()["message"]
 
     # Test with malformed role path syntax
     response = await module__client_with_examples.get(

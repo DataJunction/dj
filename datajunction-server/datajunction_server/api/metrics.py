@@ -153,4 +153,4 @@ async def get_common_dimensions(
 
     if input_errors:
         raise DJInvalidInputException(errors=input_errors)
-    return await get_shared_dimensions(session, metric_nodes)
+    return (await get_shared_dimensions(session, metric_nodes)).shared
