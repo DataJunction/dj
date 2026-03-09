@@ -72,7 +72,7 @@ jobs:
 
       - name: Run Tests
         if: |
-          (matrix.library == 'client' && needs.changes.outputs.client == 'true') ||
+          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true')) ||
           (matrix.library == 'server' && needs.changes.outputs.server == 'true') ||
           (matrix.library == 'djqs' && needs.changes.outputs.djqs == 'true') ||
           (matrix.library == 'djrs' && needs.changes.outputs.djrs == 'true')
