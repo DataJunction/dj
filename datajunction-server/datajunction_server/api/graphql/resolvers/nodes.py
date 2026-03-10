@@ -14,7 +14,7 @@ from datajunction_server.api.graphql.scalars.node import NodeName, NodeSortField
 from datajunction_server.api.graphql.scalars.sql import CubeDefinition
 from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.namespace import NodeNamespace as DBNodeNamespace
+
 from datajunction_server.database.node import Column, ColumnAttribute
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
@@ -148,16 +148,7 @@ def load_node_options(fields):
     else:
         options.append(noload(DBNode.tags))
 
-    if "git_info" in fields:
-        # Load namespace and its parent for git_info using selectinload
-        # to avoid conflicts with FOR UPDATE queries (can't use joinedload)
-        options.append(
-            selectinload(DBNode.namespace_obj).selectinload(
-                DBNodeNamespace.parent_namespace_obj,
-            ),
-        )
-    else:
-        options.append(noload(DBNode.namespace_obj))
+    options.append(noload(DBNode.namespace_obj))
 
     # Always noload children - not exposed in GraphQL
     options.append(noload(DBNode.children))
