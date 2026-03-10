@@ -242,23 +242,17 @@ async def get_git_info_for_namespace(
     namespace: str,
 ) -> Optional[dict]:
     """
-    Return git repository info for a namespace by combining two traversals:
+    Return git repository info for a namespace.
 
-    1. **String hierarchy** — all ancestors derived from the namespace name
-       (e.g. ``projectx``, ``projectx.feature_one`` for
-       ``projectx.feature_one.cubes``).  Handles sub-namespaces whose
-       ``parent_namespace`` FK is not set.
-
-    2. **FK chain fallback** — follows ``parent_namespace`` FK links that fall
-       *outside* the string ancestry (e.g. ``test.git.delete`` →
-       ``test.git.root``).  Only traversed when the string hierarchy alone
-       does not find all required fields.
-
-    From the combined set, picks:
-    - ``branch_ns``: nearest ancestor (most specific) with ``git_branch`` set.
-    - ``config_ns``: nearest ancestor with ``github_repo_path`` set.
+    Algorithm:
+    1. Batch-load all string ancestors (e.g. ``projectx``, ``projectx.feature_one``
+       for ``projectx.feature_one.cubes``) and find the nearest one with
+       ``git_branch`` set — that is the branch namespace.
+    2. If the branch namespace has ``parent_namespace`` set, do one FK hop to
+       load the git root (which carries ``github_repo_path`` / ``git_path``).
+       Otherwise, look for ``github_repo_path`` among the string ancestors
+       (self-contained root case).
     """
-    # --- 1. String hierarchy (single batch query) ---
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
     stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
     rows = (await session.execute(stmt)).scalars().all()
@@ -270,36 +264,20 @@ async def get_git_info_for_namespace(
         (ns_map[n] for n in reversed_names if ns_map.get(n) and ns_map[n].git_branch),
         None,
     )
-    config_ns = next(
-        (
-            ns_map[n]
-            for n in reversed_names
-            if ns_map.get(n) and ns_map[n].github_repo_path
-        ),
-        None,
-    )
 
-    # --- 2. FK chain fallback (only when string hierarchy is incomplete) ---
-    if not config_ns or not branch_ns:
-        current = ns_map.get(namespace)
-        visited = set(ancestor_names)
-        fk_chain: List[NodeNamespace] = []
-        depth = 0
-        while current and current.parent_namespace and depth < 50:
-            if current.parent_namespace in visited:
-                break
-            parent = await session.get(NodeNamespace, current.parent_namespace)
-            if not parent:
-                break
-            visited.add(parent.namespace)
-            fk_chain.append(parent)
-            current = parent
-            depth += 1
-
-        if not branch_ns:
-            branch_ns = next((ns for ns in fk_chain if ns.git_branch), None)
-        if not config_ns:
-            config_ns = next((ns for ns in fk_chain if ns.github_repo_path), None)
+    # Resolve config_ns: one FK hop from branch_ns, or string ancestor with repo
+    config_ns: Optional[NodeNamespace] = None
+    if branch_ns and branch_ns.parent_namespace:
+        config_ns = await session.get(NodeNamespace, branch_ns.parent_namespace)
+    if not config_ns:
+        config_ns = next(
+            (
+                ns_map[n]
+                for n in reversed_names
+                if ns_map.get(n) and ns_map[n].github_repo_path
+            ),
+            None,
+        )
 
     if not config_ns:
         return None
