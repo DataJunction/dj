@@ -63,39 +63,23 @@ async def test_list_all_namespaces(
     response = await module__client_with_all_examples.get("/namespaces/")
     assert response.status_code in (200, 201)
     assert response.json() == [
-        {"namespace": "basic", "num_nodes": 8, "git_info": None},
-        {"namespace": "basic.dimension", "num_nodes": 2, "git_info": None},
-        {"namespace": "basic.source", "num_nodes": 2, "git_info": None},
-        {"namespace": "basic.transform", "num_nodes": 1, "git_info": None},
-        {"namespace": "dbt.dimension", "num_nodes": 1, "git_info": None},
-        {"namespace": "dbt.source", "num_nodes": 0, "git_info": None},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2, "git_info": None},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1, "git_info": None},
-        {"namespace": "dbt.transform", "num_nodes": 1, "git_info": None},
-        {"namespace": "default", "num_nodes": 82, "git_info": None},
-        {
-            "namespace": "different.basic",
-            "num_nodes": 2,
-            "git_info": None,
-        },
-        {
-            "namespace": "different.basic.dimension",
-            "num_nodes": 2,
-            "git_info": None,
-        },
-        {
-            "namespace": "different.basic.source",
-            "num_nodes": 2,
-            "git_info": None,
-        },
-        {
-            "namespace": "different.basic.transform",
-            "num_nodes": 1,
-            "git_info": None,
-        },
-        {"namespace": "foo.bar", "num_nodes": 26, "git_info": None},
-        {"namespace": "hll", "num_nodes": 4, "git_info": None},
-        {"namespace": "v3", "num_nodes": 44, "git_info": None},
+        {"namespace": "basic", "num_nodes": 8},
+        {"namespace": "basic.dimension", "num_nodes": 2},
+        {"namespace": "basic.source", "num_nodes": 2},
+        {"namespace": "basic.transform", "num_nodes": 1},
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
+        {"namespace": "default", "num_nodes": 82},
+        {"namespace": "different.basic", "num_nodes": 2},
+        {"namespace": "different.basic.dimension", "num_nodes": 2},
+        {"namespace": "different.basic.source", "num_nodes": 2},
+        {"namespace": "different.basic.transform", "num_nodes": 1},
+        {"namespace": "foo.bar", "num_nodes": 26},
+        {"namespace": "hll", "num_nodes": 4},
+        {"namespace": "v3", "num_nodes": 44},
     ]
 
 
@@ -910,11 +894,11 @@ async def test_list_all_namespaces_access_limited(
 
     assert response.status_code in (200, 201)
     assert response.json() == [
-        {"namespace": "dbt.dimension", "num_nodes": 1, "git_info": None},
-        {"namespace": "dbt.source", "num_nodes": 0, "git_info": None},
-        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2, "git_info": None},
-        {"namespace": "dbt.source.stripe", "num_nodes": 1, "git_info": None},
-        {"namespace": "dbt.transform", "num_nodes": 1, "git_info": None},
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
     ]
 
 

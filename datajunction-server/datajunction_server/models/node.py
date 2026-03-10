@@ -1132,15 +1132,11 @@ LineageColumn.model_rebuild()
 
 class NamespaceOutput(BaseModel):
     """
-    Output for a namespace that includes the number of nodes and git repository information
+    Output for a namespace that includes the number of nodes.
     """
 
     namespace: str
     num_nodes: int
-    git_info: Optional[GitRepositoryInfo] = Field(
-        default=None,
-        description="Git repository configuration, if any",
-    )
 
 
 class NodeIndegreeOutput(BaseModel):
