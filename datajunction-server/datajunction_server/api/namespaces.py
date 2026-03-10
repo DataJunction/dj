@@ -27,7 +27,7 @@ from datajunction_server.models.deployment import (
     NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
-from datajunction_server.models.node import GitRepositoryInfo
+
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -159,22 +159,6 @@ async def list_namespaces(
         NamespaceOutput(
             namespace=ns.namespace,
             num_nodes=num_nodes or 0,
-            git_info=GitRepositoryInfo(
-                repo=ns.github_repo_path,
-                branch=ns.git_branch,
-                default_branch=ns.default_branch,
-                path=ns.git_path,
-                is_default_branch=(
-                    ns.git_branch == ns.default_branch
-                    if ns.git_branch and ns.default_branch
-                    else True  # Non-git or incomplete config = default
-                ),
-                parent_namespace=ns.parent_namespace,
-                git_only=ns.git_only,
-            )
-            if ns.github_repo_path
-            else None,
-            deactivated_at=ns.deactivated_at,
         )
         for ns, num_nodes in results
         if ns.namespace in approved_namespaces
