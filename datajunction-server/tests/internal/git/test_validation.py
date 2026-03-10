@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.namespaces import (
-    validate_sibling_relationship,
     detect_parent_cycle,
+    get_git_info_for_namespace,
     validate_git_path,
+    validate_sibling_relationship,
 )
 
 
@@ -572,3 +573,429 @@ class TestValidateGitPath:
 
         with pytest.raises(DJInvalidInputException):
             validate_git_path("nodes/../../etc/passwd")
+
+
+class TestGetGitInfoForNamespace:
+    """Tests for get_git_info_for_namespace."""
+
+    # ------------------------------------------------------------------
+    # Basic resolution
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_namespace_with_repo_and_branch_directly(self, session: AsyncSession):
+        """Namespace has both github_repo_path and git_branch set directly."""
+        session.add(
+            NodeNamespace(
+                namespace="proj.main",
+                github_repo_path="org/repo",
+                git_branch="main",
+                default_branch="main",
+                git_path="defs/",
+                git_only=False,
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.main")
+
+        assert result is not None
+        assert result["repo"] == "org/repo"
+        assert result["branch"] == "main"
+        assert result["default_branch"] == "main"
+        assert result["path"] == "defs/"
+        assert result["is_default_branch"] is True
+        assert result["git_only"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_git_config_anywhere(self, session: AsyncSession):
+        """Namespace exists but has no git config in any ancestor."""
+        session.add(NodeNamespace(namespace="plain"))
+        session.add(NodeNamespace(namespace="plain.sub"))
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "plain.sub")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_namespace_not_in_db(self, session: AsyncSession):
+        """Namespace doesn't exist in the DB at all."""
+        result = await get_git_info_for_namespace(session, "nonexistent.ns")
+
+        assert result is None
+
+    # ------------------------------------------------------------------
+    # Branch walking
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_branch_ns_has_git_branch_config_ns_has_repo(
+        self,
+        session: AsyncSession,
+    ):
+        """projectx has github_repo_path; projectx.feature_one has git_branch only."""
+        session.add(
+            NodeNamespace(
+                namespace="projectx",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="defs/",
+                git_only=False,
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="projectx.feature_one",
+                git_branch="feature_one",
+                parent_namespace="projectx",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "projectx.feature_one")
+
+        assert result is not None
+        assert result["repo"] == "org/repo"
+        assert result["branch"] == "feature_one"
+        assert result["default_branch"] == "main"
+        assert result["path"] == "defs/"
+        assert result["is_default_branch"] is False
+        assert result["parent_namespace"] == "projectx"
+
+    @pytest.mark.asyncio
+    async def test_sub_namespace_inherits_branch_from_parent(
+        self,
+        session: AsyncSession,
+    ):
+        """projectx.feature_one.cubes has nothing; branch comes from projectx.feature_one."""
+        session.add(
+            NodeNamespace(
+                namespace="projectx",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="defs/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="projectx.feature_one",
+                git_branch="feature_one",
+                parent_namespace="projectx",
+            ),
+        )
+        session.add(NodeNamespace(namespace="projectx.feature_one.cubes"))
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "projectx.feature_one.cubes")
+
+        assert result is not None
+        assert result["branch"] == "feature_one"
+        assert result["repo"] == "org/repo"
+
+    @pytest.mark.asyncio
+    async def test_deep_sub_namespace(self, session: AsyncSession):
+        """projectx.feature_one.cubes.x.y — several levels above the branch namespace."""
+        session.add(
+            NodeNamespace(
+                namespace="projectx",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="defs/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="projectx.feature_one",
+                git_branch="feature_one",
+                parent_namespace="projectx",
+            ),
+        )
+        session.add(NodeNamespace(namespace="projectx.feature_one.cubes"))
+        session.add(NodeNamespace(namespace="projectx.feature_one.cubes.x"))
+        session.add(NodeNamespace(namespace="projectx.feature_one.cubes.x.y"))
+        await session.commit()
+
+        result = await get_git_info_for_namespace(
+            session,
+            "projectx.feature_one.cubes.x.y",
+        )
+
+        assert result is not None
+        assert result["branch"] == "feature_one"
+        assert result["repo"] == "org/repo"
+
+    # ------------------------------------------------------------------
+    # is_default_branch
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_is_default_branch_true_when_matching(self, session: AsyncSession):
+        """git_branch == default_branch → is_default_branch is True."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.main",
+                git_branch="main",
+                parent_namespace="proj",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.main")
+
+        assert result is not None
+        assert result["is_default_branch"] is True
+
+    @pytest.mark.asyncio
+    async def test_is_default_branch_false_when_not_matching(
+        self,
+        session: AsyncSession,
+    ):
+        """git_branch != default_branch → is_default_branch is False."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.feature_x")
+
+        assert result is not None
+        assert result["is_default_branch"] is False
+
+    @pytest.mark.asyncio
+    async def test_is_default_branch_true_when_no_git_branch(
+        self,
+        session: AsyncSession,
+    ):
+        """Root namespace with only github_repo_path (no git_branch) → defaults True."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj")
+
+        assert result is not None
+        assert result["branch"] is None
+        assert result["is_default_branch"] is True
+
+    @pytest.mark.asyncio
+    async def test_is_default_branch_true_when_no_default_branch(
+        self,
+        session: AsyncSession,
+    ):
+        """git_branch set but default_branch is None → defaults to True."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch=None,
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.feature_x")
+
+        assert result is not None
+        assert result["is_default_branch"] is True
+
+    # ------------------------------------------------------------------
+    # parent_namespace
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_parent_namespace_from_branch_ns_not_leaf(
+        self,
+        session: AsyncSession,
+    ):
+        """parent_namespace comes from branch_ns, not the leaf sub-namespace."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj",
+            ),
+        )
+        session.add(NodeNamespace(namespace="proj.feature_x.cubes"))
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.feature_x.cubes")
+
+        assert result is not None
+        assert result["parent_namespace"] == "proj"
+
+    @pytest.mark.asyncio
+    async def test_parent_namespace_none_when_no_branch_ns(self, session: AsyncSession):
+        """When there's no branch_ns (root is the config), parent_namespace is None."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+                parent_namespace=None,
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj")
+
+        assert result is not None
+        assert result["parent_namespace"] is None
+
+    # ------------------------------------------------------------------
+    # Nearest wins
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_most_specific_config_ns_wins(self, session: AsyncSession):
+        """When multiple ancestors have github_repo_path, most specific wins."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/root-repo",
+                default_branch="main",
+                git_path="root/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.team",
+                github_repo_path="org/team-repo",
+                default_branch="main",
+                git_path="team/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.team.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj.team",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.team.feature_x")
+
+        assert result is not None
+        assert result["repo"] == "org/team-repo"
+        assert result["path"] == "team/"
+
+    @pytest.mark.asyncio
+    async def test_most_specific_branch_ns_wins(self, session: AsyncSession):
+        """When multiple ancestors have git_branch, most specific wins."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x.sub",
+                git_branch="sub_branch",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.feature_x.sub")
+
+        assert result is not None
+        assert result["branch"] == "sub_branch"
+
+    # ------------------------------------------------------------------
+    # git_only and path
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_git_only_returned_from_config_ns(self, session: AsyncSession):
+        """git_only flag is taken from config namespace (the one with github_repo_path)."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_only=True,
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.feature_x",
+                git_branch="feature_x",
+                parent_namespace="proj",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.feature_x")
+
+        assert result is not None
+        assert result["git_only"] is True
+
+    @pytest.mark.asyncio
+    async def test_git_path_returned_from_config_ns(self, session: AsyncSession):
+        """git_path is taken from config namespace."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="definitions/metrics/",
+            ),
+        )
+        session.add(
+            NodeNamespace(
+                namespace="proj.main",
+                git_branch="main",
+                parent_namespace="proj",
+            ),
+        )
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.main")
+
+        assert result is not None
+        assert result["path"] == "definitions/metrics/"

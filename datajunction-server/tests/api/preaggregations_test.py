@@ -224,16 +224,17 @@ async def client_with_preaggs(
     )
 
     # Fetch actual PreAggregation objects from DB for tests that need them
-    preagg1 = await session.get(PreAggregation, preagg1_data["id"])
-    preagg2 = await session.get(PreAggregation, preagg2_data["id"])
-    preagg3 = await session.get(PreAggregation, preagg3_data["id"])
-    preagg4 = await session.get(PreAggregation, preagg4_data["id"])
-    preagg5 = await session.get(PreAggregation, preagg5_data["id"])
-    preagg6 = await session.get(PreAggregation, preagg6_data["id"])
-    preagg7 = await session.get(PreAggregation, preagg7_data["id"])
-    preagg8 = await session.get(PreAggregation, preagg8_data["id"])
-    preagg9 = await session.get(PreAggregation, preagg9_data["id"])
-    preagg10 = await session.get(PreAggregation, preagg10_data["id"])
+    _opts = [joinedload(PreAggregation.node_revision)]
+    preagg1 = await session.get(PreAggregation, preagg1_data["id"], options=_opts)
+    preagg2 = await session.get(PreAggregation, preagg2_data["id"], options=_opts)
+    preagg3 = await session.get(PreAggregation, preagg3_data["id"], options=_opts)
+    preagg4 = await session.get(PreAggregation, preagg4_data["id"], options=_opts)
+    preagg5 = await session.get(PreAggregation, preagg5_data["id"], options=_opts)
+    preagg6 = await session.get(PreAggregation, preagg6_data["id"], options=_opts)
+    preagg7 = await session.get(PreAggregation, preagg7_data["id"], options=_opts)
+    preagg8 = await session.get(PreAggregation, preagg8_data["id"], options=_opts)
+    preagg9 = await session.get(PreAggregation, preagg9_data["id"], options=_opts)
+    preagg10 = await session.get(PreAggregation, preagg10_data["id"], options=_opts)
 
     yield {
         "client": client,

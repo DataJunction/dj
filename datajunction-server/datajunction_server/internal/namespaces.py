@@ -242,36 +242,68 @@ async def get_git_info_for_namespace(
     namespace: str,
 ) -> Optional[dict]:
     """
-    Return git repository info for a namespace by walking up the namespace
-    hierarchy (derived from the namespace string, not the parent_namespace FK).
+    Return git repository info for a namespace.
 
-    Loads all ancestor NodeNamespace objects in one query, then walks from most
-    specific to least specific to find the first ancestor with git config.
+    Algorithm:
+    1. Batch-load all string ancestors (e.g. ``projectx``, ``projectx.feature_one``
+       for ``projectx.feature_one.cubes``) and find the nearest one with
+       ``git_branch`` set — that is the branch namespace.
+    2. If the branch namespace has ``parent_namespace`` set, do one FK hop to
+       load the git root (which carries ``github_repo_path`` / ``git_path``).
+       Otherwise, look for ``github_repo_path`` among the string ancestors
+       (self-contained root case).
     """
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
     stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
     rows = (await session.execute(stmt)).scalars().all()
     ns_map = {ns.namespace: ns for ns in rows}
 
-    # Walk from most specific to least specific to find git config
-    for name in reversed(ancestor_names):
-        ns = ns_map.get(name)
-        if ns and ns.github_repo_path:
-            actual_ns = ns_map.get(namespace)
-            return {
-                "repo": ns.github_repo_path,
-                "branch": actual_ns.git_branch if actual_ns else None,
-                "default_branch": ns.default_branch,
-                "path": ns.git_path,
-                "is_default_branch": (
-                    actual_ns.git_branch == ns.default_branch
-                    if actual_ns and actual_ns.git_branch and ns.default_branch
-                    else True
-                ),
-                "parent_namespace": actual_ns.parent_namespace if actual_ns else None,
-                "git_only": ns.git_only,
-            }
-    return None
+    reversed_names = list(reversed(ancestor_names))
+
+    branch_ns = next(
+        (ns_map[n] for n in reversed_names if ns_map.get(n) and ns_map[n].git_branch),
+        None,
+    )
+
+    # Resolve config_ns: find the git root (has github_repo_path).
+    # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
+    # do one FK hop — that sibling is the git root.
+    # Otherwise, the git root is reachable via string ancestors.
+    config_ns: Optional[NodeNamespace] = None
+    if (
+        branch_ns
+        and branch_ns.parent_namespace
+        and branch_ns.parent_namespace not in ns_map
+    ):
+        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
+        if fk_parent and fk_parent.github_repo_path:
+            config_ns = fk_parent
+    if not config_ns:
+        config_ns = next(
+            (
+                ns_map[n]
+                for n in reversed_names
+                if ns_map.get(n) and ns_map[n].github_repo_path
+            ),
+            None,
+        )
+
+    if not config_ns:
+        return None
+
+    branch = branch_ns.git_branch if branch_ns else None
+    default_branch = config_ns.default_branch
+    return {
+        "repo": config_ns.github_repo_path,
+        "branch": branch,
+        "default_branch": default_branch,
+        "path": config_ns.git_path,
+        "is_default_branch": (
+            branch == default_branch if branch and default_branch else True
+        ),
+        "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
+        "git_only": config_ns.git_only,
+    }
 
 
 async def create_namespace(
@@ -1476,63 +1508,15 @@ async def resolve_git_config(
     max_depth: int = 50,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Resolve complete git configuration by walking up parent chain.
+    Resolve complete git configuration by walking up the namespace string hierarchy.
 
-    Returns (github_repo_path, git_path, git_branch) tuple.
-    - github_repo_path and git_path are resolved by walking up parents
-    - git_branch is only taken from the current namespace (not inherited)
-
-    This enables hierarchical configuration:
-    - Parent namespace (e.g., "demo.metrics") has repo/path
-    - Child namespaces (e.g., "demo.metrics.main") have branch + parent link
-
-    Args:
-        session: Database session
-        namespace: Namespace to resolve config for
-        max_depth: Maximum parent chain depth (prevents infinite loops)
-
-    Returns:
-        Tuple of (github_repo_path, git_path, git_branch)
-        Any element can be None if not configured
-
-    Raises:
-        DJDoesNotExistException: If namespace doesn't exist
-        DJInvalidInputException: If parent chain exceeds max_depth
+    Returns (github_repo_path, git_path, git_branch) tuple, delegating to
+    get_git_info_for_namespace so all callers share the same resolution logic.
     """
-    from datajunction_server.api.helpers import get_node_namespace
-
-    current_ns = await get_node_namespace(session, namespace)
-
-    # git_branch is never inherited - only from current namespace
-    git_branch = current_ns.git_branch
-
-    # Start with current namespace's direct values
-    github_repo_path = current_ns.github_repo_path
-    git_path = current_ns.git_path
-
-    # Walk up parent chain to resolve missing fields
-    current = current_ns
-    depth = 0
-
-    while (not github_repo_path or git_path is None) and current.parent_namespace:
-        if depth >= max_depth:
-            raise DJInvalidInputException(  # pragma: no cover
-                message=f"Parent chain exceeds maximum depth of {max_depth} "
-                f"while resolving git config for '{namespace}'",
-            )
-
-        parent_ns = await get_node_namespace(session, current.parent_namespace)
-
-        # Inherit missing fields from parent
-        if not github_repo_path:  # pragma: no branch
-            github_repo_path = parent_ns.github_repo_path
-        if git_path is None:  # pragma: no branch
-            git_path = parent_ns.git_path
-
-        current = parent_ns
-        depth += 1
-
-    return github_repo_path, git_path, git_branch
+    git_info = await get_git_info_for_namespace(session, namespace)
+    if not git_info:
+        return None, None, None
+    return git_info["repo"], git_info["path"], git_info["branch"]
 
 
 def validate_sibling_relationship(
