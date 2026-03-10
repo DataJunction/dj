@@ -265,10 +265,19 @@ async def get_git_info_for_namespace(
         None,
     )
 
-    # Resolve config_ns: one FK hop from branch_ns, or string ancestor with repo
+    # Resolve config_ns: find the git root (has github_repo_path).
+    # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
+    # do one FK hop — that sibling is the git root.
+    # Otherwise, the git root is reachable via string ancestors.
     config_ns: Optional[NodeNamespace] = None
-    if branch_ns and branch_ns.parent_namespace:
-        config_ns = await session.get(NodeNamespace, branch_ns.parent_namespace)
+    if (
+        branch_ns
+        and branch_ns.parent_namespace
+        and branch_ns.parent_namespace not in ns_map
+    ):
+        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
+        if fk_parent and fk_parent.github_repo_path:
+            config_ns = fk_parent
     if not config_ns:
         config_ns = next(
             (
