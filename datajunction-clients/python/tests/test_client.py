@@ -385,6 +385,20 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             )
         assert "No data for query!" in str(exc_info)
 
+        # async_ is deprecated
+        with pytest.warns(DeprecationWarning, match="async_"):
+            client.data(
+                metrics=["default.avg_repair_price"],
+                dimensions=["default.hard_hat.city"],
+                async_=False,
+            )
+        with pytest.warns(DeprecationWarning, match="async_"):
+            client.node_data(
+                node_name="default.avg_repair_price",
+                dimensions=["default.hard_hat.city"],
+                async_=True,
+            )
+
         # Error propagation
         # with pytest.raises(DJClientException) as exc_info:
         #     client.data(
