@@ -335,6 +335,16 @@ class TestBuildDeploymentSource:
         monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
 
         result = DeploymentService._build_deployment_source()
 
@@ -393,6 +403,16 @@ class TestBuildDeploymentSource:
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.setenv("DJ_DEPLOY_TRACK_LOCAL", "true")
         monkeypatch.setenv("DJ_DEPLOY_REASON", "testing locally")
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
 
         result = DeploymentService._build_deployment_source()
 
@@ -406,6 +426,16 @@ class TestBuildDeploymentSource:
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.setenv("DJ_DEPLOY_TRACK_LOCAL", "TRUE")
         monkeypatch.delenv("DJ_DEPLOY_REASON", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
 
         result = DeploymentService._build_deployment_source()
 
