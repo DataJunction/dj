@@ -1030,6 +1030,65 @@ class TestBranchManagement:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
     @pytest.mark.asyncio
+    async def test_delete_branch_with_parent_namespace_fk(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Deleting a branch that is referenced as parent_namespace by other namespaces
+        must not raise a ForeignKeyViolation (fk_nodenamespace_parent)."""
+        # Set up a git root namespace
+        await client_with_service_setup.post("/namespaces/fktest.main")
+        await client_with_service_setup.patch(
+            "/namespaces/fktest.main/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={"ref": "refs/heads/to-delete", "object": {"sha": "abc"}},
+            )
+            mock_github_class.return_value = mock_github
+
+            # Create the branch we'll later delete
+            await client_with_service_setup.post(
+                "/namespaces/fktest.main/branches",
+                json={"branch_name": "to-delete"},
+            )
+
+        # Create a second branch FROM the branch we're going to delete.
+        # This sets parent_namespace = "fktest.to_delete" on the new namespace,
+        # which is the exact condition that triggers the FK violation on delete.
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/child-branch",
+                    "object": {"sha": "def"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            await client_with_service_setup.post(
+                "/namespaces/fktest.to_delete/branches",
+                json={"branch_name": "child-branch"},
+            )
+
+        # Deleting fktest.to_delete should succeed even though fktest.child_branch
+        # (or the auto-created git-root placeholder) has parent_namespace pointing to it.
+        response = await client_with_service_setup.delete(
+            "/namespaces/fktest.main/branches/fktest.to_delete?delete_git_branch=false",
+        )
+        assert response.status_code == HTTPStatus.OK
+
+    @pytest.mark.asyncio
     async def test_create_branch_git_fails_namespace_succeeds(
         self,
         client_with_service_setup: AsyncClient,
