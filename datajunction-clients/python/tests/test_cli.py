@@ -79,16 +79,24 @@ def test_push_full(
     }
     change_to_project_dir("./")
     test_args = ["dj", "push", "./deploy0"]
-    with patch.dict(os.environ, env_vars, clear=False):
-        with patch.object(sys, "argv", test_args):
-            main(builder_client=builder_client)
+    with patch(
+        "datajunction.deployment.DeploymentService._detect_git_branch",
+        return_value=None,
+    ):
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
     results = builder_client.list_nodes(namespace="deps.deploy0")
     assert len(results) == 6
 
     test_args = ["dj", "push", "./deploy0", "--namespace", "deps.deploy0.main"]
-    with patch.dict(os.environ, env_vars, clear=False):
-        with patch.object(sys, "argv", test_args):
-            main(builder_client=builder_client)
+    with patch(
+        "datajunction.deployment.DeploymentService._detect_git_branch",
+        return_value=None,
+    ):
+        with patch.dict(os.environ, env_vars, clear=False):
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
 
     results = builder_client.list_nodes(namespace="deps.deploy0.main")
     assert len(results) == 6
@@ -1654,13 +1662,17 @@ class TestImpactAnalysis:
         # deploy command without --dryrun should call push
         test_args = ["dj", "deploy", "./deploy0"]
 
-        with patch.dict(
-            os.environ,
-            {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
-            clear=False,
+        with patch(
+            "datajunction.deployment.DeploymentService._detect_git_branch",
+            return_value=None,
         ):
-            with patch.object(sys, "argv", test_args):
-                main(builder_client=builder_client)
+            with patch.dict(
+                os.environ,
+                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
+                clear=False,
+            ):
+                with patch.object(sys, "argv", test_args):
+                    main(builder_client=builder_client)
 
         # Verify nodes were deployed (push was called)
         results = builder_client.list_nodes(namespace="deps.deploy0")
