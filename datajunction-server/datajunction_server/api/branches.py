@@ -13,7 +13,7 @@ from typing import List
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
@@ -581,20 +581,28 @@ async def delete_branch(
     for node in nodes_to_delete:
         await session.delete(node)
 
-    # Delete the namespace record
-    await session.delete(branch_ns)
-
-    # Also delete any child namespaces
+    # Delete child namespaces before the branch namespace itself to satisfy
+    # the self-referential FK constraint (fk_nodenamespace_parent).
+    # This covers sub-namespaces created during deployment (e.g., project.branch.metrics).
     child_ns_query = select(NodeNamespace).where(
-        or_(
-            NodeNamespace.namespace == branch_namespace,
-            NodeNamespace.namespace.like(f"{branch_namespace}.%"),
-        ),
+        NodeNamespace.namespace.like(f"{branch_namespace}.%"),
     )
     child_result = await session.execute(child_ns_query)
     for child_ns in child_result.scalars().all():
-        if child_ns.namespace != branch_namespace:  # pragma: no branch
-            await session.delete(child_ns)
+        await session.delete(child_ns)
+
+    # Nullify parent_namespace on any remaining namespaces that reference this one
+    # (e.g., sibling branches created from this namespace as a git root). This
+    # handles the case where the referencing namespace name doesn't start with
+    # branch_namespace and so wasn't caught by the LIKE query above.
+    await session.execute(
+        update(NodeNamespace)
+        .where(NodeNamespace.parent_namespace == branch_namespace)
+        .values(parent_namespace=None),
+    )
+
+    # Delete the namespace record last
+    await session.delete(branch_ns)
 
     await session.commit()
 
