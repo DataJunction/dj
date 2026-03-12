@@ -2,6 +2,7 @@
 """DataJunction main client module."""
 
 import time
+import warnings
 from typing import Any, Dict, List, Optional, Set, Union
 from urllib.parse import urlencode
 
@@ -284,19 +285,25 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
-        async_: bool = True,
+        async_: Optional[bool] = None,
         limit: Optional[int] = None,
     ):
         """
         Retrieves the data for one or more metrics with the provided dimensions and filters.
         """
+        if async_ is not None:
+            warnings.warn(
+                "The `async_` parameter is deprecated and will be removed in a future release. "
+                "The client manages polling internally and does not need this parameter.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self._data(
             metrics=metrics,
             dimensions=dimensions,
             filters=filters,
             engine_name=engine_name,
             engine_version=engine_version,
-            async_=async_,
             limit=limit,
         )
 
@@ -307,19 +314,25 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
-        async_: bool = True,
+        async_: Optional[bool] = None,
         limit: Optional[int] = None,
     ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
         """
+        if async_ is not None:
+            warnings.warn(
+                "The `async_` parameter is deprecated and will be removed in a future release. "
+                "The client manages polling internally and does not need this parameter.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self._data(
             node_name=node_name,
             dimensions=dimensions,
             filters=filters,
             engine_name=engine_name,
             engine_version=engine_version,
-            async_=async_,
             limit=limit,
         )
 
@@ -331,7 +344,6 @@ class DJClient(_internal.DJClient):
         filters: Optional[List[str]] = None,
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
-        async_: bool = True,
         limit: Optional[int] = None,
     ):
         """
@@ -354,7 +366,11 @@ class DJClient(_internal.DJClient):
                 "filters": filters or [],
                 "engine_name": engine_name or self.engine_name,
                 "engine_version": engine_version or self.engine_version,
-                "async_": async_,
+                # Always use async mode server-side: the client handles waiting via its
+                # own polling loop, so blocking the server with async_=False is never
+                # necessary and triggers an untested code path that uses a blocking
+                # time.sleep() inside an async handler.
+                "async_": True,
             }
             if limit is not None:
                 params["limit"] = limit
