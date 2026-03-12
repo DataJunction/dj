@@ -563,22 +563,22 @@ class TestBranchToNamespaceSuffix:
     def test_simple_branch(self):
         assert DeploymentService._branch_to_namespace_suffix("main") == "main"
 
-    def test_slash_replaced_with_hyphen(self):
+    def test_slash_and_hyphen_replaced_with_underscore(self):
         assert (
             DeploymentService._branch_to_namespace_suffix("feature/my-metric")
-            == "feature-my-metric"
+            == "feature_my_metric"
         )
 
-    def test_underscores_replaced(self):
+    def test_underscores_preserved(self):
         assert (
             DeploymentService._branch_to_namespace_suffix("fix_some_thing")
-            == "fix-some-thing"
+            == "fix_some_thing"
         )
 
     def test_consecutive_special_chars(self):
         assert (
             DeploymentService._branch_to_namespace_suffix("feat//weird--branch")
-            == "feat-weird-branch"
+            == "feat_weird_branch"
         )
 
 
@@ -588,7 +588,7 @@ class TestDeriveNamespace:
     def test_replaces_last_segment_with_branch(self):
         assert (
             DeploymentService._derive_namespace("project.main", "feature/my-metric")
-            == "project.feature-my-metric"
+            == "project.feature_my_metric"
         )
 
     def test_main_branch_preserves_namespace(self):
@@ -600,13 +600,13 @@ class TestDeriveNamespace:
     def test_single_segment_base_appends_branch(self):
         assert (
             DeploymentService._derive_namespace("project", "feature-x")
-            == "project.feature-x"
+            == "project.feature_x"
         )
 
     def test_deep_namespace(self):
         assert (
             DeploymentService._derive_namespace("org.team.main", "my-branch")
-            == "org.team.my-branch"
+            == "org.team.my_branch"
         )
 
 
@@ -637,7 +637,7 @@ class TestPushBranchDetection:
         svc.push(tmp_path)
 
         deployed_namespace = client.deploy.call_args[0][0]["namespace"]
-        assert deployed_namespace == "project.feature-new-metric"
+        assert deployed_namespace == "project.feature_new_metric"
 
     def test_push_explicit_namespace_overrides_git(self, monkeypatch, tmp_path):
         """An explicit namespace argument always wins over git detection."""
