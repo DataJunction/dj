@@ -192,19 +192,40 @@ class DeploymentService:
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
 
+        base_namespace = deployment_spec.get("namespace") or ""
+        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        source = deployment_spec.get("source", {})
+        if source.get("repository"):
+            console.print(
+                f"[dim]  repo:    [bold]{source['repository']}[/bold]\n"
+                f"  branch:  [bold]{source.get('branch', 'unknown')}[/bold][/dim]",
+            )
         if namespace:
             deployment_spec["namespace"] = namespace
-        else:
-            base_namespace = deployment_spec.get("namespace") or ""
-            branch = DeploymentService._detect_git_branch()
-            if branch and base_namespace:
-                deployment_spec["namespace"] = DeploymentService._derive_namespace(
-                    base_namespace,
-                    branch,
+        elif branch and base_namespace:
+            deployment_spec["namespace"] = DeploymentService._derive_namespace(
+                base_namespace,
+                branch,
+            )
+            console.print(
+                f"[dim]Detected branch [bold]{branch}[/bold] → "
+                f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
+            )
+
+        if branch:
+            # Only set parent_namespace when we derived it from dj.yaml (not when
+            # --namespace was passed explicitly, since we can't reliably infer the parent)
+            parent_namespace = base_namespace if not namespace else None
+            try:
+                self.client._set_namespace_git_config(
+                    deployment_spec["namespace"],
+                    git_branch=branch,
+                    parent_namespace=parent_namespace or None,
                 )
+            except Exception as e:  # pylint: disable=broad-except
                 console.print(
-                    f"[dim]Detected branch [bold]{branch}[/bold] → "
-                    f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
+                    f"[yellow]Warning: could not set git config on namespace "
+                    f"'{deployment_spec['namespace']}': {e}[/yellow]",
                 )
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
@@ -308,14 +329,14 @@ class DeploymentService:
         }
 
         # Add deployment source if available from env vars
-        source = self._build_deployment_source()
+        source = self._build_deployment_source(cwd=base_dir)
         if source:  # pragma: no branch
             deployment_spec["source"] = source
 
         return deployment_spec
 
     @staticmethod
-    def _detect_git_branch() -> str | None:
+    def _detect_git_branch(cwd: str | Path | None = None) -> str | None:
         """
         Returns the current git branch name, or None if not in a git repo or
         git is not available.
@@ -326,9 +347,28 @@ class DeploymentService:
                 capture_output=True,
                 text=True,
                 check=True,
+                cwd=cwd,
             )
             branch = result.stdout.strip()
             return branch if branch and branch != "HEAD" else None
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    @staticmethod
+    def _detect_git_repo(cwd: str | Path | None = None) -> str | None:
+        """
+        Returns the remote origin URL of the current git repo, or None if not
+        in a git repo, no remote is configured, or git is not available.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            return result.stdout.strip() or None
         except (subprocess.CalledProcessError, FileNotFoundError):
             return None
 
@@ -367,7 +407,7 @@ class DeploymentService:
         return f"{base_namespace}.{suffix}"
 
     @staticmethod
-    def _build_deployment_source() -> dict[str, Any]:
+    def _build_deployment_source(cwd: str | Path | None = None) -> dict[str, Any]:
         """
         Build deployment source from environment variables.
 
@@ -386,17 +426,19 @@ class DeploymentService:
             GitDeploymentSource dict if repo is specified,
             LocalDeploymentSource dict otherwise (with hostname auto-filled)
         """
-        repo = os.getenv("DJ_DEPLOY_REPO")
-
+        repo = os.getenv("DJ_DEPLOY_REPO") or DeploymentService._detect_git_repo(
+            cwd=cwd,
+        )
+        branch_for_source = os.getenv(
+            "DJ_DEPLOY_BRANCH",
+        ) or DeploymentService._detect_git_branch(cwd=cwd)
         if repo:
             # Git deployment source
             source: dict[str, Any] = {
                 "type": "git",
                 "repository": repo,
             }
-            branch = (
-                os.getenv("DJ_DEPLOY_BRANCH") or DeploymentService._detect_git_branch()
-            )
+            branch = branch_for_source
             if branch:
                 source["branch"] = branch
             commit = os.getenv("DJ_DEPLOY_COMMIT")
