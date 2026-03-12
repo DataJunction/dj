@@ -371,6 +371,12 @@ class TestBuildDeploymentSource:
         monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
         monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
+        import subprocess as sp
+
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=sp.CalledProcessError(128, "git")),
+        )
 
         result = DeploymentService._build_deployment_source()
 
@@ -515,3 +521,180 @@ class TestGetImpact:
         # Verify the namespace was overridden in the API call
         call_args = mock_client.get_deployment_impact.call_args[0][0]
         assert call_args["namespace"] == "override.ns"
+
+
+class TestDetectGitBranch:
+    """Tests for _detect_git_branch."""
+
+    def test_returns_current_branch(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="feature/my-metric\n"),
+        )
+        assert DeploymentService._detect_git_branch() == "feature/my-metric"
+
+    def test_returns_none_when_not_in_git_repo(self, monkeypatch):
+        import subprocess as sp
+
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=sp.CalledProcessError(128, "git")),
+        )
+        assert DeploymentService._detect_git_branch() is None
+
+    def test_returns_none_when_git_not_installed(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=FileNotFoundError),
+        )
+        assert DeploymentService._detect_git_branch() is None
+
+    def test_returns_none_for_detached_head(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="HEAD\n"),
+        )
+        assert DeploymentService._detect_git_branch() is None
+
+
+class TestBranchToNamespaceSuffix:
+    """Tests for _branch_to_namespace_suffix."""
+
+    def test_simple_branch(self):
+        assert DeploymentService._branch_to_namespace_suffix("main") == "main"
+
+    def test_slash_replaced_with_hyphen(self):
+        assert (
+            DeploymentService._branch_to_namespace_suffix("feature/my-metric")
+            == "feature-my-metric"
+        )
+
+    def test_underscores_replaced(self):
+        assert (
+            DeploymentService._branch_to_namespace_suffix("fix_some_thing")
+            == "fix-some-thing"
+        )
+
+    def test_consecutive_special_chars(self):
+        assert (
+            DeploymentService._branch_to_namespace_suffix("feat//weird--branch")
+            == "feat-weird-branch"
+        )
+
+
+class TestDeriveNamespace:
+    """Tests for _derive_namespace."""
+
+    def test_replaces_last_segment_with_branch(self):
+        assert (
+            DeploymentService._derive_namespace("project.main", "feature/my-metric")
+            == "project.feature-my-metric"
+        )
+
+    def test_main_branch_preserves_namespace(self):
+        assert (
+            DeploymentService._derive_namespace("project.main", "main")
+            == "project.main"
+        )
+
+    def test_single_segment_base_appends_branch(self):
+        assert (
+            DeploymentService._derive_namespace("project", "feature-x")
+            == "project.feature-x"
+        )
+
+    def test_deep_namespace(self):
+        assert (
+            DeploymentService._derive_namespace("org.team.main", "my-branch")
+            == "org.team.my-branch"
+        )
+
+
+class TestPushBranchDetection:
+    """Tests for push() branch auto-detection."""
+
+    def test_push_derives_namespace_from_git_branch(self, monkeypatch, tmp_path):
+        """When no namespace is passed, push() derives it from the git branch."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="feature/new-metric\n"),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+        client.check_deployment.return_value = {
+            "uuid": "abc",
+            "status": "success",
+            "results": [],
+        }
+
+        svc = DeploymentService(client, console=Console(file=io.StringIO()))
+        svc.push(tmp_path)
+
+        deployed_namespace = client.deploy.call_args[0][0]["namespace"]
+        assert deployed_namespace == "project.feature-new-metric"
+
+    def test_push_explicit_namespace_overrides_git(self, monkeypatch, tmp_path):
+        """An explicit namespace argument always wins over git detection."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="feature/new-metric\n"),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+
+        svc = DeploymentService(client, console=Console(file=io.StringIO()))
+        svc.push(tmp_path, namespace="project.explicit-override")
+
+        deployed_namespace = client.deploy.call_args[0][0]["namespace"]
+        assert deployed_namespace == "project.explicit-override"
+
+    def test_push_no_git_repo_uses_dj_yaml_namespace(self, monkeypatch, tmp_path):
+        """When git is unavailable, falls back to the namespace in dj.yaml."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        import subprocess as sp
+
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=sp.CalledProcessError(128, "git")),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+
+        svc = DeploymentService(client, console=Console(file=io.StringIO()))
+        svc.push(tmp_path)
+
+        deployed_namespace = client.deploy.call_args[0][0]["namespace"]
+        assert deployed_namespace == "project.main"
+
+    def test_git_source_includes_branch_when_no_env_var(self, monkeypatch):
+        """_build_deployment_source falls back to git detection for branch."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.delenv("DJ_DEPLOY_BRANCH", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_COMMIT", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_SYSTEM", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_CI_RUN_URL", raising=False)
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="feature/auto-detected\n"),
+        )
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result["branch"] == "feature/auto-detected"
