@@ -261,7 +261,7 @@ async def get_data(
         description="Number of rows to limit the data retrieved to",
     ),
     async_: bool = Query(
-        default=False,
+        default=True,
         description="Whether to run the query async or wait for results from the query engine",
     ),
     use_materialized: bool = Query(
@@ -445,7 +445,7 @@ async def get_data_for_metrics(
     filters: List[str] = Query([]),
     orderby: List[str] = Query([]),
     limit: Optional[int] = None,
-    async_: bool = False,
+    async_: bool = True,
     use_materialized: bool = Query(
         default=True,
         description="Whether to use materialized tables when available",
