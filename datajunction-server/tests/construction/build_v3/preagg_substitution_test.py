@@ -16,6 +16,22 @@ Key scenarios:
 """
 
 import pytest
+
+from datajunction_server.construction.build_v3.measures import (
+    build_grain_group_from_preagg,
+)
+from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+from datajunction_server.database.preaggregation import (
+    PreAggregation,
+    compute_expression_hash,
+)
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
+    PreAggMeasure,
+)
+from datajunction_server.database.node import Node, NodeRevision
 from . import assert_sql_equal, get_first_grain_group
 
 
@@ -755,3 +771,147 @@ class TestUseMaterializedFlag:
 
         # Should compute from source
         assert "warehouse.preaggs" not in metrics_data["sql"]
+
+
+class TestBuildGrainGroupFromPreaggErrorPaths:
+    """Unit tests for error guard paths in build_grain_group_from_preagg."""
+
+    def _make_ctx(self) -> BuildContext:
+        return BuildContext(
+            session=None,
+            metrics=[],
+            dimensions=[],
+            use_materialized=True,
+        )  # type: ignore[arg-type]
+
+    def _make_grain_group(self, node: Node, components: list) -> GrainGroup:
+        return GrainGroup(
+            parent_node=node,
+            aggregability=Aggregability.FULL,
+            grain_columns=[],
+            components=components,
+        )
+
+    def _make_component(self, name: str, expression: str) -> MetricComponent:
+        return MetricComponent(
+            name=name,
+            expression=expression,
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+        )
+
+    def _make_node(self) -> Node:
+        revision = NodeRevision(
+            name="test_node",
+            display_name="Test Node",
+            version="v1.0",
+        )
+        node = Node(name="test_node", type="transform")
+        node.current = revision
+        return node
+
+    def test_raises_when_preagg_has_no_availability(self):
+        """build_grain_group_from_preagg raises ValueError if preagg.availability is None."""
+        node = self._make_node()
+        component = self._make_component("rev_sum", "revenue")
+        grain_group = self._make_grain_group(node, [(node, component)])
+
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=[],
+            measures=[],
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=None,
+        )
+
+        with pytest.raises(ValueError, match="has no availability"):
+            build_grain_group_from_preagg(
+                self._make_ctx(),
+                grain_group,
+                preagg,
+                resolved_dimensions=[],
+                components_per_metric={},
+            )
+
+    def test_raises_when_component_not_in_preagg_measures(self):
+        """build_grain_group_from_preagg raises ValueError if a component has no matching measure."""
+        from datajunction_server.database.availabilitystate import AvailabilityState
+
+        node = self._make_node()
+        component = self._make_component("rev_sum", "revenue")
+        grain_group = self._make_grain_group(node, [(node, component)])
+
+        avail = AvailabilityState(
+            catalog="wh",
+            schema_="preaggs",
+            table="tbl",
+            valid_through_ts=99999,
+        )
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=[],
+            measures=[],  # empty — no matching measure
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=avail,
+        )
+
+        with pytest.raises(ValueError, match="not found in pre-agg"):
+            build_grain_group_from_preagg(
+                self._make_ctx(),
+                grain_group,
+                preagg,
+                resolved_dimensions=[],
+                components_per_metric={},
+            )
+
+    def test_deduplicates_repeated_components(self):
+        """build_grain_group_from_preagg skips duplicate components (same name)."""
+        from datajunction_server.database.availabilitystate import AvailabilityState
+
+        node = self._make_node()
+        component = self._make_component("rev_sum", "revenue")
+        # Same component twice — second should be skipped
+        grain_group = self._make_grain_group(
+            node,
+            [(node, component), (node, component)],
+        )
+
+        expr_hash = compute_expression_hash("revenue")
+        measure = PreAggMeasure(
+            name="rev_col",
+            expression="revenue",
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+            expr_hash=expr_hash,
+        )
+        avail = AvailabilityState(
+            catalog="wh",
+            schema_="preaggs",
+            table="tbl",
+            valid_through_ts=99999,
+        )
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=[],
+            measures=[measure],
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=avail,
+        )
+
+        result = build_grain_group_from_preagg(
+            self._make_ctx(),
+            grain_group,
+            preagg,
+            resolved_dimensions=[],
+            components_per_metric={},
+        )
+        # Only one component should appear in output despite two in input
+        assert len(result.components) == 1
