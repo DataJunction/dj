@@ -884,8 +884,7 @@ def find_upstream_temporal_source_node(
     return None
 
 
-# TODO: Remove this once we have a way to test pre-aggregations
-def build_grain_group_from_preagg(  # pragma: no cover
+def build_grain_group_from_preagg(
     ctx: BuildContext,
     grain_group: GrainGroup,
     preagg: "PreAggregation",
@@ -916,7 +915,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
     parent_node = grain_group.parent_node
     avail = preagg.availability
 
-    if not avail:  # pragma: no cover
+    if not avail:
         raise ValueError(f"Pre-agg {preagg.id} has no availability")
 
     # Build table reference
@@ -962,7 +961,7 @@ def build_grain_group_from_preagg(  # pragma: no cover
 
         # Find the measure column name in the pre-agg
         measure_col = get_preagg_measure_column(preagg, component)
-        if not measure_col:  # pragma: no cover
+        if not measure_col:
             raise ValueError(
                 f"Component {component.name} not found in pre-agg {preagg.id}",
             )
@@ -1063,8 +1062,7 @@ def build_grain_group_sql(
     parent_node = grain_group.parent_node
 
     # Check for matching pre-aggregation
-    # TODO: Remove this once we have a way to test pre-aggregations
-    if ctx.use_materialized and ctx.available_preaggs:  # pragma: no cover
+    if ctx.use_materialized and ctx.available_preaggs:
         requested_grain = [dim.original_ref for dim in resolved_dimensions]
         matching_preagg = find_matching_preagg(
             ctx,
