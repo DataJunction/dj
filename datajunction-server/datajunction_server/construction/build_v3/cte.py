@@ -858,6 +858,7 @@ def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
     needed_columns_by_node: Optional[dict[str, set[str]]] = None,
+    injected_filters: Optional[dict[str, ast.Expression]] = None,
 ) -> tuple[list[tuple[str, ast.Query]], list[str]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
@@ -873,6 +874,10 @@ def collect_node_ctes(
         nodes_to_include: List of nodes to create CTEs for
         needed_columns_by_node: Optional dict of node_name -> set of column names
             If provided, CTEs will only select the needed columns.
+        injected_filters: Optional dict of node_name -> filter expression to inject
+            as a WHERE clause into that node's CTE. Used to push temporal partition
+            filters down into upstream CTEs (e.g. a date-spine) rather than applying
+            them on the outer query after an expensive join.
 
     Returns:
         Tuple of (cte_list, scanned_sources):
@@ -986,6 +991,17 @@ def collect_node_ctes(
 
         if needed_cols:  # pragma: no branch
             query_ast = filter_cte_projection(query_ast, needed_cols)
+
+        # Inject pushed-down filter (e.g. temporal partition) into this CTE's WHERE clause
+        if injected_filters and node.name in injected_filters:
+            injected = injected_filters[node.name]
+            if query_ast.select.where:  # pragma: no cover
+                query_ast.select.where = ast.BinaryOp.And(
+                    query_ast.select.where,
+                    injected,
+                )
+            else:
+                query_ast.select.where = injected
 
         ctes.append((cte_name, query_ast))
 

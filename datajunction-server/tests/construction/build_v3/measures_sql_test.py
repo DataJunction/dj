@@ -2524,6 +2524,43 @@ class TestTemporalFilters:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_temporal_filter_fallback_when_parent_reads_from_source(
+        self,
+        session,
+        client_with_build_v3,
+        setup_temporal_partition,
+    ):
+        """
+        Regression: when the parent node's primary FROM table is a source node
+        (not a transform), find_upstream_temporal_source_node returns None and
+        the filter falls back to the outer grain-group WHERE.
+
+        v3.order_details reads directly from default.v3.orders (a source), so
+        no pushdown occurs and the WHERE lands on the outer query.
+        """
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.date.date_id"],
+            include_temporal_filters=True,
+        )
+
+        assert_sql_equal(
+            result.grain_groups[0].sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY t1.order_date
+            """,
+        )
+
 
 class TestCubeBasedTemporalFiltering:
     """Tests for cube-based temporal filtering via REST API."""
@@ -2716,6 +2753,388 @@ class TestCubeBasedTemporalFiltering:
         # Should NOT have temporal filter since no cube matches
         sql = data["grain_groups"][0]["sql"]
         assert "DJ_LOGICAL_TIMESTAMP()" not in sql
+
+
+class TestTemporalFilterPushdown:
+    """
+    Tests for temporal filter pushdown into the date-spine CTE.
+
+    Three-node rolling window pattern:
+      v3.date_spine          — pure date spine (drives the rolling join)
+      v3.orders_7d_window    — fact filtered to 7-day window via DJ_LOGICAL_TIMESTAMP()
+      v3.rolling_7d_orders   — rolling join of spine × windowed fact, links to v3.date
+
+    With include_temporal_filters=True the temporal filter for v3.date.date_id
+    is pushed into the v3_date_spine CTE so the rolling join only processes
+    the target date(s), not all dates.
+    """
+
+    @pytest.fixture
+    async def setup_rolling_window(self, client_with_build_v3):
+        # Date spine
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.date_spine",
+                "display_name": "Date Spine",
+                "description": "Calendar date spine for rolling window joins",
+                "mode": "published",
+                "query": "SELECT date_id FROM v3.src_dates",
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Windowed fact
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.orders_7d_window",
+                "display_name": "Orders 7D Window",
+                "description": "Orders filtered to 7-day window ending at logical timestamp",
+                "mode": "published",
+                "query": """
+                    SELECT order_id, order_date
+                    FROM v3.src_orders
+                    WHERE order_date >= date_sub(
+                        CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT), 6
+                    )
+                    AND order_date <= CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+                """,
+                "columns": [
+                    {"name": "order_id", "type": "int"},
+                    {"name": "order_date", "type": "int"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        # Rolling join
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.rolling_7d_orders",
+                "display_name": "Rolling 7D Orders",
+                "description": "Order count over rolling 7-day window anchored on date spine",
+                "mode": "published",
+                "query": """
+                    SELECT ds.date_id, COUNT(o.order_id) AS order_cnt_7d
+                    FROM v3.date_spine ds
+                    LEFT OUTER JOIN v3.orders_7d_window o
+                      ON o.order_date >= date_sub(ds.date_id, 6)
+                     AND o.order_date <= ds.date_id
+                    GROUP BY ds.date_id
+                """,
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "order_cnt_7d", "type": "bigint"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.rolling_7d_orders/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.rolling_7d_orders.date_id = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.rolling_7d_count",
+                "display_name": "Rolling 7D Order Count",
+                "mode": "published",
+                "query": "SELECT SUM(order_cnt_7d) FROM v3.rolling_7d_orders",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.rolling_7d_cube",
+                "display_name": "Rolling 7D Cube",
+                "mode": "published",
+                "metrics": ["v3.rolling_7d_count"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.post(
+            "/nodes/v3.rolling_7d_cube/columns/v3.date.date_id/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert response.status_code in (200, 201), response.text
+
+    @pytest.mark.asyncio
+    async def test_temporal_filter_pushdown_full_sql(
+        self,
+        client_with_build_v3,
+        setup_rolling_window,
+    ):
+        """
+        The temporal filter for v3.date.date_id should be pushed into the
+        v3_date_spine CTE rather than appearing only on the outer query.
+        This limits the rolling join to only the target date(s).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.rolling_7d_count"],
+                "dimensions": ["v3.date.date_id"],
+                "include_temporal_filters": True,
+            },
+        )
+        assert response.status_code == 200
+        sql = response.json()["grain_groups"][0]["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_date_spine AS (
+              SELECT
+                date_id
+              FROM default.v3.dates
+              WHERE
+                date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            ),
+            v3_orders_7d_window AS (
+              SELECT
+                order_id,
+                order_date
+              FROM default.v3.orders
+              WHERE
+                order_date >= date_sub(CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT), 6)
+                AND order_date <= CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            ),
+            v3_rolling_7d_orders AS (
+              SELECT
+                ds.date_id,
+                COUNT(o.order_id) AS order_cnt_7d
+              FROM v3_date_spine ds
+              LEFT OUTER JOIN v3_orders_7d_window o ON o.order_date >= date_sub(ds.date_id, 6) AND o.order_date <= ds.date_id
+              GROUP BY ds.date_id
+            )
+            SELECT  t1.date_id,
+                SUM(t1.order_cnt_7d) order_cnt_7d_sum_37699d3d
+            FROM v3_rolling_7d_orders t1
+            GROUP BY t1.date_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_pushdown_when_upstream_lacks_fk_column(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        When the primary FROM of the parent node is a non-source transform that does NOT expose
+        the FK column (date_id), pushdown finds no match and returns None. The filter falls
+        back to the outer WHERE.
+
+        v3.order_details is a non-source transform but its columns don't include
+        date_id (only order_date), so find_upstream_temporal_source_node returns
+        None and the filter lands on the outer query instead.
+        """
+        # Transform that reads from v3.order_details (non-source, no date_id column)
+        # but exposes date_id by aliasing order_date
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.orders_by_date",
+                "display_name": "Orders By Date",
+                "mode": "published",
+                "query": "SELECT order_date AS date_id, COUNT(order_id) AS order_cnt FROM v3.order_details GROUP BY order_date",
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "order_cnt", "type": "bigint"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.orders_by_date/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.orders_by_date.date_id = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.orders_by_date_count",
+                "mode": "published",
+                "query": "SELECT SUM(order_cnt) FROM v3.orders_by_date",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.orders_by_date_cube",
+                "mode": "published",
+                "metrics": ["v3.orders_by_date_count"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.orders_by_date_cube/columns/v3.date.date_id/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert response.status_code in (200, 201), response.text
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.orders_by_date_count"],
+            dimensions=["v3.date.date_id"],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+
+        # Filter must be on the outer WHERE (no upstream CTE to push into)
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.customer_id,
+                o.order_date,
+                o.from_location_id,
+                o.to_location_id,
+                o.status,
+                oi.product_id,
+                oi.quantity,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_orders_by_date AS (
+              SELECT
+                order_date AS date_id,
+                COUNT(order_id) AS order_cnt
+              FROM v3_order_details
+              GROUP BY  order_date
+            )
+            SELECT
+              t1.date_id,
+              SUM(t1.order_cnt) order_cnt_sum_e668c538
+            FROM v3_orders_by_date t1
+            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY  t1.date_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_pushdown_when_parent_query_has_no_from(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        Line 854: when the parent node's query has no FROM clause,
+        find_upstream_temporal_source_node returns None at the from_ check
+        and the filter falls back to the outer WHERE.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.constant_date",
+                "display_name": "Constant Date",
+                "mode": "published",
+                "query": "SELECT CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT) AS date_id, 1 AS cnt",
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "cnt", "type": "bigint"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.constant_date/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.constant_date.date_id = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.constant_date_count",
+                "mode": "published",
+                "query": "SELECT SUM(cnt) FROM v3.constant_date",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.constant_date_cube",
+                "mode": "published",
+                "metrics": ["v3.constant_date_count"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.constant_date_cube/columns/v3.date.date_id/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert response.status_code in (200, 201), response.text
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.constant_date_count"],
+            dimensions=["v3.date.date_id"],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+        # Filter must land on outer WHERE (no FROM to push into)
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_constant_date AS (
+              SELECT
+                CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT) AS date_id,
+                1 AS cnt
+            )
+            SELECT
+              t1.date_id,
+              SUM(t1.cnt) cnt_sum_293e7033
+            FROM v3_constant_date t1
+            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY  t1.date_id
+            """,
+        )
 
 
 class TestNonDecomposableMetrics:
