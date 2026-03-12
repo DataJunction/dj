@@ -399,6 +399,76 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
                 async_=True,
             )
 
+        # FINISHED with empty results triggers re-poll retry; data arrives on second poll
+        finished_empty = type(
+            "R",
+            (),
+            {
+                "json": lambda self: {
+                    "state": "FINISHED",
+                    "results": [],
+                    "errors": [],
+                    "links": [],
+                },
+                "status_code": 200,
+            },
+        )()
+        finished_with_data = type(
+            "R",
+            (),
+            {
+                "json": lambda self: {
+                    "state": "FINISHED",
+                    "results": [
+                        {
+                            "columns": [
+                                {
+                                    "name": "default_DOT_hard_hat_DOT_city",
+                                    "type": "str",
+                                    "semantic_type": "dimension",
+                                    "semantic_entity": "default.hard_hat.city",
+                                    "semantic_name": "default.hard_hat.city",
+                                    "node": "default.hard_hat",
+                                },
+                                {
+                                    "name": "default_DOT_avg_repair_price",
+                                    "type": "float",
+                                    "semantic_type": "metric",
+                                    "semantic_name": "default.avg_repair_price",
+                                    "node": "default.avg_repair_price",
+                                },
+                            ],
+                            "rows": [["Foo", 1.0], ["Bar", 2.0]],
+                        },
+                    ],
+                    "errors": [],
+                    "links": [],
+                },
+                "status_code": 200,
+            },
+        )()
+        original_get = client._session.get
+        call_count = [0]
+
+        def mock_get(path, params=None, **kwargs):
+            if "/data/" in str(path):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return finished_empty
+                return finished_with_data
+            return original_get(path, params=params, **kwargs)
+
+        client._session.get = mock_get
+        result = client.data(
+            metrics=["default.avg_repair_price"],
+            dimensions=["default.hard_hat.city"],
+        )
+        client._session.get = original_get
+        assert list(result.columns) == [
+            "default.hard_hat.city",
+            "default.avg_repair_price",
+        ]
+
         # Error propagation
         # with pytest.raises(DJClientException) as exc_info:
         #     client.data(

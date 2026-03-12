@@ -417,12 +417,21 @@ class DJClient(_internal.DJClient):
                     printed_links = True
                 progress_bar.title = f"Status: {job_state.value}"
 
-                # Update the polling interval
+                # Update the polling interval (cap at 10s to avoid long waits)
                 time.sleep(poll_interval)
-                poll_interval *= 2
+                poll_interval = min(poll_interval * 2, 10)
 
-            # Return results if the job has finished
+            # Return results if the job has finished. If the server returned
+            # FINISHED with empty results, then re-poll a few
+            # times before giving up.
             if job_state == models.QueryState.FINISHED:
+                if results and not results.get("results"):
+                    for attempt in range(3):
+                        time.sleep(2**attempt)
+                        response = self._session.get(path, params=params)
+                        results = response.json()
+                        if results.get("results"):
+                            break
                 return self.process_results(results)
             if job_state == models.QueryState.CANCELED:  # pragma: no cover
                 raise DJClientException("Query execution was canceled!")
