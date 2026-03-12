@@ -336,15 +336,15 @@ class DeploymentService:
     def _branch_to_namespace_suffix(branch: str) -> str:
         """
         Converts a git branch name to a DJ-safe namespace suffix.
-        Replaces slashes and other non-alphanumeric characters with hyphens
-        and strips leading/trailing hyphens.
+        Replaces slashes and other non-alphanumeric characters with underscores
+        and strips leading/trailing underscores.
 
         Examples:
             "main"               -> "main"
-            "feature/my-metric"  -> "feature-my-metric"
-            "user/fix_thing"     -> "user-fix-thing"
+            "feature/my-metric"  -> "feature_my_metric"
+            "user/fix_thing"     -> "user_fix_thing"
         """
-        return re.sub(r"[^a-zA-Z0-9]+", "-", branch).strip("-")
+        return re.sub(r"[^a-zA-Z0-9_]+", "_", branch).strip("_")
 
     @staticmethod
     def _derive_namespace(base_namespace: str, branch: str) -> str:
@@ -354,7 +354,7 @@ class DeploymentService:
 
         The base namespace is expected to end with a branch segment (e.g. ".main").
         That segment is replaced with the sanitized branch name so that:
-            base="project.main", branch="feature/my-metric" -> "project.feature-my-metric"
+            base="project.main", branch="feature/my-metric" -> "project.feature_my_metric"
             base="project.main", branch="main"              -> "project.main"
 
         If the base namespace has no dot (i.e. it's a single segment), the branch
