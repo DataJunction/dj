@@ -728,3 +728,37 @@ class TestPushBranchDetection:
         result = DeploymentService._build_deployment_source()
 
         assert result["branch"] == "feature/auto-detected"
+
+    def test_push_git_config_failure_is_warned_not_raised(self, monkeypatch, tmp_path):
+        """When _set_namespace_git_config raises, push() prints a warning and continues."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: "main"),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client._set_namespace_git_config.side_effect = Exception("network error")
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+        client.check_deployment.return_value = {
+            "uuid": "abc",
+            "status": "success",
+            "results": [],
+        }
+
+        out = io.StringIO()
+        svc = DeploymentService(client, console=Console(file=out))
+        svc.push(tmp_path)
+
+        assert "Warning" in out.getvalue()
+        client.deploy.assert_called_once()
