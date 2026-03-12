@@ -32,7 +32,6 @@ from datajunction_server.models.decompose import (
     PreAggMeasure,
 )
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.construction.build_v3.types import ResolvedDimension
 from . import assert_sql_equal, get_first_grain_group
 
 
@@ -778,7 +777,12 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
     """Unit tests for error guard paths in build_grain_group_from_preagg."""
 
     def _make_ctx(self) -> BuildContext:
-        return BuildContext(session=None, metrics=[], dimensions=[], use_materialized=True)  # type: ignore[arg-type]
+        return BuildContext(
+            session=None,
+            metrics=[],
+            dimensions=[],
+            use_materialized=True,
+        )  # type: ignore[arg-type]
 
     def _make_grain_group(self, node: Node, components: list) -> GrainGroup:
         return GrainGroup(
@@ -798,7 +802,11 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
 
     def _make_node(self) -> Node:
-        revision = NodeRevision(name="test_node", display_name="Test Node", version="v1.0")
+        revision = NodeRevision(
+            name="test_node",
+            display_name="Test Node",
+            version="v1.0",
+        )
         node = Node(name="test_node", type="transform")
         node.current = revision
         return node
@@ -837,7 +845,10 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         grain_group = self._make_grain_group(node, [(node, component)])
 
         avail = AvailabilityState(
-            catalog="wh", schema_="preaggs", table="tbl", valid_through_ts=99999
+            catalog="wh",
+            schema_="preaggs",
+            table="tbl",
+            valid_through_ts=99999,
         )
         preagg = PreAggregation(
             node_revision_id=1,
@@ -865,7 +876,10 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         node = self._make_node()
         component = self._make_component("rev_sum", "revenue")
         # Same component twice — second should be skipped
-        grain_group = self._make_grain_group(node, [(node, component), (node, component)])
+        grain_group = self._make_grain_group(
+            node,
+            [(node, component), (node, component)],
+        )
 
         expr_hash = compute_expression_hash("revenue")
         measure = PreAggMeasure(
@@ -877,7 +891,10 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
             expr_hash=expr_hash,
         )
         avail = AvailabilityState(
-            catalog="wh", schema_="preaggs", table="tbl", valid_through_ts=99999
+            catalog="wh",
+            schema_="preaggs",
+            table="tbl",
+            valid_through_ts=99999,
         )
         preagg = PreAggregation(
             node_revision_id=1,
