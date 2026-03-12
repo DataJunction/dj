@@ -220,6 +220,28 @@ class DJClient:
         )
         return response.json()
 
+    def _set_namespace_git_config(
+        self,
+        namespace: str,
+        git_branch: str | None = None,
+        parent_namespace: str | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Set git metadata (branch, parent namespace) on a namespace.
+        Creates the namespace if it does not exist yet.
+        """
+        payload = {}
+        if git_branch is not None:
+            payload["git_branch"] = git_branch
+        if parent_namespace is not None:
+            payload["parent_namespace"] = parent_namespace
+        response = self._session.patch(
+            f"/namespaces/{namespace}/git",
+            json=payload,
+            timeout=self._timeout,
+        )
+        return response.json()
+
     def get_deployment_impact(self, deployment_spec: Dict[str, Any]):
         """
         Get impact analysis for a deployment spec without deploying.

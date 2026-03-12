@@ -89,3 +89,36 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
                 tag_name="foo",
             )
         assert "Boom!" in str(exc_info.value)
+
+    def test__set_namespace_git_config(self, client):
+        """
+        Check that `client._set_namespace_git_config()` sends the right PATCH payload.
+        """
+        client._session.patch = MagicMock(
+            return_value=MagicMock(json=MagicMock(return_value={"ok": True})),
+        )
+        result = client._set_namespace_git_config(
+            "my.namespace",
+            git_branch="feature/foo",
+            parent_namespace="my.main",
+        )
+        assert result == {"ok": True}
+        client._session.patch.assert_called_once_with(
+            "/namespaces/my.namespace/git",
+            json={"git_branch": "feature/foo", "parent_namespace": "my.main"},
+            timeout=client._timeout,
+        )
+
+    def test__set_namespace_git_config_omits_none_fields(self, client):
+        """
+        Fields that are None should be omitted from the PATCH payload.
+        """
+        client._session.patch = MagicMock(
+            return_value=MagicMock(json=MagicMock(return_value={})),
+        )
+        client._set_namespace_git_config("my.namespace")
+        client._session.patch.assert_called_once_with(
+            "/namespaces/my.namespace/git",
+            json={},
+            timeout=client._timeout,
+        )

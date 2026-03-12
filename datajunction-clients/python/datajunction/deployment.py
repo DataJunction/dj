@@ -1,5 +1,7 @@
 import os
+import re
 import socket
+import subprocess
 from pathlib import Path
 import time
 from typing import Any, Union
@@ -149,7 +151,7 @@ class DeploymentService:
     def build_table(deployment_uuid: str, data: dict) -> Table:
         """Return a fresh Table with current deployment results."""
         table = Table(
-            title=f"Deployment [bold green]{deployment_uuid}[/ bold green]\nNamespace [bold green]{data['namespace']}[/ bold green]",
+            title=f"Deployment [bold green]{deployment_uuid}[/ bold green]\nNamespace [bold green]{data.get('namespace', '')}[/ bold green]",
             box=box.SIMPLE_HEAVY,
             expand=True,
         )
@@ -181,15 +183,51 @@ class DeploymentService:
         self,
         source_path: str | Path,
         namespace: str | None = None,
-        console: Console = Console(),
+        console: Console | None = None,
     ):
         """
         Push a local project to a namespace.
         """
+        console = console or self.console
         console.print(f"[bold]Pushing project from:[/bold] {source_path}")
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
-        deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
+
+        base_namespace = deployment_spec.get("namespace") or ""
+        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        source = deployment_spec.get("source", {})
+        if source.get("repository"):
+            console.print(
+                f"[dim]  repo:    [bold]{source['repository']}[/bold]\n"
+                f"  branch:  [bold]{source.get('branch', 'unknown')}[/bold][/dim]",
+            )
+        if namespace:
+            deployment_spec["namespace"] = namespace
+        elif branch and base_namespace:
+            deployment_spec["namespace"] = DeploymentService._derive_namespace(
+                base_namespace,
+                branch,
+            )
+            console.print(
+                f"[dim]Detected branch [bold]{branch}[/bold] → "
+                f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
+            )
+
+        if branch:
+            # Only set parent_namespace when we derived it from dj.yaml (not when
+            # --namespace was passed explicitly, since we can't reliably infer the parent)
+            parent_namespace = base_namespace if not namespace else None
+            try:
+                self.client._set_namespace_git_config(
+                    deployment_spec["namespace"],
+                    git_branch=branch,
+                    parent_namespace=parent_namespace or None,
+                )
+            except Exception as e:  # pylint: disable=broad-except
+                console.print(
+                    f"[yellow]Warning: could not set git config on namespace "
+                    f"'{deployment_spec['namespace']}': {e}[/yellow]",
+                )
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
 
@@ -292,14 +330,85 @@ class DeploymentService:
         }
 
         # Add deployment source if available from env vars
-        source = self._build_deployment_source()
+        source = self._build_deployment_source(cwd=base_dir)
         if source:  # pragma: no branch
             deployment_spec["source"] = source
 
         return deployment_spec
 
     @staticmethod
-    def _build_deployment_source() -> dict[str, Any]:
+    def _detect_git_branch(cwd: str | Path | None = None) -> str | None:
+        """
+        Returns the current git branch name, or None if not in a git repo or
+        git is not available.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            branch = result.stdout.strip()
+            return branch if branch and branch != "HEAD" else None
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    @staticmethod
+    def _detect_git_repo(cwd: str | Path | None = None) -> str | None:
+        """
+        Returns the remote origin URL of the current git repo, or None if not
+        in a git repo, no remote is configured, or git is not available.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            return result.stdout.strip() or None
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    @staticmethod
+    def _branch_to_namespace_suffix(branch: str) -> str:
+        """
+        Converts a git branch name to a DJ-safe namespace suffix.
+        Replaces slashes and other non-alphanumeric characters with underscores
+        and strips leading/trailing underscores.
+
+        Examples:
+            "main"               -> "main"
+            "feature/my-metric"  -> "feature_my_metric"
+            "user/fix_thing"     -> "user_fix_thing"
+        """
+        return re.sub(r"[^a-zA-Z0-9_]+", "_", branch).strip("_")
+
+    @staticmethod
+    def _derive_namespace(base_namespace: str, branch: str) -> str:
+        """
+        Derives the deployment namespace from the base namespace in dj.yaml and
+        the current git branch.
+
+        The base namespace is expected to end with a branch segment (e.g. ".main").
+        That segment is replaced with the sanitized branch name so that:
+            base="project.main", branch="feature/my-metric" -> "project.feature_my_metric"
+            base="project.main", branch="main"              -> "project.main"
+
+        If the base namespace has no dot (i.e. it's a single segment), the branch
+        suffix is appended directly: base="project", branch="feature" -> "project.feature".
+        """
+        suffix = DeploymentService._branch_to_namespace_suffix(branch)
+        if "." in base_namespace:
+            prefix = base_namespace.rsplit(".", 1)[0]
+            return f"{prefix}.{suffix}"
+        return f"{base_namespace}.{suffix}"
+
+    @staticmethod
+    def _build_deployment_source(cwd: str | Path | None = None) -> dict[str, Any]:
         """
         Build deployment source from environment variables.
 
@@ -318,15 +427,19 @@ class DeploymentService:
             GitDeploymentSource dict if repo is specified,
             LocalDeploymentSource dict otherwise (with hostname auto-filled)
         """
-        repo = os.getenv("DJ_DEPLOY_REPO")
-
+        repo = os.getenv("DJ_DEPLOY_REPO") or DeploymentService._detect_git_repo(
+            cwd=cwd,
+        )
+        branch_for_source = os.getenv(
+            "DJ_DEPLOY_BRANCH",
+        ) or DeploymentService._detect_git_branch(cwd=cwd)
         if repo:
             # Git deployment source
             source: dict[str, Any] = {
                 "type": "git",
                 "repository": repo,
             }
-            branch = os.getenv("DJ_DEPLOY_BRANCH")
+            branch = branch_for_source
             if branch:
                 source["branch"] = branch
             commit = os.getenv("DJ_DEPLOY_COMMIT")
