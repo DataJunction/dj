@@ -422,7 +422,8 @@ class DJClient(_internal.DJClient):
                 poll_interval = min(poll_interval * 2, 10)
 
             # Return results if the job has finished. If the server returned
-            # FINISHED with empty results, re-poll a few times before giving up.
+            # FINISHED with empty results, then re-poll a few
+            # times before giving up.
             if job_state == models.QueryState.FINISHED:
                 if results and not results.get("results"):
                     for attempt in range(3):
