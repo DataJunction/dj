@@ -183,11 +183,12 @@ class DeploymentService:
         self,
         source_path: str | Path,
         namespace: str | None = None,
-        console: Console = Console(),
+        console: Console | None = None,
     ):
         """
         Push a local project to a namespace.
         """
+        console = console or self.console
         console.print(f"[bold]Pushing project from:[/bold] {source_path}")
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
