@@ -2936,6 +2936,206 @@ class TestTemporalFilterPushdown:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_no_pushdown_when_upstream_lacks_fk_column(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        When the primary FROM of the parent node is a non-source transform that does NOT expose
+        the FK column (date_id), pushdown finds no match and returns None. The filter falls
+        back to the outer WHERE.
+
+        v3.order_details is a non-source transform but its columns don't include
+        date_id (only order_date), so find_upstream_temporal_source_node returns
+        None and the filter lands on the outer query instead.
+        """
+        # Transform that reads from v3.order_details (non-source, no date_id column)
+        # but exposes date_id by aliasing order_date
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.orders_by_date",
+                "display_name": "Orders By Date",
+                "mode": "published",
+                "query": "SELECT order_date AS date_id, COUNT(order_id) AS order_cnt FROM v3.order_details GROUP BY order_date",
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "order_cnt", "type": "bigint"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.orders_by_date/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.orders_by_date.date_id = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.orders_by_date_count",
+                "mode": "published",
+                "query": "SELECT SUM(order_cnt) FROM v3.orders_by_date",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.orders_by_date_cube",
+                "mode": "published",
+                "metrics": ["v3.orders_by_date_count"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.orders_by_date_cube/columns/v3.date.date_id/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert response.status_code in (200, 201), response.text
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.orders_by_date_count"],
+            dimensions=["v3.date.date_id"],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+
+        # Filter must be on the outer WHERE (no upstream CTE to push into)
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.customer_id,
+                o.order_date,
+                o.from_location_id,
+                o.to_location_id,
+                o.status,
+                oi.product_id,
+                oi.quantity,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_orders_by_date AS (
+              SELECT
+                order_date AS date_id,
+                COUNT(order_id) AS order_cnt
+              FROM v3_order_details
+              GROUP BY  order_date
+            )
+            SELECT
+              t1.date_id,
+              SUM(t1.order_cnt) order_cnt_sum_e668c538
+            FROM v3_orders_by_date t1
+            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY  t1.date_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_pushdown_when_parent_query_has_no_from(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """
+        Line 854: when the parent node's query has no FROM clause,
+        find_upstream_temporal_source_node returns None at the from_ check
+        and the filter falls back to the outer WHERE.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.constant_date",
+                "display_name": "Constant Date",
+                "mode": "published",
+                "query": "SELECT CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT) AS date_id, 1 AS cnt",
+                "columns": [
+                    {
+                        "name": "date_id",
+                        "type": "int",
+                        "attributes": [{"attribute_type": {"name": "primary_key"}}],
+                    },
+                    {"name": "cnt", "type": "bigint"},
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.constant_date/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.constant_date.date_id = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.constant_date_count",
+                "mode": "published",
+                "query": "SELECT SUM(cnt) FROM v3.constant_date",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.constant_date_cube",
+                "mode": "published",
+                "metrics": ["v3.constant_date_count"],
+                "dimensions": ["v3.date.date_id"],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.constant_date_cube/columns/v3.date.date_id/partition",
+            json={"type_": "temporal", "format": "yyyyMMdd", "granularity": "day"},
+        )
+        assert response.status_code in (200, 201), response.text
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.constant_date_count"],
+            dimensions=["v3.date.date_id"],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+        # Filter must land on outer WHERE (no FROM to push into)
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_constant_date AS (
+              SELECT
+                CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT) AS date_id,
+                1 AS cnt
+            )
+            SELECT
+              t1.date_id,
+              SUM(t1.cnt) cnt_sum_293e7033
+            FROM v3_constant_date t1
+            WHERE  t1.date_id = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+            GROUP BY  t1.date_id
+            """,
+        )
+
 
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""

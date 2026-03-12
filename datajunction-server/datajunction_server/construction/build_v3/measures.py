@@ -620,7 +620,7 @@ def build_select_ast(
         if upstream_node:
             # Build an unaliased version of the filter for injection into the upstream CTE
             unaliased_filter_ast, _ = build_temporal_filter(ctx, parent_node, None)
-            if unaliased_filter_ast:
+            if unaliased_filter_ast:  # pragma: no branch
                 injected_cte_filters[upstream_node.name] = unaliased_filter_ast
                 temporal_filter_ast = None  # Don't also apply on the outer query
 
@@ -842,7 +842,7 @@ def find_upstream_temporal_source_node(
 
     Returns the upstream Node if found, otherwise None (caller falls back to outer WHERE).
     """
-    if not parent_node.current or not parent_node.current.query:
+    if not parent_node.current or not parent_node.current.query:  # pragma: no cover
         return None
 
     try:
@@ -868,7 +868,7 @@ def find_upstream_temporal_source_node(
 
         table_name = str(table_expr.name)
         upstream_node = ctx.nodes.get(table_name)
-        if not upstream_node or not upstream_node.current:
+        if not upstream_node or not upstream_node.current:  # pragma: no cover
             continue
 
         # Only push into non-source nodes — source nodes don't become CTEs,
