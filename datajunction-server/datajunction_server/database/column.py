@@ -57,6 +57,7 @@ class Column(Base):  # type: ignore
             ondelete="CASCADE",
         ),
         nullable=False,
+        index=True,
     )
 
     node_revision: Mapped["NodeRevision"] = relationship(
