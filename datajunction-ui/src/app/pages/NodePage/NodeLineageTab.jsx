@@ -26,6 +26,7 @@ const createDJNode = node => {
 const NodeColumnLineage = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const dagFetch = async (getLayoutedElements, setNodes, setEdges) => {
+    if (!djNode?.djNode) return;
     let relatedNodes = await djClient.node_lineage(djNode.djNode.name);
     let nodesMapping = {};
     let edgesMapping = {};
