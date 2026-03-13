@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, waitFor, screen } from '@testing-library/react';
-import NodeDependenciesTab from '../NodeDependenciesTab';
+import NodeDependenciesTab, { NodeList } from '../NodeDependenciesTab';
 
 describe('<NodeDependenciesTab />', () => {
   const mockDjClient = {
@@ -133,6 +133,23 @@ describe('<NodeDependenciesTab />', () => {
     mockDjClient.nodeDimensions.mockReset();
     mockDjClient.upstreamsGQL.mockReset();
     mockDjClient.downstreamsGQL.mockReset();
+  });
+
+  it('skips fetching when node is null (line 12 false branch)', () => {
+    render(<NodeDependenciesTab node={null} djClient={mockDjClient} />);
+    expect(mockDjClient.upstreamsGQL).not.toHaveBeenCalled();
+    expect(mockDjClient.downstreamsGQL).not.toHaveBeenCalled();
+    expect(mockDjClient.nodeDimensions).not.toHaveBeenCalled();
+  });
+
+  it('renders "None" for NodeList with empty array (lines 127-131)', () => {
+    render(<NodeList nodes={[]} />);
+    expect(screen.getByText('None')).toBeInTheDocument();
+  });
+
+  it('renders "None" for NodeList with null nodes', () => {
+    render(<NodeList nodes={null} />);
+    expect(screen.getByText('None')).toBeInTheDocument();
   });
 
   it('renders nodes with dimensions', async () => {
