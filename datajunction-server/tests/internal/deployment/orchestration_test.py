@@ -433,6 +433,47 @@ class TestDeploymentPlanning:
         assert len(orchestrator.errors) == 0
 
     @pytest.mark.asyncio
+    async def test_setup_catalogs_returns_all_db_catalogs(self, session, current_user):
+        """
+        _setup_catalogs should return ALL catalogs in the DB, not only those
+        explicitly referenced by the deployment spec.  Catalogs outside the spec
+        are needed so the registry has full catalog context for nodes that
+        indirectly depend on them (e.g. transforms referencing pre-existing sources).
+        """
+        # Two catalogs in the DB; only one is mentioned in the spec
+        catalog_in_spec = Catalog(name="spec_catalog")
+        catalog_not_in_spec = Catalog(name="other_catalog")
+        session.add_all([catalog_in_spec, catalog_not_in_spec])
+        await session.commit()
+
+        deployment_spec = DeploymentSpec(
+            namespace="some.namespace",
+            nodes=[
+                SourceSpec(
+                    name="simple_node",
+                    display_name="Simple Node",
+                    catalog="spec_catalog",
+                    schema="schema",
+                    table="table1",
+                ),
+            ],
+        )
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=deployment_spec,
+            deployment_id="test-deployment",
+            session=session,
+            context=context,
+        )
+        result_catalogs = await orchestrator._setup_catalogs()
+
+        # Both catalogs are returned even though only one was in the spec
+        assert set(result_catalogs.keys()) >= {"spec_catalog", "other_catalog"}
+        assert len(orchestrator.errors) == 0
+
+    @pytest.mark.asyncio
     async def test_setup_catalogs_missing(self, session, current_user):
         """
         Test setup catalogs with missing catalogs
@@ -459,7 +500,9 @@ class TestDeploymentPlanning:
             context=context,
         )
         result_catalogs = await orchestrator._setup_catalogs()
-        assert result_catalogs == {}
+        # The missing spec catalog is not in the returned map but all other DB
+        # catalogs are still returned (new behavior: always return full catalog map)
+        assert "catalog" not in result_catalogs
         assert len(orchestrator.errors) == 1
 
 
