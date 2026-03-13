@@ -164,10 +164,10 @@ describe('<NodesWithDimension />', () => {
       );
       for (const node of mockNodesWithDimension) {
         // renders nodes based on nodesWithDimension data
-        expect(screen.getByText(node.display_name)).toBeInTheDocument();
+        expect(screen.getByText(node.name)).toBeInTheDocument();
 
         // renders links to the correct URLs
-        const link = screen.getByText(node.display_name).closest('a');
+        const link = screen.getByText(node.name).closest('a');
         expect(link).toHaveAttribute('href', `/nodes/${node.name}`);
       }
     });

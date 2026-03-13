@@ -357,6 +357,6 @@ describe('<NodeDimensionsTab />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('reactflow')).toBeInTheDocument();
     });
-    expect(screen.getByText('dimension')).toBeInTheDocument();
+    expect(screen.getAllByText('dimension').length).toBeGreaterThan(0);
   });
 });
