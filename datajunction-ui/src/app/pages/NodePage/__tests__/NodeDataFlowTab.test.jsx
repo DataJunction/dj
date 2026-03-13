@@ -152,7 +152,7 @@ beforeAll(() => {
 
 describe('<NodeDataFlowTab />', () => {
   const mockDjClient = {
-    node_dag: jest.fn(),
+    upstreamsGQL: jest.fn(),
     downstreamsGQL: jest.fn(),
     findCubesWithMetrics: jest.fn(),
   };
@@ -174,7 +174,7 @@ describe('<NodeDataFlowTab />', () => {
   it('stays in loading state when djNode has no name (line 186 early return)', async () => {
     renderWithContext({});
     // Effect returns early, loading stays true — no API calls
-    expect(mockDjClient.node_dag).not.toHaveBeenCalled();
+    expect(mockDjClient.upstreamsGQL).not.toHaveBeenCalled();
     expect(
       screen.queryByText('No data flow relationships found for this node.'),
     ).not.toBeInTheDocument();
@@ -183,7 +183,7 @@ describe('<NodeDataFlowTab />', () => {
   it('shows "No data flow relationships" when dag and downstreams return empty arrays', async () => {
     // Use a source node — metrics get phantom links which make links.length > 0
     const djNode = { name: 'default.source1', type: 'source', parents: [] };
-    mockDjClient.node_dag.mockResolvedValue([]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -196,13 +196,17 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('renders Sankey when links exist between nodes', async () => {
-    const source = { name: 'default.source1', type: 'source', parents: [] };
+    const source = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
       parents: [{ name: 'default.source1' }],
     };
-    mockDjClient.node_dag.mockResolvedValue([source]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([source]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -217,7 +221,7 @@ describe('<NodeDataFlowTab />', () => {
       .spyOn(console, 'error')
       .mockImplementation(() => {});
     const djNode = { name: 'default.metric1', type: 'metric', parents: [] };
-    mockDjClient.node_dag.mockRejectedValue(new Error('Network error'));
+    mockDjClient.upstreamsGQL.mockRejectedValue(new Error('Network error'));
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -237,10 +241,18 @@ describe('<NodeDataFlowTab />', () => {
       type: 'metric',
       parents: [],
     };
-    mockDjClient.node_dag.mockResolvedValue([]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([]);
     mockDjClient.downstreamsGQL.mockResolvedValue([
-      { name: 'default.cube1', type: 'CUBE' },
-      { name: 'default.transform1', type: 'TRANSFORM' },
+      {
+        name: 'default.cube1',
+        type: 'CUBE',
+        current: { parents: [{ name: 'default.metric1' }] },
+      },
+      {
+        name: 'default.transform1',
+        type: 'TRANSFORM',
+        current: { parents: [{ name: 'default.metric1' }] },
+      },
     ]);
     // cube has metric as parent → creates a link
     mockDjClient.findCubesWithMetrics.mockResolvedValue([
@@ -266,14 +278,22 @@ describe('<NodeDataFlowTab />', () => {
 
   it('covers sort return 0 branch for same-type non-seed nodes (line 220)', async () => {
     // Two source nodes, neither is the seed (metric1) — sort returns 0
-    const source1 = { name: 'default.source1', type: 'source', parents: [] };
-    const source2 = { name: 'default.source2', type: 'source', parents: [] };
+    const source1 = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
+    const source2 = {
+      name: 'default.source2',
+      type: 'source',
+      current: { parents: [] },
+    };
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
       parents: [{ name: 'default.source1' }, { name: 'default.source2' }],
     };
-    mockDjClient.node_dag.mockResolvedValue([source1, source2]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([source1, source2]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -284,13 +304,17 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('covers SankeyLink hover (linkHovered=true) via mouseEnter on path', async () => {
-    const source = { name: 'default.source1', type: 'source', parents: [] };
+    const source = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
       parents: [{ name: 'default.source1' }],
     };
-    mockDjClient.node_dag.mockResolvedValue([source]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([source]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     const { container } = renderWithContext(djNode);
@@ -313,8 +337,12 @@ describe('<NodeDataFlowTab />', () => {
       type: 'metric',
       parents: [{ name: 'default.source1' }],
     };
-    const source = { name: 'default.source1', type: 'source', parents: [] };
-    mockDjClient.node_dag.mockResolvedValue([source]);
+    const source = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
+    mockDjClient.upstreamsGQL.mockResolvedValue([source]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -326,18 +354,22 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('renders SankeyNode with rightmostType=metric when no cubes', async () => {
-    const source = { name: 'default.source1', type: 'source', parents: [] };
+    const source = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
     const transform = {
       name: 'default.transform1',
       type: 'transform',
-      parents: [{ name: 'default.source1' }],
+      current: { parents: [{ name: 'default.source1' }] },
     };
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
       parents: [{ name: 'default.transform1' }],
     };
-    mockDjClient.node_dag.mockResolvedValue([source, transform]);
+    mockDjClient.upstreamsGQL.mockResolvedValue([source, transform]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);
@@ -347,15 +379,44 @@ describe('<NodeDataFlowTab />', () => {
     });
   });
 
-  it('excludes dimension nodes from the flow graph', async () => {
-    const dimNode = { name: 'default.dim1', type: 'dimension', parents: [] };
+  it('includes dimension nodes in the flow graph (they have data lineage like transforms)', async () => {
+    const dimNode = {
+      name: 'default.dim1',
+      type: 'dimension',
+      current: { parents: [{ name: 'default.source1' }] },
+    };
     const djNode = {
       name: 'default.metric1',
       type: 'metric',
       parents: [{ name: 'default.source1' }],
     };
-    const source = { name: 'default.source1', type: 'source', parents: [] };
-    mockDjClient.node_dag.mockResolvedValue([dimNode, source]);
+    const source = {
+      name: 'default.source1',
+      type: 'source',
+      current: { parents: [] },
+    };
+    mockDjClient.upstreamsGQL.mockResolvedValue([dimNode, source]);
+    mockDjClient.downstreamsGQL.mockResolvedValue([]);
+
+    renderWithContext(djNode);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sankey')).toBeInTheDocument();
+    });
+  });
+
+  it('shows data flow for a dimension node viewed directly', async () => {
+    const djNode = {
+      name: 'default.dispatcher',
+      type: 'dimension',
+      parents: [{ name: 'default.dispatchers_source' }],
+    };
+    const source = {
+      name: 'default.dispatchers_source',
+      type: 'source',
+      current: { parents: [] },
+    };
+    mockDjClient.upstreamsGQL.mockResolvedValue([source]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
     renderWithContext(djNode);

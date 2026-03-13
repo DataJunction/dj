@@ -865,6 +865,11 @@ export const DataJunctionAPI = {
         upstreamNodes(nodeNames: $nodeNames) {
           name
           type
+          current {
+            parents {
+              name
+            }
+          }
         }
       }
     `;
@@ -886,6 +891,11 @@ export const DataJunctionAPI = {
         downstreamNodes(nodeNames: $nodeNames) {
           name
           type
+          current {
+            parents {
+              name
+            }
+          }
         }
       }
     `;
@@ -1130,9 +1140,10 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  nodesWithDimension: async function (name) {
+  nodesWithDimension: async function (name, nodeType = null) {
+    const params = nodeType ? `?node_type=${nodeType}` : '';
     return await (
-      await fetch(`${DJ_URL}/dimensions/${name}/nodes/`, {
+      await fetch(`${DJ_URL}/dimensions/${name}/nodes/${params}`, {
         credentials: 'include',
       })
     ).json();
@@ -1473,6 +1484,13 @@ export const DataJunctionAPI = {
   nodeDimensions: async function (nodeName) {
     return await (
       await fetch(`${DJ_URL}/nodes/${nodeName}/dimensions`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+  dimensionDag: async function (nodeName) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${nodeName}/dimension-dag/`, {
         credentials: 'include',
       })
     ).json();

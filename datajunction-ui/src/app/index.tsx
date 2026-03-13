@@ -30,6 +30,18 @@ import { DataJunctionAPI } from './services/DJService';
 import { CookiesProvider, useCookies } from 'react-cookie';
 import * as Constants from './constants';
 
+// ReactFlow triggers "ResizeObserver loop completed with undelivered notifications"
+// which webpack-dev-server treats as an uncaught error and shows an overlay that
+// blocks navigation. Suppress it at the window level — it's a harmless browser warning.
+window.addEventListener('error', e => {
+  if (
+    e.message ===
+    'ResizeObserver loop completed with undelivered notifications.'
+  ) {
+    e.stopImmediatePropagation();
+  }
+});
+
 // Stable context value — DataJunctionAPI is a module-level singleton that
 // never changes, so this object only needs to be created once.
 const DJ_CONTEXT_VALUE = { DataJunctionAPI };

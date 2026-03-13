@@ -24,15 +24,15 @@ export default function NodesWithDimension({ node, djClient }) {
           {availableNodes.map(node => (
             <tr>
               <td>
-                <a href={`/nodes/${node.name}`}>{node.display_name}</a>
+                <a href={`/nodes/${node.name}`}>{node.name}</a>
               </td>
-              <td>
+              {/* <td>
                 <span
                   className={'node_type__' + node.type + ' badge node_type'}
                 >
                   {node.type}
                 </span>
-              </td>
+              </td> */}
             </tr>
           ))}
         </tbody>
