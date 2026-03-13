@@ -117,7 +117,12 @@ async def check_namespace_not_git_only(
         namespace,
         raise_if_not_exists=False,
     )
-    if node_namespace and (node_namespace.git_only or node_namespace.github_repo_path):
+    is_git_root = (
+        node_namespace is not None
+        and node_namespace.github_repo_path is not None
+        and node_namespace.git_branch is None
+    )
+    if node_namespace and (node_namespace.git_only or is_git_root):
         raise DJInvalidInputException(
             message=f"Namespace '{namespace}' is git-managed. "
             "Node changes must be deployed from git via the /deployments API.",

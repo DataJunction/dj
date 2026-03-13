@@ -114,7 +114,7 @@ async def create_node_namespace(
     parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
     if parent:
         parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path:
+        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
             raise DJInvalidInputException(
                 message=(
                     f"Cannot create namespace '{namespace}' under git root '{parent}'. "
