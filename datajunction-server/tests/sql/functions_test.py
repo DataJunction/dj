@@ -913,6 +913,14 @@ async def test_concat_func(session: AsyncSession):
         value_type=ct.StringType(),
     )
 
+    # CONCAT with CAST to VARCHAR should resolve to StringType (VarcharType is a StringBase)
+    query2 = parse("SELECT concat(CAST('hello' AS VARCHAR(10)), 'world')")
+    exc2 = DJException()
+    ctx2 = ast.CompileContext(session=session, exception=exc2)
+    await query2.compile(ctx2)
+    assert not exc2.errors
+    assert query2.select.projection[0].type == ct.StringType()  # type: ignore
+
 
 @pytest.mark.asyncio
 async def test_concat_ws_func(session: AsyncSession):

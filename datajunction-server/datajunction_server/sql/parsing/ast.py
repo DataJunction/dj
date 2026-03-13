@@ -909,6 +909,7 @@ class Column(Aliasable, Named, Expression):
         column_namespace = None
         if len(self.namespace) == 2:  # struct
             column_namespace, column_name = self.namespace
+            column_namespace = column_namespace.name  # extract string from Name object
             column_name = column_name.name
             subscript_name = self.name.name
         elif len(self.namespace) == 1:  # non-struct
@@ -1511,6 +1512,24 @@ class TableExpression(Aliasable, Expression):
                                 column.add_expression(col)
                                 column.add_type(type_field.type)
                                 return True
+                        # Two-level struct access: col is viewing_secs (StructType),
+                        # column_name is wall_clock (intermediate field), and
+                        # subscript_name is total (leaf field).
+                        # Find column_name in col.type.fields, then subscript_name in that.
+                        if col.alias_or_name.identifier(False) == column_namespace:
+                            for mid_field in col.type.fields:
+                                if mid_field.name.name == column_name and isinstance(
+                                    mid_field.type,
+                                    StructType,
+                                ):
+                                    for leaf_field in mid_field.type.fields:
+                                        if leaf_field.name.name == subscript_name:
+                                            self._ref_columns.append(column)
+                                            column.set_struct_ref()
+                                            column.add_table(self)
+                                            column.add_expression(col)
+                                            column.add_type(leaf_field.type)
+                                            return True
         return False
 
     def is_compiled(self) -> bool:
