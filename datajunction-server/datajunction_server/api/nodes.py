@@ -99,7 +99,7 @@ from datajunction_server.models.node import (
     SourceColumnOutput,
     UpdateNode,
 )
-from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node_type import DimensionDAGOutput, NodeType
 from datajunction_server.models.partition import (
     Granularity,
     PartitionInput,
@@ -111,6 +111,8 @@ from datajunction_server.sql.dag import (
     _node_output_options,
     get_dimensions,
     get_dimension_attributes,
+    get_dimension_inbound_bfs,
+    get_dimension_outbound_bfs,
     get_downstream_nodes,
     get_filter_only_dimensions,
     get_upstream_nodes,
@@ -1330,6 +1332,55 @@ async def list_all_dimension_attributes(
     dimensions = await get_dimension_attributes(session, name)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
+
+
+@router.get("/nodes/{name}/dimension-dag/", response_model=DimensionDAGOutput)
+async def get_dimension_dag(
+    name: str,
+    *,
+    depth: int = 10,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> DimensionDAGOutput:
+    """
+    Return the dimension-link DAG centred on a node.
+
+    inbound:  nodes whose dimension links point to this node (consumers),
+              discovered via layered BFS over the inbound dimension graph.
+    outbound: dimension nodes that are reachable from this node via its own
+              dimension links (its outbound dimension graph).
+    """
+    dimension_node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            name,
+            options=[selectinload(Node.current)],
+            raise_if_not_exists=True,
+        ),
+    )
+    access_checker.add_node(dimension_node, access.ResourceAction.READ)
+
+    # Outbound: dimension nodes reachable via this node's own dimension links.
+    outbound, outbound_edges = await get_dimension_outbound_bfs(
+        session,
+        dimension_node,
+        depth=depth,
+    )
+
+    # Inbound: nodes whose dimension links point to this dimension.
+    inbound, inbound_edges = await get_dimension_inbound_bfs(
+        session,
+        dimension_node,
+        depth=depth,
+    )
+
+    return DimensionDAGOutput(
+        inbound=inbound,
+        inbound_edges=inbound_edges,
+        outbound=outbound,
+        outbound_edges=outbound_edges,
+    )
 
 
 @router.get(
