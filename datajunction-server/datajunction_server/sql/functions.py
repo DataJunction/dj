@@ -1193,6 +1193,13 @@ def infer_type(
 
 @Concat.register  # type: ignore
 def infer_type(
+    *strings: ct.StringBase,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+@Concat.register  # type: ignore
+def infer_type(
     *arrays: ct.ListType,
 ) -> ct.ListType:
     return arrays[0].type
