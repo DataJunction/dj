@@ -11,7 +11,6 @@ export function NeedsAttentionSection({
   staleMaterializations,
   orphanedDimensions,
   username,
-  hasItems,
   loading,
   personalNamespace,
   hasPersonalNamespace,
@@ -55,129 +54,116 @@ export function NeedsAttentionSection({
     },
   ];
 
-  const categoriesList = categories.map(cat => (
-    <div
-      key={cat.id}
-      className="settings-card"
-      style={{ padding: '0.5rem 0.75rem', minWidth: 0 }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '0.3rem',
-        }}
-      >
-        <span style={{ fontSize: '11px', fontWeight: '600', color: '#555' }}>
-          {cat.icon} {cat.label}
-          <span
-            style={{
-              color: cat.nodes.length > 0 ? '#dc3545' : '#666',
-              marginLeft: '4px',
-            }}
-          >
-            ({cat.nodes.length})
-          </span>
-        </span>
-        {cat.nodes.length > 0 && (
-          <Link to={cat.viewAllLink} style={{ fontSize: '10px' }}>
-            View all →
-          </Link>
-        )}
-      </div>
-      {cat.nodes.length > 0 ? (
-        <div style={{ display: 'flex', gap: '0.3rem', overflow: 'hidden' }}>
-          {cat.nodes.slice(0, 10).map(node => (
-            <NodeChip key={node.name} node={node} />
-          ))}
-        </div>
-      ) : (
-        <div style={{ fontSize: '10px', color: '#28a745' }}>✓ All good!</div>
-      )}
-    </div>
-  ));
-
   return (
     <section style={{ minWidth: 0, width: '100%' }}>
       <h2 className="settings-section-title">Needs Attention</h2>
-      <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+      <div className="settings-card" style={{ padding: '0.25rem 0.75rem' }}>
         {loading ? (
-          <div
-            className="settings-card"
-            style={{ textAlign: 'center', padding: '1rem' }}
-          >
+          <div style={{ textAlign: 'center', padding: '1rem' }}>
             <LoadingIcon />
           </div>
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              width: '100%',
-              gap: '0.5rem',
-            }}
-          >
-            {categoriesList}
-            {/* Personal namespace prompt if missing */}
+          <>
+            {categories.map((cat, i) => (
+              <div
+                key={cat.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.35rem 0',
+                  borderBottom:
+                    i < categories.length - 1
+                      ? '1px solid var(--border-color, #f0f0f0)'
+                      : 'none',
+                  minWidth: 0,
+                }}
+              >
+                {/* Label + count */}
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#555',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  {cat.label}{' '}
+                  <span
+                    style={{
+                      color: cat.nodes.length > 0 ? '#dc3545' : '#28a745',
+                      fontWeight: 500,
+                    }}
+                  >
+                    ({cat.nodes.length})
+                  </span>
+                </span>
+
+                {/* Chips with right-side fade */}
+                {cat.nodes.length > 0 ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      maskImage:
+                        'linear-gradient(to right, black 75%, transparent 100%)',
+                      WebkitMaskImage:
+                        'linear-gradient(to right, black 75%, transparent 100%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '0.25rem',
+                        flexWrap: 'nowrap',
+                      }}
+                    >
+                      {cat.nodes.slice(0, 20).map(node => (
+                        <NodeChip key={node.name} node={node} />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: '10px', color: '#28a745', flex: 1 }}>
+                    All good
+                  </span>
+                )}
+
+                {/* Arrow link — always visible, outside the fade */}
+                {cat.nodes.length > 0 && (
+                  <Link
+                    to={cat.viewAllLink}
+                    style={{ fontSize: '11px', flexShrink: 0 }}
+                  >
+                    →
+                  </Link>
+                )}
+              </div>
+            ))}
+
             {!namespaceLoading && !hasPersonalNamespace && (
               <div
                 style={{
-                  padding: '0.75rem',
-                  backgroundColor: 'var(--card-bg, #f8f9fa)',
-                  border: '1px dashed var(--border-color, #dee2e6)',
-                  borderRadius: '6px',
-                  textAlign: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.35rem 0',
+                  fontSize: '11px',
                 }}
               >
-                <div style={{ fontSize: '16px', marginBottom: '0.25rem' }}>
-                  📁
-                </div>
-                <div
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    marginBottom: '0.25rem',
-                  }}
-                >
-                  Set up your namespace
-                </div>
-                <p
-                  style={{
-                    fontSize: '10px',
-                    color: '#666',
-                    marginBottom: '0.5rem',
-                  }}
-                >
-                  Create{' '}
-                  <code
-                    style={{
-                      backgroundColor: '#e9ecef',
-                      padding: '1px 4px',
-                      borderRadius: '3px',
-                      fontSize: '9px',
-                    }}
-                  >
-                    {personalNamespace}
-                  </code>
-                </p>
+                <span style={{ fontWeight: 600, color: '#555', flexShrink: 0 }}>
+                  Personal namespace
+                </span>
                 <Link
                   to={`/namespaces/${personalNamespace}`}
-                  style={{
-                    display: 'inline-block',
-                    padding: '3px 8px',
-                    fontSize: '10px',
-                    backgroundColor: '#28a745',
-                    color: '#fff',
-                    borderRadius: '4px',
-                    textDecoration: 'none',
-                  }}
+                  style={{ fontSize: '10px' }}
                 >
-                  Create →
+                  Create {personalNamespace} →
                 </Link>
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </section>

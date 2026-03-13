@@ -8,7 +8,7 @@ import { TypeGroupGrid } from './TypeGroupGrid';
 const NODE_TYPE_ORDER = ['metric', 'cube', 'dimension', 'transform', 'source'];
 
 // Helper to group nodes by type
-function groupNodesByType(nodes) {
+function groupNodesByType(nodes, hasMoreMap = {}) {
   const groups = {};
   nodes.forEach(node => {
     const type = (node.type || 'unknown').toLowerCase();
@@ -20,21 +20,36 @@ function groupNodesByType(nodes) {
   return NODE_TYPE_ORDER.filter(type => groups[type]?.length > 0).map(type => ({
     type,
     nodes: groups[type],
-    count: groups[type].length,
+    hasMore: hasMoreMap[type] ?? false,
   }));
 }
 
 // My Nodes Section (owned + watched, with tabs)
 export function MyNodesSection({
   ownedNodes,
+  ownedHasMore = {},
   watchedNodes,
   recentlyEdited,
+  editedHasMore = {},
   username,
   loading,
 }) {
   const [activeTab, setActiveTab] = React.useState('owned');
+  const hasAutoSwitchedTab = React.useRef(false);
+
+  // Once data loads, auto-switch to "edited" if user has no owned nodes but has edits
+  React.useEffect(() => {
+    if (hasAutoSwitchedTab.current) return;
+    if (ownedNodes.length === 0 && recentlyEdited.length > 0) {
+      setActiveTab('edited');
+      hasAutoSwitchedTab.current = true;
+    } else if (ownedNodes.length > 0) {
+      hasAutoSwitchedTab.current = true; // owned nodes exist, stick with default
+    }
+  }, [ownedNodes.length, recentlyEdited.length]);
   const [groupByType, setGroupByType] = React.useState(() => {
-    return localStorage.getItem('workspace_groupByType') === 'true';
+    const stored = localStorage.getItem('workspace_groupByType');
+    return stored === null ? true : stored === 'true';
   });
 
   const ownedNames = new Set(ownedNodes.map(n => n.name));
@@ -73,8 +88,18 @@ export function MyNodesSection({
     localStorage.setItem('workspace_groupByType', checked.toString());
   };
 
+  // Pick the right hasMore map for the active tab
+  const activeHasMore =
+    activeTab === 'owned'
+      ? ownedHasMore
+      : activeTab === 'edited'
+      ? editedHasMore
+      : {};
+
   // Group nodes by type if enabled
-  const groupedData = groupByType ? groupNodesByType(displayNodes) : null;
+  const groupedData = groupByType
+    ? groupNodesByType(displayNodes, activeHasMore)
+    : null;
 
   return (
     <DashboardCard
@@ -222,7 +247,7 @@ export function MyNodesSection({
                   color: activeTab === 'owned' ? '#fff' : '#495057',
                 }}
               >
-                Owned ({ownedNodes.length})
+                Owned
               </button>
               <button
                 onClick={() => setActiveTab('watched')}
@@ -256,7 +281,7 @@ export function MyNodesSection({
                   color: activeTab === 'edited' ? '#fff' : '#495057',
                 }}
               >
-                Recent Edits ({recentlyEdited.length})
+                Recent Edits
               </button>
             </div>
 

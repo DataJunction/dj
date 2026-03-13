@@ -318,6 +318,232 @@ export function useWorkspaceNeedsAttention(username) {
   return { data, loading, error };
 }
 
+const toNodes = r => r?.data?.findNodesPaginated?.edges?.map(e => e.node) || [];
+
+/**
+ * Fetches all workspace dashboard data in independent parallel groups so that
+ * fast sections (My Nodes, Collections) render immediately while slower ones
+ * (Needs Attention, namespace check) finish in the background.
+ */
+export function useWorkspaceDashboardData(username) {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
+
+  const [data, setData] = useState({
+    ownedNodes: [],
+    ownedHasMore: {},
+    recentlyEdited: [],
+    editedHasMore: {},
+    watchedNodes: [],
+    collections: [],
+    notifications: [],
+    materializedNodes: [],
+    needsAttention: {
+      nodesMissingDescription: [],
+      invalidNodes: [],
+      staleDrafts: [],
+      orphanedDimensions: [],
+    },
+    hasPersonalNamespace: null,
+  });
+
+  const [loadingStates, setLoadingStates] = useState({
+    myNodes: true,
+    collections: true,
+    notifications: true,
+    materializations: true,
+    needsAttention: true,
+    namespace: true,
+  });
+
+  useEffect(() => {
+    if (!username) {
+      setLoadingStates({
+        myNodes: false,
+        collections: false,
+        notifications: false,
+        materializations: false,
+        needsAttention: false,
+        namespace: false,
+      });
+      return;
+    }
+
+    // Reset all loading flags whenever the username changes (e.g. after initial login)
+    setLoadingStates({
+      myNodes: true,
+      collections: true,
+      notifications: true,
+      materializations: true,
+      needsAttention: true,
+      namespace: true,
+    });
+
+    // Group 1: Owned nodes + recently edited + collections
+    // Each type is queried independently with limit=11 so hasNextPage tells us if there are more.
+    const NODE_TYPES = ['METRIC', 'TRANSFORM', 'DIMENSION', 'CUBE'];
+    const hasNextPage = r =>
+      r?.data?.findNodesPaginated?.pageInfo?.hasNextPage ?? false;
+
+    const fetchMyNodesAndCollections = async () => {
+      try {
+        const [ownedByType, editedByType, collectionsResult] =
+          await Promise.all([
+            Promise.all(
+              NODE_TYPES.map(t =>
+                djClient.getWorkspaceOwnedNodes(username, 11, t),
+              ),
+            ),
+            Promise.all(
+              NODE_TYPES.map(t =>
+                djClient.getWorkspaceRecentlyEdited(username, 11, t),
+              ),
+            ),
+            djClient.getWorkspaceCollections(username),
+          ]);
+
+        const ownedHasMore = Object.fromEntries(
+          NODE_TYPES.map((t, i) => [
+            t.toLowerCase(),
+            hasNextPage(ownedByType[i]),
+          ]),
+        );
+        const editedHasMore = Object.fromEntries(
+          NODE_TYPES.map((t, i) => [
+            t.toLowerCase(),
+            hasNextPage(editedByType[i]),
+          ]),
+        );
+
+        setData(prev => ({
+          ...prev,
+          ownedNodes: ownedByType.flatMap(r => toNodes(r)),
+          ownedHasMore,
+          recentlyEdited: editedByType.flatMap(r => toNodes(r)),
+          editedHasMore,
+          collections: collectionsResult?.data?.listCollections || [],
+        }));
+      } catch (err) {
+        console.error('Error fetching nodes/collections:', err);
+      }
+      setLoadingStates(prev => ({
+        ...prev,
+        myNodes: false,
+        collections: false,
+      }));
+    };
+
+    // Group 2: Watched nodes + notifications (2 round-trips each, run in parallel)
+    const fetchWatchedAndNotifications = async () => {
+      try {
+        const [subscriptions, historyResult] = await Promise.all([
+          djClient.getNotificationPreferences({ entity_type: 'node' }),
+          djClient.getSubscribedHistory(50),
+        ]);
+
+        const watchedNodeNames = (subscriptions || []).map(s => s.entity_name);
+        const historyEntries = historyResult || [];
+        const notifNodeNames = Array.from(
+          new Set(historyEntries.map(h => h.entity_name)),
+        );
+
+        const [watchedNodes, notifNodes] = await Promise.all([
+          watchedNodeNames.length > 0
+            ? djClient.getNodesByNames(watchedNodeNames)
+            : Promise.resolve([]),
+          notifNodeNames.length > 0
+            ? djClient.getNodesByNames(notifNodeNames)
+            : Promise.resolve([]),
+        ]);
+
+        const notifNodeMap = Object.fromEntries(
+          (notifNodes || []).map(n => [n.name, n]),
+        );
+        const notifications = historyEntries.map(entry => ({
+          ...entry,
+          node_type: notifNodeMap[entry.entity_name]?.type,
+          display_name: notifNodeMap[entry.entity_name]?.current?.displayName,
+        }));
+
+        setData(prev => ({
+          ...prev,
+          watchedNodes: watchedNodes || [],
+          notifications,
+        }));
+      } catch (err) {
+        console.error('Error fetching watched/notifications:', err);
+      }
+      setLoadingStates(prev => ({ ...prev, notifications: false }));
+    };
+
+    // Group 3: Materializations (small limit — we only display 5)
+    const fetchMaterializations = async () => {
+      try {
+        const result = await djClient.getWorkspaceMaterializations(username, 6);
+        setData(prev => ({ ...prev, materializedNodes: toNodes(result) }));
+      } catch (err) {
+        console.error('Error fetching materializations:', err);
+      }
+      setLoadingStates(prev => ({ ...prev, materializations: false }));
+    };
+
+    // Group 4: Needs Attention + personal namespace check (slower, loads last)
+    const fetchNeedsAttentionAndNamespace = async () => {
+      try {
+        const usernameForNamespace = username.split('@')[0];
+        const personalNamespace = `users.${usernameForNamespace}`;
+
+        const [
+          missingDescResult,
+          invalidResult,
+          draftResult,
+          orphanedResult,
+          namespacesList,
+        ] = await Promise.all([
+          djClient.getWorkspaceNodesMissingDescription(username, 100),
+          djClient.getWorkspaceInvalidNodes(username, 100),
+          djClient.getWorkspaceDraftNodes(username, 100),
+          djClient.getWorkspaceOrphanedDimensions(username, 100),
+          djClient.namespaces(),
+        ]);
+
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const allDrafts = toNodes(draftResult);
+
+        setData(prev => ({
+          ...prev,
+          needsAttention: {
+            nodesMissingDescription: toNodes(missingDescResult),
+            invalidNodes: toNodes(invalidResult),
+            staleDrafts: allDrafts.filter(
+              n => new Date(n.current?.updatedAt) < sevenDaysAgo,
+            ),
+            orphanedDimensions: toNodes(orphanedResult),
+          },
+          hasPersonalNamespace: (namespacesList || []).some(
+            ns => ns.namespace === personalNamespace,
+          ),
+        }));
+      } catch (err) {
+        console.error('Error fetching needs attention:', err);
+      }
+      setLoadingStates(prev => ({
+        ...prev,
+        needsAttention: false,
+        namespace: false,
+      }));
+    };
+
+    // All four groups fire independently — each resolves its own loading flag
+    fetchMyNodesAndCollections();
+    fetchWatchedAndNotifications();
+    fetchMaterializations();
+    fetchNeedsAttentionAndNamespace();
+  }, [djClient, username]);
+
+  return { data, loadingStates };
+}
+
 /**
  * Hook to check if personal namespace exists
  */

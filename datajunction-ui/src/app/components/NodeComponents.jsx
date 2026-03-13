@@ -72,6 +72,9 @@ export function NodeLink({
 
   const ellipsisStyles = ellipsis
     ? {
+        display: 'block',
+        flex: 1,
+        minWidth: 0,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
@@ -122,6 +125,7 @@ export function NodeDisplay({
         display: 'flex',
         alignItems: 'center',
         gap,
+        ...(ellipsis ? { minWidth: 0, overflow: 'hidden' } : {}),
         ...containerStyle,
       }}
     >
