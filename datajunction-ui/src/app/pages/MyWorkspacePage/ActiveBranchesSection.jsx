@@ -1,15 +1,9 @@
 import * as React from 'react';
-import { useContext, useEffect, useState } from 'react';
-import DJClientContext from '../../providers/djclient';
 import DashboardCard from '../../components/DashboardCard';
 import { formatRelativeTime } from '../../utils/date';
 
 // Git Namespaces Section - shows git-managed namespaces with their branches
 export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
-  const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const [branchCounts, setBranchCounts] = useState({});
-  const [countsLoading, setCountsLoading] = useState(true);
-
   // Combine owned and edited nodes to get all user's nodes
   const allNodes = [...ownedNodes, ...recentlyEdited];
 
@@ -28,8 +22,9 @@ export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
       } else {
         // Fallback: remove the branch part from fullNamespace
         // fullNamespace is like "myproject.main", we want "myproject"
-        const parts = fullNamespace.split('.');
-        baseNamespace = parts.slice(0, -1).join('.');
+        const dotIdx = fullNamespace.lastIndexOf('.');
+        baseNamespace =
+          dotIdx > 0 ? fullNamespace.slice(0, dotIdx) : fullNamespace;
       }
 
       if (!gitNamespaceMap.has(baseNamespace)) {
@@ -112,56 +107,6 @@ export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
 
   const maxDisplay = 3; // Show top 3 git namespaces
 
-  // Fetch total node counts for each branch
-  useEffect(() => {
-    if (loading) return;
-
-    if (gitNamespaces.length === 0) {
-      setCountsLoading(false);
-      return;
-    }
-
-    const fetchCounts = async () => {
-      const counts = {};
-
-      // Collect all branch namespaces to query
-      const branchNamespaces = [];
-      gitNamespaces.forEach(gitNs => {
-        gitNs.branches.forEach(branch => {
-          branchNamespaces.push(branch.namespace);
-        });
-      });
-
-      // Fetch counts for all branches in parallel
-      const countPromises = branchNamespaces.map(async namespace => {
-        try {
-          const result = await djClient.listNodesForLanding(
-            namespace,
-            ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'], // Exclude SOURCE nodes
-            null, // tags
-            null, // editedBy
-            null, // before
-            null, // after
-            5000, // high limit to get accurate count
-            { key: 'name', direction: 'ascending' }, // sortConfig (required, but doesn't matter for counting)
-            null, // mode
-          );
-          const count = result?.data?.findNodesPaginated?.edges?.length || 0;
-          counts[namespace] = count;
-        } catch (error) {
-          console.error(`Error fetching count for ${namespace}:`, error);
-          counts[namespace] = 0;
-        }
-      });
-
-      await Promise.all(countPromises);
-      setBranchCounts(counts);
-      setCountsLoading(false);
-    };
-
-    fetchCounts();
-  }, [djClient, loading, gitNamespaces.length]);
-
   const gitNamespacesList = gitNamespaces
     .slice(0, maxDisplay)
     .map((gitNs, gitNsIdx) => {
@@ -204,68 +149,54 @@ export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
           </div>
 
           {/* Branch list */}
-          {gitNs.branches.map(branchInfo => {
-            const totalNodes = branchCounts[branchInfo.namespace] ?? 0;
-            return (
+          {gitNs.branches.map(branchInfo => (
+            <div
+              key={branchInfo.branch}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0px 1em 0.4em 1em',
+              }}
+            >
               <div
-                key={branchInfo.branch}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '0px 1em 0.4em 1em',
+                  gap: '6px',
+                  minWidth: 0,
+                  flex: 1,
                 }}
               >
-                <div
+                <a
+                  href={`/namespaces/${branchInfo.namespace}`}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    minWidth: 0,
-                    flex: 1,
-                  }}
-                >
-                  <a
-                    href={`/namespaces/${branchInfo.namespace}`}
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {branchInfo.branch}
-                  </a>
-                  {branchInfo.isDefault && (
-                    <span style={{ fontSize: '10px' }}>⭐</span>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '10px',
-                    color: '#666',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <span>
-                    {totalNodes} node{totalNodes !== 1 ? 's' : ''}
-                  </span>
-                  {branchInfo.lastActivity && (
-                    <>
-                      <span>•</span>
-                      <span style={{ color: '#888' }}>
-                        updated {formatRelativeTime(branchInfo.lastActivity)}
-                      </span>
-                    </>
-                  )}
-                </div>
+                  {branchInfo.branch}
+                </a>
+                {branchInfo.isDefault && (
+                  <span style={{ fontSize: '10px' }}>⭐</span>
+                )}
               </div>
-            );
-          })}
+              {branchInfo.lastActivity && (
+                <span
+                  style={{
+                    fontSize: '10px',
+                    color: '#888',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  updated {formatRelativeTime(branchInfo.lastActivity)}
+                </span>
+              )}
+            </div>
+          ))}
 
           {/* Horizontal line between namespaces */}
           {!isLastGitNs && (
@@ -283,7 +214,7 @@ export function ActiveBranchesSection({ ownedNodes, recentlyEdited, loading }) {
   return (
     <DashboardCard
       title="Git Namespaces"
-      loading={loading || countsLoading}
+      loading={loading}
       cardStyle={{
         padding: '0.25rem 0.25rem 0.5em 0.75rem',
         maxHeight: '300px',

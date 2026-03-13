@@ -44,15 +44,15 @@ describe('<NeedsAttentionSection />', () => {
     expect(screen.getByText(/Orphaned Dimensions/)).toBeInTheDocument();
   });
 
-  it('should show "All good!" when category has no items', () => {
+  it('should show "All good" when category has no items', () => {
     render(
       <MemoryRouter>
         <NeedsAttentionSection {...defaultProps} />
       </MemoryRouter>,
     );
 
-    const allGood = screen.getAllByText('✓ All good!');
-    expect(allGood.length).toBe(5); // All 5 categories should show "All good!"
+    const allGood = screen.getAllByText('All good');
+    expect(allGood.length).toBe(5); // All 5 categories should show "All good"
   });
 
   it('should display invalid nodes', () => {
@@ -74,7 +74,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('❌ Invalid')).toBeInTheDocument();
+    expect(screen.getByText('Invalid')).toBeInTheDocument();
     expect(screen.getByText('(1)')).toBeInTheDocument();
   });
 
@@ -97,7 +97,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('⏰ Stale Drafts')).toBeInTheDocument();
+    expect(screen.getByText('Stale Drafts')).toBeInTheDocument();
     expect(screen.getByText('(1)')).toBeInTheDocument();
   });
 
@@ -120,7 +120,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('📝 No Description')).toBeInTheDocument();
+    expect(screen.getByText('No Description')).toBeInTheDocument();
     expect(screen.getByText('(1)')).toBeInTheDocument();
   });
 
@@ -143,7 +143,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    const viewAllLinks = screen.getAllByText('View all →');
+    const viewAllLinks = screen.getAllByText('→');
     expect(viewAllLinks.length).toBeGreaterThan(0);
   });
 
@@ -154,7 +154,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.queryByText('View all →')).not.toBeInTheDocument();
+    expect(screen.queryByText('→')).not.toBeInTheDocument();
   });
 
   it('should limit nodes to 10 per category', () => {
@@ -176,7 +176,7 @@ describe('<NeedsAttentionSection />', () => {
 
     // Should only display 10 nodes (via NodeChip component)
     // The 11th node should not be displayed
-    expect(screen.getByText('❌ Invalid')).toBeInTheDocument();
+    expect(screen.getByText('Invalid')).toBeInTheDocument();
     expect(screen.getByText('(15)')).toBeInTheDocument();
   });
 
@@ -187,9 +187,8 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Set up your namespace')).toBeInTheDocument();
-    expect(screen.getByText('users.test.user')).toBeInTheDocument();
-    expect(screen.getByText('Create →')).toBeInTheDocument();
+    expect(screen.getByText('Personal namespace')).toBeInTheDocument();
+    expect(screen.getByText('Create users.test.user →')).toBeInTheDocument();
   });
 
   it('should not show personal namespace prompt when namespace exists', () => {
@@ -199,7 +198,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.queryByText('Set up your namespace')).not.toBeInTheDocument();
+    expect(screen.queryByText('Personal namespace')).not.toBeInTheDocument();
   });
 
   it('should not show personal namespace prompt when loading', () => {
@@ -213,7 +212,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.queryByText('Set up your namespace')).not.toBeInTheDocument();
+    expect(screen.queryByText('Personal namespace')).not.toBeInTheDocument();
   });
 
   it('should link to correct filter URLs', () => {
@@ -235,7 +234,7 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    const viewAllLink = screen.getByText('View all →').closest('a');
+    const viewAllLink = screen.getByText('→').closest('a');
     expect(viewAllLink).toHaveAttribute(
       'href',
       '/?ownedBy=test.user@example.com&statuses=INVALID',
@@ -262,11 +261,11 @@ describe('<NeedsAttentionSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('❌ Invalid')).toBeInTheDocument();
+    expect(screen.getByText('Invalid')).toBeInTheDocument();
     expect(screen.getByText('(1)')).toBeInTheDocument();
-    expect(screen.getByText('⏰ Stale Drafts')).toBeInTheDocument();
+    expect(screen.getByText('Stale Drafts')).toBeInTheDocument();
     expect(screen.getByText('(2)')).toBeInTheDocument();
-    expect(screen.getByText('📝 No Description')).toBeInTheDocument();
+    expect(screen.getByText('No Description')).toBeInTheDocument();
     expect(screen.getByText('(3)')).toBeInTheDocument();
   });
 });

@@ -2937,4 +2937,595 @@ describe('DataJunctionAPI', () => {
     expect(result._error).toBe(true);
     expect(result._status).toBe(404);
   });
+
+  // ===== cubeForPlanner — GraphQL error branch (lines 207-208) =====
+  it('returns null from cubeForPlanner when GraphQL returns errors', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    fetch.mockResponseOnce(
+      JSON.stringify({ errors: [{ message: 'Not authorized' }] }),
+    );
+    const result = await DataJunctionAPI.cubeForPlanner('default.cube1');
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'GraphQL errors:',
+      expect.any(Array),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // ===== querySystemMetric — !res.ok branch (line 273) =====
+  it('throws from querySystemMetric when response is not ok', async () => {
+    fetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    await expect(
+      DataJunctionAPI.querySystemMetric({ metric: 'system.dj.count' }),
+    ).rejects.toThrow('Failed to fetch metric data system.dj.count: 500');
+  });
+
+  // ===== findCubesWithMetrics — non-empty cubeNames (lines 906-932) =====
+  it('calls findCubesWithMetrics with non-empty names', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            {
+              name: 'default.cube1',
+              current: {
+                displayName: 'Cube One',
+                cubeMetrics: [{ name: 'default.metric1' }],
+              },
+            },
+          ],
+        },
+      }),
+    );
+    const result = await DataJunctionAPI.findCubesWithMetrics([
+      'default.cube1',
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('default.cube1');
+    expect(result[0].parents).toEqual([{ name: 'default.metric1' }]);
+    expect(result[0].type).toBe('cube');
+  });
+
+  it('returns empty array from findCubesWithMetrics for empty input', async () => {
+    const result = await DataJunctionAPI.findCubesWithMetrics([]);
+    expect(result).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // ===== metricsV3 — useMaterialized=false branch (lines 1224-1225) =====
+  it('calls metricsV3 with useMaterialized=false (spark dialect)', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], '', false);
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('use_materialized=false');
+    expect(url).toContain('dialect=spark');
+  });
+
+  // ===== data — filters non-empty branch (line 1240) =====
+  it('calls data with filters array', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{ col: 'metric1', value: 42 }]),
+    });
+    await DataJunctionAPI.data(
+      ['metric1'],
+      ['dim1'],
+      ['region = US', 'date > 2024-01-01'],
+    );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('filters=region+%3D+US');
+  });
+
+  // ===== data — !response.ok branch (lines 1247-1248) =====
+  it('throws from data when response is not ok', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ message: 'Bad request' }),
+    });
+    await expect(DataJunctionAPI.data(['metric1'], ['dim1'])).rejects.toThrow(
+      'Bad request',
+    );
+  });
+
+  it('throws generic error from data when no message in error body', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+    });
+    await expect(DataJunctionAPI.data(['metric1'], ['dim1'])).rejects.toThrow(
+      'Query failed: 500',
+    );
+  });
+
+  // ===== Workspace GraphQL queries (lines 1970-2284) =====
+  it('calls getWorkspaceRecentlyEdited correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodesPaginated: { pageInfo: { hasNextPage: false }, edges: [] },
+        },
+      }),
+    );
+    const result = await DataJunctionAPI.getWorkspaceRecentlyEdited(
+      'user@example.com',
+      10,
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/graphql'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.editedBy).toBe('user@example.com');
+    expect(body.variables.limit).toBe(10);
+  });
+
+  it('calls getWorkspaceRecentlyEdited with specific nodeType', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodesPaginated: { pageInfo: { hasNextPage: false }, edges: [] },
+        },
+      }),
+    );
+    await DataJunctionAPI.getWorkspaceRecentlyEdited(
+      'user@example.com',
+      5,
+      'METRIC',
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.nodeTypes).toEqual(['METRIC']);
+  });
+
+  it('calls getWorkspaceOwnedNodes correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodesPaginated: { pageInfo: { hasNextPage: false }, edges: [] },
+        },
+      }),
+    );
+    await DataJunctionAPI.getWorkspaceOwnedNodes('user@example.com', 10);
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.limit).toBe(10);
+  });
+
+  it('calls getWorkspaceOwnedNodes with specific nodeType', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodesPaginated: { pageInfo: { hasNextPage: false }, edges: [] },
+        },
+      }),
+    );
+    await DataJunctionAPI.getWorkspaceOwnedNodes('user@example.com', 5, 'CUBE');
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.nodeTypes).toEqual(['CUBE']);
+  });
+
+  it('calls getWorkspaceCollections correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ data: { listCollections: [] } }));
+    await DataJunctionAPI.getWorkspaceCollections('user@example.com');
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.createdBy).toBe('user@example.com');
+  });
+
+  it('calls listAllCollections correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { listCollections: [{ name: 'col1' }] } }),
+    );
+    const result = await DataJunctionAPI.listAllCollections();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/graphql'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.data.listCollections).toHaveLength(1);
+  });
+
+  it('calls getWorkspaceNodesMissingDescription correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { findNodesPaginated: { edges: [] } } }),
+    );
+    await DataJunctionAPI.getWorkspaceNodesMissingDescription(
+      'user@example.com',
+      5,
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.limit).toBe(5);
+  });
+
+  it('calls getWorkspaceInvalidNodes correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { findNodesPaginated: { edges: [] } } }),
+    );
+    await DataJunctionAPI.getWorkspaceInvalidNodes('user@example.com', 10);
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.statuses).toEqual(['INVALID']);
+  });
+
+  it('calls getWorkspaceOrphanedDimensions correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { findNodesPaginated: { edges: [] } } }),
+    );
+    await DataJunctionAPI.getWorkspaceOrphanedDimensions(
+      'user@example.com',
+      10,
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.orphanedDimension).toBe(true);
+  });
+
+  it('calls getWorkspaceDraftNodes correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { findNodesPaginated: { edges: [] } } }),
+    );
+    await DataJunctionAPI.getWorkspaceDraftNodes('user@example.com', 50);
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.mode).toBe('DRAFT');
+  });
+
+  it('calls getWorkspaceMaterializations correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({ data: { findNodesPaginated: { edges: [] } } }),
+    );
+    await DataJunctionAPI.getWorkspaceMaterializations('user@example.com', 20);
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.variables.ownedBy).toBe('user@example.com');
+    expect(body.variables.hasMaterialization).toBe(true);
+  });
+
+  // ===== getCubeWorkflowUrls — null json branch (lines 2507-2508) =====
+  it('returns empty array from getCubeWorkflowUrls when getCubeDetails returns null json', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    // getCubeDetails returns null json when response is not ok
+    fetch.mockResponseOnce('Not found', { status: 404 });
+    const result = await DataJunctionAPI.getCubeWorkflowUrls('default.cube1');
+    expect(result).toEqual([]);
+    consoleSpy.mockRestore();
+  });
+
+  // ===== getCubeMaterialization — null json branch (line 2533) =====
+  it('returns null from getCubeMaterialization when getCubeDetails has no json', async () => {
+    fetch.mockResponseOnce('Not found', { status: 404 });
+    const result = await DataJunctionAPI.getCubeMaterialization(
+      'default.cube1',
+    );
+    expect(result).toBeNull();
+  });
+
+  // ===== Git Branch Management APIs (lines 2628-2834) =====
+  it('calls getNamespaceGitConfig correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ repo: 'myorg/myrepo', branch: 'main' }),
+    });
+    const result = await DataJunctionAPI.getNamespaceGitConfig('myproject');
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/myproject/git`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    expect(result.repo).toBe('myorg/myrepo');
+  });
+
+  it('returns null from getNamespaceGitConfig on 404', async () => {
+    fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    const result = await DataJunctionAPI.getNamespaceGitConfig('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  it('throws from getNamespaceGitConfig on non-404 error', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ message: 'Server error' }),
+    });
+    await expect(
+      DataJunctionAPI.getNamespaceGitConfig('myproject'),
+    ).rejects.toThrow('Server error');
+  });
+
+  it('calls updateNamespaceGitConfig correctly', async () => {
+    const config = { repo: 'myorg/newrepo', branch: 'main' };
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(config),
+    });
+    const result = await DataJunctionAPI.updateNamespaceGitConfig(
+      'myproject',
+      config,
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject/git`,
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify(config),
+      }),
+    );
+    expect(result.repo).toBe('myorg/newrepo');
+  });
+
+  it('returns error object from updateNamespaceGitConfig on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ message: 'Invalid config' }),
+    });
+    const result = await DataJunctionAPI.updateNamespaceGitConfig(
+      'myproject',
+      {},
+    );
+    expect(result._error).toBe(true);
+    expect(result._status).toBe(422);
+    expect(result.message).toBe('Invalid config');
+  });
+
+  it('calls deleteNamespaceGitConfig correctly', async () => {
+    fetch.mockResolvedValueOnce({ ok: true, status: 204 });
+    const result = await DataJunctionAPI.deleteNamespaceGitConfig('myproject');
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/myproject/git`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    expect(result).toEqual({});
+  });
+
+  it('returns error object from deleteNamespaceGitConfig on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ message: 'Forbidden' }),
+    });
+    const result = await DataJunctionAPI.deleteNamespaceGitConfig('myproject');
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('Forbidden');
+  });
+
+  it('calls listBranches correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{ branch: 'main' }, { branch: 'feature' }]),
+    });
+    const result = await DataJunctionAPI.listBranches('myproject');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject/branches`,
+      { method: 'GET', credentials: 'include' },
+    );
+    expect(result).toHaveLength(2);
+  });
+
+  it('throws from listBranches on error', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ message: 'Not found' }),
+    });
+    await expect(DataJunctionAPI.listBranches('nonexistent')).rejects.toThrow(
+      'Not found',
+    );
+  });
+
+  it('calls createBranch correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          branch_name: 'feature-1',
+          namespace: 'myproject.feature-1',
+        }),
+    });
+    const result = await DataJunctionAPI.createBranch('myproject', 'feature-1');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject/branches`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ branch_name: 'feature-1' }),
+      }),
+    );
+    expect(result.branch_name).toBe('feature-1');
+  });
+
+  it('returns error object from createBranch on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ message: 'Branch already exists' }),
+    });
+    const result = await DataJunctionAPI.createBranch('myproject', 'main');
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('Branch already exists');
+  });
+
+  it('calls deleteBranch correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ deleted: true }),
+    });
+    const result = await DataJunctionAPI.deleteBranch(
+      'myproject',
+      'myproject.feature-1',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject/branches/myproject.feature-1?delete_git_branch=false`,
+      { method: 'DELETE', credentials: 'include' },
+    );
+    expect(result.deleted).toBe(true);
+  });
+
+  it('calls deleteBranch with deleteGitBranch=true', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ deleted: true }),
+    });
+    await DataJunctionAPI.deleteBranch(
+      'myproject',
+      'myproject.feature-1',
+      true,
+    );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('delete_git_branch=true');
+  });
+
+  it('returns error object from deleteBranch on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ message: 'Branch not found' }),
+    });
+    const result = await DataJunctionAPI.deleteBranch(
+      'myproject',
+      'myproject.bad',
+    );
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('Branch not found');
+  });
+
+  it('calls syncNodeToGit correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ synced: true }),
+    });
+    const result = await DataJunctionAPI.syncNodeToGit('default.metric1');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.metric1/sync-to-git`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.synced).toBe(true);
+  });
+
+  it('calls syncNodeToGit with commitMessage', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ synced: true }),
+    });
+    await DataJunctionAPI.syncNodeToGit('default.metric1', 'Update metric');
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.commit_message).toBe('Update metric');
+  });
+
+  it('returns error object from syncNodeToGit on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ message: 'Git error' }),
+    });
+    const result = await DataJunctionAPI.syncNodeToGit('default.metric1');
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('Git error');
+  });
+
+  it('calls syncNamespaceToGit correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ synced: 5 }),
+    });
+    const result = await DataJunctionAPI.syncNamespaceToGit('myproject.main');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject.main/sync-to-git`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.synced).toBe(5);
+  });
+
+  it('calls syncNamespaceToGit with commitMessage', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ synced: 3 }),
+    });
+    await DataJunctionAPI.syncNamespaceToGit('myproject.main', 'Bulk sync');
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.commit_message).toBe('Bulk sync');
+  });
+
+  it('returns error object from syncNamespaceToGit on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({}),
+    });
+    const result = await DataJunctionAPI.syncNamespaceToGit('myproject.main');
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('Failed to sync namespace to git');
+  });
+
+  it('calls getPullRequest correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          number: 42,
+          url: 'https://github.com/org/repo/pull/42',
+        }),
+    });
+    const result = await DataJunctionAPI.getPullRequest('myproject.feature-1');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject.feature-1/pull-request`,
+      { method: 'GET', credentials: 'include' },
+    );
+    expect(result.number).toBe(42);
+  });
+
+  it('returns null from getPullRequest when response not ok', async () => {
+    fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    const result = await DataJunctionAPI.getPullRequest('myproject.feature-1');
+    expect(result).toBeNull();
+  });
+
+  it('calls createPullRequest correctly', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          number: 43,
+          url: 'https://github.com/org/repo/pull/43',
+        }),
+    });
+    const result = await DataJunctionAPI.createPullRequest(
+      'myproject.feature-1',
+      'My PR title',
+      'PR body text',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/namespaces/myproject.feature-1/pull-request`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ title: 'My PR title', body: 'PR body text' }),
+      }),
+    );
+    expect(result.number).toBe(43);
+  });
+
+  it('calls createPullRequest without body', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ number: 44 }),
+    });
+    await DataJunctionAPI.createPullRequest(
+      'myproject.feature-1',
+      'Title only',
+    );
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.body).toBeUndefined();
+    expect(body.title).toBe('Title only');
+  });
+
+  it('returns error object from createPullRequest on failure', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ message: 'PR already exists' }),
+    });
+    const result = await DataJunctionAPI.createPullRequest(
+      'myproject.feature-1',
+      'My PR',
+    );
+    expect(result._error).toBe(true);
+    expect(result.message).toBe('PR already exists');
+  });
 });
