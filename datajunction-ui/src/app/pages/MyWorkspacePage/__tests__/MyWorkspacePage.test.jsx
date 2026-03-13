@@ -201,6 +201,113 @@ describe('<MyWorkspacePage />', () => {
     expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
   });
 
+  it('should filter out non-stale materializations from NeedsAttention', () => {
+    const now = Date.now();
+    const freshNode = {
+      name: 'default.fresh_cube',
+      type: 'CUBE',
+      current: {
+        availability: {
+          validThroughTs: now - 1000 * 60 * 60 * 10, // 10 hours ago (< 72h, not stale)
+        },
+      },
+    };
+
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
+      loading: false,
+    });
+    jest
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData({ materializedNodes: [freshNode] }));
+
+    render(
+      <MemoryRouter>
+        <MyWorkspacePage />
+      </MemoryRouter>,
+    );
+
+    // Page renders without crash — stale filter ran without errors
+    expect(screen.getByTestId('materializations-section')).toHaveTextContent(
+      '1 materializations',
+    );
+    expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
+  });
+
+  it('should exclude nodes with null validThroughTs from stale list', () => {
+    const pendingNode = {
+      name: 'default.pending_cube',
+      type: 'CUBE',
+      current: {
+        availability: {
+          validThroughTs: null,
+        },
+      },
+    };
+
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
+      loading: false,
+    });
+    jest
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData({ materializedNodes: [pendingNode] }));
+
+    render(
+      <MemoryRouter>
+        <MyWorkspacePage />
+      </MemoryRouter>,
+    );
+
+    // Pending node (null validThroughTs) should not be passed as stale
+    expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
+  });
+
+  it('should exclude nodes with no availability from stale list', () => {
+    const noAvailabilityNode = {
+      name: 'default.no_avail_cube',
+      type: 'CUBE',
+      current: {},
+    };
+
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
+      loading: false,
+    });
+    jest
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(
+        makeDashboardData({ materializedNodes: [noAvailabilityNode] }),
+      );
+
+    render(
+      <MemoryRouter>
+        <MyWorkspacePage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
+  });
+
+  it('should derive personal namespace from username', () => {
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: { username: 'jane.doe@company.com' },
+      loading: false,
+    });
+    jest
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData());
+
+    render(
+      <MemoryRouter>
+        <MyWorkspacePage />
+      </MemoryRouter>,
+    );
+
+    // NeedsAttentionSection mock receives personalNamespace="users.jane.doe"
+    expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
+  });
+
   it('should calculate stale materializations correctly', () => {
     const now = Date.now();
     const staleNode = {

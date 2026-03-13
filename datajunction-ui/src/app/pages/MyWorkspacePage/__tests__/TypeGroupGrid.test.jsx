@@ -482,6 +482,138 @@ describe('<TypeGroupGrid />', () => {
     expect(screen.getByTitle('Draft mode')).toBeInTheDocument();
   });
 
+  it('should show star icon for default branch nodes', () => {
+    const defaultBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'main',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={defaultBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // Star icon should appear for default branch
+    expect(screen.getByText('⭐')).toBeInTheDocument();
+  });
+
+  it('should not show star icon for non-default branch nodes', () => {
+    const featureBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'feature-branch',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={featureBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('⭐')).not.toBeInTheDocument();
+  });
+
+  it('should show SVG git-branch separator when both repo and branch are present', () => {
+    const repoPlusBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'main',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    const { container } = render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={repoPlusBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // SVG separator should be present when both repo and branch exist
+    expect(container.querySelector('svg')).toBeInTheDocument();
+  });
+
+  it('should not show SVG separator when only repo (no branch)', () => {
+    const repoOnlyData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    const { container } = render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={repoOnlyData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector('svg')).not.toBeInTheDocument();
+  });
+
   it('should handle nodes without updatedAt', () => {
     const noTimeData = [
       {

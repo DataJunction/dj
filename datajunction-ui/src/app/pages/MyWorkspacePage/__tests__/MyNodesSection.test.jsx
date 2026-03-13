@@ -232,6 +232,45 @@ describe('<MyNodesSection />', () => {
     );
   });
 
+  it('should auto-switch to edited tab when no owned nodes but has recently edited', async () => {
+    const { waitFor } = await import('@testing-library/react');
+
+    render(
+      <MemoryRouter>
+        <MyNodesSection
+          ownedNodes={[]}
+          watchedNodes={[]}
+          recentlyEdited={mockRecentlyEdited}
+          username="test.user@example.com"
+          loading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    // After effect fires, should auto-switch to edited tab
+    await waitFor(() => {
+      expect(screen.getByText('default.edited_metric')).toBeInTheDocument();
+    });
+  });
+
+  it('should show "No recent edits" when on edited tab with no recent edits', () => {
+    render(
+      <MemoryRouter>
+        <MyNodesSection
+          ownedNodes={mockOwnedNodes}
+          watchedNodes={[]}
+          recentlyEdited={[]}
+          username="test.user@example.com"
+          loading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('Recent Edits'));
+
+    expect(screen.getByText('No recent edits')).toBeInTheDocument();
+  });
+
   it('should filter watched nodes to exclude owned nodes', () => {
     const ownedNodes = [
       { name: 'node1', type: 'METRIC', current: {} },
