@@ -46,18 +46,21 @@ jest.mock('reactflow', () => {
 
 jest.mock('reactflow/dist/style.css', () => ({}));
 
-jest.mock('dagre', () => ({
-  graphlib: {
-    Graph: jest.fn().mockImplementation(() => ({
-      setDefaultEdgeLabel: jest.fn(),
-      setGraph: jest.fn(),
-      setNode: jest.fn(),
-      setEdge: jest.fn(),
-      node: jest.fn().mockReturnValue({ x: 100, y: 100 }),
-    })),
-  },
-  layout: jest.fn(),
-}));
+jest.mock('dagre', () => {
+  function MockGraph() {
+    this.setDefaultEdgeLabel = function () {};
+    this.setGraph = function () {};
+    this.setNode = function () {};
+    this.setEdge = function () {};
+    this.node = function () {
+      return { x: 100, y: 100 };
+    };
+  }
+  return {
+    graphlib: { Graph: MockGraph },
+    layout: function () {},
+  };
+});
 
 describe('<NodeDimensionsTab />', () => {
   const mockDjClient = {

@@ -136,12 +136,14 @@ jest.mock('recharts', () => {
 
 // ResizeObserver fires callback immediately so containerWidth gets set to 800
 beforeAll(() => {
-  global.ResizeObserver = jest.fn().mockImplementation(callback => ({
-    observe: jest
-      .fn()
-      .mockImplementation(() => callback([{ contentRect: { width: 800 } }])),
-    disconnect: jest.fn(),
-  }));
+  global.ResizeObserver = function (callback) {
+    return {
+      observe: function (el) {
+        callback([{ contentRect: { width: 800 } }]);
+      },
+      disconnect: function () {},
+    };
+  };
   HTMLCanvasElement.prototype.getContext = () => ({
     font: '',
     measureText: () => ({ width: 50 }),
@@ -179,7 +181,8 @@ describe('<NodeDataFlowTab />', () => {
   });
 
   it('shows "No data flow relationships" when dag and downstreams return empty arrays', async () => {
-    const djNode = { name: 'default.metric1', type: 'metric', parents: [] };
+    // Use a source node — metrics get phantom links which make links.length > 0
+    const djNode = { name: 'default.source1', type: 'source', parents: [] };
     mockDjClient.node_dag.mockResolvedValue([]);
     mockDjClient.downstreamsGQL.mockResolvedValue([]);
 
@@ -316,9 +319,8 @@ describe('<NodeDataFlowTab />', () => {
 
     renderWithContext(djNode);
 
-    // ResizeObserver mock fires immediately → containerWidth=800 → Sankey renders
+    // ResizeObserver mock fires immediately with width=800 → containerWidth>0 → Sankey renders
     await waitFor(() => {
-      expect(global.ResizeObserver).toHaveBeenCalled();
       expect(screen.getByTestId('sankey')).toBeInTheDocument();
     });
   });
