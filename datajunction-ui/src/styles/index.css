@@ -738,6 +738,38 @@ tbody th {
   padding-bottom: 1px;
 }
 
+.dj-tabs-bar {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1.5px solid #e8ecf0;
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.dj-tab {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1.5px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #9ca3af;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.dj-tab:hover {
+  color: #374151;
+}
+
+.dj-tab--active {
+  color: #2c7be5;
+  border-bottom-color: #2c7be5;
+  font-weight: 600;
+}
+
 pre {
   border-radius: 1rem;
   padding-right: 2rem;

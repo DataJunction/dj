@@ -5,7 +5,8 @@ import Tab from '../../components/Tab';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeInfoTab from './NodeInfoTab';
 import NodeColumnTab from './NodeColumnTab';
-import NodeGraphTab from './NodeGraphTab';
+import NodeDataFlowTab from './NodeDataFlowTab';
+import NodeDimensionsTab from './NodeDimensionsTab';
 import NodeHistory from './NodeHistory';
 import NotebookDownload from './NotebookDownload';
 import DJClientContext from '../../providers/djclient';
@@ -83,9 +84,14 @@ export function NodePage() {
         display: node?.type !== 'metric',
       },
       {
-        id: 'graph',
-        name: 'Graph',
+        id: 'data-flow',
+        name: 'Data Flow',
         display: true,
+      },
+      {
+        id: 'dimensions',
+        name: 'Dimensions',
+        display: node?.type !== 'source',
       },
       {
         id: 'history',
@@ -128,8 +134,11 @@ export function NodePage() {
     case 'columns':
       tabToDisplay = <NodeColumnTab node={node} djClient={djClient} />;
       break;
-    case 'graph':
-      tabToDisplay = <NodeGraphTab djNode={node} djClient={djClient} />;
+    case 'data-flow':
+      tabToDisplay = <NodeDataFlowTab djNode={node} />;
+      break;
+    case 'dimensions':
+      tabToDisplay = <NodeDimensionsTab djNode={node} />;
       break;
     case 'history':
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
@@ -261,9 +270,7 @@ export function NodePage() {
                 {node?.version}
               </span>
             </div>
-            <div className="align-items-center row">
-              {tabsList(node).map(buildTabs)}
-            </div>
+            <div className="dj-tabs-bar">{tabsList(node).map(buildTabs)}</div>
             {tabToDisplay}
           </div>
         ) : node?.message !== undefined ? (

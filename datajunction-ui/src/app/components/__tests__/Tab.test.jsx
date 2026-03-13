@@ -10,12 +10,14 @@ describe('<Tab />', () => {
 
   it('has the active class when selectedTab matches id', () => {
     const { container } = render(<Tab id="1" selectedTab="1" />);
-    expect(container.querySelector('.col')).toHaveClass('active');
+    expect(container.querySelector('.dj-tab')).toHaveClass('dj-tab--active');
   });
 
   it('does not have the active class when selectedTab does not match id', () => {
     const { container } = render(<Tab id="1" selectedTab="2" />);
-    expect(container.querySelector('.col')).not.toHaveClass('active');
+    expect(container.querySelector('.dj-tab')).not.toHaveClass(
+      'dj-tab--active',
+    );
   });
 
   it('calls onClick when the button is clicked', () => {
