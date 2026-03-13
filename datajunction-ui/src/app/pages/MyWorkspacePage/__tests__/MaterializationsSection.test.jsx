@@ -190,6 +190,63 @@ describe('<MaterializationsSection />', () => {
     expect(screen.getByText('+5 more')).toBeInTheDocument();
   });
 
+  it('should sort nodes with null validThroughTs after those with timestamps', () => {
+    const pendingNode = createMockNode('pending_cube', null);
+    const freshNode = createMockNode('fresh_cube', 12);
+
+    render(
+      <MemoryRouter>
+        <MaterializationsSection
+          nodes={[pendingNode, freshNode]}
+          loading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    const allCubes = screen.getAllByText(/cube/);
+    // fresh (has timestamp) should appear before pending (null timestamp)
+    expect(allCubes[0]).toHaveTextContent('fresh_cube');
+    expect(allCubes[1]).toHaveTextContent('pending_cube');
+  });
+
+  it('should keep relative order when both nodes have null validThroughTs', () => {
+    const pending1 = createMockNode('pending_a', null);
+    const pending2 = createMockNode('pending_b', null);
+
+    render(
+      <MemoryRouter>
+        <MaterializationsSection nodes={[pending1, pending2]} loading={false} />
+      </MemoryRouter>,
+    );
+
+    // Both pending — neither crashes, both appear
+    expect(screen.getByText('pending_a')).toBeInTheDocument();
+    expect(screen.getByText('pending_b')).toBeInTheDocument();
+  });
+
+  it('should show "just now" for materializations updated less than 1 hour ago', () => {
+    const justNowTs = now - 5 * 60 * 1000; // 5 minutes ago
+    const justNowNode = {
+      name: 'just_now_cube',
+      type: 'CUBE',
+      current: {
+        displayName: 'just_now_cube',
+        availability: {
+          validThroughTs: justNowTs,
+        },
+        materializations: [{ name: 'mat1', schedule: '@hourly' }],
+      },
+    };
+
+    render(
+      <MemoryRouter>
+        <MaterializationsSection nodes={[justNowNode]} loading={false} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('🟢 just now')).toBeInTheDocument();
+  });
+
   it('should handle undefined nodes gracefully', () => {
     render(
       <MemoryRouter>

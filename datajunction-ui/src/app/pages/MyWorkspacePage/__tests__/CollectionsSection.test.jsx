@@ -201,6 +201,28 @@ describe('<CollectionsSection />', () => {
     });
   });
 
+  it('should log response when fetching all collections succeeds', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    mockDjClient.listAllCollections.mockResolvedValue({
+      data: { listCollections: mockCollections },
+    });
+
+    renderWithContext({
+      collections: [],
+      loading: false,
+      currentUser: mockCurrentUser,
+    });
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'All collections response:',
+        expect.anything(),
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
   it('should handle API errors gracefully', async () => {
     mockDjClient.listAllCollections.mockRejectedValue(new Error('API error'));
 
