@@ -77,6 +77,7 @@ describe('<NodePage />', () => {
           .mockResolvedValue({ status: 200 }),
         listPreaggs: jest.fn().mockResolvedValue({ items: [] }),
         deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 200 }),
+        upstreamsGQL: jest.fn().mockResolvedValue([]),
         downstreamsGQL: jest.fn().mockResolvedValue([]),
         findCubesWithMetrics: jest.fn().mockResolvedValue([]),
       },
