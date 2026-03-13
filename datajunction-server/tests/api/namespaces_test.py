@@ -2218,9 +2218,10 @@ async def test_validate_git_only_blocked_without_git_config(
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Cannot enable git_only on a git root namespace. "
         "git_only is only applicable to branch namespaces that have "
-        "parent_namespace and git_branch configured."
+        "parent_namespace and git_branch configured. "
+        "Git root namespaces are automatically locked when "
+        "github_repo_path is set."
     )
 
 
