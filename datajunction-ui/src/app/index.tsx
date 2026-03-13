@@ -30,6 +30,10 @@ import { DataJunctionAPI } from './services/DJService';
 import { CookiesProvider, useCookies } from 'react-cookie';
 import * as Constants from './constants';
 
+// Stable context value — DataJunctionAPI is a module-level singleton that
+// never changes, so this object only needs to be created once.
+const DJ_CONTEXT_VALUE = { DataJunctionAPI };
+
 export function App() {
   const [cookies] = useCookies([Constants.LOGGED_IN_FLAG_COOKIE]);
   return (
@@ -46,7 +50,7 @@ export function App() {
                 content="DataJunction serves as a semantic layer to help manage metrics"
               />
             </Helmet>
-            <DJClientContext.Provider value={{ DataJunctionAPI }}>
+            <DJClientContext.Provider value={DJ_CONTEXT_VALUE}>
               <UserProvider>
                 <Routes>
                   <Route

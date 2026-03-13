@@ -242,15 +242,87 @@ describe('<ActiveBranchesSection />', () => {
     });
   });
 
-  it('should handle API errors when fetching counts', async () => {
-    const consoleErrorSpy = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => {});
+  it('should show "+N more git namespaces" when more than 3 namespaces', async () => {
+    const manyNamespaces = Array.from({ length: 5 }, (_, i) => ({
+      name: `project${i}.main.node`,
+      gitInfo: {
+        repo: `org/repo${i}`,
+        branch: 'main',
+        defaultBranch: 'main',
+        parentNamespace: `project${i}`,
+      },
+      current: { updatedAt: `2024-01-0${i + 1}T10:00:00Z` },
+    }));
 
-    mockDjClient.listNodesForLanding.mockRejectedValueOnce(
-      new Error('API error'),
-    );
+    renderWithContext({
+      ownedNodes: manyNamespaces,
+      recentlyEdited: [],
+      loading: false,
+    });
 
+    await waitFor(() => {
+      expect(screen.getByText('+2 more git namespaces')).toBeInTheDocument();
+    });
+  });
+
+  it('should handle node with no dots in fullNamespace (dotIdx <= 0 fallback)', async () => {
+    // Node name "ns.node" → fullNamespace = "ns" → dotIdx = -1 → baseNamespace = "ns"
+    const singleSegmentNode = [
+      {
+        name: 'ns.node',
+        gitInfo: {
+          repo: 'myorg/myrepo',
+          branch: 'main',
+          defaultBranch: 'main',
+          // No parentNamespace — fallback to parsing
+        },
+        current: { updatedAt: '2024-01-01T10:00:00Z' },
+      },
+    ];
+
+    renderWithContext({
+      ownedNodes: singleSegmentNode,
+      recentlyEdited: [],
+      loading: false,
+    });
+
+    await waitFor(() => {
+      // fullNamespace = "ns", dotIdx = -1, baseNamespace = "ns"
+      expect(screen.getByText('ns')).toBeInTheDocument();
+    });
+  });
+
+  it('should sort branches with null lastActivity after those with activity', async () => {
+    // Creates two branches: one with activity, one without — sort should put active first
+    const nodesWithMixedActivity = [
+      {
+        name: 'myproject.feature.node1',
+        gitInfo: {
+          repo: 'myorg/myrepo',
+          branch: 'feature',
+          defaultBranch: 'main',
+          parentNamespace: 'myproject',
+          isDefaultBranch: false,
+        },
+        current: { updatedAt: '2024-01-01T10:00:00Z' },
+      },
+      // main branch will be added by the "ensure default branch present" logic with null activity
+    ];
+
+    renderWithContext({
+      ownedNodes: nodesWithMixedActivity,
+      recentlyEdited: [],
+      loading: false,
+    });
+
+    await waitFor(() => {
+      // Both branches should be present
+      expect(screen.getByText('feature')).toBeInTheDocument();
+      expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('should render without errors when given valid props', async () => {
     renderWithContext({
       ownedNodes: mockOwnedNodes,
       recentlyEdited: [],
@@ -260,10 +332,6 @@ describe('<ActiveBranchesSection />', () => {
     await waitFor(() => {
       expect(screen.getByText('myproject')).toBeInTheDocument();
     });
-
-    // Should still render despite API error
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    consoleErrorSpy.mockRestore();
   });
 
   it('should show default branch even when user has no nodes on it', async () => {

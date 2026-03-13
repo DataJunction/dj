@@ -23,7 +23,7 @@ describe('<TypeGroupGrid />', () => {
   const mockGroupedData = [
     {
       type: 'metric',
-      count: 5,
+      hasMore: false,
       nodes: [
         {
           name: 'default.revenue',
@@ -63,7 +63,7 @@ describe('<TypeGroupGrid />', () => {
     },
     {
       type: 'dimension',
-      count: 2,
+      hasMore: false,
       nodes: [
         {
           name: 'default.dim_users',
@@ -96,7 +96,7 @@ describe('<TypeGroupGrid />', () => {
     expect(screen.getByText('No nodes to display')).toBeInTheDocument();
   });
 
-  it('should render type cards with correct counts', () => {
+  it('should render type cards', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
@@ -107,8 +107,8 @@ describe('<TypeGroupGrid />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Metrics (5)')).toBeInTheDocument();
-    expect(screen.getByText('Dimensions (2)')).toBeInTheDocument();
+    expect(screen.getByText('Metrics')).toBeInTheDocument();
+    expect(screen.getByText('Dimensions')).toBeInTheDocument();
   });
 
   it('should display up to 10 nodes per type', () => {
@@ -130,12 +130,12 @@ describe('<TypeGroupGrid />', () => {
     expect(screen.getByText('default.bounce_rate')).toBeInTheDocument();
   });
 
-  it('should show "+X more" link when more than 10 nodes', () => {
-    const manyNodesData = [
+  it('should show "More →" link when hasMore is true', () => {
+    const hasMoreData = [
       {
         type: 'metric',
-        count: 15,
-        nodes: Array.from({ length: 15 }, (_, i) => ({
+        hasMore: true,
+        nodes: Array.from({ length: 11 }, (_, i) => ({
           name: `default.metric_${i}`,
           type: 'metric',
           current: {
@@ -148,18 +148,17 @@ describe('<TypeGroupGrid />', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
-          groupedData={manyNodesData}
+          groupedData={hasMoreData}
           username="test.user@example.com"
           activeTab="owned"
         />
       </MemoryRouter>,
     );
 
-    // Metrics: 15 nodes, showing 10, so +5 more
-    expect(screen.getByText('+5 more →')).toBeInTheDocument();
+    expect(screen.getByText('More →')).toBeInTheDocument();
   });
 
-  it('should not show "+X more" link when 10 or fewer nodes', () => {
+  it('should not show "More →" link when hasMore is false', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
@@ -170,17 +169,7 @@ describe('<TypeGroupGrid />', () => {
       </MemoryRouter>,
     );
 
-    // Metrics: 5 nodes (under 10), no "+X more" needed
-    const metricCard = screen
-      .getByText('Metrics (5)')
-      .closest('.type-group-card');
-    expect(metricCard).not.toHaveTextContent('more →');
-
-    // Dimensions: 2 nodes, no "+X more" needed
-    const dimensionCard = screen
-      .getByText('Dimensions (2)')
-      .closest('.type-group-card');
-    expect(dimensionCard).not.toHaveTextContent('more →');
+    expect(screen.queryByText('More →')).not.toBeInTheDocument();
   });
 
   it('should render node badges and links', () => {
@@ -227,7 +216,7 @@ describe('<TypeGroupGrid />', () => {
     const recentNodes = [
       {
         type: 'metric',
-        count: 2,
+        hasMore: false,
         nodes: [
           {
             name: 'default.recent',
@@ -260,16 +249,15 @@ describe('<TypeGroupGrid />', () => {
     );
 
     // Should show time in hours or days format
-    // Note: exact values depend on when test runs, so we just check they exist
     expect(screen.getAllByText(/\d+[mhd]$/)).toHaveLength(2);
   });
 
   it('should generate correct filter URLs for owned tab', () => {
-    const manyNodesData = [
+    const hasMoreData = [
       {
         type: 'metric',
-        count: 15,
-        nodes: Array.from({ length: 15 }, (_, i) => ({
+        hasMore: true,
+        nodes: Array.from({ length: 11 }, (_, i) => ({
           name: `default.metric_${i}`,
           type: 'metric',
           current: {
@@ -282,14 +270,14 @@ describe('<TypeGroupGrid />', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
-          groupedData={manyNodesData}
+          groupedData={hasMoreData}
           username="test.user@example.com"
           activeTab="owned"
         />
       </MemoryRouter>,
     );
 
-    const moreLink = screen.getByText('+5 more →');
+    const moreLink = screen.getByText('More →');
     expect(moreLink).toHaveAttribute(
       'href',
       '/?ownedBy=test.user%40example.com&type=metric',
@@ -297,11 +285,11 @@ describe('<TypeGroupGrid />', () => {
   });
 
   it('should generate correct filter URLs for edited tab', () => {
-    const manyNodesData = [
+    const hasMoreData = [
       {
         type: 'metric',
-        count: 15,
-        nodes: Array.from({ length: 15 }, (_, i) => ({
+        hasMore: true,
+        nodes: Array.from({ length: 11 }, (_, i) => ({
           name: `default.metric_${i}`,
           type: 'metric',
           current: {
@@ -314,14 +302,14 @@ describe('<TypeGroupGrid />', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
-          groupedData={manyNodesData}
+          groupedData={hasMoreData}
           username="test.user@example.com"
           activeTab="edited"
         />
       </MemoryRouter>,
     );
 
-    const moreLink = screen.getByText('+5 more →');
+    const moreLink = screen.getByText('More →');
     expect(moreLink).toHaveAttribute(
       'href',
       '/?updatedBy=test.user%40example.com&type=metric',
@@ -340,16 +328,16 @@ describe('<TypeGroupGrid />', () => {
     );
 
     // "metric" should be displayed as "Metrics"
-    expect(screen.getByText('Metrics (5)')).toBeInTheDocument();
+    expect(screen.getByText('Metrics')).toBeInTheDocument();
     // "dimension" should be displayed as "Dimensions"
-    expect(screen.getByText('Dimensions (2)')).toBeInTheDocument();
+    expect(screen.getByText('Dimensions')).toBeInTheDocument();
   });
 
   it('should handle nodes with only repo (no branch)', () => {
     const repoOnlyData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.test',
@@ -380,7 +368,7 @@ describe('<TypeGroupGrid />', () => {
     const branchOnlyData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.test',
@@ -411,7 +399,7 @@ describe('<TypeGroupGrid />', () => {
     const noGitData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.test',
@@ -440,7 +428,7 @@ describe('<TypeGroupGrid />', () => {
     const invalidNodeData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.invalid_metric',
@@ -469,7 +457,7 @@ describe('<TypeGroupGrid />', () => {
     const draftNodeData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.draft_metric',
@@ -494,11 +482,143 @@ describe('<TypeGroupGrid />', () => {
     expect(screen.getByTitle('Draft mode')).toBeInTheDocument();
   });
 
+  it('should show star icon for default branch nodes', () => {
+    const defaultBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'main',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={defaultBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // Star icon should appear for default branch
+    expect(screen.getByText('⭐')).toBeInTheDocument();
+  });
+
+  it('should not show star icon for non-default branch nodes', () => {
+    const featureBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'feature-branch',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={featureBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('⭐')).not.toBeInTheDocument();
+  });
+
+  it('should show SVG git-branch separator when both repo and branch are present', () => {
+    const repoPlusBranchData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+              branch: 'main',
+              defaultBranch: 'main',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    const { container } = render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={repoPlusBranchData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    // SVG separator should be present when both repo and branch exist
+    expect(container.querySelector('svg')).toBeInTheDocument();
+  });
+
+  it('should not show SVG separator when only repo (no branch)', () => {
+    const repoOnlyData = [
+      {
+        type: 'metric',
+        hasMore: false,
+        nodes: [
+          {
+            name: 'default.test',
+            type: 'metric',
+            gitInfo: {
+              repo: 'myorg/myrepo',
+            },
+            current: { updatedAt: '2024-01-01T10:00:00Z' },
+          },
+        ],
+      },
+    ];
+
+    const { container } = render(
+      <MemoryRouter>
+        <TypeGroupGrid
+          groupedData={repoOnlyData}
+          username="test.user@example.com"
+          activeTab="owned"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector('svg')).not.toBeInTheDocument();
+  });
+
   it('should handle nodes without updatedAt', () => {
     const noTimeData = [
       {
         type: 'metric',
-        count: 1,
+        hasMore: false,
         nodes: [
           {
             name: 'default.test',
@@ -524,11 +644,11 @@ describe('<TypeGroupGrid />', () => {
   });
 
   it('should handle watched tab filter URLs', () => {
-    const manyNodesData = [
+    const hasMoreData = [
       {
         type: 'metric',
-        count: 15,
-        nodes: Array.from({ length: 15 }, (_, i) => ({
+        hasMore: true,
+        nodes: Array.from({ length: 11 }, (_, i) => ({
           name: `default.metric_${i}`,
           type: 'metric',
           current: {
@@ -542,14 +662,14 @@ describe('<TypeGroupGrid />', () => {
     render(
       <MemoryRouter>
         <TypeGroupGrid
-          groupedData={manyNodesData}
+          groupedData={hasMoreData}
           username="test.user@example.com"
           activeTab="watched"
         />
       </MemoryRouter>,
     );
 
-    const moreLink = screen.getByText('+5 more →');
+    const moreLink = screen.getByText('More →');
     // For watched tab, should filter by type only
     expect(moreLink).toHaveAttribute('href', '/?type=metric');
   });
