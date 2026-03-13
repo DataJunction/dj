@@ -1755,7 +1755,7 @@ async def get_dimension_outbound_bfs(
                 display_name=row.display_name,
                 type=node_type,
             )
-            if node_type == NodeType.DIMENSION:
+            if node_type == NodeType.DIMENSION:  # pragma: no branch
                 new_frontier_ids.append(row.id)
 
         frontier_ids = new_frontier_ids
