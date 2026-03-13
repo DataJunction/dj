@@ -14,6 +14,12 @@ jest.mock('cronstrue', () => ({
 // Mock CSS imports
 jest.mock('../../../../styles/preaggregations.css', () => ({}));
 
+// jsdom doesn't implement canvas — stub getContext so text-measurement code doesn't crash
+HTMLCanvasElement.prototype.getContext = () => ({
+  font: '',
+  measureText: () => ({ width: 0 }),
+});
+
 describe('<NodePage />', () => {
   const domTestingLib = require('@testing-library/dom');
   const { queryHelpers } = domTestingLib;
@@ -71,6 +77,8 @@ describe('<NodePage />', () => {
           .mockResolvedValue({ status: 200 }),
         listPreaggs: jest.fn().mockResolvedValue({ items: [] }),
         deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 200 }),
+        downstreamsGQL: jest.fn().mockResolvedValue([]),
+        findCubesWithMetrics: jest.fn().mockResolvedValue([]),
       },
     };
   };
@@ -729,14 +737,16 @@ describe('<NodePage />', () => {
       </DJClientContext.Provider>
     );
     render(
-      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/graph']}>
+      <MemoryRouter
+        initialEntries={['/nodes/default.num_repair_orders/data-flow']}
+      >
         <Routes>
           <Route path="nodes/:name/:tab" element={element} />
         </Routes>
       </MemoryRouter>,
     );
     await waitFor(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Data Flow' }));
       expect(djClient.DataJunctionAPI.node_dag).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
       );
