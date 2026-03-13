@@ -3106,9 +3106,8 @@ async def revalidate_node(
 
     # Update parent relationships from validation
     parent_names = {
-        str(parent_node)  # Convert AST Name to string
-        for parents in node_validator.dependencies_map.values()
-        for parent_node in parents
+        node_revision.name
+        for node_revision in node_validator.dependencies_map.keys()
     }
     if parent_names:
         _logger.info(f"Updating parents for {node.name} to: {parent_names}")
