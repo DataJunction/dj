@@ -622,21 +622,27 @@ class DeploymentOrchestrator:
 
     async def _setup_catalogs(self) -> dict[str, Catalog]:
         """
-        Validate that all catalogs defined in the deployment spec exist.
+        Load all catalogs from the database and validate that any catalogs
+        explicitly referenced by source nodes in the deployment spec exist.
         """
-        catalog_names = {
+        all_catalogs = (
+            (
+                await self.session.execute(
+                    select(Catalog).options(selectinload(Catalog.engines)),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        all_catalogs_map = {catalog.name: catalog for catalog in all_catalogs}
+
+        # Validate that catalogs explicitly named in the deployment spec are present
+        spec_catalog_names = {
             node_spec.catalog
             for node_spec in self.deployment_spec.nodes
             if node_spec.node_type == NodeType.SOURCE and node_spec.catalog
         }
-        if not catalog_names:
-            return {}
-        existing_catalogs = await Catalog.get_by_names(
-            self.session,
-            list(catalog_names),
-        )
-        existing_catalog_names = {catalog.name for catalog in existing_catalogs}
-        missing_catalogs = catalog_names - existing_catalog_names
+        missing_catalogs = spec_catalog_names - all_catalogs_map.keys()
         if missing_catalogs:
             self.errors.append(
                 DJError(
@@ -646,7 +652,7 @@ class DeploymentOrchestrator:
                     ),
                 ),
             )
-        return {catalog.name: catalog for catalog in existing_catalogs}
+        return all_catalogs_map
 
     async def _create_deployment_plan(self) -> DeploymentPlan:
         """Analyze existing nodes and create deployment plan"""
