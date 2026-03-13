@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MyWorkspacePage } from '../index';
 import * as useWorkspaceData from '../../../hooks/useWorkspaceData';
+import * as UserProvider from '../../../providers/UserProvider';
 
 // Mock CSS imports
 jest.mock('../MyWorkspacePage.css', () => ({}));
@@ -29,14 +30,6 @@ jest.mock('../MyNodesSection', () => ({
   MyNodesSection: ({ ownedNodes, loading }) => (
     <div data-testid="my-nodes-section">
       {loading ? 'Loading...' : `${ownedNodes.length} owned nodes`}
-    </div>
-  ),
-}));
-
-jest.mock('../CollectionsSection', () => ({
-  CollectionsSection: ({ collections, loading }) => (
-    <div data-testid="collections-section">
-      {loading ? 'Loading...' : `${collections.length} collections`}
     </div>
   ),
 }));
@@ -76,15 +69,6 @@ describe('<MyWorkspacePage />', () => {
     },
   ];
 
-  const mockCollections = [
-    {
-      name: 'test_collection',
-      description: 'Test Collection',
-      nodeCount: 5,
-      createdBy: 'test.user@example.com',
-    },
-  ];
-
   const mockNotifications = [
     {
       entity_name: 'default.test_metric',
@@ -111,23 +95,48 @@ describe('<MyWorkspacePage />', () => {
     },
   ];
 
-  const mockNeedsAttention = {
-    nodesMissingDescription: [],
-    invalidNodes: [],
-    staleDrafts: [],
-    orphanedDimensions: [],
-  };
+  const makeLoadingStates = (loading = false) => ({
+    myNodes: loading,
+    collections: loading,
+    notifications: loading,
+    materializations: loading,
+    needsAttention: loading,
+    namespace: loading,
+  });
+
+  const makeDashboardData = (overrides = {}) => ({
+    data: {
+      ownedNodes: [],
+      ownedHasMore: {},
+      recentlyEdited: [],
+      editedHasMore: {},
+      watchedNodes: [],
+      notifications: [],
+      materializedNodes: [],
+      needsAttention: {
+        nodesMissingDescription: [],
+        invalidNodes: [],
+        staleDrafts: [],
+        orphanedDimensions: [],
+      },
+      hasPersonalNamespace: true,
+      ...overrides,
+    },
+    loadingStates: makeLoadingStates(false),
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('should render loading state', () => {
-    jest.spyOn(useWorkspaceData, 'useCurrentUser').mockReturnValue({
-      data: null,
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: null,
       loading: true,
-      error: null,
     });
+    jest
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData());
 
     render(
       <MemoryRouter>
@@ -136,59 +145,22 @@ describe('<MyWorkspacePage />', () => {
     );
 
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    // Should show loading icon when user is loading
-    expect(screen.queryByTestId('collections-section')).not.toBeInTheDocument();
+    // Sections are not shown while user is loading
+    expect(screen.queryByTestId('my-nodes-section')).not.toBeInTheDocument();
   });
 
   it('should render all sections when data is loaded', () => {
-    // Mock all hooks with data
-    jest.spyOn(useWorkspaceData, 'useCurrentUser').mockReturnValue({
-      data: mockCurrentUser,
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
       loading: false,
-      error: null,
     });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceOwnedNodes').mockReturnValue({
-      data: mockOwnedNodes,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceRecentlyEdited').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceWatchedNodes').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceCollections').mockReturnValue({
-      data: mockCollections,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNotifications').mockReturnValue({
-      data: mockNotifications,
-      loading: false,
-      error: null,
-    });
-    jest
-      .spyOn(useWorkspaceData, 'useWorkspaceMaterializations')
-      .mockReturnValue({
-        data: mockMaterializations,
-        loading: false,
-        error: null,
-      });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNeedsAttention').mockReturnValue({
-      data: mockNeedsAttention,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'usePersonalNamespace').mockReturnValue({
-      exists: true,
-      loading: false,
-      error: null,
-    });
+    jest.spyOn(useWorkspaceData, 'useWorkspaceDashboardData').mockReturnValue(
+      makeDashboardData({
+        ownedNodes: mockOwnedNodes,
+        notifications: mockNotifications,
+        materializedNodes: mockMaterializations,
+      }),
+    );
 
     render(
       <MemoryRouter>
@@ -196,10 +168,6 @@ describe('<MyWorkspacePage />', () => {
       </MemoryRouter>,
     );
 
-    // Check all sections are rendered
-    expect(screen.getByTestId('collections-section')).toHaveTextContent(
-      '1 collections',
-    );
     expect(screen.getByTestId('my-nodes-section')).toHaveTextContent(
       '2 owned nodes',
     );
@@ -214,53 +182,13 @@ describe('<MyWorkspacePage />', () => {
   });
 
   it('should pass correct props to sections', () => {
-    jest.spyOn(useWorkspaceData, 'useCurrentUser').mockReturnValue({
-      data: mockCurrentUser,
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
       loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceOwnedNodes').mockReturnValue({
-      data: mockOwnedNodes,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceRecentlyEdited').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceWatchedNodes').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceCollections').mockReturnValue({
-      data: mockCollections,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNotifications').mockReturnValue({
-      data: mockNotifications,
-      loading: false,
-      error: null,
     });
     jest
-      .spyOn(useWorkspaceData, 'useWorkspaceMaterializations')
-      .mockReturnValue({
-        data: mockMaterializations,
-        loading: false,
-        error: null,
-      });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNeedsAttention').mockReturnValue({
-      data: mockNeedsAttention,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'usePersonalNamespace').mockReturnValue({
-      exists: true,
-      loading: false,
-      error: null,
-    });
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData({ ownedNodes: mockOwnedNodes }));
 
     render(
       <MemoryRouter>
@@ -268,10 +196,9 @@ describe('<MyWorkspacePage />', () => {
       </MemoryRouter>,
     );
 
-    // Verify sections receive correct data
-    expect(screen.getByTestId('collections-section')).toBeInTheDocument();
     expect(screen.getByTestId('my-nodes-section')).toBeInTheDocument();
     expect(screen.getByTestId('notifications-section')).toBeInTheDocument();
+    expect(screen.getByTestId('needs-attention-section')).toBeInTheDocument();
   });
 
   it('should calculate stale materializations correctly', () => {
@@ -287,53 +214,13 @@ describe('<MyWorkspacePage />', () => {
       },
     };
 
-    jest.spyOn(useWorkspaceData, 'useCurrentUser').mockReturnValue({
-      data: mockCurrentUser,
+    jest.spyOn(UserProvider, 'useCurrentUser').mockReturnValue({
+      currentUser: mockCurrentUser,
       loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceOwnedNodes').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceRecentlyEdited').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceWatchedNodes').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceCollections').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNotifications').mockReturnValue({
-      data: [],
-      loading: false,
-      error: null,
     });
     jest
-      .spyOn(useWorkspaceData, 'useWorkspaceMaterializations')
-      .mockReturnValue({
-        data: [staleNode],
-        loading: false,
-        error: null,
-      });
-    jest.spyOn(useWorkspaceData, 'useWorkspaceNeedsAttention').mockReturnValue({
-      data: mockNeedsAttention,
-      loading: false,
-      error: null,
-    });
-    jest.spyOn(useWorkspaceData, 'usePersonalNamespace').mockReturnValue({
-      exists: true,
-      loading: false,
-      error: null,
-    });
+      .spyOn(useWorkspaceData, 'useWorkspaceDashboardData')
+      .mockReturnValue(makeDashboardData({ materializedNodes: [staleNode] }));
 
     render(
       <MemoryRouter>
