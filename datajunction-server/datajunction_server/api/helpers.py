@@ -102,17 +102,24 @@ async def check_namespace_not_git_only(
     namespace: str,
 ) -> None:
     """
-    Check that a namespace is not git_only. If it is, raise an error.
+    Check that a namespace is not git-managed. If it is, raise an error.
     Used to prevent direct node mutations (create/update/delete) on git-managed namespaces.
+
+    Blocks mutations when:
+    - The namespace has git_only=True (explicitly locked branch namespace), OR
+    - The namespace is a git root (has github_repo_path set directly)
+
+    Branch namespaces (children of a git root) are intentionally allowed — edits
+    there are valid and get synced back to the git repo.
     """
     node_namespace = await get_node_namespace(
         session,
         namespace,
         raise_if_not_exists=False,
     )
-    if node_namespace and node_namespace.git_only:
+    if node_namespace and (node_namespace.git_only or node_namespace.github_repo_path):
         raise DJInvalidInputException(
-            message=f"Namespace '{namespace}' is git-only. "
+            message=f"Namespace '{namespace}' is git-managed. "
             "Node changes must be deployed from git via the /deployments API.",
         )
 

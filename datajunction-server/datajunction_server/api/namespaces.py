@@ -108,6 +108,20 @@ async def create_node_namespace(
                 "message": f"Node namespace `{namespace}` already exists",
             },
         )
+    # Block creating child namespaces under a git root — only branch namespaces
+    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
+    # are allowed there.
+    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
+    if parent:
+        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
+        if parent_ns and parent_ns.github_repo_path:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
+                    "Create a new branch under this namespace instead."
+                ),
+            )
+
     created_namespaces = await create_namespace(
         session=session,
         namespace=namespace,
@@ -724,19 +738,19 @@ async def update_namespace_git_config(
                 "Remove parent_namespace if you want to configure this as a git root.",
             )
 
-    # Validate git_only requirement (must have git config, either direct or inherited)
-    # Validate git_only - only makes sense for branch namespaces
+    # Validate git_only - only meaningful for branch namespaces.
+    # Git root namespaces (those with github_repo_path) are auto-locked and do not
+    # need git_only to be set explicitly.
     if new_git_only:
-        # git_only requires a branch namespace (parent + branch)
-        # Git roots just store configuration and don't have deployable content
         is_branch_namespace = new_parent and new_branch
 
         if not is_branch_namespace:
             raise DJInvalidInputException(
                 message=(
-                    "Cannot enable git_only on a git root namespace. "
                     "git_only is only applicable to branch namespaces that have "
-                    "parent_namespace and git_branch configured."
+                    "parent_namespace and git_branch configured. "
+                    "Git root namespaces are automatically locked when "
+                    "github_repo_path is set."
                 ),
             )
 

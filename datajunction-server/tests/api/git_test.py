@@ -3187,8 +3187,63 @@ class TestGitOnlyNamespaceProtection:
         )
 
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        assert "git-only" in response.json()["message"]
+        assert "git-managed" in response.json()["message"]
         assert "must be deployed from git" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_create_node_in_git_root_namespace_rejected(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that creating a node in a git root namespace is auto-locked."""
+        root_namespace = "git_root_autolock"
+
+        # Create git root namespace with github_repo_path (no git_only needed)
+        await client_with_service_setup.post(f"/namespaces/{root_namespace}")
+        await client_with_service_setup.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        # Try to create a source node directly in the git root namespace
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": f"{root_namespace}.test_source",
+                "description": "Test source",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "test_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "git-managed" in response.json()["message"]
+        assert "must be deployed from git" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_create_namespace_under_git_root_rejected(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that creating an arbitrary namespace under a git root is blocked."""
+        root_namespace = "git_root_ns_block"
+
+        await client_with_service_setup.post(f"/namespaces/{root_namespace}")
+        await client_with_service_setup.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        response = await client_with_service_setup.post(
+            f"/namespaces/{root_namespace}.blah/",
+        )
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            "Create a new branch under this namespace instead"
+            in response.json()["message"]
+        )
 
     @pytest.mark.asyncio
     async def test_update_git_only_field(
