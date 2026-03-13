@@ -5099,6 +5099,68 @@ class TestValidateNodes:
         ]
 
     @pytest.mark.asyncio
+    async def test_revalidate_restores_parents_when_query_uses_alias(
+        self,
+        session: AsyncSession,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Regression test: revalidate_node must use NodeRevision.name (from
+        dependencies_map.keys()) not str(ast.Table) (from .values()), which
+        includes the SQL alias and produces names like
+        "default.repair_orders AS ro" that never match DB rows.
+
+        Create a transform whose query aliases its source table, clear the
+        stored parent links, revalidate, and confirm the parent is restored.
+        """
+        response = await client_with_roads.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.test_alias_parent",
+                "query": (
+                    "SELECT ro.repair_order_id, ro.dispatcher_id "
+                    "FROM default.repair_orders AS ro"
+                ),
+                "description": "Transform using a table alias",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["parents"] == [{"name": "default.repair_orders"}]
+
+        # Wipe the stored parent relationships to simulate drift
+        await session.execute(
+            text(
+                """
+                DELETE FROM noderelationship
+                WHERE child_id IN (
+                    SELECT id FROM noderevision WHERE name = 'default.test_alias_parent'
+                )
+                """,
+            ),
+        )
+        await session.commit()
+        session.expire_all()
+
+        # Confirm they're gone
+        node_data = (
+            await client_with_roads.get("/nodes/default.test_alias_parent/")
+        ).json()
+        assert node_data["parents"] == []
+
+        # Revalidate — must restore the parent using the clean node name
+        result = await client_with_roads.post(
+            "/nodes/default.test_alias_parent/validate/",
+        )
+        assert result.status_code == 200
+        assert result.json()["status"] == "valid"
+
+        node_data = (
+            await client_with_roads.get("/nodes/default.test_alias_parent/")
+        ).json()
+        assert node_data["parents"] == [{"name": "default.repair_orders"}]
+
+    @pytest.mark.asyncio
     async def test_revalidate_sets_column_order_when_missing(
         self,
         session: AsyncSession,
