@@ -194,3 +194,88 @@ async def test_validate_node_with_complex_column_types(
             assert column_types["map_column"] == "MapType"
             assert column_types["list_column"] == "ListType"
             assert column_types["struct_column"] == "StructType"
+
+
+@pytest.mark.asyncio
+async def test_validate_node_with_nested_struct_field_access(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Test that a transform selecting a two-level deep struct field (col.lvl1.leaf)
+    resolves to VALID and infers the correct leaf type.
+
+    Reproduces: "Cannot resolve type of column metrics_data.clock_type.total_val"
+    when the source table has a column of type struct<clock_type struct<total_val bigint>>.
+    """
+    from datajunction_server.sql.parsing.ast import Name
+
+    source_node = Node(
+        name="test.source_nested_struct",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+
+    # metrics_data: struct<clock_type struct<total_val bigint, partial_val bigint>,
+    #                      other_type struct<total_val bigint>>
+    metrics_data_col = Column(
+        name="metrics_data",
+        type=ct.StructType(
+            ct.NestedField(
+                name=Name("clock_type"),
+                field_type=ct.StructType(
+                    ct.NestedField(name=Name("total_val"), field_type=ct.BigIntType()),
+                    ct.NestedField(
+                        name=Name("partial_val"),
+                        field_type=ct.BigIntType(),
+                    ),
+                ),
+            ),
+            ct.NestedField(
+                name=Name("other_type"),
+                field_type=ct.StructType(
+                    ct.NestedField(name=Name("total_val"), field_type=ct.BigIntType()),
+                ),
+            ),
+        ),
+        order=0,
+    )
+    dimension_col = Column(name="region_id", type=ct.StringType(), order=1)
+
+    source_revision = NodeRevision(
+        name="test.source_nested_struct",
+        display_name="Source with Nested Struct",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source_node,
+        columns=[metrics_data_col, dimension_col],
+        created_by_id=user.id,
+    )
+    session.add(source_node)
+    session.add(source_revision)
+    await session.commit()
+
+    data = NodeRevisionBase(
+        name="test.child_nested_struct",
+        display_name="Child accessing nested struct",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT "
+            "metrics_data.clock_type.total_val AS total_clock_val, "
+            "region_id "
+            "FROM test.source_nested_struct"
+        ),
+        mode="published",
+    )
+
+    validator = await validate_node_data(data, session)
+
+    assert validator.status == NodeStatus.VALID, (
+        f"Expected VALID but got {validator.status}. Errors: {validator.errors}"
+    )
+    output_col_types = {col.name: col.type for col in validator.columns}
+    assert "total_clock_val" in output_col_types
+    assert output_col_types["total_clock_val"] == ct.BigIntType()
