@@ -500,7 +500,9 @@ class TestDeploymentPlanning:
             context=context,
         )
         result_catalogs = await orchestrator._setup_catalogs()
-        assert result_catalogs == {}
+        # The missing spec catalog is not in the returned map but all other DB
+        # catalogs are still returned (new behavior: always return full catalog map)
+        assert "catalog" not in result_catalogs
         assert len(orchestrator.errors) == 1
 
 
