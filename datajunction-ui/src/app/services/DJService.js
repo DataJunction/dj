@@ -900,6 +900,39 @@ export const DataJunctionAPI = {
     return results.data?.downstreamNodes || [];
   },
 
+  // Batch-fetch cubes by name, returning each cube's name and its metric node names.
+  // Used to build the Sankey data flow graph without N individual cube fetches.
+  findCubesWithMetrics: async function (cubeNames) {
+    if (!cubeNames || cubeNames.length === 0) return [];
+    const query = `
+      query FindCubesWithMetrics($names: [String!]) {
+        findNodes(names: $names, nodeTypes: [CUBE]) {
+          name
+          current {
+            displayName
+            cubeMetrics {
+              name
+            }
+          }
+        }
+      }
+    `;
+    const results = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, variables: { names: cubeNames } }),
+      })
+    ).json();
+    return (results.data?.findNodes || []).map(n => ({
+      name: n.name,
+      display_name: n.current?.displayName || n.name,
+      type: 'cube',
+      parents: (n.current?.cubeMetrics || []).map(m => ({ name: m.name })),
+    }));
+  },
+
   node_dag: async function (name) {
     return await (
       await fetch(`${DJ_URL}/nodes/${name}/dag/`, {
@@ -1928,11 +1961,18 @@ export const DataJunctionAPI = {
 
   // ===== My Workspace GraphQL Queries =====
 
-  getWorkspaceRecentlyEdited: async function (username, limit = 10) {
+  getWorkspaceRecentlyEdited: async function (
+    username,
+    limit = 10,
+    nodeType = null,
+  ) {
     // Nodes the user has edited, ordered by last updated (excluding source nodes)
     const query = `
       query RecentlyEdited($editedBy: String!, $limit: Int!, $nodeTypes: [NodeType!]) {
         findNodesPaginated(editedBy: $editedBy, limit: $limit, nodeTypes: $nodeTypes, orderBy: UPDATED_AT, ascending: false) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             node {
               name
@@ -1957,6 +1997,7 @@ export const DataJunctionAPI = {
         }
       }
     `;
+    const allTypes = ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'];
     return await (
       await fetch(DJ_GQL, {
         method: 'POST',
@@ -1967,18 +2008,25 @@ export const DataJunctionAPI = {
           variables: {
             editedBy: username,
             limit,
-            nodeTypes: ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'],
+            nodeTypes: nodeType ? [nodeType] : allTypes,
           },
         }),
       })
     ).json();
   },
 
-  getWorkspaceOwnedNodes: async function (username, limit = 10) {
+  getWorkspaceOwnedNodes: async function (
+    username,
+    limit = 10,
+    nodeType = null,
+  ) {
     // Owned nodes ordered by UPDATED_AT (excluding source nodes)
     const query = `
       query OwnedNodes($ownedBy: String!, $limit: Int!, $nodeTypes: [NodeType!]) {
         findNodesPaginated(ownedBy: $ownedBy, limit: $limit, nodeTypes: $nodeTypes, orderBy: UPDATED_AT, ascending: false) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             node {
               name
@@ -2003,6 +2051,7 @@ export const DataJunctionAPI = {
         }
       }
     `;
+    const allTypes = ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'];
     return await (
       await fetch(DJ_GQL, {
         method: 'POST',
@@ -2013,7 +2062,7 @@ export const DataJunctionAPI = {
           variables: {
             ownedBy: username,
             limit,
-            nodeTypes: ['TRANSFORM', 'METRIC', 'DIMENSION', 'CUBE'],
+            nodeTypes: nodeType ? [nodeType] : allTypes,
           },
         }),
       })

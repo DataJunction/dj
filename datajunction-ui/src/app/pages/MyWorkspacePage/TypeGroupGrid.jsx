@@ -24,10 +24,8 @@ function capitalize(str) {
 }
 
 // Type Card Component
-function TypeCard({ type, nodes, count, username, activeTab }) {
-  const maxDisplay = 10;
-  const displayNodes = nodes.slice(0, maxDisplay);
-  const remaining = count - maxDisplay;
+function TypeCard({ type, nodes, hasMore, username, activeTab }) {
+  const displayNodes = nodes;
 
   // Build filter URL based on active tab and type
   const getFilterUrl = () => {
@@ -50,9 +48,7 @@ function TypeCard({ type, nodes, count, username, activeTab }) {
   return (
     <div className="type-group-card">
       <div className="type-group-header">
-        <span className="type-group-title">
-          {capitalize(type)}s ({count})
-        </span>
+        <span className="type-group-title">{capitalize(type)}s</span>
       </div>
 
       <div className="type-group-nodes">
@@ -102,7 +98,7 @@ function TypeCard({ type, nodes, count, username, activeTab }) {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    maxWidth: '200px',
+                    maxWidth: '40%',
                   }}
                 >
                   {isDefaultBranch && (
@@ -166,9 +162,9 @@ function TypeCard({ type, nodes, count, username, activeTab }) {
         })}
       </div>
 
-      {remaining > 0 && (
+      {hasMore && (
         <Link to={getFilterUrl()} className="type-group-more">
-          +{remaining} more →
+          More →
         </Link>
       )}
     </div>
@@ -199,7 +195,7 @@ export function TypeGroupGrid({ groupedData, username, activeTab }) {
           key={group.type}
           type={group.type}
           nodes={group.nodes}
-          count={group.count}
+          hasMore={group.hasMore}
           username={username}
           activeTab={activeTab}
         />
