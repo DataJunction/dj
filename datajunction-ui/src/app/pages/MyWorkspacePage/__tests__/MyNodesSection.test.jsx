@@ -18,7 +18,7 @@ jest.mock('../TypeGroupGrid', () => ({
     <div data-testid="type-group-grid">
       {groupedData.map(group => (
         <div key={group.type}>
-          {group.type}: {group.count} nodes
+          {group.type}: {group.nodes.length} nodes
         </div>
       ))}
     </div>
@@ -26,6 +26,11 @@ jest.mock('../TypeGroupGrid', () => ({
 }));
 
 describe('<MyNodesSection />', () => {
+  beforeEach(() => {
+    // Default to list view for most tests; Group by Type tests manage localStorage themselves
+    localStorage.setItem('workspace_groupByType', 'false');
+  });
+
   const mockOwnedNodes = [
     {
       name: 'default.owned_metric',
@@ -102,10 +107,10 @@ describe('<MyNodesSection />', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Owned (1)')).toBeInTheDocument();
+    expect(screen.getByText('Owned')).toBeInTheDocument();
     // Should only count watched nodes that aren't owned (1 watched-only)
     expect(screen.getByText('Watched (1)')).toBeInTheDocument();
-    expect(screen.getByText('Recent Edits (1)')).toBeInTheDocument();
+    expect(screen.getByText('Recent Edits')).toBeInTheDocument();
   });
 
   it('should show owned nodes by default', () => {
@@ -160,7 +165,7 @@ describe('<MyNodesSection />', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByText('Recent Edits (1)'));
+    fireEvent.click(screen.getByText('Recent Edits'));
 
     expect(screen.getByText('default.edited_metric')).toBeInTheDocument();
   });
@@ -183,7 +188,7 @@ describe('<MyNodesSection />', () => {
     expect(screen.getByText('No watched nodes')).toBeInTheDocument();
   });
 
-  it('should limit displayed nodes to 8', () => {
+  it('should limit displayed nodes to 8 in list view', () => {
     const manyNodes = Array.from({ length: 15 }, (_, i) => ({
       name: `default.metric_${i}`,
       type: 'METRIC',
@@ -290,7 +295,7 @@ describe('<MyNodesSection />', () => {
       expect(screen.queryByLabelText('Group by Type')).not.toBeInTheDocument();
     });
 
-    it('should toggle between list and grouped view', () => {
+    it('should toggle between grouped and list view', () => {
       render(
         <MemoryRouter>
           <MyNodesSection
@@ -303,17 +308,17 @@ describe('<MyNodesSection />', () => {
         </MemoryRouter>,
       );
 
-      // Initially should show list view
-      expect(screen.getByTestId('node-list')).toBeInTheDocument();
-      expect(screen.queryByTestId('type-group-grid')).not.toBeInTheDocument();
+      // Initially should show grouped view (default is true)
+      expect(screen.getByTestId('type-group-grid')).toBeInTheDocument();
+      expect(screen.queryByTestId('node-list')).not.toBeInTheDocument();
 
-      // Click toggle
+      // Click toggle to switch to list view
       const toggle = screen.getByLabelText('Group by Type');
       fireEvent.click(toggle);
 
-      // Should now show grouped view
-      expect(screen.queryByTestId('node-list')).not.toBeInTheDocument();
-      expect(screen.getByTestId('type-group-grid')).toBeInTheDocument();
+      // Should now show list view
+      expect(screen.queryByTestId('type-group-grid')).not.toBeInTheDocument();
+      expect(screen.getByTestId('node-list')).toBeInTheDocument();
     });
 
     it('should persist toggle state to localStorage', () => {
@@ -332,10 +337,10 @@ describe('<MyNodesSection />', () => {
       const toggle = screen.getByLabelText('Group by Type');
       fireEvent.click(toggle);
 
-      expect(localStorage.getItem('workspace_groupByType')).toBe('true');
+      expect(localStorage.getItem('workspace_groupByType')).toBe('false');
 
       fireEvent.click(toggle);
-      expect(localStorage.getItem('workspace_groupByType')).toBe('false');
+      expect(localStorage.getItem('workspace_groupByType')).toBe('true');
     });
 
     it('should load toggle state from localStorage', () => {
@@ -378,9 +383,7 @@ describe('<MyNodesSection />', () => {
         </MemoryRouter>,
       );
 
-      const toggle = screen.getByLabelText('Group by Type');
-      fireEvent.click(toggle);
-
+      // Default is grouped view (localStorage cleared by beforeEach → null → true)
       expect(screen.getByText('metric: 2 nodes')).toBeInTheDocument();
       expect(screen.getByText('dimension: 1 nodes')).toBeInTheDocument();
       expect(screen.getByText('source: 1 nodes')).toBeInTheDocument();
