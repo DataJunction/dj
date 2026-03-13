@@ -6517,3 +6517,312 @@ class TestCopyNode:
             # ]
             # for copied in copied_dimensions:
             #     assert copied in original_dimensions
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test ``GET /nodes/{name}/dimension-dag/``.
+    """
+    response = await module__client_with_roads.get(
+        "/nodes/default.us_state/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [
+            {
+                "name": "default.contractors",
+                "display_name": "default.roads.contractors",
+                "type": "source",
+            },
+            {
+                "name": "default.hard_hat",
+                "display_name": "Hard Hat",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
+            },
+            {
+                "name": "default.repair_order",
+                "display_name": "Repair Order",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders",
+                "display_name": "default.roads.repair_orders",
+                "type": "source",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
+            },
+        ],
+        "inbound_edges": [
+            {"source": "default.contractors", "target": "default.us_state"},
+            {"source": "default.hard_hat", "target": "default.us_state"},
+            {"source": "default.repair_orders_fact", "target": "default.hard_hat"},
+            {"source": "default.repair_order", "target": "default.hard_hat"},
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {
+                "source": "default.repair_order_details",
+                "target": "default.repair_order",
+            },
+        ],
+        "outbound": [],
+        "outbound_edges": [],
+    }
+
+    response = await module__client_with_roads.get(
+        "/nodes/default.hard_hat/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [
+            {
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
+            },
+            {
+                "name": "default.repair_order",
+                "display_name": "Repair Order",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders",
+                "display_name": "default.roads.repair_orders",
+                "type": "source",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
+            },
+        ],
+        "inbound_edges": [
+            {
+                "source": "default.repair_orders_fact",
+                "target": "default.hard_hat",
+            },
+            {"source": "default.repair_order", "target": "default.hard_hat"},
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {
+                "source": "default.repair_order_details",
+                "target": "default.repair_order",
+            },
+        ],
+        "outbound": [
+            {
+                "name": "default.us_state",
+                "display_name": "Us State",
+                "type": "dimension",
+            },
+        ],
+        "outbound_edges": [
+            {"source": "default.hard_hat", "target": "default.us_state"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_no_links(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """A dimension with no dimension_links in either direction returns empty lists."""
+    response = await module__client_with_roads.get(
+        "/nodes/default.payment_type/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [],
+        "inbound_edges": [],
+        "outbound": [],
+        "outbound_edges": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_depth_limit(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    With depth=1, both BFS loops exhaust all range() iterations with a non-empty
+    frontier — exiting normally rather than via break. Covers the for-loop
+    normal-exit path in get_dimension_inbound_bfs (1648->1687) and
+    get_dimension_outbound_bfs (1727->1763).
+    """
+    response = await module__client_with_roads.get(
+        "/nodes/default.hard_hat/dimension-dag/?depth=1",
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    # First-level inbound nodes are present
+    inbound_names = {n["name"] for n in data["inbound"]}
+    assert "default.repair_orders_fact" in inbound_names
+    assert "default.repair_order" in inbound_names
+    # Second-level nodes are cut off (frontier was non-empty when range(1) ran out)
+    assert "default.repair_orders" not in inbound_names
+    assert "default.repair_order_details" not in inbound_names
+
+    # Outbound still finds us_state (one hop)
+    outbound_names = {n["name"] for n in data["outbound"]}
+    assert "default.us_state" in outbound_names
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_diamond_inbound(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Diamond pattern: source_node links to dim_left and dim_right; both dim_left and
+    dim_right link to dim_top. In the second BFS batch, source_node appears in the
+    result rows twice (once per frontier dim). The second occurrence hits
+    row.id in visited → continue (line 1671).
+    """
+    # Create dim_top
+    response = await client_with_roads.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.dag_test_dim_top",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "primary_key": ["hard_hat_id"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    # Create dim_left → links to dim_top
+    response = await client_with_roads.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.dag_test_dim_left",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "primary_key": ["hard_hat_id"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+    await client_with_roads.post(
+        "/nodes/default.dag_test_dim_left/link",
+        json={
+            "dimension_node": "default.dag_test_dim_top",
+            "join_on": "default.dag_test_dim_left.hard_hat_id = default.dag_test_dim_top.hard_hat_id",
+        },
+    )
+
+    # Create dim_right → links to dim_top
+    response = await client_with_roads.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.dag_test_dim_right",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "primary_key": ["hard_hat_id"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+    await client_with_roads.post(
+        "/nodes/default.dag_test_dim_right/link",
+        json={
+            "dimension_node": "default.dag_test_dim_top",
+            "join_on": "default.dag_test_dim_right.hard_hat_id = default.dag_test_dim_top.hard_hat_id",
+        },
+    )
+
+    # Create source_node → links to both dim_left and dim_right
+    response = await client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.dag_test_source_both",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+    await client_with_roads.post(
+        "/nodes/default.dag_test_source_both/link",
+        json={
+            "dimension_node": "default.dag_test_dim_left",
+            "join_on": "default.dag_test_source_both.hard_hat_id = default.dag_test_dim_left.hard_hat_id",
+        },
+    )
+    await client_with_roads.post(
+        "/nodes/default.dag_test_source_both/link",
+        json={
+            "dimension_node": "default.dag_test_dim_right",
+            "join_on": "default.dag_test_source_both.hard_hat_id = default.dag_test_dim_right.hard_hat_id",
+        },
+    )
+
+    # Inbound BFS on dim_top: batch 2 frontier=[dim_left_id, dim_right_id],
+    # source_both appears twice → second hit is already-visited (1671)
+    response = await client_with_roads.get(
+        "/nodes/default.dag_test_dim_top/dimension-dag/",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    inbound_names = [n["name"] for n in data["inbound"]]
+    # source_both deduplicated to one entry
+    assert inbound_names.count("default.dag_test_source_both") == 1
+    assert "default.dag_test_dim_left" in inbound_names
+    assert "default.dag_test_dim_right" in inbound_names
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_duplicate_role_links(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    When a node has two DimensionLink entries pointing to the same dimension
+    (distinguished by role), the inbound BFS SQL returns two rows with the same
+    (source_id, dimension_id). The second row hits the duplicate edge guard
+    (1661->1670) then the already-visited guard (1671). The outbound BFS does
+    the same for the source node (1739->1748, 1749).
+    """
+    # Add a second link from repair_orders_fact → hard_hat with a different role
+    response = await client_with_roads.post(
+        "/nodes/default.repair_orders_fact/link",
+        json={
+            "dimension_node": "default.hard_hat",
+            "join_on": (
+                "default.repair_orders_fact.hard_hat_id = default.hard_hat.hard_hat_id"
+            ),
+            "role": "secondary",
+        },
+    )
+    assert response.status_code == 201
+
+    # Inbound BFS on hard_hat: repair_orders_fact appears twice in SQL result
+    # (two DimensionLink rows with same dimension_id, different role).
+    # First row: edge added, node added to visited.
+    # Second row: edge_key already in seen_edges (1661->1670), node already visited (1671).
+    response = await client_with_roads.get(
+        "/nodes/default.hard_hat/dimension-dag/",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    inbound_names = [n["name"] for n in data["inbound"]]
+    assert inbound_names.count("default.repair_orders_fact") == 1
+    inbound_edges = [(e["source"], e["target"]) for e in data["inbound_edges"]]
+    assert inbound_edges.count(("default.repair_orders_fact", "default.hard_hat")) == 1
+
+    # Outbound BFS on repair_orders_fact: hard_hat appears twice in SQL result
+    # (two outbound DimensionLink rows for same dimension).
+    # First row: edge added, node added to visited.
+    # Second row: edge_key already in seen_edges (1739->1748), node already visited (1749).
+    response = await client_with_roads.get(
+        "/nodes/default.repair_orders_fact/dimension-dag/",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    outbound_names = [n["name"] for n in data["outbound"]]
+    assert outbound_names.count("default.hard_hat") == 1
+    outbound_edges = [(e["source"], e["target"]) for e in data["outbound_edges"]]
+    assert outbound_edges.count(("default.repair_orders_fact", "default.hard_hat")) == 1
