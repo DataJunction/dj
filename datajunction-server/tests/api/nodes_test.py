@@ -6517,3 +6517,131 @@ class TestCopyNode:
             # ]
             # for copied in copied_dimensions:
             #     assert copied in original_dimensions
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test ``GET /nodes/{name}/dimension-dag/``.
+    """
+    response = await module__client_with_roads.get(
+        "/nodes/default.us_state/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [
+            {
+                "name": "default.contractors",
+                "display_name": "default.roads.contractors",
+                "type": "source",
+            },
+            {
+                "name": "default.hard_hat",
+                "display_name": "Hard Hat",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
+            },
+            {
+                "name": "default.repair_order",
+                "display_name": "Repair Order",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders",
+                "display_name": "default.roads.repair_orders",
+                "type": "source",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
+            },
+        ],
+        "inbound_edges": [
+            {"source": "default.contractors", "target": "default.us_state"},
+            {"source": "default.hard_hat", "target": "default.us_state"},
+            {"source": "default.repair_orders_fact", "target": "default.hard_hat"},
+            {"source": "default.repair_order", "target": "default.hard_hat"},
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {
+                "source": "default.repair_order_details",
+                "target": "default.repair_order",
+            },
+        ],
+        "outbound": [],
+        "outbound_edges": [],
+    }
+
+    response = await module__client_with_roads.get(
+        "/nodes/default.hard_hat/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [
+            {
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
+            },
+            {
+                "name": "default.repair_order",
+                "display_name": "Repair Order",
+                "type": "dimension",
+            },
+            {
+                "name": "default.repair_orders",
+                "display_name": "default.roads.repair_orders",
+                "type": "source",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
+            },
+        ],
+        "inbound_edges": [
+            {
+                "source": "default.repair_orders_fact",
+                "target": "default.hard_hat",
+            },
+            {"source": "default.repair_order", "target": "default.hard_hat"},
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {
+                "source": "default.repair_order_details",
+                "target": "default.repair_order",
+            },
+        ],
+        "outbound": [
+            {
+                "name": "default.us_state",
+                "display_name": "Us State",
+                "type": "dimension",
+            },
+        ],
+        "outbound_edges": [
+            {"source": "default.hard_hat", "target": "default.us_state"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_no_links(
+    module__client_with_roads: AsyncClient,
+) -> None:
+    """A dimension with no dimension_links in either direction returns empty lists."""
+    response = await module__client_with_roads.get(
+        "/nodes/default.payment_type/dimension-dag/",
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "inbound": [],
+        "inbound_edges": [],
+        "outbound": [],
+        "outbound_edges": [],
+    }

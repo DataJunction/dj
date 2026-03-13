@@ -29,7 +29,12 @@ from datajunction_server.database.node import (
 from datajunction_server.errors import DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
-from datajunction_server.models.node_type import NodeType, NodeNameVersion
+from datajunction_server.models.node_type import (
+    DimensionDAGEdge,
+    NodeType,
+    NodeNameVersion,
+    NodeTypeDisplay,
+)
 from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
 
 logger = logging.getLogger(__name__)
@@ -1603,3 +1608,156 @@ async def get_cubes_using_dimensions(
     )
     result = await session.execute(find_statement)
     return {res[0]: res[1] for res in result.fetchall()}
+
+
+async def get_dimension_inbound_bfs(
+    session: AsyncSession,
+    dimension_node: Node,
+    depth: int = 10,
+) -> tuple[list[NodeTypeDisplay], list[DimensionDAGEdge]]:
+    """
+    BFS over the inbound dimension-link graph.
+
+    Starting from ``dimension_node``, each layer finds all nodes whose current
+    NodeRevision has a DimensionLink pointing to any node in the current frontier.
+    The next frontier is restricted to dimension-type nodes only, because only
+    dimension nodes can themselves be the target of a DimensionLink.
+
+    Returns a tuple of (nodes, edges) where edges preserve the multi-level graph
+    structure (e.g. A->B->C).
+    """
+    visited: set[int] = {dimension_node.id}
+    frontier_ids: list[int] = [dimension_node.id]
+    results: dict[int, NodeTypeDisplay] = {}
+    edges: list[DimensionDAGEdge] = []
+    id_to_name: dict[int, str] = {dimension_node.id: dimension_node.name}
+
+    inbound_query = text(
+        """
+        SELECT n.id, n.name, nr.display_name, n.type, dl.dimension_id AS links_to_id
+        FROM dimensionlink dl
+        JOIN noderevision nr ON nr.id = dl.node_revision_id
+        JOIN node n ON n.id = nr.node_id AND n.deactivated_at IS NULL
+        WHERE dl.dimension_id IN :frontier_ids
+          AND nr.version = (
+              SELECT current_version FROM node WHERE id = nr.node_id
+          )
+        """,
+    ).bindparams(bindparam("frontier_ids", expanding=True))
+
+    for _ in range(depth):
+        if not frontier_ids:
+            break
+
+        rows = (
+            await session.execute(inbound_query, {"frontier_ids": frontier_ids})
+        ).fetchall()
+
+        new_frontier_ids: list[int] = []
+        seen_edges: set[tuple[int, int]] = set()
+        for row in rows:
+            # Always record the edge (even if node already visited via another path)
+            edge_key = (row.id, row.links_to_id)
+            if edge_key not in seen_edges and row.links_to_id in id_to_name:
+                seen_edges.add(edge_key)
+                edges.append(
+                    DimensionDAGEdge(
+                        source=row.name,
+                        target=id_to_name[row.links_to_id],
+                    ),
+                )
+
+            if row.id in visited:
+                continue
+            visited.add(row.id)
+            id_to_name[row.id] = row.name
+            node_type = NodeType(row.type.lower()) if row.type else None
+            results[row.id] = NodeTypeDisplay(
+                name=row.name,
+                display_name=row.display_name,
+                type=node_type,
+            )
+            # Only dimension nodes can be targets of dimension_links, so only they
+            # need to be in the next frontier.
+            if node_type == NodeType.DIMENSION:
+                new_frontier_ids.append(row.id)
+
+        frontier_ids = new_frontier_ids
+
+    return list(results.values()), edges
+
+
+async def get_dimension_outbound_bfs(
+    session: AsyncSession,
+    node: Node,
+    depth: int = 10,
+) -> tuple[list[NodeTypeDisplay], list[DimensionDAGEdge]]:
+    """
+    BFS over the *outbound* dimension-link graph.
+
+    Starting from ``node``, each layer follows DimensionLink edges to the dimension
+    nodes they point to.  Only dimension nodes are expanded further (they are the
+    only node type that can be a DimensionLink target).
+
+    Returns a tuple of (nodes, edges) that preserves the chain structure so the UI
+    can render e.g.  seed -> dim_A -> dim_B.
+    """
+    visited: set[int] = {node.id}
+    frontier_ids: list[int] = [node.id]
+    results: dict[int, NodeTypeDisplay] = {}
+    edges: list[DimensionDAGEdge] = []
+    id_to_name: dict[int, str] = {node.id: node.name}
+
+    outbound_query = text(
+        """
+        SELECT d.id, d.name, d.type, cur.display_name,
+               src.id AS source_id, src.name AS source_name
+        FROM dimensionlink dl
+        JOIN noderevision nr ON nr.id = dl.node_revision_id
+        JOIN node src ON src.id = nr.node_id AND src.deactivated_at IS NULL
+        JOIN node d ON d.id = dl.dimension_id AND d.deactivated_at IS NULL
+        LEFT JOIN noderevision cur
+               ON cur.node_id = d.id
+              AND cur.version = (SELECT current_version FROM node WHERE id = d.id)
+        WHERE src.id IN :frontier_ids
+          AND nr.version = (SELECT current_version FROM node WHERE id = src.id)
+        """,
+    ).bindparams(bindparam("frontier_ids", expanding=True))
+
+    for _ in range(depth):
+        if not frontier_ids:
+            break
+
+        rows = (
+            await session.execute(outbound_query, {"frontier_ids": frontier_ids})
+        ).fetchall()
+
+        new_frontier_ids: list[int] = []
+        seen_edges: set[tuple[int, int]] = set()
+        for row in rows:
+            edge_key = (row.source_id, row.id)
+            if edge_key not in seen_edges and row.source_id in id_to_name:
+                seen_edges.add(edge_key)
+                edges.append(
+                    DimensionDAGEdge(
+                        source=id_to_name[row.source_id],
+                        target=row.name,
+                    ),
+                )
+
+            if row.id in visited:
+                continue
+            visited.add(row.id)
+            id_to_name[row.id] = row.name
+            node_type = NodeType(row.type.lower()) if row.type else None
+            results[row.id] = NodeTypeDisplay(
+                name=row.name,
+                display_name=row.display_name,
+                type=node_type,
+            )
+            if node_type == NodeType.DIMENSION:
+                new_frontier_ids.append(row.id)
+
+        frontier_ids = new_frontier_ids
+
+    return list(results.values()), edges

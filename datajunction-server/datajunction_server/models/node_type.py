@@ -35,6 +35,42 @@ class NodeNameOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NodeTypeDisplay(BaseModel):
+    """
+    Minimal node info needed to render a node card in the dimensions DAG.
+    """
+
+    name: str
+    display_name: str | None = None
+    type: NodeType | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DimensionDAGEdge(BaseModel):
+    """A directed edge in the dimension DAG: source node links to target dimension."""
+
+    source: str
+    target: str
+
+
+class DimensionDAGOutput(BaseModel):
+    """
+    Response for GET /dimensions/{name}/dag.
+
+    inbound            - nodes whose dimension links point to this dimension (consumers).
+    inbound_edges      – edges between inbound nodes (source links to target), preserving
+                         the multi-level graph structure discovered by BFS.
+    outbound           – dimension nodes that this node links to (its own dimension_links).
+    outbound_edges     – edges between outbound dimension nodes (source links to target).
+    """
+
+    inbound: list[NodeTypeDisplay]
+    inbound_edges: list[DimensionDAGEdge]
+    outbound: list[NodeTypeDisplay]
+    outbound_edges: list[DimensionDAGEdge]
+
+
 class NodeNameVersion(BaseModel):
     """
     Node name and version
