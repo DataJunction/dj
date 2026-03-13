@@ -271,7 +271,12 @@ async def create_deployment(
         deployment_spec.namespace,
         raise_if_not_exists=False,
     )
-    if namespace_obj and (namespace_obj.git_only or namespace_obj.github_repo_path):
+    is_git_root = (
+        namespace_obj is not None
+        and namespace_obj.github_repo_path is not None
+        and namespace_obj.git_branch is None
+    )
+    if namespace_obj and (namespace_obj.git_only or is_git_root):
         await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
     deployment_id = await executor.submit(
