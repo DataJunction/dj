@@ -1286,10 +1286,9 @@ export const DataJunctionAPI = {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
       pollInterval = Math.min(pollInterval * 2, 10000);
 
-      const pollResponse = await fetch(
-        `${DJ_URL}/data/query/${results.id}`,
-        { credentials: 'include' },
-      );
+      const pollResponse = await fetch(`${DJ_URL}/data/query/${results.id}`, {
+        credentials: 'include',
+      });
       if (!pollResponse.ok) {
         const errorData = await pollResponse.json().catch(() => ({}));
         throw new Error(
