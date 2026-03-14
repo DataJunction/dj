@@ -5,6 +5,7 @@ Bulk deployment APIs.
 import asyncio
 import logging
 import uuid
+from typing import Optional
 
 from fastapi import Depends, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +59,7 @@ router = SecureAPIRouter(tags=["deployments"])
 async def _verify_git_deployment(
     session: AsyncSession,
     deployment_spec: DeploymentSpec,
-    namespace_obj: NodeNamespace,
+    namespace_obj: Optional[NodeNamespace],
 ) -> None:
     """
     Verify that a deployment to a git_only namespace meets requirements:
@@ -123,7 +124,7 @@ async def _verify_git_deployment(
         "Verified git deployment to %s: commit %s exists in %s",
         deployment_spec.namespace,
         deployment_spec.source.commit_sha[:8],
-        namespace_obj.github_repo_path,
+        namespace_obj.github_repo_path if namespace_obj else github_repo_path,
     )
 
 
@@ -270,7 +271,12 @@ async def create_deployment(
         deployment_spec.namespace,
         raise_if_not_exists=False,
     )
-    if namespace_obj and namespace_obj.git_only:
+    is_git_root = (
+        namespace_obj is not None
+        and namespace_obj.github_repo_path is not None
+        and namespace_obj.git_branch is None
+    )
+    if namespace_obj and (namespace_obj.git_only or is_git_root):
         await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
     deployment_id = await executor.submit(

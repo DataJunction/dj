@@ -3740,6 +3740,40 @@ class TestGitOnlyNamespaceDeployments:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_git_root_namespace_requires_git_source(self, client):
+        """Test that a git root namespace (github_repo_path set) auto-locks deployments."""
+        root_namespace = "git_root_autolock_deploy"
+
+        # Create git root namespace — no git_only flag needed
+        await client.post(f"/namespaces/{root_namespace}")
+        await client.patch(
+            f"/namespaces/{root_namespace}/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        source_spec = SourceSpec(
+            name="test_source",
+            description="Test source",
+            catalog="default",
+            schema="test",
+            table="test_table",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        # Deploy without source — should be rejected because namespace is a git root
+        response = await client.post(
+            "/deployments/",
+            json=DeploymentSpec(
+                namespace=root_namespace,
+                nodes=[source_spec],
+                # No source field
+            ).model_dump(),
+        )
+        assert response.status_code == 422
+        assert "git-only" in response.json()["message"]
+        assert "must include a git source" in response.json()["message"]
+
+    @pytest.mark.asyncio
     async def test_non_git_only_namespace_allows_any_source(self, client):
         """Test that non-git_only namespace accepts deployment without source."""
         namespace = "non_git_only"

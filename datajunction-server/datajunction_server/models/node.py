@@ -888,8 +888,9 @@ def build_update_node_fields():
     return update_node_fields
 
 
-# Create the UpdateNode class with all optional fields
-UpdateNode = create_model(
+# Create the UpdateNode class with all optional fields.
+# Typed as Any so mypy doesn't complain about dynamic create_model attributes.
+UpdateNode: Any = create_model(
     "UpdateNode",
     **build_update_node_fields(),
     __config__=ConfigDict(extra="forbid"),
