@@ -1365,7 +1365,6 @@ async def get_dimension_dag(
                     selectinload(NodeRevision.cube_elements)
                     .selectinload(Column.node_revision)
                     .options(
-                        selectinload(NodeRevision.node),
                         selectinload(NodeRevision.parents).selectinload(Node.current),
                     ),
                 ),
@@ -1386,16 +1385,14 @@ async def get_dimension_dag(
         parent_node_map: dict[int, Node] = {}
 
         for metric_rev in dimension_node.current.metric_node_revisions():
-            metric = metric_rev.node
-            if not metric:
-                continue  # pragma: no cover
-            all_inbound[metric.name] = NodeTypeDisplay(
-                name=metric.name,
+            metric_name = metric_rev.name
+            all_inbound[metric_name] = NodeTypeDisplay(
+                name=metric_name,
                 display_name=metric_rev.display_name,
                 type=NodeType.METRIC,
             )
-            all_inbound_edges[(metric.name, dimension_node.name)] = DimensionDAGEdge(
-                source=metric.name,
+            all_inbound_edges[(metric_name, dimension_node.name)] = DimensionDAGEdge(
+                source=metric_name,
                 target=dimension_node.name,
             )
             for parent in metric_rev.parents:
@@ -1407,9 +1404,9 @@ async def get_dimension_dag(
                     else parent.name,
                     type=parent.type,
                 )
-                all_inbound_edges[(parent.name, metric.name)] = DimensionDAGEdge(
+                all_inbound_edges[(parent.name, metric_name)] = DimensionDAGEdge(
                     source=parent.name,
-                    target=metric.name,
+                    target=metric_name,
                 )
 
         all_outbound: dict[str, NodeTypeDisplay] = {}
