@@ -99,7 +99,12 @@ from datajunction_server.models.node import (
     SourceColumnOutput,
     UpdateNode,
 )
-from datajunction_server.models.node_type import DimensionDAGOutput, NodeType
+from datajunction_server.models.node_type import (
+    DimensionDAGEdge,
+    DimensionDAGOutput,
+    NodeType,
+    NodeTypeDisplay,
+)
 from datajunction_server.models.partition import (
     Granularity,
     PartitionInput,
@@ -1355,11 +1360,75 @@ async def get_dimension_dag(
         await Node.get_by_name(
             session,
             name,
-            options=[selectinload(Node.current)],
+            options=[
+                selectinload(Node.current).options(
+                    selectinload(NodeRevision.cube_elements)
+                    .selectinload(Column.node_revision)
+                    .options(
+                        selectinload(NodeRevision.parents).selectinload(Node.current),
+                    ),
+                ),
+            ],
             raise_if_not_exists=True,
         ),
     )
     access_checker.add_node(dimension_node, access.ResourceAction.READ)
+
+    if dimension_node.current.type == NodeType.CUBE:
+        # For cubes we want to show the full lineage:
+        #   sources/transforms (far left) -> metrics -> cube (center) -> dimensions (right)
+        # Dimension links live on source/transform nodes, so we seed the outbound BFS
+        # from each unique parent and keep the original source to dimension edges so the
+        # viewer can see exactly where each dimension link originates.
+        all_inbound: dict[str, NodeTypeDisplay] = {}
+        all_inbound_edges: dict[tuple, DimensionDAGEdge] = {}
+        parent_node_map: dict[int, Node] = {}
+
+        for metric_rev in dimension_node.current.metric_node_revisions():
+            metric_name = metric_rev.name
+            all_inbound[metric_name] = NodeTypeDisplay(
+                name=metric_name,
+                display_name=metric_rev.display_name,
+                type=NodeType.METRIC,
+            )
+            all_inbound_edges[(metric_name, dimension_node.name)] = DimensionDAGEdge(
+                source=metric_name,
+                target=dimension_node.name,
+            )
+            for parent in metric_rev.parents:
+                parent_node_map[parent.id] = parent
+                all_inbound[parent.name] = NodeTypeDisplay(
+                    name=parent.name,
+                    display_name=parent.current.display_name
+                    if parent.current
+                    else parent.name,
+                    type=parent.type,
+                )
+                all_inbound_edges[(parent.name, metric_name)] = DimensionDAGEdge(
+                    source=parent.name,
+                    target=metric_name,
+                )
+
+        all_outbound: dict[str, NodeTypeDisplay] = {}
+        all_outbound_edges: dict[tuple, DimensionDAGEdge] = {}
+
+        for parent in parent_node_map.values():
+            ob, ob_edges = await get_dimension_outbound_bfs(
+                session,
+                parent,
+                depth=depth,
+            )
+            for dim in ob:
+                all_outbound[dim.name] = dim
+            for e in ob_edges:
+                all_outbound_edges[(e.source, e.target)] = e
+
+        return DimensionDAGOutput(
+            inbound=list(all_inbound.values()),
+            inbound_edges=list(all_inbound_edges.values()),
+            outbound=list(all_outbound.values()),
+            outbound_edges=list(all_outbound_edges.values()),
+        )
 
     # Outbound: dimension nodes reachable via this node's own dimension links.
     outbound, outbound_edges = await get_dimension_outbound_bfs(
