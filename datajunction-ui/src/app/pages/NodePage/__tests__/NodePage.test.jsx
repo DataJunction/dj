@@ -14,6 +14,17 @@ jest.mock('cronstrue', () => ({
 // Mock CSS imports
 jest.mock('../../../../styles/preaggregations.css', () => ({}));
 
+// Mock recharts for NodeDataFlowTab (Sankey doesn't work in jsdom)
+jest.mock('recharts', () => ({
+  Sankey: () => <div data-testid="sankey-chart" />,
+  Tooltip: () => null,
+}));
+
+// ResizeObserver is not defined in jsdom
+global.ResizeObserver = function (callback) {
+  return { observe: () => {}, disconnect: () => {}, unobserve: () => {} };
+};
+
 // jsdom doesn't implement canvas — stub getContext so text-measurement code doesn't crash
 HTMLCanvasElement.prototype.getContext = () => ({
   font: '',
@@ -77,6 +88,9 @@ describe('<NodePage />', () => {
           .mockResolvedValue({ status: 200 }),
         listPreaggs: jest.fn().mockResolvedValue({ items: [] }),
         deactivatePreaggWorkflow: jest.fn().mockResolvedValue({ status: 200 }),
+        namespaceSources: jest.fn().mockResolvedValue(null),
+        listDeployments: jest.fn().mockResolvedValue([]),
+        getNamespaceGitConfig: jest.fn().mockResolvedValue(null),
         upstreamsGQL: jest.fn().mockResolvedValue([]),
         downstreamsGQL: jest.fn().mockResolvedValue([]),
         findCubesWithMetrics: jest.fn().mockResolvedValue([]),
@@ -748,7 +762,7 @@ describe('<NodePage />', () => {
     );
     await waitFor(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Data Flow' }));
-      expect(djClient.DataJunctionAPI.node_dag).toHaveBeenCalledWith(
+      expect(djClient.DataJunctionAPI.upstreamsGQL).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
       );
     });
