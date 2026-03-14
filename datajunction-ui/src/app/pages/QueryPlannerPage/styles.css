@@ -857,6 +857,13 @@
   gap: 2px;
 }
 
+.dimension-full-name {
+  font-size: 10px;
+  color: var(--planner-text-muted);
+  font-family: var(--font-display);
+  word-break: break-all;
+}
+
 .dimension-path {
   font-size: 10px;
   color: var(--planner-text-dim);
@@ -3558,6 +3565,55 @@ a.action-btn {
 }
 
 /* =================================
+   Engine Selection
+   ================================= */
+
+.engine-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--planner-border);
+  background: var(--planner-bg);
+  flex-shrink: 0;
+}
+
+.engine-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.engine-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.engine-pill {
+  padding: 4px 10px;
+  border: 1px solid var(--planner-border);
+  border-radius: 12px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.engine-pill:hover {
+  border-color: #059669;
+  color: #059669;
+}
+
+.engine-pill.active {
+  background: #059669;
+  border-color: #059669;
+  color: white;
+  font-weight: 500;
+}
+
+/* =================================
    Run Query Section
    ================================= */
 
@@ -3950,8 +4006,9 @@ a.action-btn {
 .results-table th {
   position: sticky;
   top: 0;
+  z-index: 1;
   padding: 10px 12px;
-  background: var(--planner-bg);
+  background: #f8fafc;
   color: var(--planner-text);
   font-weight: 600;
   text-align: left;
@@ -3962,7 +4019,7 @@ a.action-btn {
 }
 
 .results-table th:hover {
-  background: var(--planner-bg-hover, #f1f5f9);
+  background: #f1f5f9;
 }
 
 .results-table th.sorted {
@@ -4050,4 +4107,156 @@ a.action-btn {
 
 .filters-list .filter-chip {
   padding: 4px 10px;
+}
+
+/* =================================
+   Results View - Tab bar & Chart
+   ================================= */
+
+.results-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--planner-border);
+  background: var(--planner-surface);
+  flex-shrink: 0;
+}
+
+.results-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.results-tab {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--planner-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.results-tab:hover:not(.disabled) {
+  color: var(--planner-text);
+}
+
+.results-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.results-tab.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.results-tabs-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-bottom: 6px;
+}
+
+/* Chart wrapper - fills remaining height */
+.results-chart-wrapper {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  padding: 16px 8px 8px;
+  display: flex;
+  align-items: stretch;
+}
+
+/* KPI cards */
+.kpi-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 8px;
+}
+
+.kpi-card {
+  background: var(--planner-surface);
+  border: 1px solid var(--planner-border);
+  border-radius: var(--radius-lg);
+  padding: 20px 28px;
+  min-width: 160px;
+  text-align: center;
+}
+
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--planner-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--planner-text);
+  font-family: var(--font-display);
+  line-height: 1.1;
+}
+
+.kpi-type {
+  font-size: 10px;
+  color: var(--planner-text-dim);
+  margin-top: 6px;
+}
+
+.chart-no-data {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--planner-text-muted);
+  font-size: 13px;
+}
+
+/* =================================
+   Small Multiples
+   ================================= */
+
+.small-multiples {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.small-multiple {
+  flex-shrink: 0;
+  height: 220px;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid var(--planner-border);
+}
+
+.small-multiple:last-child {
+  border-bottom: none;
+}
+
+.small-multiple-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--planner-text-muted);
+  padding: 8px 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.small-multiple-chart {
+  height: 188px;
 }

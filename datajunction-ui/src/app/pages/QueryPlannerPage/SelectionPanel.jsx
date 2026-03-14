@@ -19,6 +19,8 @@ export function SelectionPanel({
   onClearSelection,
   filters = [],
   onFiltersChange,
+  selectedEngine = null,
+  onEngineChange,
   onRunQuery,
   canRunQuery = false,
   queryLoading = false,
@@ -604,7 +606,11 @@ export function SelectionPanel({
 
             <div className="selection-list dimensions-list">
               {filteredDimensions.map(dim => (
-                <label key={dim.name} className="selection-item dimension-item">
+                <label
+                  key={dim.name}
+                  className="selection-item dimension-item"
+                  title={dim.name}
+                >
                   <input
                     type="checkbox"
                     checked={selectedDimensions.includes(dim.name)}
@@ -614,6 +620,7 @@ export function SelectionPanel({
                     <span className="item-name">
                       {getDimDisplayName(dim.name)}
                     </span>
+                    <span className="dimension-full-name">{dim.name}</span>
                     {dim.path && dim.path.length > 1 && (
                       <span className="dimension-path">
                         {dim.path.slice(1).join(' ▶ ')}
@@ -680,6 +687,28 @@ export function SelectionPanel({
           >
             Add
           </button>
+        </div>
+      </div>
+
+      {/* Engine Selection */}
+      <div className="engine-section">
+        <span className="engine-label">Engine</span>
+        <div className="engine-pills">
+          {[
+            { value: null, label: 'Auto' },
+            { value: 'druid', label: 'Druid' },
+            { value: 'trino', label: 'Trino' },
+          ].map(({ value, label }) => (
+            <button
+              key={label}
+              className={`engine-pill${
+                selectedEngine === value ? ' active' : ''
+              }`}
+              onClick={() => onEngineChange && onEngineChange(value)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
