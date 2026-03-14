@@ -334,14 +334,26 @@ describe('<NodeDimensionsTab />', () => {
     // frontend just calls dimensionDag normally and gets back a populated result.
     mockDjClient.dimensionDag.mockResolvedValue({
       inbound: [
-        { name: 'default.repair_orders', type: 'source', display_name: 'Repair Orders' },
+        {
+          name: 'default.repair_orders',
+          type: 'source',
+          display_name: 'Repair Orders',
+        },
       ],
       inbound_edges: [
         { source: 'default.repair_orders', target: 'default.hard_hat' },
       ],
       outbound: [
-        { name: 'default.hard_hat', type: 'dimension', display_name: 'Hard Hat' },
-        { name: 'default.dispatcher', type: 'dimension', display_name: 'Dispatcher' },
+        {
+          name: 'default.hard_hat',
+          type: 'dimension',
+          display_name: 'Hard Hat',
+        },
+        {
+          name: 'default.dispatcher',
+          type: 'dimension',
+          display_name: 'Dispatcher',
+        },
       ],
       outbound_edges: [
         { source: 'default.repair_orders', target: 'default.hard_hat' },
@@ -354,7 +366,9 @@ describe('<NodeDimensionsTab />', () => {
     await waitFor(() => {
       expect(screen.getByTestId('reactflow')).toBeInTheDocument();
     });
-    expect(mockDjClient.dimensionDag).toHaveBeenCalledWith('default.repairs_cube');
+    expect(mockDjClient.dimensionDag).toHaveBeenCalledWith(
+      'default.repairs_cube',
+    );
     expect(screen.getAllByText('dimension').length).toBeGreaterThan(0);
   });
 
