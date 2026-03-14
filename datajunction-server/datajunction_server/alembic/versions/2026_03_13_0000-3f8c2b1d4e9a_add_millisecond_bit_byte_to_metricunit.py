@@ -1,6 +1,6 @@
 """add millisecond, bit, byte to metricunit enum
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 3f8c2b1d4e9a
 Revises: 93928e3ec100
 Create Date: 2026-03-13 00:00:00.000000+00:00
 
@@ -9,7 +9,7 @@ Create Date: 2026-03-13 00:00:00.000000+00:00
 
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "3f8c2b1d4e9a"
 down_revision = "93928e3ec100"
 branch_labels = None
 depends_on = None
