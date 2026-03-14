@@ -171,6 +171,7 @@ async def resolve_dialect_and_engine_for_metrics(
     use_materialized: bool = True,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    dialect_override: Optional[Dialect] = None,
 ) -> ResolvedExecutionContext:
     """
     Resolve dialect and engine for a metrics query in a single lookup.
@@ -181,9 +182,12 @@ async def resolve_dialect_and_engine_for_metrics(
     and engine from it.
 
     Resolution priority:
-    1. If use_materialized=True and a matching cube with availability exists:
-       - Use the cube's availability catalog's engine dialect and engine
-    2. Otherwise, fall back to the first metric's catalog's default engine
+    1. If use_materialized=True, dialect_override is not set (or is DRUID), and a
+       matching cube with availability exists:
+       - Use the cube's availability catalog's engine matching dialect_override (or
+         the first engine if none match)
+    2. Otherwise, fall back to the first metric's catalog's default engine,
+       filtered by dialect_override if provided
 
     Args:
         session: Database session
@@ -192,6 +196,8 @@ async def resolve_dialect_and_engine_for_metrics(
         use_materialized: Whether to check for cube availability
         engine_name: Optional explicit engine name override
         engine_version: Optional explicit engine version override
+        dialect_override: Optional dialect to force, overrides auto-resolution for
+            both SQL generation and engine selection
 
     Returns:
         ResolvedExecutionContext with dialect, engine, catalog_name, and optional cube
@@ -200,8 +206,13 @@ async def resolve_dialect_and_engine_for_metrics(
 
     cube: Optional[NodeRevision] = None
 
-    # Try to find a matching cube with availability
-    if use_materialized:
+    # Try to find a matching cube with availability, unless the caller is explicitly
+    # requesting a non-Druid dialect (in which case we skip cube matching and run
+    # the query on the metric's own catalog engine)
+    use_cube = use_materialized and (
+        dialect_override is None or dialect_override == Dialect.DRUID
+    )
+    if use_cube:
         cube = await find_matching_cube(
             session,
             metrics,
@@ -213,8 +224,14 @@ async def resolve_dialect_and_engine_for_metrics(
             avail_catalog_name = cube.availability.catalog
             avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
             if avail_catalog and avail_catalog.engines:  # pragma: no branch
-                engine = avail_catalog.engines[0]
-                dialect = Dialect(engine.dialect)
+                # Prefer an engine matching dialect_override, fall back to first
+                engines = avail_catalog.engines
+                if dialect_override:
+                    matching = [e for e in engines if e.dialect == dialect_override]
+                    engine = matching[0] if matching else engines[0]
+                else:
+                    engine = engines[0]
+                dialect = dialect_override or Dialect(engine.dialect)
                 logger.info(
                     "[BuildV3] Resolved dialect=%s engine=%s from cube %s "
                     "availability catalog=%s",
@@ -250,15 +267,18 @@ async def resolve_dialect_and_engine_for_metrics(
     if not catalog_name:  # pragma: no cover
         raise ValueError(f"Metric {metrics[0]} has no catalog")
 
-    # Resolve engine (respects explicit engine_name/version if provided)
+    # Resolve engine, filtering by dialect_override if provided
     engine = await resolve_engine(
         session=session,
         node=node,
         engine_name=engine_name,
         engine_version=engine_version,
+        dialect=dialect_override,
     )
 
-    dialect = Dialect(engine.dialect) if engine.dialect else Dialect.SPARK
+    dialect = dialect_override or (
+        Dialect(engine.dialect) if engine.dialect else Dialect.SPARK
+    )
     logger.info(
         "[BuildV3] Resolved dialect=%s engine=%s from metric %s catalog=%s",
         dialect,
