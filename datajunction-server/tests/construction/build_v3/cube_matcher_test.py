@@ -2520,9 +2520,9 @@ class TestDataEndpointCubePath:
             )
 
             assert response.status_code == 200, response.json()
-            # No druid engine in default catalog → falls back to first engine (spark)
+            # default catalog has a druid engine → matched directly by dialect_override
             assert len(submitted_queries) == 1
-            assert submitted_queries[0].engine_name == "spark"
+            assert submitted_queries[0].engine_name == "druid"
             assert submitted_queries[0].catalog_name == "default"
         finally:
             if get_query_service_client in client.app.dependency_overrides:
