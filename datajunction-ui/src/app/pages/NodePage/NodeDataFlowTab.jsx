@@ -22,7 +22,7 @@ const TYPE_BORDER_COLORS = {
   cube: '#580076',
 };
 
-const TYPE_LAYER_ORDER = ['source', 'transform', 'metric', 'cube'];
+const TYPE_LAYER_ORDER = ['source', 'transform', 'dimension', 'metric', 'cube'];
 
 // Returns a slightly darker version of the pastel fill for the node border
 const DARKER_FILL = {
@@ -186,23 +186,33 @@ export default function NodeDataFlowTab({ djNode }) {
     if (!djNode?.name) return;
     setLoading(true);
     Promise.all([
-      djClient.node_dag(djNode.name),
+      djClient.upstreamsGQL(djNode.name),
       djClient.downstreamsGQL(djNode.name),
     ])
-      .then(async ([dagNodes, downstreamNodes]) => {
+      .then(async ([upstreamNodes, downstreamNodes]) => {
+        const normalize = n => ({ ...n, type: n.type?.toLowerCase() });
+        const upstream = (upstreamNodes || []).map(normalize);
+        const downstream = (downstreamNodes || []).map(normalize);
+
         // Fetch downstream cubes in one batch call
-        const cubeNames = (downstreamNodes || [])
-          .filter(n => n.type === 'CUBE' || n.type === 'cube')
+        const cubeNames = downstream
+          .filter(n => n.type === 'cube')
           .map(n => n.name);
         const cubeNodes = await djClient.findCubesWithMetrics(cubeNames);
 
-        const allNodes = [djNode, ...(dagNodes || []), ...cubeNodes];
+        const nonCubeDownstreams = downstream.filter(n => n.type !== 'cube');
+        const allNodes = [
+          djNode,
+          ...upstream,
+          ...cubeNodes,
+          ...nonCubeDownstreams,
+        ];
 
-        // Deduplicate and exclude dimension nodes (they belong in the Dimensions tab)
+        // Deduplicate nodes
         const seen = new Set();
         const nodes = [];
         allNodes.forEach(n => {
-          if (n && !seen.has(n.name) && n.type !== 'dimension') {
+          if (n && !seen.has(n.name)) {
             seen.add(n.name);
             nodes.push(n);
           }
@@ -227,7 +237,7 @@ export default function NodeDataFlowTab({ djNode }) {
 
         const links = [];
         nodes.forEach(node => {
-          (node.parents || []).forEach(parent => {
+          (node.current?.parents || node.parents || []).forEach(parent => {
             if (
               parent.name &&
               nodeIndex[parent.name] !== undefined &&
@@ -319,7 +329,10 @@ export default function NodeDataFlowTab({ djNode }) {
   );
 
   // Rightmost column determines label side (right); everything else labels left
-  const rightmostType = counts.cube > 0 ? 'cube' : 'metric';
+  const rightmostType =
+    TYPE_LAYER_ORDER.slice()
+      .reverse()
+      .find(t => counts[t]) ?? 'metric';
 
   // Measure label widths per side to set margins
   const canvas = document.createElement('canvas');
