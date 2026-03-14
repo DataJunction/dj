@@ -37,6 +37,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -450,6 +451,10 @@ async def get_data_for_metrics(
         default=True,
         description="Whether to use materialized tables when available",
     ),
+    dialect: Optional[Dialect] = Query(
+        default=None,
+        description="SQL dialect override. If omitted, resolved from the catalog/engine.",
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
@@ -467,7 +472,9 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
+    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching).
+    # dialect_override ensures both SQL generation and engine selection use the same
+    # dialect — without this, Trino SQL could be submitted to a Spark engine.
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=metrics,
@@ -475,6 +482,7 @@ async def get_data_for_metrics(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
+        dialect_override=dialect,
     )
 
     # Build SQL with the resolved dialect
