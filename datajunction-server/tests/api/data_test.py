@@ -615,6 +615,63 @@ class TestDataForNode:
         assert "Query foo-bar-baz not found." in yet_another_response.text
 
 
+class TestDialectOverrideForMetrics:
+    """
+    Test that ``GET /data`` accepts a ``dialect`` query param and passes it
+    through to ``resolve_dialect_and_engine_for_metrics`` as ``dialect_override``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dialect_param_accepted(
+        self,
+        module__client_with_roads,
+    ) -> None:
+        """dialect query param is accepted and used for SQL generation."""
+        response = await module__client_with_roads.get(
+            "/data",
+            params={
+                "metrics": ["default.num_repair_orders"],
+                "dimensions": ["default.dispatcher.company_name"],
+                "dialect": "spark",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["results"][0]["sql"]
+
+    @pytest.mark.asyncio
+    async def test_dialect_omitted_uses_catalog_default(
+        self,
+        module__client_with_roads,
+    ) -> None:
+        """Omitting dialect falls back to the catalog's default engine dialect."""
+        response = await module__client_with_roads.get(
+            "/data",
+            params={
+                "metrics": ["default.num_repair_orders"],
+                "dimensions": ["default.dispatcher.company_name"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["results"][0]["sql"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_dialect_rejected(
+        self,
+        module__client_with_roads,
+    ) -> None:
+        """An unrecognised dialect value returns a 422 Unprocessable Entity."""
+        response = await module__client_with_roads.get(
+            "/data",
+            params={
+                "metrics": ["default.num_repair_orders"],
+                "dialect": "not_a_dialect",
+            },
+        )
+        assert response.status_code == 422
+
+
 class TestAvailabilityState:
     """
     Test ``POST /data/{node_name}/availability/``.

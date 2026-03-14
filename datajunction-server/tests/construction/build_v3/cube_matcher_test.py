@@ -2439,3 +2439,91 @@ class TestDataEndpointCubePath:
             # Clean up the override
             if get_query_service_client in client.app.dependency_overrides:
                 del client.app.dependency_overrides[get_query_service_client]
+
+    @pytest.mark.asyncio
+    async def test_data_endpoint_dialect_override_druid_on_cube_path(
+        self,
+        module__client_with_build_v3,
+        module__session,
+        module_mocker,
+    ):
+        """
+        dialect_override=DRUID with a matching cube hits lines 230-231 in cube_matcher.py:
+        the engine-filtering branch inside the cube availability path.
+
+        When dialect_override is DRUID, use_cube remains True so we enter the cube
+        resolution path. The code then tries to find an engine whose dialect matches
+        DRUID; finding none it falls back to the first available engine.
+        """
+        from unittest.mock import MagicMock
+
+        from datajunction_server.models.query import QueryWithResults
+        from datajunction_server.typing import QueryState
+        from datajunction_server.utils import get_query_service_client
+
+        client = module__client_with_build_v3
+
+        # Create a cube (reuse or create new)
+        response = await client.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_for_druid_dialect_override",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for dialect_override=DRUID test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client.post(
+            "/data/v3.cube_for_druid_dialect_override/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_druid_dialect",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        submitted_queries = []
+        mock_response = QueryWithResults(
+            id="test-druid-dialect-id",
+            submitted_query="SELECT ...",
+            state=QueryState.FINISHED,
+            results=[],
+        )
+
+        def mock_submit_query(query_create, request_headers=None):
+            submitted_queries.append(query_create)
+            return mock_response
+
+        mock_qs_client = MagicMock()
+        mock_qs_client.submit_query = mock_submit_query
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+
+        try:
+            # dialect=druid → dialect_override=DRUID → use_cube=True
+            # hits the `if dialect_override:` branch at cube_matcher.py:229-231
+            response = await client.get(
+                "/data/",
+                params={
+                    "metrics": ["v3.total_revenue"],
+                    "dimensions": ["v3.product.category"],
+                    "use_materialized": True,
+                    "dialect": "druid",
+                },
+            )
+
+            assert response.status_code == 200, response.json()
+            # default catalog has a druid engine → matched directly by dialect_override
+            assert len(submitted_queries) == 1
+            assert submitted_queries[0].engine_name == "druid"
+            assert submitted_queries[0].catalog_name == "default"
+        finally:
+            if get_query_service_client in client.app.dependency_overrides:
+                del client.app.dependency_overrides[get_query_service_client]
