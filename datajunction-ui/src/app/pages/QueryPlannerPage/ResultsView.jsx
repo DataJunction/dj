@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -160,11 +160,18 @@ const CHART_MARGIN = { top: 8, right: 24, left: 8, bottom: 40 };
 const AXIS_TICK = { fontSize: 11, fill: '#64748b' };
 const TOOLTIP_STYLE = { fontSize: 12, border: '1px solid #e2e8f0' };
 
-function SingleChart({ type, xCol, metricCol, chartData, color }) {
+function Chart({
+  type,
+  xCol,
+  metricCols,
+  chartData,
+  seriesColors = SERIES_COLORS,
+}) {
   const showDots = chartData.length <= 60;
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      {type === 'line' ? (
+  const xInterval = type === 'line' ? 'preserveStartEnd' : 0;
+  if (type === 'line') {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis
@@ -172,50 +179,7 @@ function SingleChart({ type, xCol, metricCol, chartData, color }) {
             tick={AXIS_TICK}
             angle={-35}
             textAnchor="end"
-            interval="preserveStartEnd"
-          />
-          <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} />
-          <Line
-            type="monotone"
-            dataKey={metricCol.name}
-            stroke={color}
-            dot={showDots}
-            strokeWidth={2}
-          />
-        </LineChart>
-      ) : (
-        <BarChart data={chartData} margin={CHART_MARGIN}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis
-            dataKey={xCol.name}
-            tick={AXIS_TICK}
-            angle={-35}
-            textAnchor="end"
-            interval={0}
-          />
-          <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} />
-          <Bar dataKey={metricCol.name} fill={color} />
-        </BarChart>
-      )}
-    </ResponsiveContainer>
-  );
-}
-
-function MultiSeriesChart({ type, xCol, metricCols, chartData }) {
-  const showDots = chartData.length <= 60;
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      {type === 'line' ? (
-        <LineChart data={chartData} margin={CHART_MARGIN}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis
-            dataKey={xCol.name}
-            tick={AXIS_TICK}
-            angle={-35}
-            textAnchor="end"
-            interval="preserveStartEnd"
+            interval={xInterval}
           />
           <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
           <Tooltip contentStyle={TOOLTIP_STYLE} />
@@ -224,33 +188,36 @@ function MultiSeriesChart({ type, xCol, metricCols, chartData }) {
               key={col.idx}
               type="monotone"
               dataKey={col.name}
-              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+              stroke={seriesColors[i % seriesColors.length]}
               dot={showDots}
               strokeWidth={2}
             />
           ))}
         </LineChart>
-      ) : (
-        <BarChart data={chartData} margin={CHART_MARGIN}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis
-            dataKey={xCol.name}
-            tick={AXIS_TICK}
-            angle={-35}
-            textAnchor="end"
-            interval={0}
+      </ResponsiveContainer>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={chartData} margin={CHART_MARGIN}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <XAxis
+          dataKey={xCol.name}
+          tick={AXIS_TICK}
+          angle={-35}
+          textAnchor="end"
+          interval={xInterval}
+        />
+        <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} />
+        {metricCols.map((col, i) => (
+          <Bar
+            key={col.idx}
+            dataKey={col.name}
+            fill={seriesColors[i % seriesColors.length]}
           />
-          <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} />
-          {metricCols.map((col, i) => (
-            <Bar
-              key={col.idx}
-              dataKey={col.name}
-              fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-            />
-          ))}
-        </BarChart>
-      )}
+        ))}
+      </BarChart>
     </ResponsiveContainer>
   );
 }
@@ -270,12 +237,12 @@ function ChartView({ chartConfig, chartData, rows, columns }) {
           <div key={col.idx} className="small-multiple">
             <div className="small-multiple-label">{col.name}</div>
             <div className="small-multiple-chart">
-              <SingleChart
+              <Chart
                 type={type}
                 xCol={xCol}
-                metricCol={col}
+                metricCols={[col]}
                 chartData={chartData}
-                color={SERIES_COLORS[i % SERIES_COLORS.length]}
+                seriesColors={[SERIES_COLORS[i % SERIES_COLORS.length]]}
               />
             </div>
           </div>
@@ -285,7 +252,7 @@ function ChartView({ chartConfig, chartData, rows, columns }) {
   }
 
   return (
-    <MultiSeriesChart
+    <Chart
       type={type}
       xCol={xCol}
       metricCols={metricCols}
@@ -326,8 +293,11 @@ export function ResultsView({
     }
   }, [sqlQuery]);
 
-  const columns = results?.results?.[0]?.columns || [];
-  const rows = results?.results?.[0]?.rows || [];
+  const columns = useMemo(
+    () => results?.results?.[0]?.columns || [],
+    [results],
+  );
+  const rows = useMemo(() => results?.results?.[0]?.rows || [], [results]);
   const rowCount = rows.length;
 
   const handleSort = useCallback(
@@ -373,6 +343,11 @@ export function ResultsView({
   );
 
   const canChart = chartConfig !== null && rowCount > 0;
+
+  // Reset to table view if new results can't be charted
+  useEffect(() => {
+    if (!canChart && activeTab === 'chart') setActiveTab('table');
+  }, [canChart, activeTab]);
 
   return (
     <div className="results-view">

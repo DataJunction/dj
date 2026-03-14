@@ -619,19 +619,17 @@ describe('DataJunctionAPI', () => {
   it('calls data correctly', async () => {
     const metricSelection = ['metric1'];
     const dimensionSelection = ['dimension1'];
-    const params = new URLSearchParams();
-    metricSelection.forEach(metric => params.append('metrics', metric));
-    dimensionSelection.forEach(dimension =>
-      params.append('dimensions', dimension),
-    );
-    fetch.mockResponseOnce(JSON.stringify({}));
+    fetch.mockResponseOnce(JSON.stringify({ state: 'FINISHED', results: [] }));
     await DataJunctionAPI.data(metricSelection, dimensionSelection);
     expect(fetch).toHaveBeenCalledWith(
-      `${DJ_URL}/data/?${params}&limit=10000`,
-      {
-        credentials: 'include',
-      },
+      expect.stringContaining(`${DJ_URL}/data/?`),
+      { credentials: 'include' },
     );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('metrics=metric1');
+    expect(url).toContain('dimensions=dimension1');
+    expect(url).toContain('limit=10000');
+    expect(url).toContain('async_=true');
   });
 
   it('calls compiledSql correctly', async () => {
@@ -2449,7 +2447,7 @@ describe('DataJunctionAPI', () => {
   // Test metricsV3 (lines 1106-1124)
   it('calls metricsV3 correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
-    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], 'filter=value');
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], ['filter=value']);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining('/sql/metrics/v3/?'),
       expect.objectContaining({ credentials: 'include' }),

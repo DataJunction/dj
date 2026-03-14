@@ -1,5 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 
+const ENGINE_OPTIONS = [
+  { value: null, label: 'Auto' },
+  { value: 'druid', label: 'Druid' },
+  { value: 'trino', label: 'Trino' },
+];
+
 /**
  * SelectionPanel - Browse and select metrics and dimensions
  * Features selected items as chips at the top for visibility
@@ -694,11 +700,7 @@ export function SelectionPanel({
       <div className="engine-section">
         <span className="engine-label">Engine</span>
         <div className="engine-pills">
-          {[
-            { value: null, label: 'Auto' },
-            { value: 'druid', label: 'Druid' },
-            { value: 'trino', label: 'Trino' },
-          ].map(({ value, label }) => (
+          {ENGINE_OPTIONS.map(({ value, label }) => (
             <button
               key={label}
               className={`engine-pill${

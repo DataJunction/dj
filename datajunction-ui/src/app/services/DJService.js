@@ -13,6 +13,9 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
+const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 export const DataJunctionAPI = {
   listNodesForLanding: async function (
     namespace,
@@ -1235,7 +1238,6 @@ export const DataJunctionAPI = {
     return await (
       await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
         credentials: 'include',
-        params: params,
       })
     ).json();
   },
@@ -1257,9 +1259,7 @@ export const DataJunctionAPI = {
     params.append('async_', 'true');
     params.append('dialect', dialect || 'trino');
 
-    const END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
     let pollInterval = 1000;
-    let progressReported = false;
 
     // Submit the query once
     const submitResponse = await fetch(`${DJ_URL}/data/?${params}`, {
@@ -1276,14 +1276,13 @@ export const DataJunctionAPI = {
     let results = await submitResponse.json();
 
     // Report links from the first response so they're visible during polling
-    if (!progressReported && onProgress && results.links?.length > 0) {
+    if (onProgress && results.links?.length > 0) {
       onProgress({ links: results.links });
-      progressReported = true;
     }
 
     // Poll by query ID using GET /data/query/{id} to avoid re-submitting
-    while (!END_STATES.includes(results.state)) {
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    while (!QUERY_END_STATES.includes(results.state)) {
+      await sleep(pollInterval);
       pollInterval = Math.min(pollInterval * 2, 10000);
 
       const pollResponse = await fetch(`${DJ_URL}/data/query/${results.id}`, {
@@ -1298,11 +1297,6 @@ export const DataJunctionAPI = {
         );
       }
       results = await pollResponse.json();
-
-      if (!progressReported && onProgress && results.links?.length > 0) {
-        onProgress({ links: results.links });
-        progressReported = true;
-      }
     }
 
     if (results.state === 'CANCELED') {
