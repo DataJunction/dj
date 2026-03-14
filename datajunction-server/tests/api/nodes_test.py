@@ -6826,3 +6826,104 @@ async def test_get_dimension_dag_duplicate_role_links(
     assert outbound_names.count("default.hard_hat") == 1
     outbound_edges = [(e["source"], e["target"]) for e in data["outbound_edges"]]
     assert outbound_edges.count(("default.repair_orders_fact", "default.hard_hat")) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_dimension_dag_cube(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    For a cube node, dimension-dag returns:
+      inbound  = the cube's metrics + their upstream source/transform nodes
+      inbound_edges  = parent→metric and metric→cube edges
+      outbound = all dimension nodes reachable via the upstream parents' dimension links
+      outbound_edges = the actual source/transform→dimension (and dim→dim chain) edges
+    Both metrics here use default.repair_orders_fact as their only parent.
+    repair_orders_fact links to municipality_dim, hard_hat, hard_hat_to_delete,
+    dispatcher; hard_hat further chains to us_state.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.avg_repair_price"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.dispatcher.company_name",
+            ],
+            "description": "Cube for dimension-dag test",
+            "mode": "published",
+            "name": "default.test_dim_dag_cube",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await client_with_roads.get(
+        "/nodes/default.test_dim_dag_cube/dimension-dag/",
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    inbound_by_name = {n["name"]: n for n in data["inbound"]}
+    inbound_edge_pairs = {(e["source"], e["target"]) for e in data["inbound_edges"]}
+    outbound_names = {n["name"] for n in data["outbound"]}
+    outbound_edge_pairs = {(e["source"], e["target"]) for e in data["outbound_edges"]}
+
+    # Both metrics appear as inbound nodes
+    assert inbound_by_name["default.num_repair_orders"]["type"] == "metric"
+    assert (
+        inbound_by_name["default.num_repair_orders"]["display_name"]
+        == "Num Repair Orders"
+    )
+    assert inbound_by_name["default.avg_repair_price"]["type"] == "metric"
+    assert (
+        inbound_by_name["default.avg_repair_price"]["display_name"]
+        == "Avg Repair Price"
+    )
+
+    # Their shared upstream parent also appears as an inbound node
+    assert inbound_by_name["default.repair_orders_fact"]["type"] == "transform"
+    assert (
+        inbound_by_name["default.repair_orders_fact"]["display_name"]
+        == "Repair Orders Fact"
+    )
+
+    # Inbound edges: repair_orders_fact → each metric, each metric → cube
+    assert (
+        "default.repair_orders_fact",
+        "default.num_repair_orders",
+    ) in inbound_edge_pairs
+    assert (
+        "default.repair_orders_fact",
+        "default.avg_repair_price",
+    ) in inbound_edge_pairs
+    assert (
+        "default.num_repair_orders",
+        "default.test_dim_dag_cube",
+    ) in inbound_edge_pairs
+    assert (
+        "default.avg_repair_price",
+        "default.test_dim_dag_cube",
+    ) in inbound_edge_pairs
+
+    # Outbound = all dimensions reachable from repair_orders_fact's dimension links
+    assert "default.municipality_dim" in outbound_names
+    assert "default.hard_hat" in outbound_names
+    assert "default.hard_hat_to_delete" in outbound_names
+    assert "default.dispatcher" in outbound_names
+    assert "default.us_state" in outbound_names  # chained via hard_hat → us_state
+
+    # Outbound edges: direct links from repair_orders_fact + chained hard_hat → us_state
+    assert (
+        "default.repair_orders_fact",
+        "default.municipality_dim",
+    ) in outbound_edge_pairs
+    assert ("default.repair_orders_fact", "default.hard_hat") in outbound_edge_pairs
+    assert (
+        "default.repair_orders_fact",
+        "default.hard_hat_to_delete",
+    ) in outbound_edge_pairs
+    assert ("default.repair_orders_fact", "default.dispatcher") in outbound_edge_pairs
+    assert ("default.hard_hat", "default.us_state") in outbound_edge_pairs
+
+    # Clean up
+    await client_with_roads.delete("/nodes/default.test_dim_dag_cube/")

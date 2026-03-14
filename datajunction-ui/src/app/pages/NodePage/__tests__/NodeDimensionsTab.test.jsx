@@ -322,6 +322,42 @@ describe('<NodeDimensionsTab />', () => {
     consoleSpy.mockRestore();
   });
 
+  it('renders cube dimension graph via dimensionDag (backend handles cube expansion)', async () => {
+    const djNode = {
+      name: 'default.repairs_cube',
+      type: 'cube',
+      parents: [],
+      dimension_links: [],
+    };
+
+    // The backend now seeds the BFS from the cube's metric upstreams, so the
+    // frontend just calls dimensionDag normally and gets back a populated result.
+    mockDjClient.dimensionDag.mockResolvedValue({
+      inbound: [
+        { name: 'default.repair_orders', type: 'source', display_name: 'Repair Orders' },
+      ],
+      inbound_edges: [
+        { source: 'default.repair_orders', target: 'default.hard_hat' },
+      ],
+      outbound: [
+        { name: 'default.hard_hat', type: 'dimension', display_name: 'Hard Hat' },
+        { name: 'default.dispatcher', type: 'dimension', display_name: 'Dispatcher' },
+      ],
+      outbound_edges: [
+        { source: 'default.repair_orders', target: 'default.hard_hat' },
+        { source: 'default.repair_orders', target: 'default.dispatcher' },
+      ],
+    });
+
+    renderWithContext(djNode);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reactflow')).toBeInTheDocument();
+    });
+    expect(mockDjClient.dimensionDag).toHaveBeenCalledWith('default.repairs_cube');
+    expect(screen.getAllByText('dimension').length).toBeGreaterThan(0);
+  });
+
   it('renders multi-level inbound chain (non-flat graph)', async () => {
     const djNode = {
       name: 'default.us_state',
