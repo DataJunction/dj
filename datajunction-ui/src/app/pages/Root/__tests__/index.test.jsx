@@ -41,9 +41,8 @@ describe('<Root />', () => {
       expect(document.title).toEqual('DataJunction');
     });
 
-    // Check navigation links exist
-    expect(screen.getByText('Explore')).toBeInTheDocument();
-    expect(screen.getByText('Query Planner')).toBeInTheDocument();
+    // Check navigation links exist (two "Explore" links: catalog browser + planner)
+    expect(screen.getAllByText('Explore')).toHaveLength(2);
   });
 
   it('renders Docs dropdown', async () => {

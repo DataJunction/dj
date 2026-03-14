@@ -714,8 +714,10 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      // Should show the path
-      expect(screen.getByText('default.date_dim.dateint')).toBeInTheDocument();
+      // Full name appears in both the dimension-full-name span and the path span
+      expect(
+        screen.getAllByText('default.date_dim.dateint').length,
+      ).toBeGreaterThanOrEqual(1);
     });
   });
 
