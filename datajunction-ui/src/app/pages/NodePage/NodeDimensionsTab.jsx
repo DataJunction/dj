@@ -1,10 +1,18 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'; // useRef kept for hasFitRef
 import * as React from 'react';
 import ReactFlow, {
   addEdge,
   useEdgesState,
   useNodesState,
   Handle,
+  MarkerType,
   Position,
 } from 'reactflow';
 import { useNavigate } from 'react-router-dom';
@@ -36,8 +44,13 @@ const HANDLE_BASE = {
 const TARGET_HANDLE = { ...HANDLE_BASE, left: 0 };
 const SOURCE_HANDLE = { ...HANDLE_BASE, right: 0 };
 
-const BASE_EDGE = { strokeWidth: 1, stroke: '#94a3b8' };
-const BASE_MARKER = undefined;
+const BASE_EDGE = { strokeWidth: 1, stroke: '#dde3ec' };
+const BASE_MARKER = {
+  type: MarkerType.ArrowClosed,
+  color: '#dde3ec',
+  width: 12,
+  height: 12,
+};
 
 function DimNode({ data }) {
   const navigate = useNavigate();
@@ -51,8 +64,8 @@ function DimNode({ data }) {
 
   const borderStyle = data.isCurrent
     ? {
-        border: `2px solid ${c.border}`,
-        boxShadow: `inset 0 0 0 3px ${c.bg}, 0 2px 8px rgba(0,0,0,0.08)`,
+        border: `3px solid ${c.border}`,
+        boxShadow: `0 0 0 1px ${c.border}33, 0 4px 12px rgba(0,0,0,0.12)`,
       }
     : {
         border: `1px solid ${c.border}66`,
@@ -135,7 +148,7 @@ function DimNode({ data }) {
   );
 }
 
-const getLayoutedElements = (nodes, edges) => {
+const getLayoutedElements = (nodes, edges, currentName) => {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
@@ -155,12 +168,25 @@ const getLayoutedElements = (nodes, edges) => {
     n.targetPosition = 'left';
     n.sourcePosition = 'right';
   });
+
+  // Translate so the current node's center sits at the origin (0, 0).
+  // fitView then centers on it regardless of how asymmetric the rest of the graph is.
+  const current = nodes.find(n => n.id === currentName);
+  if (current) {
+    const dx = -(current.position.x + NODE_WIDTH / 2);
+    const dy = -(current.position.y + NODE_HEIGHT / 2);
+    nodes.forEach(n => {
+      n.position = { x: n.position.x + dx, y: n.position.y + dy };
+    });
+  }
+
   return { nodes, edges };
 };
 
 const buildRFNode = (n, currentName) => ({
   id: n.name,
   type: 'DimNode',
+  zIndex: 10,
   data: {
     name: n.name,
     display_name: n.display_name,
@@ -176,97 +202,80 @@ export default function NodeDimensionsTab({ djNode }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loaded, setLoaded] = useState(false);
+  const [rfInstance, setRfInstance] = useState(null);
+  const [currentNodeName, setCurrentNodeName] = useState(null);
+  const hasFitRef = useRef(false);
+
+  // Reset fit-view state whenever the node changes so a fresh fitView fires on load.
+  useEffect(() => {
+    hasFitRef.current = false;
+    setCurrentNodeName(null);
+  }, [djNode?.name]);
+
+  // Center viewport on the current node (which is placed at the origin by getLayoutedElements).
+  // rfInstance is state (not ref) so this re-runs if onInit fires after nodes are set.
+  useEffect(() => {
+    if (
+      nodes.length > 0 &&
+      rfInstance &&
+      currentNodeName &&
+      !hasFitRef.current
+    ) {
+      hasFitRef.current = true;
+      rfInstance.setCenter(0, 0, { zoom: 0.9 });
+    }
+  }, [nodes, rfInstance, currentNodeName]);
 
   useEffect(() => {
     if (!djNode?.name) return;
 
+    const makeEdge = (() => {
+      const seen = new Set();
+      return (source, target) => {
+        const id = `${source}->${target}`;
+        if (seen.has(id)) return null;
+        seen.add(id);
+        return { id, source, target, style: BASE_EDGE, markerEnd: BASE_MARKER };
+      };
+    })();
+
+    const applyLayout = (rfNodes, rfEdges) => {
+      const { nodes: ln, edges: le } = getLayoutedElements(
+        rfNodes,
+        rfEdges,
+        djNode.name,
+      );
+      setCurrentNodeName(djNode.name);
+      setNodes(ln);
+      setEdges(le);
+      setLoaded(true);
+    };
+
     djClient
-      .node_dag(djNode.name)
-      .then(dagNodes => {
-        const allNodes = [djNode, ...(dagNodes || [])];
-        const byName = Object.fromEntries(allNodes.map(n => [n.name, n]));
-
-        const dimNodeNames = new Set();
-        allNodes.forEach(n => {
-          (n.dimension_links || []).forEach(link => {
-            if (link.dimension?.name) dimNodeNames.add(link.dimension.name);
-          });
-        });
-        if (djNode.type === 'cube') {
-          (djNode.dimensions || []).forEach(d => {
-            const parts = (d.value || '').split('.');
-            if (parts.length > 1)
-              dimNodeNames.add(parts.slice(0, -1).join('.'));
-          });
-        }
-
-        if (dimNodeNames.size === 0) {
-          setLoaded(true);
-          return;
-        }
-
-        const missing = Array.from(dimNodeNames).filter(name => !byName[name]);
-        Promise.all(missing.map(name => djClient.node(name).catch(() => null)))
-          .then(fetched => {
-            fetched.filter(Boolean).forEach(n => {
-              byName[n.name] = n;
-            });
-
-            const graphNodeNames = [
-              // All DAG nodes (metric + its upstream transforms/sources)
-              ...allNodes.filter(n => n.type !== 'dimension').map(n => n.name),
-              // Plus all dimension nodes
-              ...Array.from(dimNodeNames).filter(name => byName[name]),
-            ];
-            const rfNodes = graphNodeNames.map(name =>
-              buildRFNode(byName[name], djNode.name),
-            );
-
-            const graphNodeSet = new Set(graphNodeNames);
-            const edgeSeen = new Set();
-            const addEdge = (source, target) => {
-              const id = `${source}->${target}`;
-              if (edgeSeen.has(id)) return null;
-              edgeSeen.add(id);
-              return {
-                id,
-                source,
-                target,
-                style: BASE_EDGE,
-                markerEnd: BASE_MARKER,
-              };
-            };
-
-            // Dimension-link edges: dimension → node-with-that-link
-            const dimLinkEdges = allNodes.flatMap(n =>
-              (n.dimension_links || [])
-                .filter(link => graphNodeSet.has(link.dimension?.name))
-                .map(link => addEdge(link.dimension.name, n.name))
-                .filter(Boolean),
-            );
-
-            // DAG edges: parent → child, for nodes already in the graph
-            const dagEdges = allNodes.flatMap(n =>
-              graphNodeSet.has(n.name)
-                ? (n.parents || [])
-                    .filter(p => graphNodeSet.has(p.name))
-                    .map(p => addEdge(p.name, n.name))
-                    .filter(Boolean)
-                : [],
-            );
-
-            const rfEdges = [...dimLinkEdges, ...dagEdges];
-
-            const { nodes: ln, edges: le } = getLayoutedElements(
-              rfNodes,
-              rfEdges,
-            );
-            setNodes(ln);
-            setEdges(le);
+      .dimensionDag(djNode.name)
+      .then(
+        ({
+          inbound = [],
+          inbound_edges = [],
+          outbound = [],
+          outbound_edges = [],
+        }) => {
+          if (inbound.length === 0 && outbound.length === 0) {
             setLoaded(true);
-          })
-          .catch(console.error);
-      })
+            return;
+          }
+          const allRelated = [...inbound, ...outbound];
+          const rfNodes = [
+            buildRFNode(djNode, djNode.name),
+            ...allRelated.map(n => buildRFNode(n, djNode.name)),
+          ];
+          const rfEdges = [
+            ...inbound_edges.map(e => makeEdge(e.source, e.target)),
+            ...outbound_edges.map(e => makeEdge(e.source, e.target)),
+          ].filter(Boolean);
+          applyLayout(rfNodes, rfEdges);
+        },
+      )
       .catch(err => {
         console.error(err);
         setLoaded(true);
@@ -283,12 +292,16 @@ export default function NodeDimensionsTab({ djNode }) {
         });
         return eds.map(e => {
           const isConn = e.source === node.id || e.target === node.id;
+          const hoverColor = isConn ? '#475569' : '#cbd5e1';
           return {
             ...e,
-            style: isConn
-              ? { strokeWidth: 2, stroke: '#475569' }
-              : { strokeWidth: 1, stroke: '#cbd5e1' },
-            markerEnd: undefined,
+            style: { strokeWidth: isConn ? 2 : 1, stroke: hoverColor },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: hoverColor,
+              width: 12,
+              height: 12,
+            },
           };
         });
       });
@@ -330,6 +343,8 @@ export default function NodeDimensionsTab({ djNode }) {
         background: '#fff',
       }}
     >
+      {/* Ensure node HTML layer always renders above the edge SVG layer */}
+      <style>{`.react-flow__nodes { z-index: 10 !important; }`}</style>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -339,7 +354,7 @@ export default function NodeDimensionsTab({ djNode }) {
         onConnect={onConnect}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
-        fitView
+        onInit={setRfInstance}
         proOptions={{ hideAttribution: true }}
       />
     </div>
