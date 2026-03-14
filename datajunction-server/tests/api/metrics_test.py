@@ -1271,6 +1271,13 @@ async def test_list_metric_metadata(module__client: AsyncClient):
                 "name": "dollar",
             },
             {
+                "abbreviation": "ms",
+                "category": "time",
+                "description": None,
+                "label": "Millisecond",
+                "name": "millisecond",
+            },
+            {
                 "abbreviation": "s",
                 "category": "time",
                 "description": None,
@@ -1318,6 +1325,20 @@ async def test_list_metric_metadata(module__client: AsyncClient):
                 "description": None,
                 "label": "Year",
                 "name": "year",
+            },
+            {
+                "abbreviation": "b",
+                "category": "data_size",
+                "description": None,
+                "label": "Bit",
+                "name": "bit",
+            },
+            {
+                "abbreviation": "B",
+                "category": "data_size",
+                "description": None,
+                "label": "Byte",
+                "name": "byte",
             },
         ],
     }

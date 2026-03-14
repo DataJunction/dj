@@ -527,6 +527,13 @@ class MetricUnit(enum.Enum):
     )
 
     # Time
+    MILLISECOND = Unit(
+        name="millisecond",
+        label="Millisecond",
+        category="time",
+        abbreviation="ms",
+        description=None,
+    )
     SECOND = Unit(
         name="second",
         label="Second",
@@ -574,6 +581,22 @@ class MetricUnit(enum.Enum):
         label="Year",
         category="time",
         abbreviation="y",
+        description=None,
+    )
+
+    # Data size
+    BIT = Unit(
+        name="bit",
+        label="Bit",
+        category="data_size",
+        abbreviation="b",
+        description=None,
+    )
+    BYTE = Unit(
+        name="byte",
+        label="Byte",
+        category="data_size",
+        abbreviation="B",
         description=None,
     )
 
