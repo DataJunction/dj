@@ -1305,6 +1305,25 @@ export const DataJunctionAPI = {
     if (results.state === 'FAILED') {
       throw new Error(results.errors?.[0] || 'Query execution failed');
     }
+
+    // If FINISHED but results are empty, re-submit to /data/ a few times
+    // before giving up (mirrors the Python client's behavior).
+    if (!results.results?.length || !results.results[0]?.rows?.length) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await sleep(2 ** attempt * 1000);
+        const retryResponse = await fetch(`${DJ_URL}/data/?${params}`, {
+          credentials: 'include',
+        });
+        if (retryResponse.ok) {
+          const retryResults = await retryResponse.json();
+          if (retryResults.results?.length && retryResults.results[0]?.rows?.length) {
+            results = retryResults;
+            break;
+          }
+        }
+      }
+    }
+
     return results;
   },
 
