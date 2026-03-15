@@ -312,6 +312,10 @@ const ChartView = memo(function ChartView({
   rows,
   columns,
 }) {
+  if (!chartConfig) {
+    return <div className="chart-no-data">No chartable data detected</div>;
+  }
+
   if (chartConfig.type === 'kpi') {
     return <KpiCards rows={rows} metricCols={chartConfig.metricCols} />;
   }
