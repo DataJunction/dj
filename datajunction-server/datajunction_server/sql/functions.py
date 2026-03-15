@@ -954,6 +954,13 @@ def infer_type(
 
 @Avg.register  # type: ignore
 def infer_type(
+    arg: ct.BooleanType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+@Avg.register  # type: ignore
+def infer_type(
     arg: ct.NumberType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -3526,6 +3533,13 @@ def infer_type(
     return arg.type  # pragma: no cover
 
 
+@Min.register  # type: ignore
+def infer_type(
+    arg: ct.BooleanType,
+) -> ct.BooleanType:
+    return arg.type  # pragma: no cover
+
+
 class MinBy(Function):
     """
     min_by(val, key) - Returns the value of val corresponding to the minimum value of key.
@@ -4312,6 +4326,13 @@ class Sum(Function):
 
     is_aggregation = True
     dialects = [Dialect.SPARK, Dialect.DRUID]
+
+
+@Sum.register  # type: ignore
+def infer_type(
+    arg: ct.BooleanType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
 @Sum.register  # type: ignore

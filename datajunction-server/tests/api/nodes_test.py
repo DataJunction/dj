@@ -6543,14 +6543,14 @@ async def test_get_dimension_dag(
                 "type": "dimension",
             },
             {
-                "name": "default.repair_orders_fact",
-                "display_name": "Repair Orders Fact",
-                "type": "transform",
-            },
-            {
                 "name": "default.repair_order",
                 "display_name": "Repair Order",
                 "type": "dimension",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
             },
             {
                 "name": "default.repair_orders",
@@ -6558,21 +6558,21 @@ async def test_get_dimension_dag(
                 "type": "source",
             },
             {
-                "name": "default.repair_order_details",
-                "display_name": "default.roads.repair_order_details",
-                "type": "source",
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
             },
         ],
         "inbound_edges": [
             {"source": "default.contractors", "target": "default.us_state"},
             {"source": "default.hard_hat", "target": "default.us_state"},
-            {"source": "default.repair_orders_fact", "target": "default.hard_hat"},
             {"source": "default.repair_order", "target": "default.hard_hat"},
-            {"source": "default.repair_orders", "target": "default.repair_order"},
             {
                 "source": "default.repair_order_details",
                 "target": "default.repair_order",
             },
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {"source": "default.repair_orders_fact", "target": "default.hard_hat"},
         ],
         "outbound": [],
         "outbound_edges": [],
@@ -6585,14 +6585,14 @@ async def test_get_dimension_dag(
     assert response.json() == {
         "inbound": [
             {
-                "name": "default.repair_orders_fact",
-                "display_name": "Repair Orders Fact",
-                "type": "transform",
-            },
-            {
                 "name": "default.repair_order",
                 "display_name": "Repair Order",
                 "type": "dimension",
+            },
+            {
+                "name": "default.repair_order_details",
+                "display_name": "default.roads.repair_order_details",
+                "type": "source",
             },
             {
                 "name": "default.repair_orders",
@@ -6600,21 +6600,21 @@ async def test_get_dimension_dag(
                 "type": "source",
             },
             {
-                "name": "default.repair_order_details",
-                "display_name": "default.roads.repair_order_details",
-                "type": "source",
+                "name": "default.repair_orders_fact",
+                "display_name": "Repair Orders Fact",
+                "type": "transform",
             },
         ],
         "inbound_edges": [
-            {
-                "source": "default.repair_orders_fact",
-                "target": "default.hard_hat",
-            },
             {"source": "default.repair_order", "target": "default.hard_hat"},
-            {"source": "default.repair_orders", "target": "default.repair_order"},
             {
                 "source": "default.repair_order_details",
                 "target": "default.repair_order",
+            },
+            {"source": "default.repair_orders", "target": "default.repair_order"},
+            {
+                "source": "default.repair_orders_fact",
+                "target": "default.hard_hat",
             },
         ],
         "outbound": [
