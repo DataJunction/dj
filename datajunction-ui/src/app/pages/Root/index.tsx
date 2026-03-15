@@ -56,7 +56,7 @@ export function Root() {
             <div className="menu-item here menu-here-bg menu-lg-down-accordion me-0 me-lg-2 fw-semibold">
               <span className="menu-link">
                 <span className="menu-title">
-                  <a href="/">Explore</a>
+                  <a href="/">Catalog</a>
                 </span>
               </span>
               <span className="menu-link">
