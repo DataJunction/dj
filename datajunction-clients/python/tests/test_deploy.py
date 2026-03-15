@@ -491,6 +491,70 @@ class TestBuildDeploymentSource:
         assert spec["source"]["type"] == "local"
         assert "hostname" in spec["source"]
 
+    def test_git_source_includes_author_from_git_log(self, monkeypatch):
+        """Commit author is auto-detected from git log when no env vars are set."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.delenv("DJ_DEPLOY_AUTHOR_EMAIL", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_AUTHOR_NAME", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_commit_author",
+            staticmethod(lambda cwd=None: ("alice@example.com", "Alice Smith")),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result["type"] == "git"
+        assert result["commit_author_email"] == "alice@example.com"
+        assert result["commit_author_name"] == "Alice Smith"
+
+    def test_git_source_author_env_vars_take_precedence(self, monkeypatch):
+        """DJ_DEPLOY_AUTHOR_EMAIL/NAME override git log author."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.setenv("DJ_DEPLOY_AUTHOR_EMAIL", "ci-override@example.com")
+        monkeypatch.setenv("DJ_DEPLOY_AUTHOR_NAME", "CI Override")
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_commit_author",
+            staticmethod(lambda cwd=None: ("git-author@example.com", "Git Author")),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
+
+        result = DeploymentService._build_deployment_source()
+
+        assert result["commit_author_email"] == "ci-override@example.com"
+        assert result["commit_author_name"] == "CI Override"
+
+    def test_git_source_omits_author_when_unavailable(self, monkeypatch):
+        """Author fields are omitted when git log returns nothing."""
+        monkeypatch.setenv("DJ_DEPLOY_REPO", "github.com/org/repo")
+        monkeypatch.delenv("DJ_DEPLOY_AUTHOR_EMAIL", raising=False)
+        monkeypatch.delenv("DJ_DEPLOY_AUTHOR_NAME", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_commit_author",
+            staticmethod(lambda cwd=None: (None, None)),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: None),
+        )
+
+        result = DeploymentService._build_deployment_source()
+
+        assert "commit_author_email" not in result
+        assert "commit_author_name" not in result
+
 
 class TestGetImpact:
     """Tests for the get_impact method."""
@@ -585,6 +649,44 @@ class TestDetectGitBranch:
             lambda *a, **kw: mock.MagicMock(stdout="HEAD\n"),
         )
         assert DeploymentService._detect_git_branch() is None
+
+
+class TestDetectGitCommitAuthor:
+    """Tests for _detect_git_commit_author."""
+
+    def test_returns_email_and_name(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="alice@example.com|Alice Smith\n"),
+        )
+        email, name = DeploymentService._detect_git_commit_author()
+        assert email == "alice@example.com"
+        assert name == "Alice Smith"
+
+    def test_returns_none_when_not_in_git_repo(self, monkeypatch):
+        import subprocess as sp
+
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=sp.CalledProcessError(128, "git")),
+        )
+        assert DeploymentService._detect_git_commit_author() == (None, None)
+
+    def test_returns_none_when_git_not_installed(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            mock.Mock(side_effect=FileNotFoundError),
+        )
+        assert DeploymentService._detect_git_commit_author() == (None, None)
+
+    def test_handles_empty_name(self, monkeypatch):
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: mock.MagicMock(stdout="alice@example.com|\n"),
+        )
+        email, name = DeploymentService._detect_git_commit_author()
+        assert email == "alice@example.com"
+        assert name is None
 
 
 class TestBranchToNamespaceSuffix:
