@@ -619,19 +619,17 @@ describe('DataJunctionAPI', () => {
   it('calls data correctly', async () => {
     const metricSelection = ['metric1'];
     const dimensionSelection = ['dimension1'];
-    const params = new URLSearchParams();
-    metricSelection.forEach(metric => params.append('metrics', metric));
-    dimensionSelection.forEach(dimension =>
-      params.append('dimensions', dimension),
-    );
-    fetch.mockResponseOnce(JSON.stringify({}));
+    fetch.mockResponseOnce(JSON.stringify({ state: 'FINISHED', results: [] }));
     await DataJunctionAPI.data(metricSelection, dimensionSelection);
     expect(fetch).toHaveBeenCalledWith(
-      `${DJ_URL}/data/?${params}&limit=10000`,
-      {
-        credentials: 'include',
-      },
+      expect.stringContaining(`${DJ_URL}/data/?`),
+      { credentials: 'include' },
     );
+    const url = fetch.mock.calls[0][0];
+    expect(url).toContain('metrics=metric1');
+    expect(url).toContain('dimensions=dimension1');
+    expect(url).toContain('limit=10000');
+    expect(url).toContain('async_=true');
   });
 
   it('calls compiledSql correctly', async () => {
@@ -2449,7 +2447,7 @@ describe('DataJunctionAPI', () => {
   // Test metricsV3 (lines 1106-1124)
   it('calls metricsV3 correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
-    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], 'filter=value');
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], ['filter=value']);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining('/sql/metrics/v3/?'),
       expect.objectContaining({ credentials: 'include' }),
@@ -2994,19 +2992,19 @@ describe('DataJunctionAPI', () => {
   });
 
   // ===== metricsV3 — useMaterialized=false branch (lines 1224-1225) =====
-  it('calls metricsV3 with useMaterialized=false (spark dialect)', async () => {
+  it('calls metricsV3 with useMaterialized=false (trino dialect)', async () => {
     fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
-    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], '', false);
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], [], false);
     const url = fetch.mock.calls[0][0];
     expect(url).toContain('use_materialized=false');
-    expect(url).toContain('dialect=spark');
+    expect(url).toContain('dialect=trino');
   });
 
   // ===== data — filters non-empty branch (line 1240) =====
   it('calls data with filters array', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve([{ col: 'metric1', value: 42 }]),
+      json: () => Promise.resolve({ state: 'FINISHED', results: [] }),
     });
     await DataJunctionAPI.data(
       ['metric1'],

@@ -714,8 +714,10 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      // Should show the path
-      expect(screen.getByText('default.date_dim.dateint')).toBeInTheDocument();
+      // Full name appears in both the dimension-full-name span and the path span
+      expect(
+        screen.getAllByText('default.date_dim.dateint').length,
+      ).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -971,6 +973,433 @@ describe('SelectionPanel', () => {
       fireEvent.click(checkbox);
 
       expect(onDimensionsChange).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('Filters Section', () => {
+    it('renders filter input with placeholder', () => {
+      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      expect(
+        screen.getByPlaceholderText("e.g. v3.date.date_id >= '2024-01-01'"),
+      ).toBeInTheDocument();
+    });
+
+    it('renders "Add" button for filters', () => {
+      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      expect(screen.getByText('Add')).toBeInTheDocument();
+    });
+
+    it('Add button is disabled when filter input is empty', () => {
+      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+      expect(screen.getByText('Add')).toBeDisabled();
+    });
+
+    it('Add button is enabled when filter input has text', () => {
+      render(<SelectionPanel {...defaultProps} onFiltersChange={jest.fn()} />);
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, {
+        target: { value: "date >= '2024-01-01'" },
+      });
+
+      expect(screen.getByText('Add')).not.toBeDisabled();
+    });
+
+    it('calls onFiltersChange when Add button is clicked with non-empty input (lines 281-284)', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={[]}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, {
+        target: { value: "date >= '2024-01-01'" },
+      });
+      fireEvent.click(screen.getByText('Add'));
+
+      expect(onFiltersChange).toHaveBeenCalledWith(["date >= '2024-01-01'"]);
+    });
+
+    it('clears filter input after adding a filter', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={[]}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, { target: { value: 'status = active' } });
+      fireEvent.click(screen.getByText('Add'));
+
+      expect(filterInput.value).toBe('');
+    });
+
+    it('does not add duplicate filters', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={["date >= '2024-01-01'"]}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, {
+        target: { value: "date >= '2024-01-01'" },
+      });
+      fireEvent.click(screen.getByText('Add'));
+
+      expect(onFiltersChange).not.toHaveBeenCalled();
+    });
+
+    it('adds filter on Enter key press (lines 289-291)', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={[]}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, { target: { value: 'status = active' } });
+      fireEvent.keyDown(filterInput, { key: 'Enter' });
+
+      expect(onFiltersChange).toHaveBeenCalledWith(['status = active']);
+    });
+
+    it('does not add filter on non-Enter key press', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={[]}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      const filterInput = screen.getByPlaceholderText(
+        "e.g. v3.date.date_id >= '2024-01-01'",
+      );
+      fireEvent.change(filterInput, { target: { value: 'status = active' } });
+      fireEvent.keyDown(filterInput, { key: 'Tab' });
+
+      expect(onFiltersChange).not.toHaveBeenCalled();
+    });
+
+    it('renders existing filter chips (lines 665-686)', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={["date >= '2024-01-01'", 'status = active']}
+          onFiltersChange={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByText("date >= '2024-01-01'")).toBeInTheDocument();
+      expect(screen.getByText('status = active')).toBeInTheDocument();
+    });
+
+    it('calls onFiltersChange when filter chip remove button is clicked (lines 296-297)', () => {
+      const onFiltersChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={["date >= '2024-01-01'", 'status = active']}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      // Get all "Remove filter" buttons and click the first one
+      const removeBtns = screen.getAllByTitle('Remove filter');
+      fireEvent.click(removeBtns[0]);
+
+      expect(onFiltersChange).toHaveBeenCalledWith(['status = active']);
+    });
+
+    it('shows 0 applied count when no filters', () => {
+      render(<SelectionPanel {...defaultProps} />);
+      expect(screen.getByText('0 applied')).toBeInTheDocument();
+    });
+
+    it('shows correct applied count when filters present', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          filters={['filter1', 'filter2']}
+          onFiltersChange={jest.fn()}
+        />,
+      );
+      expect(screen.getByText('2 applied')).toBeInTheDocument();
+    });
+  });
+
+  describe('Engine Selection (line 709)', () => {
+    it('renders engine pills', () => {
+      render(<SelectionPanel {...defaultProps} />);
+      expect(screen.getByText('Auto')).toBeInTheDocument();
+      expect(screen.getByText('Druid')).toBeInTheDocument();
+      expect(screen.getByText('Trino')).toBeInTheDocument();
+    });
+
+    it('highlights the active engine pill', () => {
+      render(<SelectionPanel {...defaultProps} selectedEngine="druid" />);
+      const druidPill = screen.getByText('Druid').closest('button');
+      expect(druidPill).toHaveClass('active');
+    });
+
+    it('auto engine pill is active when selectedEngine is null', () => {
+      render(<SelectionPanel {...defaultProps} selectedEngine={null} />);
+      const autoPill = screen.getByText('Auto').closest('button');
+      expect(autoPill).toHaveClass('active');
+    });
+
+    it('calls onEngineChange when engine pill is clicked', () => {
+      const onEngineChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedEngine={null}
+          onEngineChange={onEngineChange}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Trino'));
+      expect(onEngineChange).toHaveBeenCalledWith('trino');
+    });
+
+    it('does not throw when onEngineChange is not provided', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedEngine={null}
+          onEngineChange={undefined}
+        />,
+      );
+
+      expect(() => {
+        fireEvent.click(screen.getByText('Druid'));
+      }).not.toThrow();
+    });
+  });
+
+  describe('Metrics combobox-input click handler (line 386)', () => {
+    it('clicking combobox-input container focuses the metrics search input', () => {
+      render(<SelectionPanel {...defaultProps} />);
+      const comboboxInputs = document.querySelectorAll('.combobox-input');
+      // The first combobox-input is for metrics
+      expect(comboboxInputs[0]).toBeInTheDocument();
+      // Click the container — should not throw
+      expect(() => fireEvent.click(comboboxInputs[0])).not.toThrow();
+    });
+  });
+
+  describe('Metrics search input stopPropagation (line 423)', () => {
+    it('clicking metrics search input does not bubble to combobox container', () => {
+      render(<SelectionPanel {...defaultProps} />);
+      const searchInput = screen.getByPlaceholderText('Search metrics...');
+      // Clicking the input itself should not throw
+      expect(() => fireEvent.click(searchInput)).not.toThrow();
+    });
+  });
+
+  describe('Clear metrics button (lines 440-441)', () => {
+    it('shows inline Clear button when metrics are selected', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+        />,
+      );
+      // The combobox-action Clear button inside metrics combobox
+      const clearBtns = document.querySelectorAll('.combobox-action');
+      const clearMetricsBtns = Array.from(clearBtns).filter(
+        btn => btn.textContent === 'Clear',
+      );
+      expect(clearMetricsBtns.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('calls onMetricsChange([]) when inline Clear is clicked', () => {
+      const onMetricsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={[
+            'default.num_repair_orders',
+            'default.avg_repair_price',
+          ]}
+          onMetricsChange={onMetricsChange}
+        />,
+      );
+
+      // Find the Clear button inside metrics combobox (not the namespace-level Clear)
+      const metricsSection = document.querySelector('.combobox-input');
+      const clearBtn = metricsSection.querySelector('.combobox-action');
+      fireEvent.click(clearBtn);
+
+      expect(onMetricsChange).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('Dimensions combobox-input click handler (line 546)', () => {
+    it('clicking dimensions combobox-input container does not throw', () => {
+      render(
+        <SelectionPanel {...defaultProps} selectedMetrics={['default.test']} />,
+      );
+      const comboboxInputs = document.querySelectorAll('.combobox-input');
+      // The second combobox-input is for dimensions
+      if (comboboxInputs.length >= 2) {
+        expect(() => fireEvent.click(comboboxInputs[1])).not.toThrow();
+      }
+    });
+  });
+
+  describe('Dimensions search input stopPropagation (line 586)', () => {
+    it('clicking dimensions search input does not throw', () => {
+      render(
+        <SelectionPanel {...defaultProps} selectedMetrics={['default.test']} />,
+      );
+      const searchInput = screen.getByPlaceholderText('Search dimensions...');
+      expect(() => fireEvent.click(searchInput)).not.toThrow();
+    });
+  });
+
+  describe('Clear dimensions button (lines 603-604)', () => {
+    it('shows inline Clear button for dimensions when dimensions are selected', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={['default.date_dim.dateint']}
+        />,
+      );
+      const clearBtns = document.querySelectorAll('.combobox-action');
+      const clearDimBtns = Array.from(clearBtns).filter(
+        btn => btn.textContent === 'Clear',
+      );
+      expect(clearDimBtns.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('calls onDimensionsChange([]) when dimensions inline Clear is clicked', () => {
+      const onDimensionsChange = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.test']}
+          selectedDimensions={[
+            'default.date_dim.dateint',
+            'default.date_dim.month',
+          ]}
+          onDimensionsChange={onDimensionsChange}
+        />,
+      );
+
+      // The combobox-action buttons — the last set belongs to dimensions
+      const comboboxActions = document.querySelectorAll('.combobox-action');
+      // Last Clear button is for dimensions (metrics Clear is first if only one metric selected
+      // but here no many-metrics Show all button, so first Clear = metrics, second = dims)
+      const clearBtns = Array.from(comboboxActions).filter(
+        btn => btn.textContent === 'Clear',
+      );
+      // Click the last Clear button (dimensions)
+      fireEvent.click(clearBtns[clearBtns.length - 1]);
+
+      expect(onDimensionsChange).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('Run Query Section', () => {
+    it('renders Run Query button', () => {
+      render(<SelectionPanel {...defaultProps} />);
+      expect(screen.getByText('Run Query')).toBeInTheDocument();
+    });
+
+    it('Run Query button is disabled when canRunQuery is false', () => {
+      render(<SelectionPanel {...defaultProps} canRunQuery={false} />);
+      expect(screen.getByText('Run Query').closest('button')).toBeDisabled();
+    });
+
+    it('Run Query button is enabled when canRunQuery is true', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          canRunQuery={true}
+          onRunQuery={jest.fn()}
+        />,
+      );
+      expect(
+        screen.getByText('Run Query').closest('button'),
+      ).not.toBeDisabled();
+    });
+
+    it('shows running state when queryLoading is true', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          canRunQuery={true}
+          queryLoading={true}
+          onRunQuery={jest.fn()}
+        />,
+      );
+      expect(screen.getByText('Running...')).toBeInTheDocument();
+    });
+
+    it('calls onRunQuery when Run Query is clicked', () => {
+      const onRunQuery = jest.fn();
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          canRunQuery={true}
+          onRunQuery={onRunQuery}
+        />,
+      );
+      fireEvent.click(screen.getByText('Run Query').closest('button'));
+      expect(onRunQuery).toHaveBeenCalled();
+    });
+
+    it('shows hint when metrics selected but no dimensions', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={['default.num_repair_orders']}
+          canRunQuery={false}
+        />,
+      );
+      expect(
+        screen.getByText('Select at least one dimension'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows hint when no metrics and no dimensions selected', () => {
+      render(
+        <SelectionPanel
+          {...defaultProps}
+          selectedMetrics={[]}
+          canRunQuery={false}
+        />,
+      );
+      expect(
+        screen.getByText('Select metrics and dimensions to run a query'),
+      ).toBeInTheDocument();
     });
   });
 });

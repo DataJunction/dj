@@ -67,9 +67,13 @@ export function QueryPlannerPage() {
   const [queryError, setQueryError] = useState(null);
   const [queryStartTime, setQueryStartTime] = useState(null);
   const [queryElapsedTime, setQueryElapsedTime] = useState(null);
+  const [queryLinks, setQueryLinks] = useState([]);
 
   // Filters state
   const [filters, setFilters] = useState([]);
+
+  // Engine selection: null = auto, 'druid', 'trino'
+  const [selectedEngine, setSelectedEngine] = useState(null);
 
   // Cube availability state (for displaying freshness info)
   const [cubeAvailability, setCubeAvailability] = useState(null);
@@ -95,7 +99,12 @@ export function QueryPlannerPage() {
     const urlMetrics = params.get('metrics')?.split(',').filter(Boolean) || [];
     const urlDimensions =
       params.get('dimensions')?.split(',').filter(Boolean) || [];
+    const urlFilters = params.getAll('filters');
     const urlCube = params.get('cube');
+
+    if (urlFilters.length > 0) {
+      setFilters(urlFilters);
+    }
 
     if (urlMetrics.length > 0) {
       setSelectedMetrics(urlMetrics);
@@ -139,6 +148,7 @@ export function QueryPlannerPage() {
       if (selectedDimensions.length > 0) {
         params.set('dimensions', selectedDimensions.join(','));
       }
+      filters.forEach(f => params.append('filters', f));
     }
 
     const newSearch = params.toString();
@@ -157,6 +167,7 @@ export function QueryPlannerPage() {
   }, [
     selectedMetrics,
     selectedDimensions,
+    filters,
     loadedCubeName,
     location.pathname,
     navigate,
@@ -248,7 +259,7 @@ export function QueryPlannerPage() {
     }
   }, [commonDimensions, selectedDimensions]);
 
-  // Fetch V3 measures and metrics SQL when selection changes
+  // Fetch V3 measures and metrics SQL when selection, filters, or engine changes
   useEffect(() => {
     const fetchData = async () => {
       if (selectedMetrics.length > 0 && selectedDimensions.length > 0) {
@@ -256,10 +267,19 @@ export function QueryPlannerPage() {
         setError(null);
         setSelectedNode(null);
         try {
+          // Derive useMaterialized and dialect from selectedEngine
+          const useMaterialized = selectedEngine !== 'trino';
+          const dialect = selectedEngine || null;
           // Fetch both measures and metrics SQL in parallel
           const [measures, metrics] = await Promise.all([
             djClient.measuresV3(selectedMetrics, selectedDimensions),
-            djClient.metricsV3(selectedMetrics, selectedDimensions),
+            djClient.metricsV3(
+              selectedMetrics,
+              selectedDimensions,
+              filters,
+              useMaterialized,
+              dialect,
+            ),
           ]);
           setMeasuresResult(measures);
           setMetricsResult(metrics);
@@ -275,7 +295,7 @@ export function QueryPlannerPage() {
       }
     };
     fetchData().catch(console.error);
-  }, [djClient, selectedMetrics, selectedDimensions]);
+  }, [djClient, selectedMetrics, selectedDimensions, filters, selectedEngine]);
 
   // Fetch existing pre-aggregations for the grain groups
   useEffect(() => {
@@ -1134,6 +1154,7 @@ export function QueryPlannerPage() {
     setQueryLoading(true);
     setQueryError(null);
     setQueryResults(null);
+    setQueryLinks([]);
     setShowResults(true);
     const startTime = Date.now();
     setQueryStartTime(startTime);
@@ -1145,6 +1166,8 @@ export function QueryPlannerPage() {
         selectedMetrics,
         selectedDimensions,
         filters,
+        selectedEngine,
+        progress => setQueryLinks(progress.links || []),
       );
       const elapsed = (Date.now() - startTime) / 1000;
       setQueryElapsedTime(elapsed);
@@ -1155,7 +1178,7 @@ export function QueryPlannerPage() {
     } finally {
       setQueryLoading(false);
     }
-  }, [djClient, selectedMetrics, selectedDimensions, filters]);
+  }, [djClient, selectedMetrics, selectedDimensions, filters, selectedEngine]);
 
   // Handle back to plan view
   const handleBackToPlan = useCallback(() => {
@@ -1174,7 +1197,7 @@ export function QueryPlannerPage() {
       {/* Header */}
       <header className="planner-header">
         <div className="planner-header-content">
-          <h1>Query Planner</h1>
+          <h1>Explore</h1>
           {/* <p>Explore metrics and dimensions and plan materializations</p> */}
         </div>
         {error && <div className="header-error">{error}</div>}
@@ -1198,6 +1221,8 @@ export function QueryPlannerPage() {
             onClearSelection={handleClearSelection}
             filters={filters}
             onFiltersChange={handleFiltersChange}
+            selectedEngine={selectedEngine}
+            onEngineChange={setSelectedEngine}
             onRunQuery={handleRunQuery}
             canRunQuery={
               selectedMetrics.length > 0 && selectedDimensions.length > 0
@@ -1221,6 +1246,7 @@ export function QueryPlannerPage() {
             dialect={metricsResult?.dialect}
             cubeName={metricsResult?.cube_name}
             availability={cubeAvailability}
+            links={queryLinks}
           />
         ) : (
           <>
