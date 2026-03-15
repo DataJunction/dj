@@ -2,6 +2,15 @@
    Materialization Planner - Three Column Layout
    ================================= */
 
+/* Reset native browser input styling for all planner inputs */
+.cube-search,
+.combobox-search,
+.filter-input {
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
+}
+
 /* CSS Variables for theming */
 :root {
   --planner-bg: #f8fafc;

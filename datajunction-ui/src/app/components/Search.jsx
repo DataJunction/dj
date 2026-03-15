@@ -10,6 +10,7 @@ export default function Search() {
   const [searchResults, setSearchResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const hasLoadedRef = useRef(false);
+  const inputRef = useRef(null);
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
 
@@ -64,22 +65,21 @@ export default function Search() {
 
   return (
     <div>
-      <form
-        className="search-box"
-        onSubmit={e => {
-          e.preventDefault();
-        }}
+      <div
+        className="nav-search-box"
+        onClick={() => inputRef.current?.focus()}
       >
         <input
+          ref={inputRef}
           type="text"
-          placeholder={isLoading ? 'Loading...' : 'Search'}
+          placeholder={isLoading ? 'Loading...' : 'Search nodes...'}
           name="search"
           value={searchValue}
           onChange={handleChange}
           onFocus={loadSearchData}
         />
-      </form>
-      <div className="search-results">
+      </div>
+      {searchResults.length > 0 && <div className="search-results">
         {searchResults.slice(0, 20).map(item => {
           const itemUrl =
             item.type !== 'tag' ? `/nodes/${item.name}` : `/tags/${item.name}`;
@@ -96,7 +96,7 @@ export default function Search() {
             </a>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
