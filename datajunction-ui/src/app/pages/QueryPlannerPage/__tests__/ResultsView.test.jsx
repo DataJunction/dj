@@ -14,6 +14,49 @@ jest.mock('react-syntax-highlighter/src/styles/hljs', () => ({
 }));
 jest.mock('react-syntax-highlighter/dist/esm/languages/hljs/sql', () => ({}));
 
+// Mock recharts to avoid canvas rendering issues in jsdom.
+// YAxis calls tickFormatter with sample values (covering the formatYAxis helper).
+jest.mock('recharts', () => {
+  const React = require('react');
+  const mockComponent =
+    name =>
+    ({ children, ...props }) =>
+      React.createElement('div', { 'data-testid': name, ...props }, children);
+
+  // YAxis: call tickFormatter with a spread of magnitudes so formatYAxis branches are hit
+  const MockYAxis = ({ children, tickFormatter, ...props }) => {
+    if (tickFormatter) {
+      // Exercise all four branches of formatYAxis
+      tickFormatter(1_500_000_000); // >=1B
+      tickFormatter(2_500_000); // >=1M
+      tickFormatter(5_000); // >=1K
+      tickFormatter(42); // plain
+    }
+    return React.createElement(
+      'div',
+      { 'data-testid': 'YAxis', ...props },
+      children,
+    );
+  };
+
+  return {
+    LineChart: mockComponent('LineChart'),
+    BarChart: mockComponent('BarChart'),
+    Line: mockComponent('Line'),
+    Bar: mockComponent('Bar'),
+    XAxis: mockComponent('XAxis'),
+    YAxis: MockYAxis,
+    CartesianGrid: mockComponent('CartesianGrid'),
+    Tooltip: mockComponent('Tooltip'),
+    ResponsiveContainer: ({ children }) =>
+      React.createElement(
+        'div',
+        { 'data-testid': 'ResponsiveContainer' },
+        children,
+      ),
+  };
+});
+
 // Mock clipboard API
 const mockWriteText = jest.fn();
 Object.assign(navigator, {
@@ -383,6 +426,285 @@ describe('ResultsView', () => {
       expect(screen.getAllByText('1,000 rows').length).toBeGreaterThanOrEqual(
         1,
       );
+    });
+  });
+
+  describe('Chart Tab', () => {
+    // Results with a string dimension + numeric metric → bar chart config
+    const barChartResults = {
+      results: [
+        {
+          columns: [
+            { name: 'country', type: 'STRING' },
+            { name: 'revenue', type: 'FLOAT' },
+          ],
+          rows: [
+            ['US', 1000],
+            ['UK', 500],
+          ],
+        },
+      ],
+    };
+
+    // Results with a time dimension + numeric metric → line chart config
+    const lineChartResults = {
+      results: [
+        {
+          columns: [
+            { name: 'date', type: 'DATE' },
+            { name: 'revenue', type: 'FLOAT' },
+          ],
+          rows: [
+            ['2024-01-01', 1000],
+            ['2024-01-02', 1500],
+          ],
+        },
+      ],
+    };
+
+    // Results with two numeric columns (no string/time dim) → line with first as x
+    const allNumericResults = {
+      results: [
+        {
+          columns: [
+            { name: 'x_val', type: 'FLOAT' },
+            { name: 'y_val', type: 'FLOAT' },
+          ],
+          rows: [
+            [1.0, 10.5],
+            [2.0, 20.5],
+          ],
+        },
+      ],
+    };
+
+    // Scalar result: single numeric column, one row → KPI cards
+    const scalarResults = {
+      results: [
+        {
+          columns: [{ name: 'total_revenue', type: 'FLOAT' }],
+          rows: [[1234567.89]],
+        },
+      ],
+    };
+
+    it('renders Chart tab button', () => {
+      render(<ResultsView {...defaultProps} results={barChartResults} />);
+      expect(screen.getByText('Chart')).toBeInTheDocument();
+    });
+
+    it('Chart tab is enabled when data is chartable (bar chart data)', () => {
+      render(<ResultsView {...defaultProps} results={barChartResults} />);
+      const chartTab = screen.getByText('Chart').closest('button');
+      expect(chartTab).not.toHaveClass('disabled');
+    });
+
+    it('Chart tab is disabled when data is not chartable (string-only columns)', () => {
+      render(
+        <ResultsView
+          {...defaultProps}
+          results={{
+            results: [
+              {
+                columns: [{ name: 'name', type: 'STRING' }],
+                rows: [['Alice']],
+              },
+            ],
+          }}
+        />,
+      );
+      const chartTab = screen.getByText('Chart').closest('button');
+      expect(chartTab).toHaveClass('disabled');
+    });
+
+    it('switches to chart view when Chart tab is clicked (bar chart)', () => {
+      render(<ResultsView {...defaultProps} results={barChartResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      // The chart wrapper should appear
+      expect(
+        document.querySelector('.results-chart-wrapper'),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('BarChart')).toBeInTheDocument();
+    });
+
+    it('switches to chart view when Chart tab is clicked (line chart)', () => {
+      render(<ResultsView {...defaultProps} results={lineChartResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(
+        document.querySelector('.results-chart-wrapper'),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('LineChart')).toBeInTheDocument();
+    });
+
+    it('switches back to table view when Table tab is clicked', () => {
+      render(<ResultsView {...defaultProps} results={barChartResults} />);
+
+      // Switch to chart
+      fireEvent.click(screen.getByText('Chart'));
+      expect(
+        document.querySelector('.results-chart-wrapper'),
+      ).toBeInTheDocument();
+
+      // Switch back to table
+      fireEvent.click(screen.getByText('Table'));
+      expect(
+        document.querySelector('.results-table-wrapper'),
+      ).toBeInTheDocument();
+    });
+
+    it('renders line chart for all-numeric columns (lines 93-95: no time/string dim)', () => {
+      render(<ResultsView {...defaultProps} results={allNumericResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(screen.getByTestId('LineChart')).toBeInTheDocument();
+    });
+
+    it('renders KPI cards for scalar numeric result', () => {
+      render(<ResultsView {...defaultProps} results={scalarResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(document.querySelector('.kpi-cards')).toBeInTheDocument();
+      expect(document.querySelector('.kpi-label')).toHaveTextContent(
+        'total_revenue',
+      );
+    });
+
+    it('KPI card formats null value as em-dash', () => {
+      render(
+        <ResultsView
+          {...defaultProps}
+          results={{
+            results: [
+              {
+                columns: [{ name: 'revenue', type: 'FLOAT' }],
+                rows: [[null]],
+              },
+            ],
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(document.querySelector('.kpi-value')).toHaveTextContent('—');
+    });
+
+    it('KPI card formats numeric value with toLocaleString', () => {
+      render(<ResultsView {...defaultProps} results={scalarResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      // 1234567.89 formatted
+      const kpiValue = document.querySelector('.kpi-value');
+      expect(kpiValue).toBeInTheDocument();
+      // Value should be a localized number string (not null)
+      expect(kpiValue.textContent).not.toBe('—');
+    });
+
+    it('KPI card shows column type when present', () => {
+      render(<ResultsView {...defaultProps} results={scalarResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(document.querySelector('.kpi-type')).toHaveTextContent('FLOAT');
+    });
+
+    it('renders small multiples when 3+ metric columns present', () => {
+      const threeMetricResults = {
+        results: [
+          {
+            columns: [
+              { name: 'date', type: 'DATE' },
+              { name: 'metric_a', type: 'FLOAT' },
+              { name: 'metric_b', type: 'FLOAT' },
+              { name: 'metric_c', type: 'FLOAT' },
+            ],
+            rows: [
+              ['2024-01-01', 10, 20, 30],
+              ['2024-01-02', 15, 25, 35],
+            ],
+          },
+        ],
+      };
+
+      render(<ResultsView {...defaultProps} results={threeMetricResults} />);
+
+      fireEvent.click(screen.getByText('Chart'));
+
+      // SMALL_MULTIPLES_THRESHOLD is 2, so 3 metric cols triggers small multiples
+      expect(document.querySelector('.small-multiples')).toBeInTheDocument();
+      const labels = document.querySelectorAll('.small-multiple-label');
+      expect(labels.length).toBe(3);
+    });
+
+    it('does not click disabled Chart tab (canChart false)', () => {
+      // Single string column → not chartable
+      render(
+        <ResultsView
+          {...defaultProps}
+          results={{
+            results: [
+              {
+                columns: [{ name: 'label', type: 'STRING' }],
+                rows: [['x']],
+              },
+            ],
+          }}
+        />,
+      );
+
+      const chartTab = screen.getByText('Chart').closest('button');
+      fireEvent.click(chartTab);
+
+      // Should still be on table view
+      expect(
+        document.querySelector('.results-table-wrapper'),
+      ).toBeInTheDocument();
+    });
+
+    it('resets to table view if new results are not chartable while on chart tab', () => {
+      const { rerender } = render(
+        <ResultsView {...defaultProps} results={barChartResults} />,
+      );
+
+      // Switch to chart view
+      fireEvent.click(screen.getByText('Chart'));
+      expect(
+        document.querySelector('.results-chart-wrapper'),
+      ).toBeInTheDocument();
+
+      // Re-render with non-chartable results (empty rows)
+      rerender(
+        <ResultsView
+          {...defaultProps}
+          results={{ results: [{ columns: [], rows: [] }] }}
+        />,
+      );
+
+      // Should auto-reset to table view
+      expect(
+        document.querySelector('.results-table-wrapper'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows links during loading when links prop is provided', () => {
+      render(
+        <ResultsView
+          {...defaultProps}
+          loading={true}
+          links={['https://example.com/query/123']}
+        />,
+      );
+
+      const link = screen.getByText('View query ↗');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', 'https://example.com/query/123');
     });
   });
 });
