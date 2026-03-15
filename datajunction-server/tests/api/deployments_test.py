@@ -3320,6 +3320,110 @@ class TestDeploymentHistoryTracking:
         assert "dimension_node" in link_create_events[0]["details"]
         assert "deployment_id" in link_create_events[0]["details"]
 
+    @pytest.mark.asyncio
+    async def test_git_author_recorded_in_history(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """
+        When a deployment includes a GitDeploymentSource with commit author info,
+        history events should record the git author rather than the service account.
+        """
+        namespace = "history_git_author_test"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_hard_hats],
+                source=GitDeploymentSource(
+                    repository="github.com/org/repo",
+                    branch="main",
+                    commit_sha="abc123",
+                    commit_author_email="alice@example.com",
+                    commit_author_name="Alice Smith",
+                ),
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hats/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        assert len(create_events) >= 1
+        assert create_events[0]["user"] == "Alice Smith"
+
+    @pytest.mark.asyncio
+    async def test_git_author_email_used_when_no_name(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """When commit_author_name is absent, history falls back to commit_author_email."""
+        namespace = "history_git_author_email_test"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_hard_hats],
+                source=GitDeploymentSource(
+                    repository="github.com/org/repo",
+                    branch="main",
+                    commit_author_email="alice@example.com",
+                ),
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hats/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        assert len(create_events) >= 1
+        assert create_events[0]["user"] == "alice@example.com"
+
+    @pytest.mark.asyncio
+    async def test_service_account_used_when_no_git_author(
+        self,
+        client,
+        default_hard_hats,
+    ):
+        """When no git author is present, history records the authenticated user."""
+        namespace = "history_no_git_author_test"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_hard_hats],
+                source=GitDeploymentSource(
+                    repository="github.com/org/repo",
+                    branch="main",
+                    commit_sha="abc123",
+                    # No commit_author_email or commit_author_name
+                ),
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        response = await client.get(
+            f"/history/node/{namespace}.default.hard_hats/",
+        )
+        assert response.status_code == 200
+        history = response.json()
+        create_events = [h for h in history if h["activity_type"] == "create"]
+        assert len(create_events) >= 1
+        # Should fall back to the authenticated test user, not a git author
+        assert create_events[0]["user"] is not None
+        assert "@example.com" not in create_events[0]["user"]
+
 
 @pytest.mark.xdist_group(name="deployments")
 class TestDeploymentColumnOrdering:
@@ -3826,3 +3930,70 @@ class TestDeploymentStatusUpdate:
                 results=None,
             )
         # If we get here without exception, the test passes
+
+
+class TestHistoryUser:
+    """Unit tests for DeploymentOrchestrator._history_user."""
+
+    def _make_orchestrator(self, spec, username="service-account"):
+        from datajunction_server.internal.deployment.orchestrator import (
+            DeploymentOrchestrator,
+        )
+        from datajunction_server.internal.deployment.utils import DeploymentContext
+
+        user = MagicMock()
+        user.username = username
+        context = DeploymentContext(current_user=user)
+        return DeploymentOrchestrator(
+            deployment_spec=spec,
+            deployment_id="test-id",
+            session=MagicMock(),
+            context=context,
+        )
+
+    def test_returns_author_name_when_present(self):
+        spec = DeploymentSpec(
+            namespace="test",
+            source=GitDeploymentSource(
+                repository="github.com/org/repo",
+                commit_author_name="Alice Smith",
+                commit_author_email="alice@example.com",
+            ),
+        )
+        orchestrator = self._make_orchestrator(spec)
+        assert orchestrator._history_user == "Alice Smith"
+
+    def test_falls_back_to_email_when_no_name(self):
+        spec = DeploymentSpec(
+            namespace="test",
+            source=GitDeploymentSource(
+                repository="github.com/org/repo",
+                commit_author_email="alice@example.com",
+            ),
+        )
+        orchestrator = self._make_orchestrator(spec)
+        assert orchestrator._history_user == "alice@example.com"
+
+    def test_falls_back_to_current_user_when_no_author(self):
+        spec = DeploymentSpec(
+            namespace="test",
+            source=GitDeploymentSource(
+                repository="github.com/org/repo",
+                branch="main",
+            ),
+        )
+        orchestrator = self._make_orchestrator(spec, username="jenkins")
+        assert orchestrator._history_user == "jenkins"
+
+    def test_falls_back_to_current_user_for_local_source(self):
+        spec = DeploymentSpec(
+            namespace="test",
+            source=LocalDeploymentSource(hostname="dev-machine"),
+        )
+        orchestrator = self._make_orchestrator(spec, username="developer")
+        assert orchestrator._history_user == "developer"
+
+    def test_falls_back_to_current_user_when_no_source(self):
+        spec = DeploymentSpec(namespace="test")
+        orchestrator = self._make_orchestrator(spec, username="admin")
+        assert orchestrator._history_user == "admin"
