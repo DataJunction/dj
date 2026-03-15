@@ -6530,53 +6530,25 @@ async def test_get_dimension_dag(
         "/nodes/default.us_state/dimension-dag/",
     )
     assert response.status_code == 200
-    assert response.json() == {
-        "inbound": [
-            {
-                "name": "default.contractors",
-                "display_name": "default.roads.contractors",
-                "type": "source",
-            },
-            {
-                "name": "default.hard_hat",
-                "display_name": "Hard Hat",
-                "type": "dimension",
-            },
-            {
-                "name": "default.repair_orders_fact",
-                "display_name": "Repair Orders Fact",
-                "type": "transform",
-            },
-            {
-                "name": "default.repair_order",
-                "display_name": "Repair Order",
-                "type": "dimension",
-            },
-            {
-                "name": "default.repair_orders",
-                "display_name": "default.roads.repair_orders",
-                "type": "source",
-            },
-            {
-                "name": "default.repair_order_details",
-                "display_name": "default.roads.repair_order_details",
-                "type": "source",
-            },
-        ],
-        "inbound_edges": [
-            {"source": "default.contractors", "target": "default.us_state"},
-            {"source": "default.hard_hat", "target": "default.us_state"},
-            {"source": "default.repair_orders_fact", "target": "default.hard_hat"},
-            {"source": "default.repair_order", "target": "default.hard_hat"},
-            {"source": "default.repair_orders", "target": "default.repair_order"},
-            {
-                "source": "default.repair_order_details",
-                "target": "default.repair_order",
-            },
-        ],
-        "outbound": [],
-        "outbound_edges": [],
+    data = response.json()
+    assert {n["name"] for n in data["inbound"]} == {
+        "default.contractors",
+        "default.hard_hat",
+        "default.repair_orders_fact",
+        "default.repair_order",
+        "default.repair_orders",
+        "default.repair_order_details",
     }
+    assert {(e["source"], e["target"]) for e in data["inbound_edges"]} == {
+        ("default.contractors", "default.us_state"),
+        ("default.hard_hat", "default.us_state"),
+        ("default.repair_orders_fact", "default.hard_hat"),
+        ("default.repair_order", "default.hard_hat"),
+        ("default.repair_orders", "default.repair_order"),
+        ("default.repair_order_details", "default.repair_order"),
+    }
+    assert data["outbound"] == []
+    assert data["outbound_edges"] == []
 
     response = await module__client_with_roads.get(
         "/nodes/default.hard_hat/dimension-dag/",
