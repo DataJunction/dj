@@ -17,6 +17,7 @@ import WatchButton from './WatchNodeButton';
 import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
+import ChartIcon from '../../icons/ChartIcon';
 import AlertIcon from '../../icons/AlertIcon';
 import LoadingIcon from '../../icons/LoadingIcon';
 import NodeDependenciesTab from './NodeDependenciesTab';
@@ -39,7 +40,8 @@ export function NodePage() {
   const onClickTab = id => () => {
     // Preview tab redirects to Query Planner instead of showing content
     if (id === 'preview') {
-      navigate(`/planner?metrics=${encodeURIComponent(name)}`);
+      const param = node?.type === 'cube' ? 'cube' : 'metrics';
+      navigate(`/planner?${param}=${encodeURIComponent(name)}`);
       return;
     }
     navigate(`/nodes/${name}/${id}`);
@@ -52,6 +54,7 @@ export function NodePage() {
         key={tab.id}
         id={tab.id}
         name={tab.name}
+        icon={tab.icon}
         onClick={onClickTab(tab.id)}
         selectedTab={state.selectedTab}
       />
@@ -121,7 +124,8 @@ export function NodePage() {
       {
         id: 'preview',
         name: 'Preview →',
-        display: node?.type === 'metric',
+        icon: <ChartIcon size={18} />,
+        display: node?.type === 'metric' || node?.type === 'cube',
       },
     ];
   };
