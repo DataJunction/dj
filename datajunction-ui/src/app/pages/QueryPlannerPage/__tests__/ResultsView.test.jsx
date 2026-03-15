@@ -499,7 +499,7 @@ describe('ResultsView', () => {
       expect(chartTab).not.toHaveClass('disabled');
     });
 
-    it('Chart tab is disabled when data is not chartable (string-only columns)', () => {
+    it('Chart tab is enabled for any data with rows, showing no-data message when unchartable', () => {
       render(
         <ResultsView
           {...defaultProps}
@@ -514,7 +514,12 @@ describe('ResultsView', () => {
         />,
       );
       const chartTab = screen.getByText('Chart').closest('button');
-      expect(chartTab).toHaveClass('disabled');
+      expect(chartTab).not.toHaveClass('disabled');
+
+      fireEvent.click(chartTab);
+      expect(
+        screen.getByText('No chartable data detected'),
+      ).toBeInTheDocument();
     });
 
     it('switches to chart view when Chart tab is clicked (bar chart)', () => {
@@ -643,8 +648,8 @@ describe('ResultsView', () => {
       expect(labels.length).toBe(3);
     });
 
-    it('does not click disabled Chart tab (canChart false)', () => {
-      // Single string column → not chartable
+    it('shows no-data message when Chart tab clicked with unchartable data', () => {
+      // Single string column → not chartable, but tab is still clickable
       render(
         <ResultsView
           {...defaultProps}
@@ -662,9 +667,8 @@ describe('ResultsView', () => {
       const chartTab = screen.getByText('Chart').closest('button');
       fireEvent.click(chartTab);
 
-      // Should still be on table view
       expect(
-        document.querySelector('.results-table-wrapper'),
+        screen.getByText('No chartable data detected'),
       ).toBeInTheDocument();
     });
 
