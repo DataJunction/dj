@@ -13,7 +13,12 @@ export default class Tab extends Component {
         aria-label={this.props.name}
         aria-hidden="false"
       >
-        {this.props.name}
+        <span
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        >
+          {this.props.icon}
+          {this.props.name}
+        </span>
       </button>
     );
   }

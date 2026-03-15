@@ -56,7 +56,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    expect(getByPlaceholderText('Search')).toBeInTheDocument();
+    expect(getByPlaceholderText('Search nodes...')).toBeInTheDocument();
   });
 
   it('fetches and initializes search data on focus (lazy loading)', async () => {
@@ -73,7 +73,7 @@ describe('<Search />', () => {
     expect(mockDjClient.DataJunctionAPI.nodeDetails).not.toHaveBeenCalled();
 
     // Focus on search input to trigger lazy loading
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     fireEvent.focus(searchInput);
 
     await waitFor(() => {
@@ -92,7 +92,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -117,7 +117,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -143,7 +143,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -169,7 +169,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -194,7 +194,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -226,7 +226,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -256,7 +256,7 @@ describe('<Search />', () => {
     );
 
     // Focus to trigger lazy loading
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     fireEvent.focus(searchInput);
 
     await waitFor(() => {
@@ -269,7 +269,7 @@ describe('<Search />', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('prevents form submission', async () => {
+  it('renders search input inside nav-search-box container', async () => {
     mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue([]);
     mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
 
@@ -279,17 +279,9 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const form = container.querySelector('form');
-
-    const submitEvent = new Event('submit', {
-      bubbles: true,
-      cancelable: true,
-    });
-    const preventDefaultSpy = jest.spyOn(submitEvent, 'preventDefault');
-
-    form.dispatchEvent(submitEvent);
-
-    expect(preventDefaultSpy).toHaveBeenCalled();
+    const searchBox = container.querySelector('.nav-search-box');
+    expect(searchBox).toBeInTheDocument();
+    expect(searchBox.querySelector('input')).toBeInTheDocument();
   });
 
   it('handles empty tags array', async () => {
@@ -302,7 +294,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
@@ -324,7 +316,7 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
 
-    const searchInput = getByPlaceholderText('Search');
+    const searchInput = getByPlaceholderText('Search nodes...');
     // Focus to trigger lazy loading
     fireEvent.focus(searchInput);
 
