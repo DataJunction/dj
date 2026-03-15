@@ -1684,7 +1684,10 @@ async def get_dimension_inbound_bfs(
 
         frontier_ids = new_frontier_ids
 
-    return list(results.values()), edges
+    return sorted(results.values(), key=lambda n: n.name), sorted(
+        edges,
+        key=lambda e: (e.source, e.target),
+    )
 
 
 async def get_dimension_outbound_bfs(
@@ -1760,4 +1763,7 @@ async def get_dimension_outbound_bfs(
 
         frontier_ids = new_frontier_ids
 
-    return list(results.values()), edges
+    return sorted(results.values(), key=lambda n: n.name), sorted(
+        edges,
+        key=lambda e: (e.source, e.target),
+    )
