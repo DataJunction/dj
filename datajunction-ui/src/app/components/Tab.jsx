@@ -1,4 +1,4 @@
-import { Component } from 'react';
+gimport { Component } from 'react';
 
 export default class Tab extends Component {
   render() {
@@ -13,7 +13,9 @@ export default class Tab extends Component {
         aria-label={this.props.name}
         aria-hidden="false"
       >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <span
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        >
           {this.props.icon}
           {this.props.name}
         </span>

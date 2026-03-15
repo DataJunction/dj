@@ -65,10 +65,7 @@ export default function Search() {
 
   return (
     <div>
-      <div
-        className="nav-search-box"
-        onClick={() => inputRef.current?.focus()}
-      >
+      <div className="nav-search-box" onClick={() => inputRef.current?.focus()}>
         <input
           ref={inputRef}
           type="text"
@@ -79,24 +76,28 @@ export default function Search() {
           onFocus={loadSearchData}
         />
       </div>
-      {searchResults.length > 0 && <div className="search-results">
-        {searchResults.slice(0, 20).map(item => {
-          const itemUrl =
-            item.type !== 'tag' ? `/nodes/${item.name}` : `/tags/${item.name}`;
-          return (
-            <a key={item.name} href={itemUrl}>
-              <div className="search-result-item">
-                <span className={`node_type__${item.type} badge node_type`}>
-                  {item.type}
-                </span>
-                {item.display_name} (<b>{item.name}</b>){' '}
-                {item.description ? '- ' : ' '}
-                {truncate(item.description || '')}
-              </div>
-            </a>
-          );
-        })}
-      </div>}
+      {searchResults.length > 0 && (
+        <div className="search-results">
+          {searchResults.slice(0, 20).map(item => {
+            const itemUrl =
+              item.type !== 'tag'
+                ? `/nodes/${item.name}`
+                : `/tags/${item.name}`;
+            return (
+              <a key={item.name} href={itemUrl}>
+                <div className="search-result-item">
+                  <span className={`node_type__${item.type} badge node_type`}>
+                    {item.type}
+                  </span>
+                  {item.display_name} (<b>{item.name}</b>){' '}
+                  {item.description ? '- ' : ' '}
+                  {truncate(item.description || '')}
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
