@@ -17,13 +17,13 @@ import {
 SyntaxHighlighter.registerLanguage('sql', sql);
 
 const SERIES_COLORS = [
-  '#3b82f6',
-  '#a2283e',
-  '#059669',
-  '#d97706',
-  '#8b5cf6',
-  '#0ea5e9',
-  '#ec4899',
+  '#60a5fa',
+  '#34d399',
+  '#fbbf24',
+  '#f87171',
+  '#a78bfa',
+  '#22d3ee',
+  '#fb923c',
 ];
 
 // Threshold for switching from multi-series to small multiples
