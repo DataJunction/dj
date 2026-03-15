@@ -13,6 +13,9 @@ const DJ_GQL = process.env.REACT_APP_DJ_GQL
 // Export the base URL for components that need direct access
 export const getDJUrl = () => DJ_URL;
 
+const QUERY_END_STATES = ['FINISHED', 'CANCELED', 'FAILED'];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 export const DataJunctionAPI = {
   listNodesForLanding: async function (
     namespace,
@@ -1217,33 +1220,35 @@ export const DataJunctionAPI = {
   metricsV3: async function (
     metricSelection,
     dimensionSelection,
-    filters = '',
+    filters = [],
     useMaterialized = true,
+    dialect = null,
   ) {
     const params = new URLSearchParams();
     metricSelection.forEach(metric => params.append('metrics', metric));
     dimensionSelection.forEach(dimension =>
       params.append('dimensions', dimension),
     );
-    if (filters) {
-      params.append('filters', filters);
+    if (filters && filters.length > 0) {
+      filters.forEach(f => params.append('filters', f));
     }
-    if (useMaterialized) {
-      params.append('use_materialized', 'true');
-      params.append('dialect', 'druid');
-    } else {
-      params.append('use_materialized', 'false');
-      params.append('dialect', 'spark');
-    }
+    const resolvedDialect = dialect || (useMaterialized ? 'druid' : 'trino');
+    params.append('use_materialized', useMaterialized ? 'true' : 'false');
+    params.append('dialect', resolvedDialect);
     return await (
       await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
         credentials: 'include',
-        params: params,
       })
     ).json();
   },
 
-  data: async function (metricSelection, dimensionSelection, filters = []) {
+  data: async function (
+    metricSelection,
+    dimensionSelection,
+    filters = [],
+    dialect = null,
+    onProgress = null,
+  ) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
@@ -1251,18 +1256,56 @@ export const DataJunctionAPI = {
       filters.forEach(f => params.append('filters', f));
     }
     params.append('limit', '10000');
-    const response = await fetch(`${DJ_URL}/data/?${params}`, {
+    params.append('async_', 'true');
+    params.append('dialect', dialect || 'trino');
+
+    let pollInterval = 1000;
+
+    // Submit the query once
+    const submitResponse = await fetch(`${DJ_URL}/data/?${params}`, {
       credentials: 'include',
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+    if (!submitResponse.ok) {
+      const errorData = await submitResponse.json().catch(() => ({}));
       throw new Error(
         errorData.message ||
           errorData.detail ||
-          `Query failed: ${response.status}`,
+          `Query failed: ${submitResponse.status}`,
       );
     }
-    return await response.json();
+    let results = await submitResponse.json();
+
+    // Report links from the first response so they're visible during polling
+    if (onProgress && results.links?.length > 0) {
+      onProgress({ links: results.links });
+    }
+
+    // Poll by query ID using GET /data/query/{id} to avoid re-submitting
+    while (!QUERY_END_STATES.includes(results.state)) {
+      await sleep(pollInterval);
+      pollInterval = Math.min(pollInterval * 2, 10000);
+
+      const pollResponse = await fetch(`${DJ_URL}/data/query/${results.id}`, {
+        credentials: 'include',
+      });
+      if (!pollResponse.ok) {
+        const errorData = await pollResponse.json().catch(() => ({}));
+        throw new Error(
+          errorData.message ||
+            errorData.detail ||
+            `Query poll failed: ${pollResponse.status}`,
+        );
+      }
+      results = await pollResponse.json();
+    }
+
+    if (results.state === 'CANCELED') {
+      throw new Error('Query execution was canceled');
+    }
+    if (results.state === 'FAILED') {
+      throw new Error(results.errors?.[0] || 'Query execution failed');
+    }
+    return results;
   },
 
   nodeData: async function (nodeName, selection = null) {
