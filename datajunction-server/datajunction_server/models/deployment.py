@@ -551,6 +551,8 @@ class GitDeploymentSource(BaseModel):
     repository: str  # e.g., "github.com/org/repo"
     branch: str | None = None  # e.g., "main", "feature/xyz"
     commit_sha: str | None = None  # e.g., "abc123def456"
+    commit_author_email: str | None = None  # e.g., "alice@example.com"
+    commit_author_name: str | None = None  # e.g., "Alice Smith"
     ci_system: str | None = None  # e.g., "jenkins", "github-actions"
     ci_run_url: str | None = None  # Link to the CI build/run
 

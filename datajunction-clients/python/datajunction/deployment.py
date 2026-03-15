@@ -408,6 +408,29 @@ class DeploymentService:
         return f"{base_namespace}.{suffix}"
 
     @staticmethod
+    def _detect_git_commit_author(
+        cwd: str | Path | None = None,
+    ) -> tuple[str | None, str | None]:
+        """
+        Returns (email, name) of the most recent git commit author, or (None, None).
+        """
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%ae|%an"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            parts = result.stdout.strip().split("|", 1)
+            if len(parts) == 2:
+                email, name = parts[0] or None, parts[1] or None
+                return email, name
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+        return None, None
+
+    @staticmethod
     def _build_deployment_source(cwd: str | Path | None = None) -> dict[str, Any]:
         """
         Build deployment source from environment variables.
@@ -416,6 +439,8 @@ class DeploymentService:
         - DJ_DEPLOY_REPO: Git repository URL (triggers "git" source type)
         - DJ_DEPLOY_BRANCH: Git branch name
         - DJ_DEPLOY_COMMIT: Git commit SHA
+        - DJ_DEPLOY_AUTHOR_EMAIL: Commit author email (falls back to git log)
+        - DJ_DEPLOY_AUTHOR_NAME: Commit author name (falls back to git log)
         - DJ_DEPLOY_CI_SYSTEM: CI system name (e.g., "github_actions", "jenkins", "rocket")
         - DJ_DEPLOY_CI_RUN_URL: URL to the CI run/build
 
@@ -445,6 +470,14 @@ class DeploymentService:
             commit = os.getenv("DJ_DEPLOY_COMMIT")
             if commit:
                 source["commit_sha"] = commit
+            # Commit author: prefer explicit env vars, fall back to git log
+            git_email, git_name = DeploymentService._detect_git_commit_author(cwd=cwd)
+            author_email = os.getenv("DJ_DEPLOY_AUTHOR_EMAIL") or git_email
+            author_name = os.getenv("DJ_DEPLOY_AUTHOR_NAME") or git_name
+            if author_email:
+                source["commit_author_email"] = author_email
+            if author_name:
+                source["commit_author_name"] = author_name
             ci_system = os.getenv("DJ_DEPLOY_CI_SYSTEM")
             if ci_system:
                 source["ci_system"] = ci_system

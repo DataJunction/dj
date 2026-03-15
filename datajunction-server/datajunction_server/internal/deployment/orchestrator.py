@@ -169,6 +169,22 @@ class DeploymentOrchestrator:
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
 
+    @property
+    def _history_user(self) -> str:
+        """
+        Returns the username to record in History events.
+
+        For git-backed deployments, uses the commit author (name or email) so that
+        node revision history reflects the person who edited the YAML, not the CI
+        service account that ran `dj push`.  Falls back to the authenticated user.
+        """
+        source = self.deployment_spec.source
+        if source is not None and source.type == "git":
+            author = source.commit_author_name or source.commit_author_email
+            if author:
+                return author
+        return self.context.current_user.username
+
     async def execute(self) -> list[DeploymentResult]:
         """
         Validate and deploy all resources and nodes into the specified namespace.
@@ -934,7 +950,7 @@ class DeploymentOrchestrator:
                                 "role": delete_link.role,
                                 "deployment_id": self.deployment_id,
                             },
-                            user=self.context.current_user.username,
+                            user=self._history_user,
                         ),
                     )
 
@@ -1073,7 +1089,7 @@ class DeploymentOrchestrator:
                     node=new_revision.name,
                     activity_type=activity_type,
                     details=link_details,
-                    user=self.context.current_user.username,
+                    user=self._history_user,
                 ),
             )
 
@@ -1504,7 +1520,7 @@ class DeploymentOrchestrator:
                             "metrics": cube_spec.rendered_metrics,
                             "dimensions": cube_spec.rendered_dimensions,
                         },
-                        user=self.context.current_user.username,
+                        user=self._history_user,
                     ),
                 )
 
@@ -2123,7 +2139,7 @@ class DeploymentOrchestrator:
                     "version": new_node.current_version,
                     "deployment_id": self.deployment_id,
                 },
-                user=self.context.current_user.username,
+                user=self._history_user,
             ),
         )
 
