@@ -12,7 +12,16 @@ const ChartIcon = ({ size = 16, ...props }) => (
     <rect x="10" y="5" width="5" height="14" rx="1" />
     <rect x="16" y="8" width="5" height="11" rx="1" />
     {/* X axis */}
-    <line x1="2" y1="21" x2="23" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.35" />
+    <line
+      x1="2"
+      y1="21"
+      x2="23"
+      y2="21"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      opacity="0.35"
+    />
   </svg>
 );
 
