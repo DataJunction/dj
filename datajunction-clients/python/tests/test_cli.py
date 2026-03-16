@@ -2517,7 +2517,7 @@ class TestDeploymentFailureExitsWithCode1:
         with patch.object(cli, "push", side_effect=self._make_failure()):
             with patch.object(sys, "argv", ["dj", "push", str(tmp_path)]):
                 with pytest.raises(SystemExit) as exc_info:
-                    cli.main()
+                    cli.run()
                 assert exc_info.value.code == 1
 
     def test_deploy_exits_1_on_deployment_failure(self, tmp_path):
@@ -2527,5 +2527,5 @@ class TestDeploymentFailureExitsWithCode1:
         with patch.object(cli, "push", side_effect=self._make_failure()):
             with patch.object(sys, "argv", ["dj", "deploy", str(tmp_path)]):
                 with pytest.raises(SystemExit) as exc_info:
-                    cli.main()
+                    cli.run()
                 assert exc_info.value.code == 1
