@@ -3561,16 +3561,30 @@ async def test_transform_struct_field_access(session: AsyncSession):
     """
     Test that `transform` correctly resolves types when the lambda body accesses a
     struct field via the lambda parameter (e.g. `x -> x.field_name`).
+
+    This exercises the namespace-based lookup path added to Transform.compile, which
+    handles expressions like `TRANSFORM(arr, x -> x.name)` where `x` is the lambda
+    param and `name` is a field of the struct element type.
     """
+    # string field access
     query = parse(
         """
-        SELECT transform(creative_brands, x -> CAST(x.name AS STRING))
-        FROM source.prodhive.dse.ad_line_item_creative_r
+        SELECT transform(array(struct('foo' AS name, 1 AS id)), x -> x.name)
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
     await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+    # integer field access
+    query = parse(
+        """
+        SELECT transform(array(struct('foo' AS name, 1 AS id)), x -> x.id)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
 
 @pytest.mark.asyncio
