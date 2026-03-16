@@ -496,7 +496,9 @@ class TestDimensionJoins:
         WITH
         v3_customer AS (
         SELECT  customer_id,
-            name
+            name,
+            registration_date,
+            location_id
         FROM default.v3.customers
         ),
         v3_date AS (

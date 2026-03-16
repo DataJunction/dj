@@ -510,7 +510,9 @@ class TestFilterHelpers:
             "v3.location.country[customer->home]": "country_home",
         }
         result = resolve_filter_references(
-            filter_ast, aliases, cte_alias="order_details_0",
+            filter_ast,
+            aliases,
+            cte_alias="order_details_0",
         )
         result_str = str(result)
         assert "[customer->home]" not in result_str
