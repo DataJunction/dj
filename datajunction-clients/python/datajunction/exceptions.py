@@ -49,6 +49,15 @@ class DJDeploymentFailure(DJClientException):
         self.message = f"Some failures while deploying project `{project_name}`"
         super().__init__(self.message, *args)
 
+    def __str__(self) -> str:
+        if not self.errors:
+            return self.message
+        error_lines = "\n".join(
+            f"  - [{e.get('name', '?')}] {e.get('message') or '(no message)'}"
+            for e in self.errors
+        )
+        return f"{self.message}:\n{error_lines}"
+
 
 class DJTableAlreadyRegistered(DJClientException):
     """

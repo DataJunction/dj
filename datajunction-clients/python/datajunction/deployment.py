@@ -7,10 +7,11 @@ import time
 from typing import Any, Union
 
 import yaml
-from rich import box
-from rich.console import Console
-from rich.live import Live
-from rich.table import Table
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.status import Status
+from rich.text import Text
 
 from datajunction import DJBuilder
 from datajunction.exceptions import (
@@ -148,42 +149,106 @@ class DeploymentService:
             yaml.safe_dump(project_spec, yaml_file, sort_keys=False)
 
     @staticmethod
-    def build_table(deployment_uuid: str, data: dict) -> Table:
-        """Return a fresh Table with current deployment results."""
-        table = Table(
-            title=f"Deployment [bold green]{deployment_uuid}[/ bold green]\nNamespace [bold green]{data.get('namespace', '')}[/ bold green]",
-            box=box.SIMPLE_HEAVY,
-            expand=True,
-        )
-        table.add_column("Type", style="cyan", no_wrap=True)
-        table.add_column("Name", style="magenta")
-        table.add_column("Operation", style="yellow")
-        table.add_column("Status", style="green")
-        table.add_column("Message", style="white", overflow="fold", ratio=3)
+    @staticmethod
+    def _render_error_bullets(message: str) -> Text:
+        """Render a semicolon-separated error message as indented bullet points."""
+        bullets = [m.strip() for m in message.split(";") if m.strip()]
+        body = Text()
+        for i, bullet in enumerate(bullets):
+            if i > 0:
+                body.append("\n")
+            body.append("  • ", style="bold red")
+            head, _, tail = bullet.partition(": ")
+            for j, part in enumerate(head.split("`")):
+                body.append(part, style="bold dark_green" if j % 2 == 1 else "")
+            if tail:
+                body.append("\n    ")
+                for j, part in enumerate(tail.split("`")):
+                    body.append(part, style="bold dark_green" if j % 2 == 1 else "")
+        return body
 
-        color_mapping = {
-            "success": "bold green",
-            "failed": "bold red",
+    @staticmethod
+    def print_results(
+        deployment_uuid: str,
+        data: dict,
+        console: Console,
+        verbose: bool = False,
+    ) -> None:
+        """Render all deployment results inside a single panel."""
+        namespace = data.get("namespace", "")
+        overall_status = data.get("status", "")
+        border_color = "green" if overall_status == "success" else "red"
+
+        icon_map = {"success": "✓", "failed": "✗", "skipped": "–", "pending": "…"}
+        color_map = {
+            "success": "green",
+            "failed": "red",
+            "skipped": "grey50",
             "pending": "yellow",
-            "skipped": "bold gray",
         }
 
-        for result in data.get("results", []):
-            color = color_mapping.get(result.get("status"), "white")
-            table.add_row(
-                str(result.get("deploy_type", "")),
-                str(result.get("name", "")),
-                str(result.get("operation", "")),
-                f"[{color}]{result.get('status', '')}[/{color}]",
-                f"[gray]{result.get('message', '')}[/gray]",
+        results = data.get("results", [])
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r.get("status", "")] = counts.get(r.get("status", ""), 0) + 1
+
+        rows = Text()
+        for result in results:
+            status = result.get("status", "")
+            color = color_map.get(status, "white")
+            icon = icon_map.get(status, " ")
+            if not verbose and result.get("operation") == "noop":
+                continue
+            if rows:
+                rows.append("\n")
+            rows.append(
+                f"  {icon}  ",
+                style=f"{'bold ' if status == 'failed' else ''}{color}",
             )
-        return table
+            rows.append(f"{result.get('operation', ''):<8}  ", style="dim")
+            rows.append(
+                result.get("name", ""),
+                style=f"{'bold ' if status == 'failed' else ''}{color}",
+            )
+            if status == "failed":
+                rows.append("\n")
+                rows.append_text(
+                    DeploymentService._render_error_bullets(result.get("message", "")),
+                )
+
+        summary_parts = []
+        if counts.get("success"):
+            summary_parts.append(
+                Text(f"✓ {counts['success']} succeeded", style="green"),
+            )
+        if counts.get("skipped"):
+            summary_parts.append(Text(f"– {counts['skipped']} skipped", style="grey50"))
+        if not verbose and counts.get("noop"):
+            summary_parts.append(Text(f"{counts['noop']} noop", style="dim"))
+        if counts.get("failed"):
+            summary_parts.append(Text(f"✗ {counts['failed']} failed", style="bold red"))
+
+        summary = Text("  ").join(summary_parts) if summary_parts else Text()
+
+        content = Group(rows, Rule(style="dim"), summary) if summary_parts else rows
+
+        console.print()
+        console.print(
+            Panel(
+                content,
+                title=f"[dim]{deployment_uuid}  ·  {namespace}[/dim]",
+                title_align="left",
+                border_style=border_color,
+                padding=(0, 1),
+            ),
+        )
 
     def push(
         self,
         source_path: str | Path,
         namespace: str | None = None,
         console: Console | None = None,
+        verbose: bool = False,
     ):
         """
         Push a local project to a namespace.
@@ -236,34 +301,29 @@ class DeploymentService:
         # Max wait time for deployment to finish
         timeout = time.time() + 300  # 5 minutes
 
-        with Live(
-            DeploymentService.build_table(deployment_uuid, deployment_data),
-            console=console,
-            screen=False,
-            refresh_per_second=1,
-        ) as live:
+        with Status("Deploying...", console=console):
             while deployment_data.get("status") not in ("failed", "success"):
                 time.sleep(1)
                 deployment_data = self.client.check_deployment(deployment_uuid)
-                live.update(
-                    DeploymentService.build_table(deployment_uuid, deployment_data),
-                )
 
                 if time.time() > timeout:
                     raise DJClientException("Deployment timed out after 5 minutes")
 
-            live.update(DeploymentService.build_table(deployment_uuid, deployment_data))
-            color = "green" if deployment_data.get("status") == "success" else "red"
-            console.print(
-                f"\nDeployment finished: [bold {color}]{deployment_data.get('status').upper()}[/bold {color}]",
+        DeploymentService.print_results(
+            deployment_uuid,
+            deployment_data,
+            console,
+            verbose=verbose,
+        )
+        if deployment_data.get("status") == "success":
+            console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
+        if deployment_data.get("status") == "failed":
+            results = deployment_data.get("results", [])
+            errors = [r for r in results if r.get("status") == "failed"]
+            raise DJDeploymentFailure(
+                project_name=deployment_spec.get("namespace", source_path),
+                errors=errors if errors else results,
             )
-            if deployment_data.get("status") == "failed":
-                results = deployment_data.get("results", [])
-                errors = [r for r in results if r.get("status") == "failed"]
-                raise DJDeploymentFailure(
-                    project_name=deployment_spec.get("namespace", source_path),
-                    errors=errors if errors else results,
-                )
 
     def get_impact(
         self,
