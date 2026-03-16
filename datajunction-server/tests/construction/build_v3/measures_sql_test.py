@@ -684,7 +684,7 @@ class TestMeasuresSQLRoles:
             """
             WITH
             v3_customer AS (
-                SELECT customer_id
+                SELECT customer_id, registration_date
                 FROM v3.src_customers
             ),
             v3_date AS (
@@ -771,7 +771,7 @@ class TestMeasuresSQLRoles:
             """
             WITH
             v3_customer AS (
-                SELECT customer_id
+                SELECT customer_id, location_id
                 FROM v3.src_customers
             ),
             v3_location AS (
@@ -854,7 +854,7 @@ class TestMeasuresSQLRoles:
             """
             WITH
             v3_customer AS (
-                SELECT customer_id
+                SELECT customer_id, location_id
                 FROM v3.src_customers
             ),
             v3_location AS (

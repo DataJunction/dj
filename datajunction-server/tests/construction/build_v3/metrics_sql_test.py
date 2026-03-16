@@ -3422,3 +3422,224 @@ class TestFilterOnlyDimensions:
                 "semantic_type": "metric",
             },
         ]
+
+
+class TestMultiHopIntermediateDimensionColumns:
+    """
+    Tests for multi-hop join paths where intermediate dimension nodes must expose
+    the join key columns needed to reach the next hop.
+
+    Regression tests for the bug where intermediate dimension CTEs were missing
+    the left-side join key columns for subsequent hops, producing invalid SQL like:
+        t2.workday_region_id cannot be resolved
+    when t2's CTE only selected country_iso_code but not workday_region_id.
+    """
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_intermediate_dimension_includes_join_key(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that intermediate dimension CTEs include the join key columns
+        needed for subsequent hops in a multi-hop join path.
+
+        Path: order_details -> customer -> location
+        The v3_customer CTE must include location_id (left side of the
+        customer->location link), not just customer_id.
+        Without the fix, the generated SQL would have:
+            v3_customer AS (SELECT customer_id ...)
+        and then try to JOIN ON t3.location_id which would be unresolvable.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[customer->home]"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, location_id
+                FROM v3.src_customers
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+                GROUP BY t3.country
+            )
+            SELECT order_details_0.country_home AS country_home,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.country_home
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "country_home",
+                "type": "string",
+                "semantic_entity": "v3.location.country[customer->home]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+
+class TestFilterOnRoleDimension:
+    """
+    Tests for filtering on role-suffixed dimensions (e.g., v3.date.year[order]).
+
+    Regression tests for the bug where filtering on a role-suffixed dimension
+    produced invalid SQL with subscript syntax left in place:
+        arc.main.core.dt_date_d.dateint[t1.market] >= 20260201   (inner WHERE)
+        content_monthly_market_mvs_sum_0.dateint_market[market] >= 20260201  (outer WHERE)
+
+    After the fix:
+        - Inner grain group CTE uses raw column name: t2.year >= 2024
+        - Outer SELECT uses registered alias: order_details_0.year_order >= 2024
+    """
+
+    @pytest.mark.asyncio
+    async def test_filter_on_role_dimension(self, client_with_build_v3):
+        """
+        Test that filtering on a role-suffixed dimension generates valid SQL.
+
+        Uses v3.date.year[order] as both GROUP BY dimension and filter.
+        The [order] role suffix connects order_details to date via order_date.
+
+        Before the fix, the WHERE clause would incorrectly contain the subscript
+        syntax like `t2.year[order]` or `order_details_0.year_order[order]`.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.year[order]"],
+                "filters": ["v3.date.year[order] >= 2024"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, year
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.year year_order, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                WHERE t2.year >= 2024
+                GROUP BY t2.year
+            )
+            SELECT order_details_0.year_order AS year_order,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.year_order >= 2024
+            GROUP BY order_details_0.year_order
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "year_order",
+                "type": "int",
+                "semantic_entity": "v3.date.year[order]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_on_role_dimension_filter_only(self, client_with_build_v3):
+        """
+        Test filtering on a role-suffixed dimension that is NOT in GROUP BY.
+
+        The filter-only dimension v3.date.year[order] should still generate
+        valid SQL with the correct WHERE clause, even though the column is not
+        part of the SELECT or GROUP BY.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.date.year[order] >= 2024"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # The year[order] dimension should appear only in WHERE, not GROUP BY
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, year
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+                WHERE t3.year >= 2024
+                GROUP BY t2.category
+            )
+            SELECT order_details_0.category AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.year_order >= 2024
+            GROUP BY order_details_0.category
+            """,
+        )
