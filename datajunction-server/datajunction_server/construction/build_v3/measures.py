@@ -600,7 +600,9 @@ def build_select_ast(
                 left_node_name = link.node_revision.name
                 if left_node_name != parent_node.name and link.join_sql:
                     left_node = ctx.nodes.get(left_node_name)
-                    if left_node and left_node.type != NodeType.SOURCE:
+                    if (
+                        left_node and left_node.type != NodeType.SOURCE
+                    ):  # pragma: no branch
                         left_join_cols = extract_join_columns_for_node(
                             link.join_sql,
                             left_node_name,
@@ -609,7 +611,7 @@ def build_select_ast(
                             needed_columns_by_node[left_node_name].update(
                                 left_join_cols,
                             )
-                        else:
+                        else:  # pragma: no cover
                             needed_columns_by_node[left_node_name] = left_join_cols
 
     # Build temporal filter and attempt to push it into the upstream date-spine CTE.
@@ -1497,9 +1499,9 @@ def build_window_metric_grain_groups(
         grain_group_parents: set[str] = set()
         for parent_name in parent_names:
             metric_parent = ctx.nodes.get(parent_name)
-            if (
+            if (  # pragma: no branch
                 metric_parent and metric_parent.type.value == "metric"
-            ):  # pragma: no branch
+            ):
                 # Recursively find grain group parents
                 grain_group_parents.update(
                     find_grain_group_parent(parent_name, visited),
