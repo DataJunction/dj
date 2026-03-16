@@ -632,6 +632,14 @@ class DeploymentSpec(BaseModel):
     tags: list[TagSpec] = Field(default_factory=list)
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
+    force: bool = Field(
+        default=False,
+        description=(
+            "If True, all nodes are treated as changed and will be updated even if "
+            "they are identical to the existing version. Useful for forcing a full "
+            "re-deployment (e.g., after infrastructure changes)."
+        ),
+    )
     auto_register_sources: bool = Field(
         default=True,
         description=(

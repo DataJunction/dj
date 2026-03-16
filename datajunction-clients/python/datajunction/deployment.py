@@ -249,6 +249,7 @@ class DeploymentService:
         namespace: str | None = None,
         console: Console | None = None,
         verbose: bool = False,
+        force: bool = False,
     ):
         """
         Push a local project to a namespace.
@@ -293,6 +294,8 @@ class DeploymentService:
                     f"[yellow]Warning: could not set git config on namespace "
                     f"'{deployment_spec['namespace']}': {e}[/yellow]",
                 )
+        if force:
+            deployment_spec["force"] = True
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
 
