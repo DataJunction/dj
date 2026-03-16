@@ -619,7 +619,12 @@ describe('DataJunctionAPI', () => {
   it('calls data correctly', async () => {
     const metricSelection = ['metric1'];
     const dimensionSelection = ['dimension1'];
-    fetch.mockResponseOnce(JSON.stringify({ state: 'FINISHED', results: [] }));
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        state: 'FINISHED',
+        results: [{ rows: [['val']] }],
+      }),
+    );
     await DataJunctionAPI.data(metricSelection, dimensionSelection);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining(`${DJ_URL}/data/?`),
@@ -3004,7 +3009,11 @@ describe('DataJunctionAPI', () => {
   it('calls data with filters array', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ state: 'FINISHED', results: [] }),
+      json: () =>
+        Promise.resolve({
+          state: 'FINISHED',
+          results: [{ rows: [['val']] }],
+        }),
     });
     await DataJunctionAPI.data(
       ['metric1'],
