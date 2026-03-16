@@ -1316,7 +1316,10 @@ export const DataJunctionAPI = {
         });
         if (retryResponse.ok) {
           const retryResults = await retryResponse.json();
-          if (retryResults.results?.length && retryResults.results[0]?.rows?.length) {
+          if (
+            retryResults.results?.length &&
+            retryResults.results[0]?.rows?.length
+          ) {
             results = retryResults;
             break;
           }
