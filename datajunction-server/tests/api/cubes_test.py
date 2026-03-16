@@ -1303,11 +1303,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
           AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
           AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
         WHERE repair_order_details_0.state = 'AZ'
-        GROUP BY
-          repair_order_details_0.country, repair_order_details_0.postal_code,
-          repair_order_details_0.city, repair_order_details_0.state,
-          repair_order_details_0.company_name, repair_order_details_0.local_region,
-          repair_order_details_0.hire_date
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
         """,
     )
 
