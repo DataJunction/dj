@@ -87,6 +87,10 @@ def resolve_filter_references(
             role = subscript.index.name.name if subscript.index.name else None
         elif isinstance(subscript.index, ast.Name):  # pragma: no cover
             role = subscript.index.name
+        elif isinstance(subscript.index, ast.Lambda):
+            # Multi-hop role notation like "customer->home" is parsed as a Lambda node.
+            # Lambda.__str__ returns the canonical role string (e.g., "customer->home").
+            role = str(subscript.index)
 
         if not role:
             continue  # pragma: no cover
