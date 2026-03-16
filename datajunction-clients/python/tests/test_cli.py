@@ -1679,6 +1679,51 @@ class TestImpactAnalysis:
         # deploy0 has 6 nodes, they should be deployed
         assert len(results) >= 6
 
+    def test_push_force_flag_passed_to_service(self, tmp_path):
+        """--force on `dj push` must propagate force=True to DeploymentService.push."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(
+                sys, "argv", ["dj", "push", str(tmp_path), "--force"]
+            ):
+                cli.run()
+
+        mock_push.assert_called_once()
+        _, kwargs = mock_push.call_args
+        assert kwargs.get("force") is True
+
+    def test_deploy_force_flag_passed_to_service(self, tmp_path):
+        """--force on `dj deploy` must propagate force=True to DeploymentService.push."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(
+                sys, "argv", ["dj", "deploy", str(tmp_path), "--force"]
+            ):
+                cli.run()
+
+        mock_push.assert_called_once()
+        _, kwargs = mock_push.call_args
+        assert kwargs.get("force") is True
+
+    def test_push_without_force_flag_defaults_false(self, tmp_path):
+        """Omitting --force on `dj push` must pass force=False."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(sys, "argv", ["dj", "push", str(tmp_path)]):
+                cli.run()
+
+        _, kwargs = mock_push.call_args
+        assert kwargs.get("force") is False
+
 
 class TestDJCLIClientCreation:
     """Tests for DJCLI client creation from environment variables."""

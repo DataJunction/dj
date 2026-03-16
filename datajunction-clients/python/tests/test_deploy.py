@@ -274,6 +274,50 @@ def test_push_waits_until_success(monkeypatch, tmp_path):
     client.check_deployment.assert_called()
 
 
+def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
+    """push(force=True) must include {"force": True} in the spec sent to client.deploy."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path, force=True)
+
+    spec_sent = client.deploy.call_args[0][0]
+    assert spec_sent.get("force") is True
+
+
+def test_push_without_force_does_not_set_flag(monkeypatch, tmp_path):
+    """push() without force must not include force in the spec (server default handles it)."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path)
+
+    spec_sent = client.deploy.call_args[0][0]
+    assert "force" not in spec_sent
+
+
 def test_push_times_out(monkeypatch, tmp_path):
     # minimal project structure so _reconstruct_deployment_spec works
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
