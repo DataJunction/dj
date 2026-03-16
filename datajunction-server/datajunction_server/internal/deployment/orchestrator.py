@@ -1785,11 +1785,12 @@ class DeploymentOrchestrator:
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
         to_skip: list[NodeSpec] = []
+        force = self.deployment_spec.force
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
             if not existing_spec:
                 to_create.append(node_spec)
-            elif node_spec != existing_spec:
+            elif force or node_spec != existing_spec:
                 to_update.append(node_spec)
             else:
                 to_skip.append(node_spec)

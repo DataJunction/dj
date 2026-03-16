@@ -252,11 +252,22 @@ class DJCLI:
         self.builder_client = builder_client
         self.deployment_service = DeploymentService(client=self.builder_client)
 
-    def push(self, directory: str, namespace: str | None = None, verbose: bool = False):
+    def push(
+        self,
+        directory: str,
+        namespace: str | None = None,
+        verbose: bool = False,
+        force: bool = False,
+    ):
         """
         Alias for deploy without dryrun.
         """
-        self.deployment_service.push(directory, namespace=namespace, verbose=verbose)
+        self.deployment_service.push(
+            directory,
+            namespace=namespace,
+            verbose=verbose,
+            force=force,
+        )
 
     def dryrun(
         self,
@@ -875,6 +886,11 @@ class DJCLI:
             action="store_true",
             help="Show all results including noops",
         )
+        deploy_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Force update all nodes even if they are unchanged",
+        )
 
         # `dj push <directory>` - primary deployment command
         push_parser = subparsers.add_parser(
@@ -900,6 +916,11 @@ class DJCLI:
             "--verbose",
             action="store_true",
             help="Show all results including noops",
+        )
+        push_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Force update all nodes even if they are unchanged",
         )
         push_parser.add_argument(
             "--format",
@@ -1301,7 +1322,7 @@ class DJCLI:
                 self.dryrun(args.directory, format=args.format)
                 return
             try:
-                self.push(args.directory, verbose=args.verbose)
+                self.push(args.directory, verbose=args.verbose, force=args.force)
             except DJDeploymentFailure:
                 raise SystemExit(1)
         elif args.command == "push":
@@ -1329,6 +1350,7 @@ class DJCLI:
                     args.directory,
                     namespace=args.namespace,
                     verbose=args.verbose,
+                    force=args.force,
                 )
             except DJDeploymentFailure:
                 raise SystemExit(1)
