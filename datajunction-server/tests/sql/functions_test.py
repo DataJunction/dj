@@ -3588,6 +3588,58 @@ async def test_transform_struct_field_access(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_transform_compile_edge_cases(session: AsyncSession):
+    """
+    Test edge cases in Transform.compile.
+
+    In each case the relevant branch is hit during compile_lambda (which sets column
+    types).  Branches that leave a column without a type cause a DJParseException
+    only when .type is later accessed; the compile step itself succeeds silently.
+
+    Edge cases:
+      col_name in identifiers but idx >= 2
+      column is not a param and has no param namespace
+      struct field access via index param (idx=1)
+      struct field access for a nonexistent field
+    """
+    from datajunction_server.sql.parsing.ast import DJParseException
+
+    ctx = ast.CompileContext(session=session, exception=DJException())
+
+    # `y` is not a lambda identifier and has no namespace matching one.
+    # Transform.compile finds `y` but skips both the if and elif, leaving y untyped.
+    # The compile step itself completes; only accessing .type later fails.
+    query = parse("SELECT transform(array(1, 2, 3), x -> x + y)")
+    await query.compile(ctx)
+    with pytest.raises(DJParseException, match="Cannot resolve type"):
+        _ = query.select.projection[0].type  # type: ignore
+
+    # `i.name` — col_ns.name is "i" (idx=1), so `idx == 0` is False.
+    # The column is found in the elif branch but not typed because idx != 0.
+    query = parse(
+        "SELECT transform(array(struct('foo' AS name)), (x, i) -> i.name)",
+    )
+    await query.compile(ctx)
+    with pytest.raises(DJParseException, match="Cannot resolve type"):
+        _ = query.select.projection[0].type  # type: ignore
+
+    # `x.nonexistent` — fields_mapping.get returns None, so no type is set.
+    query = parse(
+        "SELECT transform(array(struct('foo' AS name, 1 AS id)), x -> x.nonexistent)",
+    )
+    await query.compile(ctx)
+    with pytest.raises(DJParseException, match="Cannot resolve type"):
+        _ = query.select.projection[0].type  # type: ignore
+
+    # lambda param at idx=2 — col_name in identifiers but idx not 0 or 1.
+    # `j` appears in the body; available_identifiers["j"] == 2, so the elif is False.
+    query = parse("SELECT transform(array(1, 2, 3), (x, i, j) -> x + j)")
+    await query.compile(ctx)
+    with pytest.raises(DJParseException, match="Cannot resolve type"):
+        _ = query.select.projection[0].type  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_transform_keys(session: AsyncSession):
     """
     Test the `transform_keys` Spark function
