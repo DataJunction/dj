@@ -132,15 +132,15 @@ def test_pull_raises_if_target_not_empty(tmp_path):
         svc.pull("ns", tmp_path)
 
 
-def test_build_table_has_expected_columns():
-    tbl = DeploymentService.build_table(
+def test_print_results_success(capsys):
+    out = io.StringIO()
+    DeploymentService.print_results(
         "abc-123",
         {
             "namespace": "some.namespace",
             "status": "success",
             "results": [
                 {
-                    "deploy_type": "node",
                     "name": "some.random.node",
                     "operation": "create",
                     "status": "success",
@@ -148,17 +148,89 @@ def test_build_table_has_expected_columns():
                 },
             ],
         },
+        Console(file=out),
     )
-    cols = [c.header for c in tbl.columns]
-    assert cols == ["Type", "Name", "Operation", "Status", "Message"]
-    row_values = [col._cells[0] for col in tbl.columns]
-    assert row_values == [
-        "node",
-        "some.random.node",
-        "create",
-        "[bold green]success[/bold green]",
-        "[gray]ok[/gray]",
-    ]
+    rendered = out.getvalue()
+    assert "some.random.node" in rendered
+    assert "create" in rendered
+    assert "abc-123" in rendered
+
+
+def test_print_results_hides_noops_by_default():
+    out = io.StringIO()
+    DeploymentService.print_results(
+        "uuid-1",
+        {
+            "namespace": "ns",
+            "status": "success",
+            "results": [
+                {"name": "ns.node_a", "operation": "create", "status": "success"},
+                {"name": "ns.node_b", "operation": "noop", "status": "success"},
+            ],
+        },
+        Console(file=out),
+    )
+    rendered = out.getvalue()
+    assert "ns.node_a" in rendered
+    assert "ns.node_b" not in rendered  # noop hidden when verbose=False
+
+
+def test_print_results_shows_noops_when_verbose():
+    out = io.StringIO()
+    DeploymentService.print_results(
+        "uuid-1",
+        {
+            "namespace": "ns",
+            "status": "success",
+            "results": [
+                {"name": "ns.node_a", "operation": "create", "status": "success"},
+                {"name": "ns.node_b", "operation": "noop", "status": "success"},
+            ],
+        },
+        Console(file=out),
+        verbose=True,
+    )
+    rendered = out.getvalue()
+    assert "ns.node_b" in rendered
+
+
+def test_print_results_summary_includes_skipped_and_noop_counts():
+    out = io.StringIO()
+    DeploymentService.print_results(
+        "uuid-2",
+        {
+            "namespace": "ns",
+            "status": "success",
+            "results": [
+                {"name": "ns.a", "operation": "create", "status": "success"},
+                {"name": "ns.b", "operation": "skip", "status": "skipped"},
+                {"name": "ns.c", "operation": "noop", "status": "noop"},
+            ],
+        },
+        Console(file=out),
+        verbose=False,
+    )
+    rendered = out.getvalue()
+    assert "skipped" in rendered
+    assert "noop" in rendered
+
+
+def test_render_error_bullets_single():
+    text = DeploymentService._render_error_bullets("Column `x` does not exist")
+    assert "Column" in text.plain
+    assert "x" in text.plain
+
+
+def test_render_error_bullets_multiple_semicolons():
+    text = DeploymentService._render_error_bullets(
+        "Missing `a`; Invalid type for `b`; Unknown column `c`",
+    )
+    plain = text.plain
+    assert "Missing" in plain
+    assert "Invalid type" in plain
+    assert "Unknown column" in plain
+    # Three bullets means two newlines were inserted between them
+    assert plain.count("•") == 3
 
 
 def test_reconstruct_deployment_spec(tmp_path):
@@ -864,3 +936,25 @@ class TestPushBranchDetection:
 
         assert "Warning" in out.getvalue()
         client.deploy.assert_called_once()
+
+
+def test_djdeploymentfailure_str_with_errors():
+    exc = DJDeploymentFailure(
+        project_name="my.namespace",
+        errors=[
+            {"name": "my.namespace.node_a", "message": "Column `x` does not exist"},
+            {"name": "my.namespace.node_b", "message": None},
+        ],
+    )
+    rendered = str(exc)
+    assert "my.namespace" in rendered
+    assert "my.namespace.node_a" in rendered
+    assert "Column `x` does not exist" in rendered
+    assert "my.namespace.node_b" in rendered
+    assert "(no message)" in rendered
+
+
+def test_djdeploymentfailure_str_with_no_errors():
+    exc = DJDeploymentFailure(project_name="my.namespace", errors=[])
+    assert str(exc) == exc.message
+    assert "my.namespace" in str(exc)
