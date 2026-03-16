@@ -1472,15 +1472,24 @@ def build_from_clause_with_grain_joins(
         table_refs = {name: ast.Table(ast.Name(name)) for name in cte_aliases}
         from_clause = build_join_from_clause(cte_aliases, table_refs, dim_col_aliases)
 
-        # Add GROUP BY on requested dimensions
+        # Add GROUP BY on requested dimensions.
+        # When there are multiple CTEs joined with FULL OUTER JOIN, the SELECT uses
+        # COALESCE(gg0.dim, gg1.dim, ...) — so the GROUP BY must also use COALESCE
+        # (or positional references) rather than a one-sided column ref, otherwise
+        # engines like BigQuery/Trino reject the query.
         group_by: list[ast.Expression] = []
         if dim_col_aliases:  # pragma: no branch
-            group_by.extend(
-                [
-                    make_column_ref(dim_col, cte_aliases[0])
-                    for dim_col in dim_col_aliases
-                ],
-            )
+            if len(cte_aliases) > 1:
+                # Use positional references to match the COALESCE expressions in SELECT
+                for pos in range(1, len(dim_col_aliases) + 1):
+                    group_by.append(ast.Number(pos))
+            else:
+                group_by.extend(
+                    [
+                        make_column_ref(dim_col, cte_aliases[0])
+                        for dim_col in dim_col_aliases
+                    ],
+                )
         return from_clause, group_by
 
     # Build FROM clause starting with base_metrics
