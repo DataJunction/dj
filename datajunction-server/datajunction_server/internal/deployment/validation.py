@@ -165,7 +165,10 @@ class NodeSpecBulkValidator:
                 inferred_columns = spec.columns
                 errors = []
             else:
-                inferred_columns = self._infer_columns(spec, parsed_ast)
+                inferred_columns, type_inference_errors = self._infer_columns(
+                    spec,
+                    parsed_ast,
+                )
                 errors = [
                     err
                     for err in [
@@ -174,7 +177,7 @@ class NodeSpecBulkValidator:
                         self._check_metric_query(spec, parsed_ast),
                     ]
                     if err is not None
-                ]
+                ] + type_inference_errors
             return NodeValidationResult(
                 spec=spec,
                 status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
@@ -229,8 +232,15 @@ class NodeSpecBulkValidator:
                 message=str(exc),
             )
 
-    def _infer_columns(self, spec: NodeSpec, parsed_ast: ast.Query) -> list[ColumnSpec]:
-        """Infer column specifications from parsed AST"""
+    def _infer_columns(
+        self,
+        spec: NodeSpec,
+        parsed_ast: ast.Query,
+    ) -> tuple[list[ColumnSpec], list[DJError]]:
+        """Infer column specifications from parsed AST.
+
+        Returns a tuple of (columns, type_inference_errors).
+        """
         columns_spec_map = {
             col.name: col
             for col in (
@@ -238,19 +248,30 @@ class NodeSpecBulkValidator:
             )
         }
         inferred_columns = []
+        type_inference_errors = []
 
         for col in parsed_ast.select.projection:
             column_name = col.alias_or_name.name  # type: ignore
             col_spec = columns_spec_map.get(column_name)
 
-            inferred_column = self._create_column_spec(
-                column_name=column_name,
-                ast_column=col,  # type: ignore
-                existing_spec=col_spec,
-            )
-            inferred_columns.append(inferred_column)
+            try:
+                inferred_column = self._create_column_spec(
+                    column_name=column_name,
+                    ast_column=col,  # type: ignore
+                    existing_spec=col_spec,
+                )
+                inferred_columns.append(inferred_column)
+            except Exception as e:
+                logger.exception("Error inferring column %s: %s", column_name, e)
+                type_inference_errors.append(
+                    DJError(
+                        code=ErrorCode.TYPE_INFERENCE,
+                        message=f"Unable to infer type for column `{column_name}` "
+                        f"in node `{spec.rendered_name}`: {e}",
+                    ),
+                )
 
-        return inferred_columns
+        return inferred_columns, type_inference_errors
 
     def _create_column_spec(
         self,
@@ -263,11 +284,7 @@ class NodeSpecBulkValidator:
         if existing_spec and existing_spec.type:
             column_type = existing_spec.type
         else:
-            try:
-                column_type = str(ast_column.type)
-            except Exception as e:  # pragma: no cover
-                logger.exception("Error inferring column %s: %s", column_name, e)
-                column_type = "unknown"
+            column_type = str(ast_column.type)
 
         if existing_spec:
             return ColumnSpec(
