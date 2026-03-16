@@ -143,9 +143,11 @@ class TestValidateQuery:
         result = await validator.validate_query_node(bad_spec, parsed_ast)
         assert result.spec == bad_spec
         assert result.status == NodeStatus.INVALID
-        assert result.inferred_columns == [ColumnSpec(name="1a", type="unknown")]
-        assert len(result.errors) == 1
-        assert result.errors[0].code == ErrorCode.INVALID_SQL_QUERY
+        assert result.inferred_columns == []
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.TYPE_INFERENCE in error_codes
+        type_err = next(e for e in result.errors if e.code == ErrorCode.TYPE_INFERENCE)
+        assert "Unable to infer type for column `1a`" in type_err.message
 
     @pytest.mark.asyncio
     async def test_validate_query_node_later_exception(
