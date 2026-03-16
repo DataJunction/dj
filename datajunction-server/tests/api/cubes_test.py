@@ -1235,7 +1235,12 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
             ON mmt.municipality_type_id = mt.municipality_type_desc
         ),
         default_repair_order AS (
-          SELECT repair_order_id FROM default.roads.repair_orders
+          SELECT
+            repair_order_id,
+          	municipality_id,
+            hard_hat_id,
+            dispatcher_id
+          FROM default.roads.repair_orders
         ),
         default_repair_orders_fact AS (
           SELECT repair_orders.repair_order_id, repair_orders.municipality_id,
@@ -1256,7 +1261,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
           INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
           INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
           LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
-          WHERE t2.state = 'AZ'
+          WHERE t3.state = 'AZ'
           GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
             t5.local_region, t6.hire_date
         ),
@@ -1336,7 +1341,12 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
             ON mmt.municipality_type_id = mt.municipality_type_desc
         ),
         default_repair_order AS (
-          SELECT repair_order_id FROM default.roads.repair_orders
+          SELECT
+            repair_order_id,
+            municipality_id,
+            hard_hat_id,
+            dispatcher_id
+          FROM default.roads.repair_orders
         )
         SELECT t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
           t5.local_region, t6.hire_date,
@@ -1347,7 +1357,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
         INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
         INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
         LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
-        WHERE t2.state = 'AZ'
+        WHERE t3.state = 'AZ'
         GROUP BY t3.country, t3.postal_code, t3.city, t3.state, t4.company_name,
           t5.local_region, t6.hire_date
         """,
