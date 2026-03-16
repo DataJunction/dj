@@ -34,6 +34,8 @@ export function SelectionPanel({
   const [metricsSearch, setMetricsSearch] = useState('');
   const [dimensionsSearch, setDimensionsSearch] = useState('');
   const [expandedNamespaces, setExpandedNamespaces] = useState(new Set());
+  const [expandedDimGroups, setExpandedDimGroups] = useState(new Set());
+  const [expandedRolePaths, setExpandedRolePaths] = useState(new Set());
   const [showCubeDropdown, setShowCubeDropdown] = useState(false);
   const [cubeSearch, setCubeSearch] = useState('');
   const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
@@ -164,7 +166,7 @@ export function SelectionPanel({
     prevSearchRef.current = currentSearch;
   }, [metricsSearch, sortedNamespaces]);
 
-  // Dedupe dimensions by name
+  // Dedupe dimensions by name, keeping shortest path per name
   const dedupedDimensions = useMemo(() => {
     const byName = new Map();
     dimensions.forEach(d => {
@@ -180,33 +182,146 @@ export function SelectionPanel({
     return Array.from(byName.values());
   }, [dimensions]);
 
-  // Filter and sort dimensions by search
-  const filteredDimensions = useMemo(() => {
+  // Extract role path from a dimension name, e.g. "foo.bar[a->b->c]" → "a->b->c" (or null)
+  const getRolePath = name => {
+    const match = name.match(/\[([^\]]+)\]$/);
+    return match ? match[1] : null;
+  };
+
+  // Format a role path for display: "a->b->c" → "via a → b → c"
+  const formatRolePath = roleKey =>
+    roleKey ? 'via ' + roleKey.replace(/->/g, ' → ') : 'direct';
+
+  // Count hops in a role path string
+  const rolePathHops = roleKey => (roleKey ? roleKey.split('->').length : 0);
+
+  // Group dimensions by node, then by role path within each node
+  const groupedDimensions = useMemo(() => {
     const search = dimensionsSearch.trim().toLowerCase();
-    if (!search) return dedupedDimensions;
+    const nodeMap = new Map();
 
-    const matches = dedupedDimensions.filter(d => {
-      if (!d.name) return false;
-      const fullName = d.name.toLowerCase();
-      const parts = d.name.split('.');
-      const shortDisplay = parts.slice(-2).join('.').toLowerCase();
-      return fullName.includes(search) || shortDisplay.includes(search);
+    dedupedDimensions.forEach(d => {
+      if (!d.name) return;
+      const nodeKey =
+        d.path?.length > 0
+          ? d.path[d.path.length - 1]
+          : d.name.split('.').slice(0, -1).join('.');
+      const distance = Math.max(0, d.path ? d.path.length - 1 : 0);
+      const roleKey = getRolePath(d.name); // e.g. "title_deal_window->title" or null
+
+      if (!nodeMap.has(nodeKey)) {
+        nodeMap.set(nodeKey, {
+          nodeKey,
+          minDistance: distance,
+          rolePathMap: new Map(),
+        });
+      }
+      const node = nodeMap.get(nodeKey);
+      node.minDistance = Math.min(node.minDistance, distance);
+
+      if (!node.rolePathMap.has(roleKey)) {
+        node.rolePathMap.set(roleKey, { roleKey, dimensions: [] });
+      }
+      node.rolePathMap.get(roleKey).dimensions.push(d);
     });
 
-    matches.sort((a, b) => {
-      const aParts = (a.name || '').split('.');
-      const bParts = (b.name || '').split('.');
-      const aShort = aParts.slice(-2).join('.').toLowerCase();
-      const bShort = bParts.slice(-2).join('.').toLowerCase();
-      const aPrefix = aShort.startsWith(search);
-      const bPrefix = bShort.startsWith(search);
-      if (aPrefix && !bPrefix) return -1;
-      if (!aPrefix && bPrefix) return 1;
-      return aShort.localeCompare(bShort);
+    let groupsArray = Array.from(nodeMap.values()).map(node => {
+      // Sort role paths: direct (null) first, then by hop count, then alphabetically
+      const rolePaths = Array.from(node.rolePathMap.values()).sort(
+        (a, b) =>
+          rolePathHops(a.roleKey) - rolePathHops(b.roleKey) ||
+          (a.roleKey || '').localeCompare(b.roleKey || ''),
+      );
+      // Sort dims within each role path alphabetically
+      rolePaths.forEach(rp => {
+        rp.dimensions.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      return {
+        nodeKey: node.nodeKey,
+        minDistance: node.minDistance,
+        rolePaths,
+        totalCount: rolePaths.reduce((n, rp) => n + rp.dimensions.length, 0),
+      };
     });
 
-    return matches;
+    // Apply search: filter within role paths, prune empty role paths and nodes
+    if (search) {
+      groupsArray = groupsArray
+        .map(group => ({
+          ...group,
+          rolePaths: group.rolePaths
+            .map(rp => ({
+              ...rp,
+              dimensions: rp.dimensions.filter(d => {
+                const lower = d.name.toLowerCase();
+                return (
+                  lower.includes(search) ||
+                  d.name.split('.').pop().toLowerCase().includes(search)
+                );
+              }),
+            }))
+            .filter(
+              rp =>
+                rp.dimensions.length > 0 ||
+                (rp.roleKey || '').toLowerCase().includes(search),
+            ),
+        }))
+        .filter(
+          group =>
+            group.rolePaths.length > 0 ||
+            group.nodeKey.toLowerCase().includes(search),
+        )
+        .map(group => ({
+          ...group,
+          totalCount: group.rolePaths.reduce(
+            (n, rp) => n + rp.dimensions.length,
+            0,
+          ),
+        }));
+    }
+
+    // Sort node groups by distance, then alphabetically
+    groupsArray.sort(
+      (a, b) =>
+        a.minDistance - b.minDistance || a.nodeKey.localeCompare(b.nodeKey),
+    );
+
+    return groupsArray;
   }, [dedupedDimensions, dimensionsSearch]);
+
+  // Auto-expand on first load and when searching
+  useEffect(() => {
+    if (groupedDimensions.length === 0) return;
+    if (dimensionsSearch.trim()) {
+      // Expand everything with matches
+      setExpandedDimGroups(new Set(groupedDimensions.map(g => g.nodeKey)));
+      setExpandedRolePaths(
+        new Set(
+          groupedDimensions.flatMap(g =>
+            g.rolePaths.map(rp => `${g.nodeKey}::${rp.roleKey}`),
+          ),
+        ),
+      );
+    } else {
+      // On first load: expand distance-0 node groups and their direct (null) role paths
+      setExpandedDimGroups(prev => {
+        if (prev.size > 0) return prev;
+        return new Set(
+          groupedDimensions
+            .filter(g => g.minDistance === 0)
+            .map(g => g.nodeKey),
+        );
+      });
+      setExpandedRolePaths(prev => {
+        if (prev.size > 0) return prev;
+        return new Set(
+          groupedDimensions
+            .filter(g => g.minDistance === 0)
+            .map(g => `${g.nodeKey}::null`),
+        );
+      });
+    }
+  }, [groupedDimensions, dimensionsSearch]);
 
   // Get display name for dimension (last 2 segments)
   const getDimDisplayName = fullName => {
@@ -225,6 +340,33 @@ export function SelectionPanel({
       return next;
     });
   };
+
+  const toggleDimGroup = nodeKey => {
+    setExpandedDimGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeKey)) {
+        next.delete(nodeKey);
+      } else {
+        next.add(nodeKey);
+      }
+      return next;
+    });
+  };
+
+  const toggleRolePath = (nodeKey, roleKey) => {
+    const key = `${nodeKey}::${roleKey}`;
+    setExpandedRolePaths(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const getDimGroupShortName = nodeKey => nodeKey.split('.').pop();
 
   const toggleMetric = metric => {
     if (selectedMetrics.includes(metric)) {
@@ -559,8 +701,11 @@ export function SelectionPanel({
                     <span
                       key={dimName}
                       className="selected-chip dimension-chip"
+                      title={dimName}
                     >
-                      {getDimDisplayName(dimName)}
+                      <span className="chip-label">
+                        {getDimDisplayName(dimName)}
+                      </span>
                       <button
                         className="chip-remove"
                         onClick={e => {
@@ -611,32 +756,87 @@ export function SelectionPanel({
             </div>
 
             <div className="selection-list dimensions-list">
-              {filteredDimensions.map(dim => (
-                <label
-                  key={dim.name}
-                  className="selection-item dimension-item"
-                  title={dim.name}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedDimensions.includes(dim.name)}
-                    onChange={() => toggleDimension(dim.name)}
-                  />
-                  <div className="dimension-info">
-                    <span className="item-name">
-                      {getDimDisplayName(dim.name)}
-                    </span>
-                    <span className="dimension-full-name">{dim.name}</span>
-                    {dim.path && dim.path.length > 1 && (
-                      <span className="dimension-path">
-                        {dim.path.slice(1).join(' ▶ ')}
+              {groupedDimensions.map(group => {
+                const nodeExpanded = expandedDimGroups.has(group.nodeKey);
+                return (
+                  <div key={group.nodeKey} className="dim-group">
+                    <div
+                      className="dim-group-header"
+                      onClick={() => toggleDimGroup(group.nodeKey)}
+                      title={group.nodeKey}
+                    >
+                      <span className="expand-icon">
+                        {nodeExpanded ? '▼' : '▶'}
                       </span>
-                    )}
+                      <span className="dim-group-name">
+                        {getDimGroupShortName(group.nodeKey)}
+                      </span>
+                      <span className="dim-group-count">
+                        {group.totalCount}
+                      </span>
+                    </div>
+                    {nodeExpanded &&
+                      group.rolePaths.map(rp => {
+                        const rpKey = `${group.nodeKey}::${rp.roleKey}`;
+                        const rpExpanded = expandedRolePaths.has(rpKey);
+                        const hops = rolePathHops(rp.roleKey);
+                        const hopsLabel =
+                          hops === 0
+                            ? 'direct'
+                            : `${hops} hop${hops > 1 ? 's' : ''}`;
+                        return (
+                          <div key={rpKey} className="dim-role-group">
+                            <div
+                              className="dim-role-header"
+                              onClick={() =>
+                                toggleRolePath(group.nodeKey, rp.roleKey)
+                              }
+                            >
+                              <span className="expand-icon">
+                                {rpExpanded ? '▼' : '▶'}
+                              </span>
+                              <span className="dim-role-label">
+                                {formatRolePath(rp.roleKey)}
+                              </span>
+                              <span className="dim-group-meta">
+                                {hopsLabel}
+                              </span>
+                              <span className="dim-group-count">
+                                {rp.dimensions.length}
+                              </span>
+                            </div>
+                            {rpExpanded &&
+                              rp.dimensions.map(dim => (
+                                <label
+                                  key={dim.name}
+                                  className="selection-item dimension-item dim-role-item"
+                                  title={dim.name}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedDimensions.includes(
+                                      dim.name,
+                                    )}
+                                    onChange={() => toggleDimension(dim.name)}
+                                  />
+                                  <div className="dimension-info">
+                                    <span className="item-name">
+                                      {dim.name
+                                        .replace(/\[[^\]]*\]$/, '')
+                                        .split('.')
+                                        .pop()}
+                                    </span>
+                                  </div>
+                                </label>
+                              ))}
+                          </div>
+                        );
+                      })}
                   </div>
-                </label>
-              ))}
+                );
+              })}
 
-              {filteredDimensions.length === 0 && (
+              {groupedDimensions.length === 0 && (
                 <div className="empty-list">
                   {dimensionsSearch
                     ? 'No dimensions match your search'

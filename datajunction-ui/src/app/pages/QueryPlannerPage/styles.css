@@ -879,6 +879,90 @@
   font-family: var(--font-display);
 }
 
+/* Dimension group (node-level header + items) */
+.dim-group {
+  margin-bottom: 4px;
+}
+
+.dim-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.dim-group-header:hover {
+  background: var(--planner-surface-hover);
+}
+
+.dim-group-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--planner-text);
+  font-family: var(--font-display);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dim-group-meta {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--planner-text-muted);
+  background: var(--planner-bg-subtle, rgba(0, 0, 0, 0.06));
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dim-group-count {
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  flex-shrink: 0;
+}
+
+.dim-group-item {
+  padding-left: 28px;
+}
+
+/* Role path sub-group (second level) */
+.dim-role-group {
+  padding-left: 20px;
+}
+
+.dim-role-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.dim-role-header:hover {
+  background: var(--planner-surface-hover);
+}
+
+.dim-role-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--planner-text-muted);
+  font-family: var(--font-display);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dim-role-item {
+  padding-left: 22px;
+}
+
 /* Search result items (flat list) */
 .search-result-item {
   padding: 8px 12px;
@@ -3405,6 +3489,13 @@ a.action-btn {
   font-weight: 500;
   font-family: var(--font-display);
   transition: all 0.12s ease;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.selected-chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
