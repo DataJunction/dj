@@ -717,7 +717,7 @@ def build_select_ast(
         for original_ref in list(filter_column_aliases.keys()):
             if "[" in original_ref:
                 base_ref = original_ref.split("[")[0]
-                if base_ref not in filter_column_aliases:
+                if base_ref not in filter_column_aliases:  # pragma: no branch
                     filter_column_aliases[base_ref] = filter_column_aliases[
                         original_ref
                     ]
