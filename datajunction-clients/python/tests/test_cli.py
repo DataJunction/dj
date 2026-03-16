@@ -1686,9 +1686,7 @@ class TestImpactAnalysis:
         cli = DJCLI(builder_client=mock.MagicMock())
         with patch.object(cli.deployment_service, "push") as mock_push:
             mock_push.return_value = None
-            with patch.object(
-                sys, "argv", ["dj", "push", str(tmp_path), "--force"]
-            ):
+            with patch.object(sys, "argv", ["dj", "push", str(tmp_path), "--force"]):
                 cli.run()
 
         mock_push.assert_called_once()
@@ -1702,9 +1700,7 @@ class TestImpactAnalysis:
         cli = DJCLI(builder_client=mock.MagicMock())
         with patch.object(cli.deployment_service, "push") as mock_push:
             mock_push.return_value = None
-            with patch.object(
-                sys, "argv", ["dj", "deploy", str(tmp_path), "--force"]
-            ):
+            with patch.object(sys, "argv", ["dj", "deploy", str(tmp_path), "--force"]):
                 cli.run()
 
         mock_push.assert_called_once()
