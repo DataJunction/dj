@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
+import difflib
 from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
@@ -799,6 +800,7 @@ class Column(Aliasable, Named, Expression):
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
+    _struct_hint: Optional[str] = field(repr=False, default=None)
     role: Optional[str] = None
     dimension_ref: Optional[str] = None
 
@@ -811,8 +813,10 @@ class Column(Aliasable, Named, Expression):
             self.add_type(self.expression.type)
             return self.expression.type
 
+        if self._struct_hint:
+            raise DJParseException(self._struct_hint)
         parent_expr = f"in {self.parent}" if self.parent else "that has no parent"
-        raise DJParseException(f"Cannot resolve type of column {self} {parent_expr}")
+        raise DJParseException(f"Cannot resolve type of column `{self}` {parent_expr}")
 
     def add_type(self, type_: ColumnType) -> "Column":
         """
@@ -1385,6 +1389,26 @@ class TableExpression(Aliasable, Expression):
         """
         return self._ref_columns
 
+    @staticmethod
+    def _resolve_struct_field_path(
+        struct_type: "StructType",
+        field_path: List[str],
+    ) -> Optional["ColumnType"]:
+        """
+        Walk a sequence of field names through nested StructTypes.
+        Returns the leaf ColumnType, or None if the path doesn't resolve.
+        """
+        current: "ColumnType" = struct_type
+        for field_name in field_path:
+            if not isinstance(current, StructType):
+                return None
+            fields_map = {f.name.name: f for f in current.fields}
+            nested = fields_map.get(field_name)
+            if nested is None:
+                return None
+            current = nested.type
+        return current
+
     async def add_ref_column(
         self,
         column: Column,
@@ -1530,6 +1554,48 @@ class TableExpression(Aliasable, Expression):
                                             column.add_expression(col)
                                             column.add_type(leaf_field.type)
                                             return True
+
+                    # General deep struct access: handles any namespace depth
+                    # e.g. table.a.b.c.d → find col named 'a', follow path [b, c, d]
+                    # Try each position in the full name parts as the struct column pivot
+                    all_parts = [n.name for n in column.namespace] + [column.name.name]
+                    col_id = col.alias_or_name.identifier(False)
+                    for pivot, part in enumerate(all_parts[:-1]):
+                        if col_id == part and isinstance(col.type, StructType):
+                            field_path = all_parts[pivot + 1 :]
+                            resolved = self._resolve_struct_field_path(
+                                col.type,
+                                field_path,
+                            )
+                            if resolved is not None:
+                                self._ref_columns.append(column)
+                                column.set_struct_ref()
+                                column.add_table(self)
+                                column.add_expression(col)
+                                column.add_type(resolved)
+                                return True
+                            # Field path not found in the struct — store a hint so the
+                            # error message can list the available fields instead of the
+                            # generic "Cannot resolve type" message.
+                            available = [f.name.name for f in col.type.fields]
+                            close = difflib.get_close_matches(
+                                field_path[0],
+                                available,
+                                n=3,
+                                cutoff=0.6,
+                            )
+                            if close:
+                                suggestion = ", ".join(f"`{c}`" for c in close)
+                                hint = f"Did you mean {suggestion}?"
+                            else:
+                                hint = (
+                                    f"Available top-level fields: "
+                                    f"{', '.join(f'`{f}`' for f in available)}"
+                                )
+                            column._struct_hint = (
+                                f"Field path '{'.'.join(field_path)}' not found in struct"
+                                f" '{col_id}'. {hint}"
+                            )
         return False
 
     def is_compiled(self) -> bool:
@@ -3061,6 +3127,25 @@ class Query(TableExpression, UnNamed):
                         if result:
                             matching_origin_tables += 1
                             col._is_compiled = True
+            # Fallback: for single-namespace columns not resolved by table alias or
+            # dimension reference, try struct-field resolution. This handles cases like
+            # `struct_col.field` where `struct_col` is a column in a source table (not
+            # a table alias). We only try tables that have a column named after the
+            # namespace to avoid incorrect matches.
+            if (
+                matching_origin_tables == 0
+                and col.namespace
+                and len(col.namespace) == 1
+            ):
+                struct_col_name = col.namespace[0].name
+                for option in table_options:
+                    if struct_col_name in option.column_mapping:
+                        result = option.add_column_reference(col)
+                        if result:
+                            matching_origin_tables += 1
+                            col._is_compiled = True
+                            break
+
             if matching_origin_tables > 1:
                 ctx.exception.errors.append(
                     DJError(
