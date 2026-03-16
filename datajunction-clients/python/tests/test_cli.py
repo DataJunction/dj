@@ -2497,3 +2497,35 @@ def test_setup_claude_subagent_overwrites_existing(tmp_path, monkeypatch):
     new_content = agent_file.read_text()
     assert "OLD CONTENT" not in new_content
     assert "name: dj" in new_content
+
+
+class TestDeploymentFailureExitsWithCode1:
+    """push and deploy commands must exit with code 1 when DJDeploymentFailure is raised."""
+
+    def _make_failure(self):
+        from datajunction.exceptions import DJDeploymentFailure
+
+        return DJDeploymentFailure(
+            project_name="my.ns",
+            errors=[{"name": "my.ns.node", "message": "something broke"}],
+        )
+
+    def test_push_exits_1_on_deployment_failure(self, tmp_path):
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli, "push", side_effect=self._make_failure()):
+            with patch.object(sys, "argv", ["dj", "push", str(tmp_path)]):
+                with pytest.raises(SystemExit) as exc_info:
+                    cli.main()
+                assert exc_info.value.code == 1
+
+    def test_deploy_exits_1_on_deployment_failure(self, tmp_path):
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli, "push", side_effect=self._make_failure()):
+            with patch.object(sys, "argv", ["dj", "deploy", str(tmp_path)]):
+                with pytest.raises(SystemExit) as exc_info:
+                    cli.main()
+                assert exc_info.value.code == 1
