@@ -3508,6 +3508,294 @@ class TestMultiHopIntermediateDimensionColumns:
             },
         ]
 
+    @pytest.mark.asyncio
+    async def test_multi_hop_to_date_via_customer_registration(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test two-hop join: order_details -> customer -> date (via registration_date).
+
+        The v3_customer CTE must include registration_date (the FK for the next hop)
+        so the second JOIN to v3_date can resolve.
+        Path: order_details -[customer]-> v3.customer -[registration]-> v3.date
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.year[customer->registration]"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, registration_date
+                FROM v3.src_customers
+            ),
+            v3_date AS (
+                SELECT date_id, year
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t3.year year_registration, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_date t3 ON t2.registration_date = t3.date_id
+                GROUP BY t3.year
+            )
+            SELECT order_details_0.year_registration AS year_registration,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.year_registration
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "year_registration",
+                "type": "int",
+                "semantic_entity": "v3.date.year[customer->registration]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_filter_only_on_multi_hop_dim(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that a multi-hop dimension can be used as a filter-only (not in GROUP BY).
+
+        Group by v3.product.category but filter on v3.location.country[customer->home].
+        The customer and location CTEs must still be joined to enable the WHERE clause.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.location.country[customer->home] = 'US'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert result["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_group_by_both_hops(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test grouping by a dimension at an intermediate hop AND the final hop.
+
+        Group by v3.customer.name[customer] (1-hop) AND v3.location.country[customer->home]
+        (2-hop). Both use the same intermediate customer join, so the v3_customer CTE
+        must include name (for group-by) and location_id (FK for the second hop).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.customer.name[customer]",
+                    "v3.location.country[customer->home]",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert result["columns"] == [
+            {
+                "name": "name_customer",
+                "type": "string",
+                "semantic_entity": "v3.customer.name[customer]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "country_home",
+                "type": "string",
+                "semantic_entity": "v3.location.country[customer->home]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_direct_and_multihop_same_destination(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test two paths that both reach v3.location but via different routes.
+
+        v3.location.country[from]: order_details.from_location_id -> location
+        v3.location.country[customer->home]: order_details.customer_id -> customer.location_id -> location
+
+        Both should produce separate CTEs/aliases even though they end at the same
+        dimension node.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[customer->home]",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert result["columns"] == [
+            {
+                "name": "country_from",
+                "type": "string",
+                "semantic_entity": "v3.location.country[from]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "country_home",
+                "type": "string",
+                "semantic_entity": "v3.location.country[customer->home]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_with_additional_direct_dim(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test combining a multi-hop dimension with an unrelated direct dimension.
+
+        v3.location.country[customer->home] requires the customer intermediate CTE.
+        v3.product.category is a direct 1-hop dimension.
+        Both should work together in a single grain group CTE.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[customer->home]",
+                    "v3.product.category",
+                ],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, location_id
+                FROM v3.src_customers
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t3.country country_home, t4.category,
+                       SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+                LEFT OUTER JOIN v3_product t4 ON t1.product_id = t4.product_id
+                GROUP BY t3.country, t4.category
+            )
+            SELECT order_details_0.country_home AS country_home,
+                   order_details_0.category AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.country_home, order_details_0.category
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "country_home",
+                "type": "string",
+                "semantic_entity": "v3.location.country[customer->home]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
 
 class TestFilterOnRoleDimension:
     """
@@ -3590,6 +3878,70 @@ class TestFilterOnRoleDimension:
         ]
 
     @pytest.mark.asyncio
+    async def test_filter_on_role_with_in_operator(self, client_with_build_v3):
+        """
+        Test that role-suffixed dimension filters work with the IN operator.
+
+        Same path as test_filter_on_role_dimension but with IN instead of >=.
+        The role-suffix subscript must be resolved before the IN expression is
+        processed, otherwise the SQL parser misidentifies [order] as a subscript.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.date.year[order]"],
+                "filters": ["v3.date.year[order] IN (2023, 2024)"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, year
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.year year_order, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                WHERE t2.year IN (2023, 2024)
+                GROUP BY t2.year
+            )
+            SELECT order_details_0.year_order AS year_order,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.year_order IN (2023, 2024)
+            GROUP BY order_details_0.year_order
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "year_order",
+                "type": "int",
+                "semantic_entity": "v3.date.year[order]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_filter_on_role_dimension_filter_only(self, client_with_build_v3):
         """
         Test filtering on a role-suffixed dimension that is NOT in GROUP BY.
@@ -3643,3 +3995,213 @@ class TestFilterOnRoleDimension:
             GROUP BY order_details_0.category
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_filter_on_location_from_role(self, client_with_build_v3):
+        """
+        Test filtering on a location dimension accessed via the 'from' role.
+
+        The [from] role connects order_details.from_location_id to v3.location.location_id.
+        The subscript [from] must be resolved before SQL generation so the WHERE clause
+        is valid SQL (not `t2.country[from] = 'US'`).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[from]"],
+                "filters": ["v3.location.country[from] = 'US'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.from_location_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.country country_from, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+                WHERE t2.country = 'US'
+                GROUP BY t2.country
+            )
+            SELECT order_details_0.country_from AS country_from,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.country_from = 'US'
+            GROUP BY order_details_0.country_from
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "country_from",
+                "type": "string",
+                "semantic_entity": "v3.location.country[from]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_two_roles_same_dim_group_by(self, client_with_build_v3):
+        """
+        Test that two different roles of the same dimension node can both be used as GROUP BY.
+
+        v3.location.city[from] and v3.location.city[to] both point to v3.location
+        but via different FKs (from_location_id and to_location_id). The grain group
+        CTE must join v3_location twice with distinct aliases.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert result["columns"] == [
+            {
+                "name": "city_from",
+                "type": "string",
+                "semantic_entity": "v3.location.city[from]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "city_to",
+                "type": "string",
+                "semantic_entity": "v3.location.city[to]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_and_group_by_on_separate_roles(self, client_with_build_v3):
+        """
+        Test grouping by one role of a dimension while filtering on a different role.
+
+        GROUP BY v3.location.country[from], filter WHERE v3.location.country[to] = 'UK'.
+        Both roles must be joined in the grain group CTE even though only [from] appears
+        in the GROUP BY.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[from]"],
+                "filters": ["v3.location.country[to] = 'UK'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert result["columns"] == [
+            {
+                "name": "country_from",
+                "type": "string",
+                "semantic_entity": "v3.location.country[from]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_on_multi_hop_role_dimension(self, client_with_build_v3):
+        """
+        Test filtering on a multi-hop role dimension.
+
+        Uses v3.location.country[customer->home] as both GROUP BY dimension and filter.
+        The filter must resolve the multi-hop path correctly and produce a WHERE clause
+        in both the inner grain CTE and the outer SELECT.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[customer->home]"],
+                "filters": ["v3.location.country[customer->home] = 'US'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, location_id
+                FROM v3.src_customers
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+                LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+                WHERE t3.country = 'US'
+                GROUP BY t3.country
+            )
+            SELECT order_details_0.country_home AS country_home,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.country_home = 'US'
+            GROUP BY order_details_0.country_home
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "country_home",
+                "type": "string",
+                "semantic_entity": "v3.location.country[customer->home]",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
