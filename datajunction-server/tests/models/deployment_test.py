@@ -150,6 +150,7 @@ def test_deployment_spec():
         "tags": [],
         "source": None,
         "auto_register_sources": True,
+        "force": False,
     }
 
 
@@ -338,3 +339,16 @@ def test_source_spec_with_dimension_link_default_value():
     assert len(source_spec.dimension_links) == 1
     assert source_spec.dimension_links[0].default_value == "Unknown User"
     assert source_spec.dimension_links[0].rendered_dimension_node == "test.users"
+
+
+def test_deployment_spec_force_defaults_to_false():
+    """DeploymentSpec.force should default to False."""
+    spec = DeploymentSpec(namespace="test", nodes=[])
+    assert spec.force is False
+
+
+def test_deployment_spec_force_can_be_set_true():
+    """DeploymentSpec.force=True should be accepted and round-trip via model_dump."""
+    spec = DeploymentSpec(namespace="test", nodes=[], force=True)
+    assert spec.force is True
+    assert spec.model_dump()["force"] is True

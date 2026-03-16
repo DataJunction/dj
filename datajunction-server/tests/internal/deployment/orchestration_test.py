@@ -505,6 +505,56 @@ class TestDeploymentPlanning:
         assert "catalog" not in result_catalogs
         assert len(orchestrator.errors) == 1
 
+    def test_filter_nodes_to_deploy_without_force(
+        self,
+        orchestrator,
+        sample_deployment_spec,
+    ):
+        """Unchanged nodes go to to_skip when force=False (default)."""
+        # Build an existing_nodes_map where every node matches the spec exactly
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        to_deploy, to_skip, to_delete = orchestrator.filter_nodes_to_deploy(
+            existing_specs,
+        )
+        assert to_deploy == []
+        assert len(to_skip) == len(sample_deployment_spec.nodes)
+        assert to_delete == []
+
+    def test_filter_nodes_to_deploy_with_force(
+        self,
+        session,
+        current_user,
+        sample_deployment_spec,
+    ):
+        """With force=True, unchanged nodes are moved to to_update instead of to_skip."""
+        force_spec = DeploymentSpec(
+            namespace=sample_deployment_spec.namespace,
+            nodes=sample_deployment_spec.nodes,
+            tags=sample_deployment_spec.tags,
+            force=True,
+        )
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=force_spec,
+            deployment_id="force-deployment",
+            session=session,
+            context=context,
+        )
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        to_deploy, to_skip, to_delete = orchestrator.filter_nodes_to_deploy(
+            existing_specs,
+        )
+        # All existing nodes should be re-deployed, none skipped
+        assert len(to_deploy) == len(sample_deployment_spec.nodes)
+        assert to_skip == []
+        assert to_delete == []
+
 
 class TestOrchestrationFlow:
     """Test end-to-end orchestration flow"""
