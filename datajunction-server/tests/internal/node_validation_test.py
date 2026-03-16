@@ -279,3 +279,75 @@ async def test_validate_node_with_nested_struct_field_access(
     output_col_types = {col.name: col.type for col in validator.columns}
     assert "total_clock_val" in output_col_types
     assert output_col_types["total_clock_val"] == ct.BigIntType()
+
+
+@pytest.mark.asyncio
+async def test_struct_field_access_depth1_valid(session: AsyncSession, user: User):
+    """
+    Validate that depth-1 struct field access (struct_col.field) resolves correctly
+    and produces a helpful error when the field doesn't exist.
+    """
+    from datajunction_server.sql.parsing.ast import Name
+
+    source_node = Node(
+        name="test.struct_depth1_source",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    # ad_account: struct<id string, status string, version bigint>
+    ad_account_col = Column(
+        name="ad_account",
+        type=ct.StructType(
+            ct.NestedField(name=Name("id"), field_type=ct.StringType()),
+            ct.NestedField(name=Name("status"), field_type=ct.StringType()),
+            ct.NestedField(name=Name("version"), field_type=ct.BigIntType()),
+        ),
+        order=0,
+    )
+    source_revision = NodeRevision(
+        name="test.struct_depth1_source",
+        display_name="Source with struct",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source_node,
+        columns=[ad_account_col],
+        created_by_id=user.id,
+    )
+    session.add(source_node)
+    session.add(source_revision)
+    await session.commit()
+
+    # Valid: accessing an existing field
+    valid_data = NodeRevisionBase(
+        name="test.struct_depth1_valid",
+        display_name="Child accessing valid struct field",
+        type=NodeType.TRANSFORM,
+        query="SELECT ad_account.status AS account_status FROM test.struct_depth1_source",
+        mode="published",
+    )
+    validator = await validate_node_data(valid_data, session)
+    assert validator.status == NodeStatus.VALID, (
+        f"Expected VALID but got {validator.status}. Errors: {validator.errors}"
+    )
+    output_col_types = {col.name: col.type for col in validator.columns}
+    assert output_col_types["account_status"] == ct.StringType()
+
+    # Invalid: accessing a non-existent field → should give a helpful error
+    invalid_data = NodeRevisionBase(
+        name="test.struct_depth1_invalid",
+        display_name="Child accessing missing struct field",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT ad_account.ad_account_status AS bad_col "
+            "FROM test.struct_depth1_source"
+        ),
+        mode="published",
+    )
+    validator_invalid = await validate_node_data(invalid_data, session)
+    assert validator_invalid.status == NodeStatus.INVALID
+    all_error_messages = " ".join(e.message for e in validator_invalid.errors)
+    assert "ad_account_status" in all_error_messages
+    assert "Available" in all_error_messages
