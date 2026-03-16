@@ -4353,6 +4353,13 @@ def infer_type(
 
 @Sum.register  # type: ignore
 def infer_type(
+    arg: ct.DoubleType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+@Sum.register  # type: ignore
+def infer_type(
     arg: Union[ct.NumberType, ct.IntervalTypeBase],
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -4404,6 +4411,8 @@ class Transform(Function):
         """
         Compiles the lambda function used by the `transform` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
+
+        Handles both direct param references (`x`) and struct field access (`x.field`).
         """
         from datajunction_server.sql.parsing import ast
 
@@ -4411,20 +4420,27 @@ class Transform(Function):
         available_identifiers = {
             identifier.name: idx for idx, identifier in enumerate(func.identifiers)
         }
-        columns = list(
-            func.expr.filter(
-                lambda x: isinstance(x, ast.Column)
-                and x.alias_or_name.name in available_identifiers,
-            ),
-        )
-        for col in columns:
-            # The array element arg
-            if available_identifiers.get(col.alias_or_name.name) == 0:
-                col.add_type(expr.type.element.type)
+        element_type = expr.type.element.type
 
-            # The index arg (optional)
-            if available_identifiers.get(col.alias_or_name.name) == 1:
-                col.add_type(ct.IntegerType())
+        for col in func.expr.find_all(ast.Column):
+            col_name = col.alias_or_name.name
+            col_ns = col.alias_or_name.namespace
+
+            # Direct reference to lambda param: x
+            if col_name in available_identifiers:
+                idx = available_identifiers[col_name]
+                if idx == 0:
+                    col.add_type(element_type)
+                elif idx == 1:  # optional index arg
+                    col.add_type(ct.IntegerType())
+
+            # Struct field access via lambda param namespace: x.field_name
+            elif col_ns is not None and col_ns.name in available_identifiers:
+                idx = available_identifiers[col_ns.name]
+                if idx == 0 and isinstance(element_type, ct.StructType):
+                    nested = element_type.fields_mapping.get(col_name)
+                    if nested is not None:
+                        col.add_type(nested.type)
 
 
 @Transform.register  # type: ignore
