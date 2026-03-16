@@ -181,7 +181,7 @@ def test_raising_when_table_has_no_dj_node():
     with pytest.raises(DJParseException) as exc_info:
         col.type
 
-    assert ("Cannot resolve type of column orders.status") in str(exc_info.value)
+    assert ("Cannot resolve type of column `orders.status`") in str(exc_info.value)
 
 
 def test_raising_when_select_has_multiple_expressions_in_projection():
@@ -227,7 +227,7 @@ def test_raising_when_expression_has_no_parent():
     with pytest.raises(DJParseException) as exc_info:
         col.type
 
-    assert "Cannot resolve type of column status that has no parent" in str(
+    assert "Cannot resolve type of column `status` that has no parent" in str(
         exc_info.value,
     )
 
