@@ -294,18 +294,23 @@ class DeploymentOrchestrator:
         logger.info("Attempting to auto-register missing sources...")
         auto_registered_sources: list[SourceSpec] = []
 
-        # Filter to only nodes that look like catalog.schema.table,
-        # stripping the configured source namespace prefix if present.
+        # Filter to only nodes that look like [source.]catalog.schema.table.
+        # The catalog.schema.table parts are used for catalog lookup and column introspection;
+        # the registered source node name preserves the original reference (including any prefix).
         missing_nodes_to_check: list[str] = []
-        for missing_node_name in missing_nodes:
-            parts = missing_node_name.split(".")
+        # Maps (catalog, schema, table) -> original full node name (may include source prefix)
+        original_node_names: dict[tuple, str] = {}
+        for original_name in missing_nodes:
+            parts = original_name.split(".")
+            stripped_parts = parts
             if source_prefix and parts[0] == source_prefix:
-                parts = parts[1:]
-                missing_node_name = ".".join(parts)
+                stripped_parts = parts[1:]
 
             # Only consider tables that look like catalog.schema.table (3 parts)
-            if len(parts) == 3:
-                missing_nodes_to_check.append(missing_node_name)
+            if len(stripped_parts) == 3:
+                stripped_name = ".".join(stripped_parts)
+                missing_nodes_to_check.append(stripped_name)
+                original_node_names[tuple(stripped_parts)] = original_name
 
         if not missing_nodes_to_check:
             logger.info("No missing nodes match catalog.schema.table pattern")
@@ -367,13 +372,17 @@ class DeploymentOrchestrator:
             ", ".join(sorted(missing_nodes_to_check)),
         )
 
-        # Build the flat list of (catalog, schema, table) tuples and a lookup back to names
+        # Build the flat list of (catalog, schema, table) tuples and a lookup back to names.
+        # Use the original name (with any source prefix) as the registered node name.
         tables = []
         node_info = {}
         for missing_node_name in missing_nodes_to_check:
             catalog, schema, table = missing_node_name.split(".")
             tables.append((catalog, schema, table))
-            node_info[(catalog, schema, table)] = missing_node_name
+            node_info[(catalog, schema, table)] = original_node_names.get(
+                (catalog, schema, table),
+                missing_node_name,
+            )
 
         request_headers = (
             dict(self.context.request.headers) if self.context.request else {}
