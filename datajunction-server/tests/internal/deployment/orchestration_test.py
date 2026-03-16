@@ -1539,6 +1539,57 @@ async def test_auto_register_sources_unknown_catalog(
 
 
 @pytest.mark.asyncio
+async def test_auto_register_sources_preserves_source_prefix_in_name(
+    session,
+    current_user: User,
+):
+    """When a table is referenced as source.catalog.schema.table, the registered
+    source node name should preserve the full 'source.' prefix, not strip it."""
+    catalog = Catalog(name="test_catalog")
+    session.add(catalog)
+    await session.commit()
+
+    mock_col = Mock()
+    mock_col.name = "id"
+    mock_col.type = "int"
+
+    mock_query_client = Mock()
+    mock_query_client.get_columns_for_tables_batch.return_value = {
+        ("test_catalog", "schema1", "table1"): [mock_col],
+    }
+
+    context = DeploymentContext(
+        current_user=current_user,
+        request=Mock(headers={}),
+        query_service_client=mock_query_client,
+        background_tasks=Mock(),
+        cache=Mock(),
+    )
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        nodes=[],
+        auto_register_sources=True,
+    )
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="test-deployment",
+        deployment_spec=deployment_spec,
+        session=session,
+        context=context,
+    )
+
+    # Reference uses the "source." prefix — the registered node name should keep it
+    result = await orchestrator._auto_register_sources(
+        ["source.test_catalog.schema1.table1"],
+    )
+
+    assert len(result) == 1
+    assert result[0].name == "source.test_catalog.schema1.table1"
+    assert result[0].catalog == "test_catalog"
+    assert result[0].schema_ == "schema1"
+    assert result[0].table == "table1"
+
+
+@pytest.mark.asyncio
 async def test_find_namespaces_to_create_root_level_node(session, current_user: User):
     """Line 444: a node whose rendered_name has no separator returns True immediately."""
     deployment_spec = DeploymentSpec(
