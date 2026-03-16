@@ -245,27 +245,20 @@ def _add_table_prefixes_to_filter(
         if not col_alias:
             col_alias = resolved_dim.column_name
 
-        # Map to appropriate table alias
-        if resolved_dim.is_local:
-            col_to_table[col_alias] = main_alias
-        elif resolved_dim.join_path:  # pragma: no branch
-            # Get the dimension's table alias for joined dimensions
-            # Build accumulated role path to match how joins were created
-            accumulated_role_parts = []
-            for link in resolved_dim.join_path.links:  # pragma: no branch
-                link_role = link.role or ""
-                if link_role:
-                    accumulated_role_parts.append(link_role)
-                accumulated_role = (
-                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
-                )
-                dim_key = (link.dimension.name, accumulated_role)
-                if dim_key in dim_aliases:  # pragma: no branch
-                    col_to_table[col_alias] = dim_aliases[dim_key]
-                    break
+        # Use get_dimension_table_alias for correctness — it uses the final target node
+        # and full accumulated role. The old loop-with-break approach incorrectly used the
+        # first matching intermediate node for multi-hop join paths.
+        table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
+        col_to_table[col_alias] = table_alias
 
     def add_prefixes(node: ast.Expression) -> None:
         """Recursively add table prefixes to columns."""
+        if isinstance(node, ast.Subscript):
+            # A Subscript that reaches here was not resolved by resolve_filter_references.
+            # The subscript index is a role marker (not a real column), so don't recurse
+            # into it — only process the base expression.
+            add_prefixes(node.expr)
+            return
         if isinstance(node, ast.Column):
             if node.name and not (node.name.namespace and node.name.namespace.name):
                 # Unqualified column - check if we know its table
@@ -588,7 +581,7 @@ def build_select_ast(
                     if resolved_dim.join_path.target_node_name == dim_node.name:
                         dim_cols.add(resolved_dim.column_name)
 
-                    # Add join key columns from this dimension
+                    # Add join key columns from this dimension (right side of this link)
                     if link.join_sql:  # pragma: no branch
                         dim_cols.update(
                             extract_join_columns_for_node(link.join_sql, dim_node.name),
@@ -599,6 +592,25 @@ def build_select_ast(
                         needed_columns_by_node[dim_node.name].update(dim_cols)
                     else:
                         needed_columns_by_node[dim_node.name] = dim_cols
+
+                # For multi-hop joins: the left side of this link is an intermediate
+                # dimension node that also needs the left-side join key columns.
+                # (For the first link, the left side is parent_node, already handled
+                # above in parent_needed_cols.)
+                left_node_name = link.node_revision.name
+                if left_node_name != parent_node.name and link.join_sql:
+                    left_node = ctx.nodes.get(left_node_name)
+                    if left_node and left_node.type != NodeType.SOURCE:
+                        left_join_cols = extract_join_columns_for_node(
+                            link.join_sql,
+                            left_node_name,
+                        )
+                        if left_node_name in needed_columns_by_node:
+                            needed_columns_by_node[left_node_name].update(
+                                left_join_cols,
+                            )
+                        else:
+                            needed_columns_by_node[left_node_name] = left_join_cols
 
     # Build temporal filter and attempt to push it into the upstream date-spine CTE.
     # Without pushdown, the filter lands on the outer grain-group query AFTER the
@@ -674,12 +686,12 @@ def build_select_ast(
             # we should map to "order_date" not "date_id"
             col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
 
-            # Fallback to registered alias or column name
+            # Fallback to the dimension's raw column name.
+            # We use the physical column name (not the registered alias) because
+            # _add_table_prefixes_to_filter uses resolved_dim.column_name as its
+            # col_to_table key, so both must agree on the same name.
             if not col_alias:
-                col_alias = ctx.alias_registry.get_alias(resolved_dim.original_ref)
-            if not col_alias:
-                # Defensive: dimensions should always be registered
-                col_alias = resolved_dim.column_name  # pragma: no cover
+                col_alias = resolved_dim.column_name
 
             filter_column_aliases[resolved_dim.original_ref] = col_alias
 
@@ -694,6 +706,19 @@ def build_select_ast(
         # Example: "dimensions.time.date.dateint" -> "utc_date"
         for dim_ref, local_col in ctx.skip_join_column_mapping.items():
             filter_column_aliases[dim_ref] = local_col
+
+        # Add bare keys (without role suffix) as fallbacks for filter resolution.
+        # This mirrors build_dimension_alias_map in metrics.py, so that a filter using
+        # a slightly different or missing role (e.g. "dim.col[typo]" when the registered
+        # dimension is "dim.col[correct_role]") can still resolve via the bare-key fallback
+        # in resolve_filter_references.
+        for original_ref in list(filter_column_aliases.keys()):
+            if "[" in original_ref:
+                base_ref = original_ref.split("[")[0]
+                if base_ref not in filter_column_aliases:
+                    filter_column_aliases[base_ref] = filter_column_aliases[
+                        original_ref
+                    ]
 
         # Parse and resolve filters
         # Note: We don't pass a cte_alias because the column references are already
