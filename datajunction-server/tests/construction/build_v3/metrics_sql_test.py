@@ -3991,7 +3991,6 @@ class TestFilterOnRoleDimension:
             SELECT order_details_0.category AS category,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
-            WHERE order_details_0.year_order >= 2024
             GROUP BY order_details_0.category
             """,
         )

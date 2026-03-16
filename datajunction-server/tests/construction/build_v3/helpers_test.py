@@ -472,6 +472,50 @@ class TestFilterHelpers:
         # The column should be resolved to use the alias
         assert result is not None
 
+    def test_resolve_filter_references_single_hop_role(self):
+        """Test that single-hop role subscripts (e.g., col[role]) are resolved."""
+        # v3.date.year[order] >= 2024 — [order] is a single-hop role
+        filter_ast = parse_filter("v3.date.year[order] >= 2024")
+        aliases = {
+            "v3.date.year[order]": "year_order",
+            "v3.date.year": "year",
+        }
+        result = resolve_filter_references(filter_ast, aliases)
+        # The subscript should be replaced with just the resolved column name
+        result_str = str(result)
+        assert "[order]" not in result_str
+        assert "year_order" in result_str
+
+    def test_resolve_filter_references_multi_hop_role(self):
+        """Test that multi-hop role subscripts (e.g., col[a->b]) are resolved.
+
+        The filter v3.location.country[customer->home] = 'US' has a subscript
+        whose index is an ast.Lambda ('customer->home' parses as a lambda expression).
+        Before the fix, the Lambda branch was missing and the subscript was left
+        unresolved, producing invalid SQL like `t3.country[customer->home] = 'US'`.
+        """
+        filter_ast = parse_filter("v3.location.country[customer->home] = 'US'")
+        aliases = {
+            "v3.location.country[customer->home]": "country_home",
+        }
+        result = resolve_filter_references(filter_ast, aliases)
+        result_str = str(result)
+        assert "[customer->home]" not in result_str
+        assert "country_home" in result_str
+
+    def test_resolve_filter_references_multi_hop_role_with_cte_alias(self):
+        """Test multi-hop role resolution in the outer SELECT (with cte_alias)."""
+        filter_ast = parse_filter("v3.location.country[customer->home] = 'US'")
+        aliases = {
+            "v3.location.country[customer->home]": "country_home",
+        }
+        result = resolve_filter_references(
+            filter_ast, aliases, cte_alias="order_details_0",
+        )
+        result_str = str(result)
+        assert "[customer->home]" not in result_str
+        assert "order_details_0.country_home" in result_str
+
 
 class TestBuildComponentExpression:
     """Tests for build_component_expression function."""
