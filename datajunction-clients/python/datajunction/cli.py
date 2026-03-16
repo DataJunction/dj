@@ -16,7 +16,7 @@ from rich.text import Text
 
 from datajunction import DJBuilder, Project
 from datajunction.deployment import DeploymentService
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJDeploymentFailure
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -252,11 +252,11 @@ class DJCLI:
         self.builder_client = builder_client
         self.deployment_service = DeploymentService(client=self.builder_client)
 
-    def push(self, directory: str, namespace: str | None = None):
+    def push(self, directory: str, namespace: str | None = None, verbose: bool = False):
         """
         Alias for deploy without dryrun.
         """
-        self.deployment_service.push(directory, namespace=namespace)
+        self.deployment_service.push(directory, namespace=namespace, verbose=verbose)
 
     def dryrun(
         self,
@@ -870,6 +870,11 @@ class DJCLI:
             choices=["text", "json"],
             help="Output format for dry run (default: text)",
         )
+        deploy_parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Show all results including noops",
+        )
 
         # `dj push <directory>` - primary deployment command
         push_parser = subparsers.add_parser(
@@ -890,6 +895,11 @@ class DJCLI:
             "--dryrun",
             action="store_true",
             help="Perform a dry run (show impact analysis without deploying)",
+        )
+        push_parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Show all results including noops",
         )
         push_parser.add_argument(
             "--format",
@@ -1290,7 +1300,10 @@ class DJCLI:
             if args.dryrun:
                 self.dryrun(args.directory, format=args.format)
                 return
-            self.push(args.directory)
+            try:
+                self.push(args.directory, verbose=args.verbose)
+            except DJDeploymentFailure:
+                raise SystemExit(1)
         elif args.command == "push":
             # Handle dry run first
             if args.dryrun:
@@ -1311,7 +1324,14 @@ class DJCLI:
                 os.environ["DJ_DEPLOY_CI_SYSTEM"] = args.ci_system
             if args.ci_run_url:
                 os.environ["DJ_DEPLOY_CI_RUN_URL"] = args.ci_run_url
-            self.push(args.directory, namespace=args.namespace)
+            try:
+                self.push(
+                    args.directory,
+                    namespace=args.namespace,
+                    verbose=args.verbose,
+                )
+            except DJDeploymentFailure:
+                raise SystemExit(1)
         elif args.command == "pull":
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":
