@@ -3529,6 +3529,7 @@ async def test_sum() -> None:
     assert (
         Sum.infer_type(ast.Column(ast.Name("x"), _type=BooleanType())) == BigIntType()
     )
+    assert Sum.infer_type(ast.Column(ast.Name("x"), _type=DoubleType())) == DoubleType()
 
 
 @pytest.mark.asyncio
@@ -3553,6 +3554,23 @@ async def test_transform(session: AsyncSession):
     ctx = ast.CompileContext(session=session, exception=DJException())
     await query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_transform_struct_field_access(session: AsyncSession):
+    """
+    Test that `transform` correctly resolves types when the lambda body accesses a
+    struct field via the lambda parameter (e.g. `x -> x.field_name`).
+    """
+    query = parse(
+        """
+        SELECT transform(creative_brands, x -> CAST(x.name AS STRING))
+        FROM source.prodhive.dse.ad_line_item_creative_r
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
 @pytest.mark.asyncio
