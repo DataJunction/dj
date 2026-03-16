@@ -1899,8 +1899,7 @@ async def test_auto_register_sources_backward_compat_with_source_prefix(
     assert len(deployment_spec.nodes) == 2
     auto_source = deployment_spec.nodes[0]
     assert isinstance(auto_source, SourceSpec)
-    assert auto_source.name == "testcatalog.myschema.mytable"
-    assert "source." not in auto_source.name
+    assert auto_source.name == "source.testcatalog.myschema.mytable"
 
 
 @pytest.mark.asyncio
