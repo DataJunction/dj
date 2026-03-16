@@ -257,7 +257,7 @@ class TestMetricsSQLDerived:
                    CAST(COUNT(DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
-            GROUP BY order_details_0.category
+            GROUP BY 1
             """,
         )
         # Only the derived metric appears in output (not base metrics)
@@ -420,7 +420,7 @@ class TestMetricsSQLDerived:
                 SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor,
                 SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4), 0) AS revenue_per_page_view
             FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.name_customer = page_views_enriched_0.name_customer
-            GROUP BY  order_details_0.category, order_details_0.name_customer
+            GROUP BY 1, 2
             """,
         )
         assert result["columns"] == [
@@ -942,7 +942,7 @@ class TestMetricsSQLDerived:
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
             WHERE order_details_0.category = 'Electronics'
-            GROUP BY order_details_0.category
+            GROUP BY 1
             """,
         )
 
@@ -1204,7 +1204,7 @@ class TestMetricsSQLCrossFact:
                    SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
-            GROUP BY order_details_0.category
+            GROUP BY 1
             """,
         )
         assert result["columns"] == [
@@ -1981,7 +1981,7 @@ class TestMetricsSQLNestedDerived:
                    / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT(DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
-            GROUP BY order_details_0.category
+            GROUP BY 1
             """,
         )
 
