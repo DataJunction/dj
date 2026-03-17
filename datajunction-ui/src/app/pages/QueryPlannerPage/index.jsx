@@ -84,6 +84,67 @@ export function QueryPlannerPage() {
   // Node selection for details panel
   const [selectedNode, setSelectedNode] = useState(null);
 
+  // Resizable pane widths (px); null = use CSS default
+  const [selectionWidth, setSelectionWidth] = useState(null);
+  const [detailsWidth, setDetailsWidth] = useState(null);
+  const plannerLayoutRef = useRef(null);
+
+  const handleSelectionResizerMouseDown = useCallback(
+    e => {
+      e.preventDefault();
+      const container = plannerLayoutRef.current;
+      if (!container) return;
+      const startX = e.clientX;
+      const startWidth = selectionWidth ?? container.offsetWidth * 0.2; // match CSS default 20%
+
+      const onMouseMove = moveEvent => {
+        const delta = moveEvent.clientX - startX;
+        const newWidth = Math.max(
+          200,
+          Math.min(container.offsetWidth * 0.5, startWidth + delta),
+        );
+        setSelectionWidth(newWidth);
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [selectionWidth],
+  );
+
+  const handleDetailsResizerMouseDown = useCallback(
+    e => {
+      e.preventDefault();
+      const container = plannerLayoutRef.current;
+      if (!container) return;
+      const startX = e.clientX;
+      const startWidth = detailsWidth ?? container.offsetWidth * 0.4; // match CSS default 40%
+
+      const onMouseMove = moveEvent => {
+        const delta = startX - moveEvent.clientX;
+        const newWidth = Math.max(
+          280,
+          Math.min(container.offsetWidth * 0.7, startWidth + delta),
+        );
+        setDetailsWidth(newWidth);
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [detailsWidth],
+  );
+
   // Materialization state - map of grain_key -> pre-agg info
   const [plannedPreaggs, setPlannedPreaggs] = useState({});
 
@@ -1229,9 +1290,12 @@ export function QueryPlannerPage() {
       )}
 
       {/* Three-column layout */}
-      <div className="planner-layout">
+      <div className="planner-layout" ref={plannerLayoutRef}>
         {/* Left: Selection Panel */}
-        <aside className="planner-selection">
+        <aside
+          className="planner-selection"
+          style={selectionWidth != null ? { width: selectionWidth } : undefined}
+        >
           <SelectionPanel
             metrics={metrics}
             selectedMetrics={selectedMetrics}
@@ -1256,6 +1320,13 @@ export function QueryPlannerPage() {
             compatibleMetrics={compatibleMetrics}
           />
         </aside>
+
+        {/* Vertical resizer between selection panel and main content */}
+        <div
+          className="vertical-resizer"
+          onMouseDown={handleSelectionResizerMouseDown}
+          title="Drag to resize"
+        />
 
         {/* Main Content Area - Either Results or Graph+Details */}
         {showResults ? (
@@ -1321,8 +1392,18 @@ export function QueryPlannerPage() {
               )}
             </main>
 
+            {/* Vertical resizer between graph and details */}
+            <div
+              className="vertical-resizer"
+              onMouseDown={handleDetailsResizerMouseDown}
+              title="Drag to resize"
+            />
+
             {/* Right: Details Panel */}
-            <aside className="planner-details">
+            <aside
+              className="planner-details"
+              style={detailsWidth != null ? { width: detailsWidth } : undefined}
+            >
               {selectedNode?.type === 'preagg' ||
               selectedNode?.type === 'component' ? (
                 <PreAggDetailsPanel
