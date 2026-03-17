@@ -45,13 +45,14 @@
 
 /* Full page layout */
 .planner-page {
-  height: 100vh;
+  height: calc(100vh - 90px);
   display: flex;
   flex-direction: column;
   background: var(--planner-bg);
   color: var(--planner-text);
   font-family: var(--font-body);
   overflow: hidden;
+  border-top: 1px solid #eee;
 }
 
 /* Header */
@@ -87,6 +88,14 @@
   border-radius: var(--radius-md);
   color: var(--accent-error);
   font-size: 13px;
+}
+
+.planner-error-banner {
+  flex-shrink: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
 }
 
 /* Materialization Error Banner */
@@ -374,6 +383,7 @@
 .planner-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -381,9 +391,10 @@
 .planner-selection {
   width: 20%;
   /* min-width: 280px; */
+  min-height: 0;
   background: var(--planner-surface);
   border-right: 1px solid var(--planner-border);
-  overflow: visible; /* Allow cube dropdown to overflow */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -480,8 +491,17 @@
 .selection-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: visible; /* Allow cube dropdown to overflow */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resizable-sections {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Cube Preset Section */
@@ -850,6 +870,20 @@
   accent-color: var(--accent-primary);
 }
 
+/* Incompatible metric (dims selected, this metric doesn't support them) */
+.selection-item.metric-incompatible {
+  opacity: 0.35;
+}
+
+/* Compatible badge shown next to metrics that match selected dims */
+.metric-compatible-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent-success);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .item-name {
   font-size: 13px;
   color: var(--planner-text);
@@ -879,6 +913,115 @@
   font-family: var(--font-display);
 }
 
+/* Dimension group (node-level header + items) */
+.dim-group {
+  margin-bottom: 4px;
+}
+
+.dim-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.dim-group-header:hover {
+  background: var(--planner-surface-hover);
+}
+
+.dim-group-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--planner-text);
+  font-family: var(--font-display);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dim-group-meta {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--planner-text-muted);
+  background: var(--planner-bg-subtle, rgba(0, 0, 0, 0.06));
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dim-group-count {
+  font-size: 11px;
+  color: var(--planner-text-dim);
+  flex-shrink: 0;
+}
+
+.dim-group-item {
+  padding-left: 28px;
+}
+
+/* Role path sub-group (second level) */
+.dim-role-group {
+  padding-left: 20px;
+}
+
+.dim-role-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.dim-role-header:hover {
+  background: var(--planner-surface-hover);
+}
+
+.dim-role-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--planner-text-muted);
+  font-family: var(--font-display);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dim-role-item {
+  padding-left: 22px;
+}
+
+.dim-filter-btn {
+  opacity: 0;
+  pointer-events: none;
+  margin-left: auto;
+  align-self: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--planner-text-dim);
+  font-size: 10px;
+  font-family: var(--font-display);
+  padding: 0 2px;
+  cursor: pointer;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.dim-role-item:hover .dim-filter-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dim-filter-btn:hover {
+  color: var(--accent-dimension);
+}
+
 /* Search result items (flat list) */
 .search-result-item {
   padding: 8px 12px;
@@ -901,6 +1044,19 @@
   background: var(--planner-border);
   margin: 0;
   flex-shrink: 0;
+}
+
+.section-divider.draggable-divider {
+  height: 5px;
+  cursor: row-resize;
+  background: var(--planner-border);
+  transition: background 0.15s;
+  position: relative;
+}
+
+.section-divider.draggable-divider:hover,
+.section-divider.draggable-divider:active {
+  background: var(--accent-primary);
 }
 
 .empty-list {
@@ -3406,6 +3562,13 @@ a.action-btn {
   font-family: var(--font-display);
   transition: all 0.12s ease;
   white-space: nowrap;
+  max-width: 260px;
+}
+
+.selected-chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Metrics: Pink (matches node_type__metric background #fad7dd) */
@@ -3469,9 +3632,8 @@ a.action-btn {
    ================================= */
 
 .filters-section {
-  flex: 0 0 auto !important;
-  min-height: auto !important;
-  overflow: visible !important;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .filter-chips-container {
@@ -3577,6 +3739,14 @@ a.action-btn {
    Engine Selection
    ================================= */
 
+.engine-run-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
 .engine-section {
   display: flex;
   align-items: center;
@@ -3628,7 +3798,6 @@ a.action-btn {
 
 .run-query-section {
   padding: 16px 12px;
-  border-top: 1px solid var(--planner-border);
   background: var(--planner-bg);
   flex-shrink: 0;
 }

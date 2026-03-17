@@ -43,7 +43,7 @@ describe('<Root />', () => {
 
     // Check navigation links exist
     expect(screen.getAllByText('Catalog')).toHaveLength(1);
-    expect(screen.getAllByText('Explore')).toHaveLength(1);
+    expect(screen.getAllByText('Explorer')).toHaveLength(1);
   });
 
   it('renders Docs dropdown', async () => {

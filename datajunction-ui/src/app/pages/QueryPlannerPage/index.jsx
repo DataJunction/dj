@@ -53,6 +53,9 @@ export function QueryPlannerPage() {
   const pendingDimensionsFromUrl = useRef([]);
   const pendingCubeFromUrl = useRef(null);
 
+  // Compatible metrics when dimensions are selected (phase 1: dimension-first flow)
+  const [compatibleMetrics, setCompatibleMetrics] = useState(null); // null = no filter active
+
   // Results state
   const [measuresResult, setMeasuresResult] = useState(null);
   const [metricsResult, setMetricsResult] = useState(null);
@@ -258,6 +261,33 @@ export function QueryPlannerPage() {
       setSelectedDimensions(validSelections);
     }
   }, [commonDimensions, selectedDimensions]);
+
+  // Phase 1: When dimensions are selected, reactively find compatible metrics
+  useEffect(() => {
+    if (selectedDimensions.length === 0) {
+      setCompatibleMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    djClient
+      .commonMetrics(selectedDimensions)
+      .then(result => {
+        if (cancelled) return;
+        // API returns array of node names (strings) or objects with a name field
+        if (Array.isArray(result)) {
+          const names = result.map(r => (typeof r === 'string' ? r : r.name));
+          setCompatibleMetrics(new Set(names));
+        } else {
+          setCompatibleMetrics(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCompatibleMetrics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDimensions, djClient]);
 
   // Fetch V3 measures and metrics SQL when selection, filters, or engine changes
   useEffect(() => {
@@ -1194,14 +1224,9 @@ export function QueryPlannerPage() {
 
   return (
     <div className="planner-page">
-      {/* Header */}
-      <header className="planner-header">
-        <div className="planner-header-content">
-          <h1>Explore</h1>
-          {/* <p>Explore metrics and dimensions and plan materializations</p> */}
-        </div>
-        {error && <div className="header-error">{error}</div>}
-      </header>
+      {error && (
+        <div className="header-error planner-error-banner">{error}</div>
+      )}
 
       {/* Three-column layout */}
       <div className="planner-layout">
@@ -1228,6 +1253,7 @@ export function QueryPlannerPage() {
               selectedMetrics.length > 0 && selectedDimensions.length > 0
             }
             queryLoading={queryLoading}
+            compatibleMetrics={compatibleMetrics}
           />
         </aside>
 
