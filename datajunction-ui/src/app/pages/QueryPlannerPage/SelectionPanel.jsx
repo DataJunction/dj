@@ -43,7 +43,8 @@ export function SelectionPanel({
   const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
   const [filterInput, setFilterInput] = useState('');
   const [split1, setSplit1] = useState(35); // metrics / dims boundary (%)
-  const [split2, setSplit2] = useState(70); // dims / filters boundary (%)
+  const [split2, setSplit2] = useState(65); // dims / filters boundary (%)
+  const [split3, setSplit3] = useState(85); // filters / engine+run boundary (%)
   const prevSearchRef = useRef('');
   const cubeDropdownRef = useRef(null);
   const metricsSearchRef = useRef(null);
@@ -51,10 +52,10 @@ export function SelectionPanel({
   const filterInputRef = useRef(null);
   const sectionsRef = useRef(null);
   const dragRef = useRef(null);
-  const splitRef = useRef({ split1: 35, split2: 70 });
+  const splitRef = useRef({ split1: 35, split2: 65, split3: 85 });
   useEffect(() => {
-    splitRef.current = { split1, split2 };
-  }, [split1, split2]);
+    splitRef.current = { split1, split2, split3 };
+  }, [split1, split2, split3]);
 
   // Threshold for showing expand/collapse button
   const CHIPS_COLLAPSE_THRESHOLD = 8;
@@ -381,7 +382,11 @@ export function SelectionPanel({
   const handleDividerMouseDown = useCallback((e, divider) => {
     e.preventDefault();
     const startSplit =
-      divider === 1 ? splitRef.current.split1 : splitRef.current.split2;
+      divider === 1
+        ? splitRef.current.split1
+        : divider === 2
+        ? splitRef.current.split2
+        : splitRef.current.split3;
     dragRef.current = { divider, startY: e.clientY, startSplit };
   }, []);
 
@@ -391,11 +396,15 @@ export function SelectionPanel({
       const height = sectionsRef.current.getBoundingClientRect().height;
       const deltaPct = ((e.clientY - dragRef.current.startY) / height) * 100;
       const { divider, startSplit } = dragRef.current;
-      const { split1, split2 } = splitRef.current;
+      const { split1, split2, split3 } = splitRef.current;
       if (divider === 1) {
         setSplit1(Math.max(10, Math.min(split2 - 15, startSplit + deltaPct)));
+      } else if (divider === 2) {
+        setSplit2(
+          Math.max(split1 + 15, Math.min(split3 - 10, startSplit + deltaPct)),
+        );
       } else {
-        setSplit2(Math.max(split1 + 15, Math.min(90, startSplit + deltaPct)));
+        setSplit3(Math.max(split2 + 10, Math.min(95, startSplit + deltaPct)));
       }
     };
     const onMouseUp = () => {
@@ -905,10 +914,9 @@ export function SelectionPanel({
                                     />
                                     <div className="dimension-info">
                                       <span className="item-name">
-                                        {dim.name
-                                          .replace(/\[[^\]]*\]$/, '')
-                                          .split('.')
-                                          .pop()}
+                                        {getDimDisplayName(
+                                          dim.name.replace(/\[[^\]]*\]$/, ''),
+                                        )}
                                       </span>
                                     </div>
                                     <button
@@ -948,7 +956,7 @@ export function SelectionPanel({
         {/* Filters Section */}
         <div
           className="selection-section filters-section"
-          style={{ flex: 100 - split2 }}
+          style={{ flex: split3 - split2 }}
         >
           <div className="section-header">
             <h3>Filters</h3>
@@ -993,55 +1001,67 @@ export function SelectionPanel({
             </button>
           </div>
         </div>
-      </div>
-      {/* end resizable-sections */}
 
-      {/* Engine Selection */}
-      <div className="engine-section">
-        <span className="engine-label">Engine</span>
-        <div className="engine-pills">
-          {ENGINE_OPTIONS.map(({ value, label }) => (
+        {/* Draggable Divider 3: filters / engine+run */}
+        <div
+          className="section-divider draggable-divider"
+          onMouseDown={e => handleDividerMouseDown(e, 3)}
+        />
+
+        {/* Engine + Run Query Section */}
+        <div
+          className="selection-section engine-run-section"
+          style={{ flex: 100 - split3 }}
+        >
+          {/* Engine Selection */}
+          <div className="engine-section">
+            <span className="engine-label">Engine</span>
+            <div className="engine-pills">
+              {ENGINE_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={label}
+                  className={`engine-pill${
+                    selectedEngine === value ? ' active' : ''
+                  }`}
+                  onClick={() => onEngineChange && onEngineChange(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Run Query Section */}
+          <div className="run-query-section">
             <button
-              key={label}
-              className={`engine-pill${
-                selectedEngine === value ? ' active' : ''
-              }`}
-              onClick={() => onEngineChange && onEngineChange(value)}
+              className="run-query-btn"
+              onClick={onRunQuery}
+              disabled={!canRunQuery || queryLoading}
             >
-              {label}
+              {queryLoading ? (
+                <>
+                  <span className="spinner small" />
+                  Running...
+                </>
+              ) : (
+                <>
+                  <span className="run-icon">▶</span>
+                  Run Query
+                </>
+              )}
             </button>
-          ))}
+            {!canRunQuery && selectedMetrics.length > 0 && (
+              <span className="run-hint">Select at least one dimension</span>
+            )}
+            {!canRunQuery && selectedMetrics.length === 0 && (
+              <span className="run-hint">
+                Select metrics and dimensions to run a query
+              </span>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Run Query Section */}
-      <div className="run-query-section">
-        <button
-          className="run-query-btn"
-          onClick={onRunQuery}
-          disabled={!canRunQuery || queryLoading}
-        >
-          {queryLoading ? (
-            <>
-              <span className="spinner small" />
-              Running...
-            </>
-          ) : (
-            <>
-              <span className="run-icon">▶</span>
-              Run Query
-            </>
-          )}
-        </button>
-        {!canRunQuery && selectedMetrics.length > 0 && (
-          <span className="run-hint">Select at least one dimension</span>
-        )}
-        {!canRunQuery && selectedMetrics.length === 0 && (
-          <span className="run-hint">
-            Select metrics and dimensions to run a query
-          </span>
-        )}
-      </div>
+      {/* end resizable-sections */}
     </div>
   );
 }

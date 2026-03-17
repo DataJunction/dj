@@ -55,6 +55,7 @@ jest.mock('../MetricFlowGraph', () => ({
 const mockDjClient = {
   metrics: jest.fn(),
   commonDimensions: jest.fn(),
+  commonMetrics: jest.fn(),
   measuresV3: jest.fn(),
   metricsV3: jest.fn(),
   listCubesForPreset: jest.fn(),
@@ -89,7 +90,7 @@ const mockCommonDimensions = [
     node_name: 'default.date_dim',
     node_display_name: 'Date',
     properties: [],
-    path: ['default.repair_orders', 'default.date_dim.dateint'],
+    path: ['default.date_dim'],
   },
   {
     name: 'default.date_dim.month',
@@ -97,7 +98,7 @@ const mockCommonDimensions = [
     node_name: 'default.date_dim',
     node_display_name: 'Date',
     properties: [],
-    path: ['default.repair_orders', 'default.date_dim.month'],
+    path: ['default.date_dim'],
   },
   {
     name: 'default.hard_hat.country',
@@ -105,7 +106,7 @@ const mockCommonDimensions = [
     node_name: 'default.hard_hat',
     node_display_name: 'Hard Hat',
     properties: [],
-    path: ['default.repair_orders', 'default.hard_hat.country'],
+    path: ['default.hard_hat'],
   },
 ];
 
@@ -192,6 +193,7 @@ describe('QueryPlannerPage', () => {
   beforeEach(() => {
     mockDjClient.metrics.mockResolvedValue(mockMetrics);
     mockDjClient.commonDimensions.mockResolvedValue(mockCommonDimensions);
+    mockDjClient.commonMetrics.mockResolvedValue([]);
     mockDjClient.measuresV3.mockResolvedValue(mockMeasuresResult);
     mockDjClient.metricsV3.mockResolvedValue(mockMetricsResult);
     mockDjClient.listCubesForPreset.mockResolvedValue(mockCubes);

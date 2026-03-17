@@ -15,22 +15,22 @@ const mockDimensions = [
   {
     name: 'default.date_dim.dateint',
     type: 'timestamp',
-    path: ['default.orders', 'default.date_dim.dateint'],
+    path: ['default.date_dim'],
   },
   {
     name: 'default.date_dim.month',
     type: 'int',
-    path: ['default.orders', 'default.date_dim.month'],
+    path: ['default.date_dim'],
   },
   {
     name: 'default.date_dim.year',
     type: 'int',
-    path: ['default.orders', 'default.date_dim.year'],
+    path: ['default.date_dim'],
   },
   {
     name: 'default.customer.country',
     type: 'string',
-    path: ['default.orders', 'default.customer.country'],
+    path: ['default.customer'],
   },
 ];
 
@@ -313,8 +313,8 @@ describe('SelectionPanel', () => {
 
     it('deduplicates dimensions with same name', () => {
       const duplicateDimensions = [
-        { name: 'default.date_dim.month', path: ['path1', 'path2', 'path3'] },
-        { name: 'default.date_dim.month', path: ['short', 'path'] },
+        { name: 'default.date_dim.month', path: ['path1'] },
+        { name: 'default.date_dim.month', path: ['short'] },
       ];
       render(
         <SelectionPanel
@@ -702,7 +702,7 @@ describe('SelectionPanel', () => {
         {
           name: 'default.date_dim.dateint',
           type: 'timestamp',
-          path: ['default.orders', 'default.date_dim.dateint'],
+          path: ['default.date_dim.dateint'],
         },
       ];
 
@@ -714,9 +714,9 @@ describe('SelectionPanel', () => {
         />,
       );
 
-      // Full name appears in both the dimension-full-name span and the path span
+      // Display name (last 2 segments) appears in the dimension item
       expect(
-        screen.getAllByText('default.date_dim.dateint').length,
+        screen.getAllByText('date_dim.dateint').length,
       ).toBeGreaterThanOrEqual(1);
     });
   });
