@@ -760,7 +760,9 @@ describe('ResultsView', () => {
         ],
       };
 
-      render(<ResultsView {...defaultProps} results={pivotedMultiMetricResults} />);
+      render(
+        <ResultsView {...defaultProps} results={pivotedMultiMetricResults} />,
+      );
       fireEvent.click(screen.getByText('Chart'));
 
       // pivotedByMetric.length === 2 → small-multiples wrapper
@@ -860,3 +862,4 @@ describe('ResultsView', () => {
       }).not.toThrow();
     });
   });
+});
