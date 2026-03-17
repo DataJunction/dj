@@ -9,10 +9,50 @@ These tests cover:
 
 import pytest
 from datajunction_server.construction.build_v3.builder import (
+    _normalize_query_param_value,
     setup_build_context,
 )
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.sql.parsing import ast
 
 from . import assert_sql_equal, get_first_grain_group
+
+
+class TestNormalizeQueryParamValue:
+    """Tests for _normalize_query_param_value covering all match branches."""
+
+    def test_ast_value_passthrough(self):
+        """Line 62: ast.Value() case returns the value unchanged."""
+        existing = ast.String("'hello'")
+        assert _normalize_query_param_value("p", existing) is existing
+
+    def test_bool_true(self):
+        """Line 64: bool True produces ast.Boolean."""
+        result = _normalize_query_param_value("p", True)
+        assert isinstance(result, ast.Boolean)
+        assert result.value is True
+
+    def test_bool_false(self):
+        """Line 64: bool False produces ast.Boolean."""
+        result = _normalize_query_param_value("p", False)
+        assert isinstance(result, ast.Boolean)
+        assert result.value is False
+
+    def test_none_produces_null(self):
+        """Line 67-68: None produces ast.Null."""
+        result = _normalize_query_param_value("p", None)
+        assert isinstance(result, ast.Null)
+
+    def test_str_produces_string(self):
+        """Lines 69-70: str produces ast.String with quotes."""
+        result = _normalize_query_param_value("p", "hello")
+        assert isinstance(result, ast.String)
+        assert result.value == "'hello'"
+
+    def test_unsupported_type_raises(self):
+        """Lines 71-74: unsupported type raises DJInvalidInputException."""
+        with pytest.raises(DJInvalidInputException, match="Unsupported parameter type"):
+            _normalize_query_param_value("p", [1, 2, 3])
 
 
 class TestInnerCTEFlattening:
