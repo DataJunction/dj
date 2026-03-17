@@ -358,9 +358,8 @@ async def build_measures_sql(
     # Build grain groups from context
     result = await build_grain_groups(ctx, metrics)
 
-    if query_parameters:
-        for gg in result.grain_groups:
-            substitute_query_params(gg.query, query_parameters)
+    for gg in result.grain_groups:
+        substitute_query_params(gg.query, query_parameters or {})
 
     return result
 
@@ -522,7 +521,6 @@ async def build_metrics_sql(
             limit,
         )
 
-    if query_parameters:
-        substitute_query_params(result.query, query_parameters)
+    substitute_query_params(result.query, query_parameters or {})
 
     return result
