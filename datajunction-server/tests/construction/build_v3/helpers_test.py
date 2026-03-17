@@ -23,6 +23,9 @@ from datajunction_server.construction.build_v3.filters import (
     parse_filter,
     resolve_filter_references,
 )
+from datajunction_server.construction.build_v3.measures import (
+    _add_table_prefixes_to_filter,
+)
 from datajunction_server.construction.build_v3.utils import (
     amenable_name,
     get_cte_name,
@@ -471,6 +474,157 @@ class TestFilterHelpers:
         result = resolve_filter_references(filter_ast, aliases, "t1")
         # The column should be resolved to use the alias
         assert result is not None
+
+    def test_resolve_filter_references_single_hop_role(self):
+        """Test that single-hop role subscripts (e.g., col[role]) are resolved."""
+        # v3.date.year[order] >= 2024 — [order] is a single-hop role
+        filter_ast = parse_filter("v3.date.year[order] >= 2024")
+        aliases = {
+            "v3.date.year[order]": "year_order",
+            "v3.date.year": "year",
+        }
+        result = resolve_filter_references(filter_ast, aliases)
+        # The subscript should be replaced with just the resolved column name
+        result_str = str(result)
+        assert "[order]" not in result_str
+        assert "year_order" in result_str
+
+    def test_resolve_filter_references_multi_hop_role(self):
+        """Test that multi-hop role subscripts (e.g., col[a->b]) are resolved.
+
+        The filter v3.location.country[customer->home] = 'US' has a subscript
+        whose index is an ast.Lambda ('customer->home' parses as a lambda expression).
+        Before the fix, the Lambda branch was missing and the subscript was left
+        unresolved, producing invalid SQL like `t3.country[customer->home] = 'US'`.
+        """
+        filter_ast = parse_filter("v3.location.country[customer->home] = 'US'")
+        aliases = {
+            "v3.location.country[customer->home]": "country_home",
+        }
+        result = resolve_filter_references(filter_ast, aliases)
+        result_str = str(result)
+        assert "[customer->home]" not in result_str
+        assert "country_home" in result_str
+
+    def test_resolve_filter_references_multi_hop_role_with_cte_alias(self):
+        """Test multi-hop role resolution in the outer SELECT (with cte_alias)."""
+        filter_ast = parse_filter("v3.location.country[customer->home] = 'US'")
+        aliases = {
+            "v3.location.country[customer->home]": "country_home",
+        }
+        result = resolve_filter_references(
+            filter_ast,
+            aliases,
+            cte_alias="order_details_0",
+        )
+        result_str = str(result)
+        assert "[customer->home]" not in result_str
+        assert "order_details_0.country_home" in result_str
+
+    def test_resolve_filter_references_unrecognized_subscript_index(self):
+        """Test that subscripts with unrecognized index types (not Column/Name/Lambda) are skipped.
+
+        Covers the branch where subscript.index is neither ast.Column, ast.Name, nor
+        ast.Lambda (e.g., a numeric literal), so role stays None and the subscript
+        is left unchanged.
+        """
+        # arr[0] has a numeric index — not a role marker
+        filter_ast = parse_filter("arr[0] = 'x'")
+        aliases = {}
+        result = resolve_filter_references(filter_ast, aliases)
+        # Subscript with unrecognized index is preserved as-is
+        assert result is not None
+        assert "[0]" in str(result)
+
+    def test_resolve_filter_references_role_not_in_aliases(self):
+        """Test that a role-subscript whose role doesn't appear in aliases is left unchanged.
+
+        Covers the branch where role is successfully extracted (Column index) but
+        alias_to_use is None (neither the role-qualified ref nor the base ref is in aliases).
+        """
+        filter_ast = parse_filter("v3.date.year[order] >= 2024")
+        # Empty aliases — the role 'order' is extracted but maps to nothing
+        result = resolve_filter_references(filter_ast, {})
+        # Subscript is preserved because there's no alias to replace it with
+        assert result is not None
+        assert "[order]" in str(result)
+
+
+class TestAddTablePrefixesToFilter:
+    """Tests for the _add_table_prefixes_to_filter helper in measures.py."""
+
+    def test_unresolved_subscript_only_processes_base_expr(self):
+        """Test that a Subscript node in the filter only recurses into its base expr.
+
+        Covers lines 260-261: when a Subscript reaches _add_table_prefixes_to_filter
+        (because resolve_filter_references didn't replace it), only node.expr is
+        processed — the subscript index is not recursed into.
+        """
+        # Build a filter with a subscript that was NOT resolved
+        filter_ast = parse_filter("arr[0] = 'x'")
+        # Empty resolved dimensions — col_to_table will be empty
+        mock_parent = MagicMock()
+        mock_parent.name = "parent"
+        mock_parent.current = MagicMock()
+        mock_parent.current.dimension_links = []
+
+        # Should not raise; the base expression (arr) will be processed
+        _add_table_prefixes_to_filter(
+            filter_ast,
+            resolved_dimensions=[],
+            main_alias="t1",
+            dim_aliases={},
+            parent_node=mock_parent,
+        )
+        # The subscript is still in the output (not resolved), but no error
+        assert "[0]" in str(filter_ast)
+
+    def test_already_qualified_column_is_skipped(self):
+        """Test that a pre-qualified column (e.g., t1.status) is not re-qualified.
+
+        Covers the False branch of `if node.name and not (node.name.namespace ...)`:
+        when a column already has a namespace (table qualifier), the inner block is
+        skipped and we fall through to recursing into children (line 276).
+        """
+        # t1.status is already table-qualified
+        filter_ast = parse_filter("t1.status = 'active'")
+        mock_parent = MagicMock()
+        mock_parent.name = "parent"
+        mock_parent.current = MagicMock()
+        mock_parent.current.dimension_links = []
+
+        _add_table_prefixes_to_filter(
+            filter_ast,
+            resolved_dimensions=[],
+            main_alias="fact",
+            dim_aliases={},
+            parent_node=mock_parent,
+        )
+        # Column should still be t1.status (unchanged)
+        assert "t1.status" in str(filter_ast)
+
+    def test_unknown_column_defaults_to_main_alias(self):
+        """Test that an unqualified column not in any dimension maps to main_alias.
+
+        Covers line 273: the else branch in add_prefixes when col_name is not in
+        col_to_table, so we fall back to prefixing with main_alias.
+        """
+        # 'status' is an unqualified column — not in any dimension's col_to_table
+        filter_ast = parse_filter("status = 'active'")
+        mock_parent = MagicMock()
+        mock_parent.name = "parent"
+        mock_parent.current = MagicMock()
+        mock_parent.current.dimension_links = []
+
+        _add_table_prefixes_to_filter(
+            filter_ast,
+            resolved_dimensions=[],
+            main_alias="t1",
+            dim_aliases={},
+            parent_node=mock_parent,
+        )
+        # Unknown column should be prefixed with main_alias
+        assert "t1.status" in str(filter_ast)
 
 
 class TestBuildComponentExpression:

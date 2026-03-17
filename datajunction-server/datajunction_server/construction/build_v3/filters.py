@@ -51,6 +51,10 @@ def resolve_filter_references(
     This replaces references like "v3.product.category" with the appropriate
     table-qualified column reference like "t2.category".
 
+    Also handles role-suffixed dimensions expressed as subscript syntax, e.g.:
+    "v3.date.month[order] >= 2024" where [order] is the role indicator.
+    The SQL parser interprets [order] as an array subscript (ast.Subscript).
+
     Args:
         filter_ast: The parsed filter expression (will be mutated!)
         column_aliases: Map from dimension ref (e.g., "v3.product.category") to alias (e.g., "category")
@@ -66,7 +70,55 @@ def resolve_filter_references(
         resolve_filter_references(filter_ast, aliases, "t2")
         # Now filter_ast contains "t2.category = 'Electronics'"
     """
+    # First pass: handle Subscript nodes that represent role-suffixed dimension refs.
+    # The SQL parser interprets "dim.col[role]" as Subscript(Column("dim.col"), Column("role")).
+    # We need to reconstruct the full dim ref with role and replace the entire Subscript.
+    for subscript in list(filter_ast.find_all(ast.Subscript)):
+        if not isinstance(subscript.expr, ast.Column):
+            continue  # pragma: no cover
 
+        base_col_ref = _extract_full_column_ref(subscript.expr)
+        if not base_col_ref:
+            continue  # pragma: no cover
+
+        # Extract the role from the subscript index
+        role = None
+        if isinstance(subscript.index, ast.Column):
+            role = subscript.index.name.name if subscript.index.name else None
+        elif isinstance(subscript.index, ast.Name):  # pragma: no cover
+            role = subscript.index.name
+        elif isinstance(subscript.index, ast.Lambda):
+            # Multi-hop role notation like "customer->home" is parsed as a Lambda node.
+            # Lambda.__str__ returns the canonical role string (e.g., "customer->home").
+            role = str(subscript.index)
+
+        if not role:
+            continue  # pragma: no cover
+
+        # Look up with role first, then fall back to base ref without role
+        dim_ref_with_role = f"{base_col_ref}[{role}]"
+        alias_to_use = column_aliases.get(dim_ref_with_role) or column_aliases.get(
+            base_col_ref,
+        )
+
+        if alias_to_use:
+            if cte_alias:
+                # Outer query: reference the grain group CTE column by registered alias
+                # (e.g., "order_details_0.year_order")
+                col_name_for_replacement = alias_to_use
+            else:
+                # Inner query: use the resolved alias directly. For regular dimensions
+                # this is the raw column name (e.g., "year"), which _add_table_prefixes_to_filter
+                # maps to the dimension's table alias. For skip-join (local) dimensions this is
+                # the FK column on the fact table (e.g., "utc_date_id").
+                col_name_for_replacement = alias_to_use
+            replacement = ast.Column(
+                name=ast.Name(col_name_for_replacement),
+                _table=ast.Table(ast.Name(cte_alias)) if cte_alias else None,
+            )
+            subscript.swap(replacement)
+
+    # Second pass: handle regular Column references (no subscript role syntax)
     def resolve_refs(node: ast.Expression) -> None:
         """Recursively resolve column references in the AST."""
         if isinstance(node, ast.Column):
