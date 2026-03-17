@@ -1427,4 +1427,100 @@ describe('QueryPlannerPage', () => {
       ).toBeInTheDocument();
     });
   });
+
+  describe('Pane Resize Handlers', () => {
+    it('resizes selection panel when dragging left vertical-resizer', async () => {
+      renderPage();
+      await waitFor(() => expect(mockDjClient.metrics).toHaveBeenCalled());
+
+      const resizers = document.querySelectorAll('.vertical-resizer');
+      // First resizer is between selection panel and main content
+      const selectionResizer = resizers[0];
+      expect(selectionResizer).toBeInTheDocument();
+
+      // Mousedown begins drag
+      fireEvent.mouseDown(selectionResizer, { clientX: 200 });
+
+      // Move right → wider selection panel
+      fireEvent.mouseMove(document, { clientX: 280 });
+
+      const selectionPane = document.querySelector('.planner-selection');
+      // Inline width should be applied (clamped to min 200)
+      expect(selectionPane.style.width).toBeTruthy();
+
+      // Mouseup ends drag
+      fireEvent.mouseUp(document);
+
+      // Further moves should not update
+      const widthAfterUp = selectionPane.style.width;
+      fireEvent.mouseMove(document, { clientX: 600 });
+      expect(selectionPane.style.width).toBe(widthAfterUp);
+    });
+
+    it('resizes details panel when dragging right vertical-resizer', async () => {
+      renderPage();
+      await waitFor(() => expect(mockDjClient.metrics).toHaveBeenCalled());
+
+      const resizers = document.querySelectorAll('.vertical-resizer');
+      // Second resizer is between graph and details panel (visible in non-results state)
+      expect(resizers.length).toBeGreaterThanOrEqual(2);
+      const detailsResizer = resizers[1];
+
+      // Mousedown begins drag
+      fireEvent.mouseDown(detailsResizer, { clientX: 800 });
+
+      // Move left → wider details panel
+      fireEvent.mouseMove(document, { clientX: 700 });
+
+      const detailsPane = document.querySelector('.planner-details');
+      expect(detailsPane.style.width).toBeTruthy();
+
+      // Mouseup ends drag
+      fireEvent.mouseUp(document);
+
+      const widthAfterUp = detailsPane.style.width;
+      fireEvent.mouseMove(document, { clientX: 400 });
+      expect(detailsPane.style.width).toBe(widthAfterUp);
+    });
+  });
+
+  describe('URL Init Edge Cases', () => {
+    it('handles invalid cube data returned from cubeForPlanner (missing cube_node_metrics)', async () => {
+      // cubeForPlanner returns data without cube_node_metrics array
+      mockDjClient.cubeForPlanner.mockResolvedValue({ name: 'bad.cube' });
+
+      renderPage(['/query-planner?cube=bad.cube']);
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith('bad.cube');
+      });
+
+      // Page should still render without crashing (invalid cube data logged, not applied)
+      expect(screen.getByText('Load from Cube')).toBeInTheDocument();
+    });
+
+    it('handles cubeForPlanner throwing during URL init', async () => {
+      mockDjClient.cubeForPlanner.mockRejectedValue(new Error('Network error'));
+
+      renderPage(['/query-planner?cube=bad.cube']);
+
+      await waitFor(() => {
+        expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();
+      });
+
+      // Page should still render gracefully
+      expect(screen.getByText('Load from Cube')).toBeInTheDocument();
+    });
+
+    it('handles metrics API failure on mount gracefully', async () => {
+      mockDjClient.metrics.mockRejectedValue(new Error('API down'));
+
+      // Should not throw
+      renderPage();
+
+      await waitFor(() => {
+        expect(mockDjClient.metrics).toHaveBeenCalled();
+      });
+    });
+  });
 });
