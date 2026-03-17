@@ -870,6 +870,20 @@
   accent-color: var(--accent-primary);
 }
 
+/* Incompatible metric (dims selected, this metric doesn't support them) */
+.selection-item.metric-incompatible {
+  opacity: 0.35;
+}
+
+/* Compatible badge shown next to metrics that match selected dims */
+.metric-compatible-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent-success);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .item-name {
   font-size: 13px;
   color: var(--planner-text);
