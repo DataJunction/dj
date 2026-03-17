@@ -45,7 +45,7 @@
 
 /* Full page layout */
 .planner-page {
-  height: 100vh;
+  height: calc(100vh - 90px);
   display: flex;
   flex-direction: column;
   background: var(--planner-bg);
@@ -3739,6 +3739,14 @@ a.action-btn {
    Engine Selection
    ================================= */
 
+.engine-run-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
 .engine-section {
   display: flex;
   align-items: center;
@@ -3790,7 +3798,6 @@ a.action-btn {
 
 .run-query-section {
   padding: 16px 12px;
-  border-top: 1px solid var(--planner-border);
   background: var(--planner-bg);
   flex-shrink: 0;
 }
