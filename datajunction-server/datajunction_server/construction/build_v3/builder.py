@@ -5,7 +5,7 @@ SQL Generation (V3): Measures and Metrics SQL Builders.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +53,47 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_query_param_value(param: str, value: ast.Value | Any) -> ast.Value:
+    """Normalize a Python value to an AST value node for query parameter substitution."""
+    match value:
+        case ast.Value():
+            return value
+        case bool():
+            return ast.Boolean(value)
+        case int() | float():
+            return ast.Number(value)
+        case None:
+            return ast.Null()
+        case str():
+            return ast.String(f"'{value}'")
+        case _:
+            raise DJInvalidInputException(
+                f"Unsupported parameter type: {type(value)} for param {param}",
+            )
+
+
+def substitute_query_params(
+    query: ast.Query,
+    query_parameters: dict[str, Any],
+) -> None:
+    """
+    Substitute QueryParameter placeholders (e.g. :param_name) in a query AST
+    with the provided literal values. Raises if a placeholder is found in the
+    AST but no value was supplied.
+    """
+    normalized = {
+        param: _normalize_query_param_value(param, value)
+        for param, value in query_parameters.items()
+    }
+    for param_node in query.find_all(ast.QueryParameter):
+        if param_node.name in normalized and param_node.parent:
+            param_node.parent.replace(param_node, normalized[param_node.name])
+        else:
+            raise DJInvalidInputException(
+                f"Missing value for query parameter: {param_node.name}",
+            )
 
 
 async def extract_temporal_partition_columns(
@@ -272,6 +313,7 @@ async def build_measures_sql(
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
+    query_parameters: dict[str, Any] | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -314,7 +356,13 @@ async def build_measures_sql(
     )
 
     # Build grain groups from context
-    return await build_grain_groups(ctx, metrics)
+    result = await build_grain_groups(ctx, metrics)
+
+    if query_parameters:
+        for gg in result.grain_groups:
+            substitute_query_params(gg.query, query_parameters)
+
+    return result
 
 
 async def build_grain_groups(
@@ -404,6 +452,7 @@ async def build_metrics_sql(
     dialect: Dialect | None = None,
     use_materialized: bool = True,
     matched_cube: Optional[NodeRevision] = None,
+    query_parameters: dict[str, Any] | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -455,18 +504,25 @@ async def build_metrics_sql(
 
     if use_materialized and cube and cube.availability:
         logger.info(f"[BuildV3] Layer 1: Using cube {cube.name}")
-        result = build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
-        return apply_orderby_limit(result, orderby, limit)
+        result = apply_orderby_limit(
+            build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics),
+            orderby,
+            limit,
+        )
+    else:
+        # No cube - build grain groups
+        measures_result = await build_grain_groups(ctx, metrics)
 
-    # No cube - build grain groups
-    measures_result = await build_grain_groups(ctx, metrics)
+        if not measures_result.grain_groups:  # pragma: no cover
+            raise DJInvalidInputException("No grain groups produced from measures SQL")
 
-    if not measures_result.grain_groups:  # pragma: no cover
-        raise DJInvalidInputException("No grain groups produced from measures SQL")
+        result = apply_orderby_limit(
+            generate_metrics_sql(ctx, measures_result, ctx.decomposed_metrics),
+            orderby,
+            limit,
+        )
 
-    result = generate_metrics_sql(
-        ctx,
-        measures_result,
-        ctx.decomposed_metrics,
-    )
-    return apply_orderby_limit(result, orderby, limit)
+    if query_parameters:
+        substitute_query_params(result.query, query_parameters)
+
+    return result
