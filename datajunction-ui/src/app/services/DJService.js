@@ -1055,7 +1055,6 @@ export const DataJunctionAPI = {
 
   commonMetrics: async function (dimensions) {
     // Dimension names are "node.attribute[role]" — strip role path and attribute to get node name
-    // e.g. "arc.main.time.year_month_d.year_month_id[year_month]" → "arc.main.time.year_month_d"
     const stripped = [
       ...new Set(
         dimensions
