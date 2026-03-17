@@ -125,7 +125,7 @@ function detectChartConfig(columns, rows) {
   return null;
 }
 
-const MAX_GROUP_VALUES = 7;
+const MAX_GROUP_VALUES = 50;
 
 function buildPivotedData(rows, columns, xCol, groupByCol, metricCols) {
   const xIdx = xCol.idx;

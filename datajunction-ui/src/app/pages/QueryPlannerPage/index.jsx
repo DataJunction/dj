@@ -1194,14 +1194,9 @@ export function QueryPlannerPage() {
 
   return (
     <div className="planner-page">
-      {/* Header */}
-      <header className="planner-header">
-        <div className="planner-header-content">
-          <h1>Explore</h1>
-          {/* <p>Explore metrics and dimensions and plan materializations</p> */}
-        </div>
-        {error && <div className="header-error">{error}</div>}
-      </header>
+      {error && (
+        <div className="header-error planner-error-banner">{error}</div>
+      )}
 
       {/* Three-column layout */}
       <div className="planner-layout">
