@@ -710,5 +710,156 @@ describe('ResultsView', () => {
       expect(link).toBeInTheDocument();
       expect(link).toHaveAttribute('href', 'https://example.com/query/123');
     });
+
+    // ── Pivoted chart paths (buildPivotedData + ChartView branches) ──────────
+
+    it('renders pivoted line chart for time + 1 categorical + 1 metric (groupByCol path)', () => {
+      // detectChartConfig line 84-90: timeCols + nonTimeCatCols.length === 1
+      // buildPivotedData lines 131-178, useMemo lines 505-512, ChartView line 353
+      const pivotedLineResults = {
+        results: [
+          {
+            columns: [
+              { name: 'date', type: 'DATE' },
+              { name: 'country', type: 'STRING' },
+              { name: 'revenue', type: 'FLOAT' },
+            ],
+            rows: [
+              ['2024-01-01', 'US', 1000],
+              ['2024-01-01', 'UK', 500],
+              ['2024-01-02', 'US', 1200],
+              ['2024-01-02', null, 300], // null group value → '(null)'
+            ],
+          },
+        ],
+      };
+
+      render(<ResultsView {...defaultProps} results={pivotedLineResults} />);
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(screen.getByTestId('LineChart')).toBeInTheDocument();
+    });
+
+    it('renders pivoted multi-metric small multiples (time + 1 cat + 2 metrics)', () => {
+      // ChartView lines 331-334: pivotedByMetric.length > 1
+      const pivotedMultiMetricResults = {
+        results: [
+          {
+            columns: [
+              { name: 'date', type: 'DATE' },
+              { name: 'country', type: 'STRING' },
+              { name: 'revenue', type: 'FLOAT' },
+              { name: 'orders', type: 'FLOAT' },
+            ],
+            rows: [
+              ['2024-01-01', 'US', 1000, 10],
+              ['2024-01-01', 'UK', 500, 5],
+              ['2024-01-02', 'US', 1200, 12],
+            ],
+          },
+        ],
+      };
+
+      render(
+        <ResultsView {...defaultProps} results={pivotedMultiMetricResults} />,
+      );
+      fireEvent.click(screen.getByText('Chart'));
+
+      // pivotedByMetric.length === 2 → small-multiples wrapper
+      expect(document.querySelector('.small-multiples')).toBeInTheDocument();
+      const labels = document.querySelectorAll('.small-multiple-label');
+      expect(labels.length).toBe(2);
+      expect(labels[0]).toHaveTextContent('revenue');
+      expect(labels[1]).toHaveTextContent('orders');
+    });
+
+    it('renders grouped bar chart for 2 categorical columns (lines 101-107)', () => {
+      // detectChartConfig: nonTimeCatCols.length === 2 → bar with groupByCol
+      const groupedBarResults = {
+        results: [
+          {
+            columns: [
+              { name: 'region', type: 'STRING' },
+              { name: 'category', type: 'STRING' },
+              { name: 'revenue', type: 'FLOAT' },
+            ],
+            rows: [
+              ['North', 'A', 1000],
+              ['South', 'A', 800],
+              ['North', 'B', 600],
+              ['South', null, 400], // null group value
+            ],
+          },
+        ],
+      };
+
+      render(<ResultsView {...defaultProps} results={groupedBarResults} />);
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(screen.getByTestId('BarChart')).toBeInTheDocument();
+    });
+
+    it('renders bar chart for 3+ categorical columns falling back to first as x-axis (lines 108-110)', () => {
+      const threeCatResults = {
+        results: [
+          {
+            columns: [
+              { name: 'a', type: 'STRING' },
+              { name: 'b', type: 'STRING' },
+              { name: 'c', type: 'STRING' },
+              { name: 'metric', type: 'FLOAT' },
+            ],
+            rows: [
+              ['x1', 'y1', 'z1', 100],
+              ['x2', 'y2', 'z2', 200],
+            ],
+          },
+        ],
+      };
+
+      render(<ResultsView {...defaultProps} results={threeCatResults} />);
+      fireEvent.click(screen.getByText('Chart'));
+
+      expect(screen.getByTestId('BarChart')).toBeInTheDocument();
+    });
+  });
+
+  describe('Pane Resize', () => {
+    it('handles SQL pane drag resize via horizontal-resizer', () => {
+      render(<ResultsView {...defaultProps} />);
+
+      const resizer = document.querySelector('.horizontal-resizer');
+      expect(resizer).toBeInTheDocument();
+
+      // Mousedown starts the drag
+      fireEvent.mouseDown(resizer, { clientY: 300 });
+
+      // Mousemove updates height (in jsdom offsetHeight is 0, so newHeight clamps to min 80)
+      fireEvent.mouseMove(document, { clientY: 350 });
+
+      // Inline style should be applied to sql-pane
+      const sqlPane = document.querySelector('.sql-pane');
+      expect(sqlPane.style.maxHeight).toBeTruthy();
+
+      // Mouseup removes event listeners
+      fireEvent.mouseUp(document);
+
+      // Further moves should not update (listeners removed)
+      const heightAfterUp = sqlPane.style.maxHeight;
+      fireEvent.mouseMove(document, { clientY: 500 });
+      expect(sqlPane.style.maxHeight).toBe(heightAfterUp);
+    });
+
+    it('does not update height when no resultsPanesRef container', () => {
+      // Renders and immediately fires mousedown on resizer
+      render(<ResultsView {...defaultProps} />);
+      const resizer = document.querySelector('.horizontal-resizer');
+      // Should not throw even if container measures are 0
+      expect(() => {
+        fireEvent.mouseDown(resizer, { clientY: 100 });
+        fireEvent.mouseMove(document, { clientY: 200 });
+        fireEvent.mouseUp(document);
+      }).not.toThrow();
+    });
   });
 });
