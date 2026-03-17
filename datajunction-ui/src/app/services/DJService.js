@@ -1053,6 +1053,33 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  commonMetrics: async function (dimensions) {
+    // Dimension names are "node.attribute[role]" — strip role path and attribute to get node name
+    const stripped = [
+      ...new Set(
+        dimensions
+          .map(d =>
+            d
+              .replace(/\[[^\]]*\]$/, '')
+              .split('.')
+              .slice(0, -1)
+              .join('.'),
+          )
+          .filter(Boolean),
+      ),
+    ];
+    if (stripped.length === 0) return [];
+    const dimsQuery =
+      '?' +
+      stripped.map(d => `dimension=${encodeURIComponent(d)}`).join('&') +
+      '&node_type=metric';
+    return await (
+      await fetch(`${DJ_URL}/dimensions/common/${dimsQuery}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   history: async function (type, name, offset, limit) {
     return await (
       await fetch(
