@@ -234,6 +234,7 @@ function KpiCards({ rows, metricCols }) {
 const CHART_MARGIN = { top: 8, right: 24, left: 8, bottom: 40 };
 const AXIS_TICK = { fontSize: 11, fill: '#64748b' };
 const TOOLTIP_STYLE = { fontSize: 12, border: '1px solid #e2e8f0' };
+const TOOLTIP_WRAPPER_STYLE = { zIndex: 9999 };
 
 const Chart = memo(function Chart({
   type,
@@ -262,7 +263,10 @@ const Chart = memo(function Chart({
             interval={xInterval}
           />
           <YAxis tickFormatter={formatYAxis} tick={AXIS_TICK} width={60} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} />
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            wrapperStyle={TOOLTIP_WRAPPER_STYLE}
+          />
           {keys.map((key, i) => (
             <Line
               key={key}
