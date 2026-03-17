@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, memo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -417,6 +417,38 @@ export function ResultsView({
   const [sortDirection, setSortDirection] = useState('asc');
   const [activeTab, setActiveTab] = useState('table');
 
+  // Resizable SQL pane height (px); null = use CSS default
+  const [sqlPaneHeight, setSqlPaneHeight] = useState(null);
+  const resultsPanesRef = useRef(null);
+
+  const handleSqlResizerMouseDown = useCallback(
+    e => {
+      e.preventDefault();
+      const container = resultsPanesRef.current;
+      if (!container) return;
+      const startY = e.clientY;
+      const startHeight = sqlPaneHeight ?? container.offsetHeight * 0.333;
+
+      const onMouseMove = moveEvent => {
+        const delta = moveEvent.clientY - startY;
+        const newHeight = Math.max(
+          80,
+          Math.min(container.offsetHeight * 0.8, startHeight + delta),
+        );
+        setSqlPaneHeight(newHeight);
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [sqlPaneHeight],
+  );
+
   const handleCopySql = useCallback(() => {
     if (sqlQuery) {
       navigator.clipboard.writeText(sqlQuery);
@@ -524,9 +556,16 @@ export function ResultsView({
       </div>
 
       {/* Two-pane layout: SQL (top) + Results (bottom) */}
-      <div className="results-panes">
+      <div className="results-panes" ref={resultsPanesRef}>
         {/* SQL Pane */}
-        <div className="sql-pane">
+        <div
+          className="sql-pane"
+          style={
+            sqlPaneHeight != null
+              ? { flex: `0 0 ${sqlPaneHeight}px`, maxHeight: sqlPaneHeight }
+              : undefined
+          }
+        >
           <div className="sql-pane-header">
             <span className="sql-pane-title">SQL Query</span>
             {cubeName && (
@@ -588,6 +627,13 @@ export function ResultsView({
             )}
           </div>
         </div>
+
+        {/* Horizontal resizer between SQL and results panes */}
+        <div
+          className="horizontal-resizer"
+          onMouseDown={handleSqlResizerMouseDown}
+          title="Drag to resize"
+        />
 
         {/* Results Pane */}
         <div className="results-pane">
