@@ -52,6 +52,7 @@
   color: var(--planner-text);
   font-family: var(--font-body);
   overflow: hidden;
+  border-top: 1px solid #eee;
 }
 
 /* Header */
@@ -87,6 +88,14 @@
   border-radius: var(--radius-md);
   color: var(--accent-error);
   font-size: 13px;
+}
+
+.planner-error-banner {
+  flex-shrink: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
 }
 
 /* Materialization Error Banner */
@@ -374,6 +383,7 @@
 .planner-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -381,9 +391,10 @@
 .planner-selection {
   width: 20%;
   /* min-width: 280px; */
+  min-height: 0;
   background: var(--planner-surface);
   border-right: 1px solid var(--planner-border);
-  overflow: visible; /* Allow cube dropdown to overflow */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -480,8 +491,17 @@
 .selection-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: visible; /* Allow cube dropdown to overflow */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resizable-sections {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Cube Preset Section */
@@ -963,6 +983,31 @@
   padding-left: 22px;
 }
 
+.dim-filter-btn {
+  opacity: 0;
+  pointer-events: none;
+  margin-left: auto;
+  align-self: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--planner-text-dim);
+  font-size: 10px;
+  font-family: var(--font-display);
+  padding: 0 2px;
+  cursor: pointer;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.dim-role-item:hover .dim-filter-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dim-filter-btn:hover {
+  color: var(--accent-dimension);
+}
+
 /* Search result items (flat list) */
 .search-result-item {
   padding: 8px 12px;
@@ -985,6 +1030,19 @@
   background: var(--planner-border);
   margin: 0;
   flex-shrink: 0;
+}
+
+.section-divider.draggable-divider {
+  height: 5px;
+  cursor: row-resize;
+  background: var(--planner-border);
+  transition: background 0.15s;
+  position: relative;
+}
+
+.section-divider.draggable-divider:hover,
+.section-divider.draggable-divider:active {
+  background: var(--accent-primary);
 }
 
 .empty-list {
@@ -3560,9 +3618,8 @@ a.action-btn {
    ================================= */
 
 .filters-section {
-  flex: 0 0 auto !important;
-  min-height: auto !important;
-  overflow: visible !important;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .filter-chips-container {

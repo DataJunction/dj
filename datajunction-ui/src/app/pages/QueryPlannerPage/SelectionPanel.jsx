@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 
 const ENGINE_OPTIONS = [
   { value: null, label: 'Auto' },
@@ -41,10 +41,19 @@ export function SelectionPanel({
   const [metricsChipsExpanded, setMetricsChipsExpanded] = useState(false);
   const [dimensionsChipsExpanded, setDimensionsChipsExpanded] = useState(false);
   const [filterInput, setFilterInput] = useState('');
+  const [split1, setSplit1] = useState(35); // metrics / dims boundary (%)
+  const [split2, setSplit2] = useState(70); // dims / filters boundary (%)
   const prevSearchRef = useRef('');
   const cubeDropdownRef = useRef(null);
   const metricsSearchRef = useRef(null);
   const dimensionsSearchRef = useRef(null);
+  const filterInputRef = useRef(null);
+  const sectionsRef = useRef(null);
+  const dragRef = useRef(null);
+  const splitRef = useRef({ split1: 35, split2: 70 });
+  useEffect(() => {
+    splitRef.current = { split1, split2 };
+  }, [split1, split2]);
 
   // Threshold for showing expand/collapse button
   const CHIPS_COLLAPSE_THRESHOLD = 8;
@@ -368,6 +377,37 @@ export function SelectionPanel({
 
   const getDimGroupShortName = nodeKey => nodeKey.split('.').pop();
 
+  const handleDividerMouseDown = useCallback((e, divider) => {
+    e.preventDefault();
+    const startSplit =
+      divider === 1 ? splitRef.current.split1 : splitRef.current.split2;
+    dragRef.current = { divider, startY: e.clientY, startSplit };
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = e => {
+      if (!dragRef.current || !sectionsRef.current) return;
+      const height = sectionsRef.current.getBoundingClientRect().height;
+      const deltaPct = ((e.clientY - dragRef.current.startY) / height) * 100;
+      const { divider, startSplit } = dragRef.current;
+      const { split1, split2 } = splitRef.current;
+      if (divider === 1) {
+        setSplit1(Math.max(10, Math.min(split2 - 15, startSplit + deltaPct)));
+      } else {
+        setSplit2(Math.max(split1 + 15, Math.min(90, startSplit + deltaPct)));
+      }
+    };
+    const onMouseUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
   const toggleMetric = metric => {
     if (selectedMetrics.includes(metric)) {
       onMetricsChange(selectedMetrics.filter(m => m !== metric));
@@ -438,6 +478,14 @@ export function SelectionPanel({
     if (onFiltersChange) {
       onFiltersChange(filters.filter(f => f !== filterToRemove));
     }
+  };
+
+  const addDimAsFilter = (e, dimName) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const prefix = filterInput.trim() ? filterInput.trimEnd() + ' AND ' : '';
+    setFilterInput(prefix + dimName + ' ');
+    filterInputRef.current?.focus();
   };
 
   return (
@@ -513,40 +561,383 @@ export function SelectionPanel({
         </div>
       )}
 
-      {/* Metrics Section */}
-      <div className="selection-section">
-        <div className="section-header">
-          <h3>Metrics</h3>
-          <span className="selection-count">
-            {selectedMetrics.length} selected
-          </span>
+      {/* Resizable sections */}
+      <div className="resizable-sections" ref={sectionsRef}>
+        {/* Metrics Section */}
+        <div className="selection-section" style={{ flex: split1 }}>
+          <div className="section-header">
+            <h3>Metrics</h3>
+            <span className="selection-count">
+              {selectedMetrics.length} selected
+            </span>
+          </div>
+
+          {/* Combined Chips + Search Input */}
+          <div
+            className="combobox-input"
+            onClick={() => metricsSearchRef.current?.focus()}
+          >
+            {selectedMetrics.length > 0 && (
+              <div
+                className={`combobox-chips ${
+                  selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD
+                    ? metricsChipsExpanded
+                      ? 'expanded'
+                      : 'collapsed'
+                    : ''
+                }`}
+              >
+                {selectedMetrics.map(metric => (
+                  <span key={metric} className="selected-chip metric-chip">
+                    {getShortName(metric)}
+                    <button
+                      className="chip-remove"
+                      onClick={e => {
+                        e.stopPropagation();
+                        removeMetric(metric);
+                      }}
+                      title={`Remove ${getShortName(metric)}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="combobox-input-row">
+              <input
+                ref={metricsSearchRef}
+                type="text"
+                className="combobox-search"
+                placeholder="Search metrics..."
+                value={metricsSearch}
+                onChange={e => setMetricsSearch(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+              {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
+                <button
+                  className="combobox-action"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setMetricsChipsExpanded(!metricsChipsExpanded);
+                  }}
+                >
+                  {metricsChipsExpanded ? 'Show less' : 'Show all'}
+                </button>
+              )}
+              {selectedMetrics.length > 0 && (
+                <button
+                  className="combobox-action"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onMetricsChange([]);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="selection-list">
+            {sortedNamespaces.map(namespace => {
+              const items = filteredGroups[namespace];
+              const isExpanded = expandedNamespaces.has(namespace);
+              const selectedInNamespace = items.filter(m =>
+                selectedMetrics.includes(m),
+              ).length;
+
+              return (
+                <div key={namespace} className="namespace-group">
+                  <div
+                    className="namespace-header"
+                    onClick={() => toggleNamespace(namespace)}
+                  >
+                    <span className="expand-icon">
+                      {isExpanded ? '▼' : '▶'}
+                    </span>
+                    <span className="namespace-name">{namespace}</span>
+                    <span className="namespace-count">
+                      {selectedInNamespace > 0 && (
+                        <span className="selected-badge">
+                          {selectedInNamespace}
+                        </span>
+                      )}
+                      {items.length}
+                    </span>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="namespace-items">
+                      <div className="namespace-actions">
+                        <button
+                          type="button"
+                          className="select-all-btn"
+                          onClick={() => selectAllInNamespace(namespace, items)}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="select-all-btn"
+                          onClick={() =>
+                            deselectAllInNamespace(namespace, items)
+                          }
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      {items.map(metric => (
+                        <label key={metric} className="selection-item">
+                          <input
+                            type="checkbox"
+                            checked={selectedMetrics.includes(metric)}
+                            onChange={() => toggleMetric(metric)}
+                          />
+                          <span className="item-name">
+                            {getShortName(metric)}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {sortedNamespaces.length === 0 && (
+              <div className="empty-list">
+                {metricsSearch
+                  ? 'No metrics match your search'
+                  : 'No metrics available'}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Combined Chips + Search Input */}
+        {/* Draggable Divider 1: metrics / dims */}
         <div
-          className="combobox-input"
-          onClick={() => metricsSearchRef.current?.focus()}
+          className="section-divider draggable-divider"
+          onMouseDown={e => handleDividerMouseDown(e, 1)}
+        />
+
+        {/* Dimensions Section */}
+        <div className="selection-section" style={{ flex: split2 - split1 }}>
+          <div className="section-header">
+            <h3>Dimensions</h3>
+            <span className="selection-count">
+              {selectedDimensions.length} selected
+              {dimensions.length > 0 && ` / ${dimensions.length} available`}
+            </span>
+          </div>
+
+          {selectedMetrics.length === 0 ? (
+            <div className="empty-list hint">
+              Select metrics to see available dimensions
+            </div>
+          ) : loading ? (
+            <div className="empty-list">Loading dimensions...</div>
+          ) : (
+            <>
+              {/* Combined Chips + Search Input */}
+              <div
+                className="combobox-input"
+                onClick={() => dimensionsSearchRef.current?.focus()}
+              >
+                {selectedDimensions.length > 0 && (
+                  <div
+                    className={`combobox-chips ${
+                      selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD
+                        ? dimensionsChipsExpanded
+                          ? 'expanded'
+                          : 'collapsed'
+                        : ''
+                    }`}
+                  >
+                    {selectedDimensions.map(dimName => (
+                      <span
+                        key={dimName}
+                        className="selected-chip dimension-chip"
+                        title={dimName}
+                      >
+                        <span className="chip-label">
+                          {getDimDisplayName(dimName)}
+                        </span>
+                        <button
+                          className="chip-remove"
+                          onClick={e => {
+                            e.stopPropagation();
+                            removeDimension(dimName);
+                          }}
+                          title={`Remove ${getDimDisplayName(dimName)}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="combobox-input-row">
+                  <input
+                    ref={dimensionsSearchRef}
+                    type="text"
+                    className="combobox-search"
+                    placeholder="Search dimensions..."
+                    value={dimensionsSearch}
+                    onChange={e => setDimensionsSearch(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                  />
+                  {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
+                    <button
+                      className="combobox-action"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setDimensionsChipsExpanded(!dimensionsChipsExpanded);
+                      }}
+                    >
+                      {dimensionsChipsExpanded ? 'Show less' : 'Show all'}
+                    </button>
+                  )}
+                  {selectedDimensions.length > 0 && (
+                    <button
+                      className="combobox-action"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onDimensionsChange([]);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="selection-list dimensions-list">
+                {groupedDimensions.map(group => {
+                  const nodeExpanded = expandedDimGroups.has(group.nodeKey);
+                  return (
+                    <div key={group.nodeKey} className="dim-group">
+                      <div
+                        className="dim-group-header"
+                        onClick={() => toggleDimGroup(group.nodeKey)}
+                        title={group.nodeKey}
+                      >
+                        <span className="expand-icon">
+                          {nodeExpanded ? '▼' : '▶'}
+                        </span>
+                        <span className="dim-group-name">
+                          {getDimGroupShortName(group.nodeKey)}
+                        </span>
+                        <span className="dim-group-count">
+                          {group.totalCount}
+                        </span>
+                      </div>
+                      {nodeExpanded &&
+                        group.rolePaths.map(rp => {
+                          const rpKey = `${group.nodeKey}::${rp.roleKey}`;
+                          const rpExpanded = expandedRolePaths.has(rpKey);
+                          const hops = rolePathHops(rp.roleKey);
+                          const hopsLabel =
+                            hops === 0
+                              ? 'direct'
+                              : `${hops} hop${hops > 1 ? 's' : ''}`;
+                          return (
+                            <div key={rpKey} className="dim-role-group">
+                              <div
+                                className="dim-role-header"
+                                onClick={() =>
+                                  toggleRolePath(group.nodeKey, rp.roleKey)
+                                }
+                              >
+                                <span className="expand-icon">
+                                  {rpExpanded ? '▼' : '▶'}
+                                </span>
+                                <span className="dim-role-label">
+                                  {formatRolePath(rp.roleKey)}
+                                </span>
+                                <span className="dim-group-meta">
+                                  {hopsLabel}
+                                </span>
+                                <span className="dim-group-count">
+                                  {rp.dimensions.length}
+                                </span>
+                              </div>
+                              {rpExpanded &&
+                                rp.dimensions.map(dim => (
+                                  <label
+                                    key={dim.name}
+                                    className="selection-item dimension-item dim-role-item"
+                                    title={dim.name}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedDimensions.includes(
+                                        dim.name,
+                                      )}
+                                      onChange={() => toggleDimension(dim.name)}
+                                    />
+                                    <div className="dimension-info">
+                                      <span className="item-name">
+                                        {dim.name
+                                          .replace(/\[[^\]]*\]$/, '')
+                                          .split('.')
+                                          .pop()}
+                                      </span>
+                                    </div>
+                                    <button
+                                      className="dim-filter-btn"
+                                      title={`Add "${dim.name}" to filters`}
+                                      onClick={e => addDimAsFilter(e, dim.name)}
+                                    >
+                                      + filter
+                                    </button>
+                                  </label>
+                                ))}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
+                })}
+
+                {groupedDimensions.length === 0 && (
+                  <div className="empty-list">
+                    {dimensionsSearch
+                      ? 'No dimensions match your search'
+                      : 'No shared dimensions'}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Draggable Divider 2: dims / filters */}
+        <div
+          className="section-divider draggable-divider"
+          onMouseDown={e => handleDividerMouseDown(e, 2)}
+        />
+
+        {/* Filters Section */}
+        <div
+          className="selection-section filters-section"
+          style={{ flex: 100 - split2 }}
         >
-          {selectedMetrics.length > 0 && (
-            <div
-              className={`combobox-chips ${
-                selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD
-                  ? metricsChipsExpanded
-                    ? 'expanded'
-                    : 'collapsed'
-                  : ''
-              }`}
-            >
-              {selectedMetrics.map(metric => (
-                <span key={metric} className="selected-chip metric-chip">
-                  {getShortName(metric)}
+          <div className="section-header">
+            <h3>Filters</h3>
+            <span className="selection-count">{filters.length} applied</span>
+          </div>
+
+          {/* Filter chips */}
+          {filters.length > 0 && (
+            <div className="filter-chips-container">
+              {filters.map((filter, idx) => (
+                <span key={idx} className="filter-chip">
+                  <span className="filter-chip-text">{filter}</span>
                   <button
-                    className="chip-remove"
-                    onClick={e => {
-                      e.stopPropagation();
-                      removeMetric(metric);
-                    }}
-                    title={`Remove ${getShortName(metric)}`}
+                    className="filter-chip-remove"
+                    onClick={() => handleRemoveFilter(filter)}
+                    title="Remove filter"
                   >
                     ×
                   </button>
@@ -554,347 +945,29 @@ export function SelectionPanel({
               ))}
             </div>
           )}
-          <div className="combobox-input-row">
+
+          {/* Filter input */}
+          <div className="filter-input-container">
             <input
-              ref={metricsSearchRef}
+              ref={filterInputRef}
               type="text"
-              className="combobox-search"
-              placeholder="Search metrics..."
-              value={metricsSearch}
-              onChange={e => setMetricsSearch(e.target.value)}
-              onClick={e => e.stopPropagation()}
+              className="filter-input"
+              placeholder="e.g. v3.date.date_id >= '2024-01-01'"
+              value={filterInput}
+              onChange={e => setFilterInput(e.target.value)}
+              onKeyDown={handleFilterKeyDown}
             />
-            {selectedMetrics.length > CHIPS_COLLAPSE_THRESHOLD && (
-              <button
-                className="combobox-action"
-                onClick={e => {
-                  e.stopPropagation();
-                  setMetricsChipsExpanded(!metricsChipsExpanded);
-                }}
-              >
-                {metricsChipsExpanded ? 'Show less' : 'Show all'}
-              </button>
-            )}
-            {selectedMetrics.length > 0 && (
-              <button
-                className="combobox-action"
-                onClick={e => {
-                  e.stopPropagation();
-                  onMetricsChange([]);
-                }}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="selection-list">
-          {sortedNamespaces.map(namespace => {
-            const items = filteredGroups[namespace];
-            const isExpanded = expandedNamespaces.has(namespace);
-            const selectedInNamespace = items.filter(m =>
-              selectedMetrics.includes(m),
-            ).length;
-
-            return (
-              <div key={namespace} className="namespace-group">
-                <div
-                  className="namespace-header"
-                  onClick={() => toggleNamespace(namespace)}
-                >
-                  <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
-                  <span className="namespace-name">{namespace}</span>
-                  <span className="namespace-count">
-                    {selectedInNamespace > 0 && (
-                      <span className="selected-badge">
-                        {selectedInNamespace}
-                      </span>
-                    )}
-                    {items.length}
-                  </span>
-                </div>
-
-                {isExpanded && (
-                  <div className="namespace-items">
-                    <div className="namespace-actions">
-                      <button
-                        type="button"
-                        className="select-all-btn"
-                        onClick={() => selectAllInNamespace(namespace, items)}
-                      >
-                        Select all
-                      </button>
-                      <button
-                        type="button"
-                        className="select-all-btn"
-                        onClick={() => deselectAllInNamespace(namespace, items)}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    {items.map(metric => (
-                      <label key={metric} className="selection-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedMetrics.includes(metric)}
-                          onChange={() => toggleMetric(metric)}
-                        />
-                        <span className="item-name">
-                          {getShortName(metric)}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {sortedNamespaces.length === 0 && (
-            <div className="empty-list">
-              {metricsSearch
-                ? 'No metrics match your search'
-                : 'No metrics available'}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="section-divider" />
-
-      {/* Dimensions Section */}
-      <div className="selection-section">
-        <div className="section-header">
-          <h3>Dimensions</h3>
-          <span className="selection-count">
-            {selectedDimensions.length} selected
-            {dimensions.length > 0 && ` / ${dimensions.length} available`}
-          </span>
-        </div>
-
-        {selectedMetrics.length === 0 ? (
-          <div className="empty-list hint">
-            Select metrics to see available dimensions
-          </div>
-        ) : loading ? (
-          <div className="empty-list">Loading dimensions...</div>
-        ) : (
-          <>
-            {/* Combined Chips + Search Input */}
-            <div
-              className="combobox-input"
-              onClick={() => dimensionsSearchRef.current?.focus()}
+            <button
+              className="filter-add-btn"
+              onClick={handleAddFilter}
+              disabled={!filterInput.trim()}
             >
-              {selectedDimensions.length > 0 && (
-                <div
-                  className={`combobox-chips ${
-                    selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD
-                      ? dimensionsChipsExpanded
-                        ? 'expanded'
-                        : 'collapsed'
-                      : ''
-                  }`}
-                >
-                  {selectedDimensions.map(dimName => (
-                    <span
-                      key={dimName}
-                      className="selected-chip dimension-chip"
-                      title={dimName}
-                    >
-                      <span className="chip-label">
-                        {getDimDisplayName(dimName)}
-                      </span>
-                      <button
-                        className="chip-remove"
-                        onClick={e => {
-                          e.stopPropagation();
-                          removeDimension(dimName);
-                        }}
-                        title={`Remove ${getDimDisplayName(dimName)}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="combobox-input-row">
-                <input
-                  ref={dimensionsSearchRef}
-                  type="text"
-                  className="combobox-search"
-                  placeholder="Search dimensions..."
-                  value={dimensionsSearch}
-                  onChange={e => setDimensionsSearch(e.target.value)}
-                  onClick={e => e.stopPropagation()}
-                />
-                {selectedDimensions.length > CHIPS_COLLAPSE_THRESHOLD && (
-                  <button
-                    className="combobox-action"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setDimensionsChipsExpanded(!dimensionsChipsExpanded);
-                    }}
-                  >
-                    {dimensionsChipsExpanded ? 'Show less' : 'Show all'}
-                  </button>
-                )}
-                {selectedDimensions.length > 0 && (
-                  <button
-                    className="combobox-action"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onDimensionsChange([]);
-                    }}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="selection-list dimensions-list">
-              {groupedDimensions.map(group => {
-                const nodeExpanded = expandedDimGroups.has(group.nodeKey);
-                return (
-                  <div key={group.nodeKey} className="dim-group">
-                    <div
-                      className="dim-group-header"
-                      onClick={() => toggleDimGroup(group.nodeKey)}
-                      title={group.nodeKey}
-                    >
-                      <span className="expand-icon">
-                        {nodeExpanded ? '▼' : '▶'}
-                      </span>
-                      <span className="dim-group-name">
-                        {getDimGroupShortName(group.nodeKey)}
-                      </span>
-                      <span className="dim-group-count">
-                        {group.totalCount}
-                      </span>
-                    </div>
-                    {nodeExpanded &&
-                      group.rolePaths.map(rp => {
-                        const rpKey = `${group.nodeKey}::${rp.roleKey}`;
-                        const rpExpanded = expandedRolePaths.has(rpKey);
-                        const hops = rolePathHops(rp.roleKey);
-                        const hopsLabel =
-                          hops === 0
-                            ? 'direct'
-                            : `${hops} hop${hops > 1 ? 's' : ''}`;
-                        return (
-                          <div key={rpKey} className="dim-role-group">
-                            <div
-                              className="dim-role-header"
-                              onClick={() =>
-                                toggleRolePath(group.nodeKey, rp.roleKey)
-                              }
-                            >
-                              <span className="expand-icon">
-                                {rpExpanded ? '▼' : '▶'}
-                              </span>
-                              <span className="dim-role-label">
-                                {formatRolePath(rp.roleKey)}
-                              </span>
-                              <span className="dim-group-meta">
-                                {hopsLabel}
-                              </span>
-                              <span className="dim-group-count">
-                                {rp.dimensions.length}
-                              </span>
-                            </div>
-                            {rpExpanded &&
-                              rp.dimensions.map(dim => (
-                                <label
-                                  key={dim.name}
-                                  className="selection-item dimension-item dim-role-item"
-                                  title={dim.name}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedDimensions.includes(
-                                      dim.name,
-                                    )}
-                                    onChange={() => toggleDimension(dim.name)}
-                                  />
-                                  <div className="dimension-info">
-                                    <span className="item-name">
-                                      {dim.name
-                                        .replace(/\[[^\]]*\]$/, '')
-                                        .split('.')
-                                        .pop()}
-                                    </span>
-                                  </div>
-                                </label>
-                              ))}
-                          </div>
-                        );
-                      })}
-                  </div>
-                );
-              })}
-
-              {groupedDimensions.length === 0 && (
-                <div className="empty-list">
-                  {dimensionsSearch
-                    ? 'No dimensions match your search'
-                    : 'No shared dimensions'}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Divider */}
-      <div className="section-divider" />
-
-      {/* Filters Section */}
-      <div className="selection-section filters-section">
-        <div className="section-header">
-          <h3>Filters</h3>
-          <span className="selection-count">{filters.length} applied</span>
-        </div>
-
-        {/* Filter chips */}
-        {filters.length > 0 && (
-          <div className="filter-chips-container">
-            {filters.map((filter, idx) => (
-              <span key={idx} className="filter-chip">
-                <span className="filter-chip-text">{filter}</span>
-                <button
-                  className="filter-chip-remove"
-                  onClick={() => handleRemoveFilter(filter)}
-                  title="Remove filter"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+              Add
+            </button>
           </div>
-        )}
-
-        {/* Filter input */}
-        <div className="filter-input-container">
-          <input
-            type="text"
-            className="filter-input"
-            placeholder="e.g. v3.date.date_id >= '2024-01-01'"
-            value={filterInput}
-            onChange={e => setFilterInput(e.target.value)}
-            onKeyDown={handleFilterKeyDown}
-          />
-          <button
-            className="filter-add-btn"
-            onClick={handleAddFilter}
-            disabled={!filterInput.trim()}
-          >
-            Add
-          </button>
         </div>
       </div>
+      {/* end resizable-sections */}
 
       {/* Engine Selection */}
       <div className="engine-section">
