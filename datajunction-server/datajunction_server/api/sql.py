@@ -2,6 +2,7 @@
 SQL related APIs.
 """
 
+import json
 import logging
 import time
 from http import HTTPStatus
@@ -206,6 +207,14 @@ async def get_measures_sql_v3(
             "Only applicable when include_temporal_filters is True."
         ),
     ),
+    query_params: str = Query(
+        "{}",
+        description=(
+            "JSON object mapping dimension attribute names to literal values for "
+            "substituting query parameter placeholders (e.g., :param_name) in "
+            "node SQL definitions. Keys must be valid dimension attribute names."
+        ),
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -261,6 +270,7 @@ async def get_measures_sql_v3(
         use_materialized=use_materialized,
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
+        query_parameters=json.loads(query_params) or None,
     )
 
     # Build a unified component_aliases map from all grain groups
@@ -528,6 +538,14 @@ async def get_metrics_sql_v3(
         description="SQL dialect for the generated query. If not specified, "
         "auto-resolves based on cube availability.",
     ),
+    query_params: str = Query(
+        "{}",
+        description=(
+            "JSON object mapping dimension attribute names to literal values for "
+            "substituting query parameter placeholders (e.g., :param_name) in "
+            "node SQL definitions. Keys must be valid dimension attribute names."
+        ),
+    ),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -606,6 +624,7 @@ async def get_metrics_sql_v3(
         dialect=resolved_dialect,
         use_materialized=use_materialized,
         matched_cube=matched_cube,
+        query_parameters=json.loads(query_params) or None,
     )
     _tags = {"query_type": "metrics", "query_version": "v3"}
     get_metrics_provider().timer(
