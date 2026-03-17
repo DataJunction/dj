@@ -30,6 +30,7 @@ export function SelectionPanel({
   onRunQuery,
   canRunQuery = false,
   queryLoading = false,
+  compatibleMetrics = null, // Set<string> of compatible metric names, or null if no filter
 }) {
   const [metricsSearch, setMetricsSearch] = useState('');
   const [dimensionsSearch, setDimensionsSearch] = useState('');
@@ -687,18 +688,44 @@ export function SelectionPanel({
                           Clear
                         </button>
                       </div>
-                      {items.map(metric => (
-                        <label key={metric} className="selection-item">
-                          <input
-                            type="checkbox"
-                            checked={selectedMetrics.includes(metric)}
-                            onChange={() => toggleMetric(metric)}
-                          />
-                          <span className="item-name">
-                            {getShortName(metric)}
-                          </span>
-                        </label>
-                      ))}
+                      {items.map(metric => {
+                        const isIncompatible =
+                          compatibleMetrics !== null &&
+                          !compatibleMetrics.has(metric) &&
+                          !selectedMetrics.includes(metric);
+                        return (
+                          <label
+                            key={metric}
+                            className={`selection-item${
+                              isIncompatible ? ' metric-incompatible' : ''
+                            }`}
+                            title={
+                              isIncompatible
+                                ? 'Not compatible with selected dimensions'
+                                : metric
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMetrics.includes(metric)}
+                              onChange={() => toggleMetric(metric)}
+                            />
+                            <span className="item-name">
+                              {getShortName(metric)}
+                            </span>
+                            {compatibleMetrics !== null &&
+                              compatibleMetrics.has(metric) &&
+                              !selectedMetrics.includes(metric) && (
+                                <span
+                                  className="metric-compatible-badge"
+                                  title="Compatible with selected dimensions"
+                                >
+                                  ✓
+                                </span>
+                              )}
+                          </label>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
