@@ -1934,3 +1934,99 @@ class TestResolveMetricComponent:
         assert [col.type for col in component_ast.select.projection] == [
             ct.VarcharType(),
         ]
+
+
+@pytest.mark.asyncio
+async def test_build_transform_with_deep_nested_struct_access(
+    clean_session: AsyncSession,
+    clean_current_user: User,
+):
+    """
+    Regression test for deep (3+) nested struct column rendering in v2 SQL generation.
+
+    QueryBuilder.build() calls compile() on the AST, which triggers set_struct_ref()
+    on deep struct columns via the general struct-access path added in #1890.
+    Before the fix in struct_column_name(), only namespace[1] was returned, stripping
+    all intermediate struct levels and producing broken SQL like:
+      src_alias.rtt_ms.rtt_ms  (wrong)
+    instead of the correct:
+      src_alias.device_health.network.rtt_ms
+    """
+    from datajunction_server.sql.parsing.ast import Name
+    from tests.construction.build_v3 import assert_sql_equal
+
+    session = clean_session
+    current_user = clean_current_user
+
+    # Source with a 3-level nested struct column:
+    # device_health: struct<network struct<rtt_ms bigint, loss_pct double>>
+    await create_source(
+        session,
+        name="telemetry.probe_source",
+        display_name="Probe Source",
+        schema_="test",
+        table="probes",
+        columns=[
+            Column(name="probe_id", type=ct.BigIntType(), order=0),
+            Column(
+                name="device_health",
+                type=ct.StructType(
+                    ct.NestedField(
+                        name=Name("network"),
+                        field_type=ct.StructType(
+                            ct.NestedField(
+                                name=Name("rtt_ms"),
+                                field_type=ct.BigIntType(),
+                            ),
+                            ct.NestedField(
+                                name=Name("loss_pct"),
+                                field_type=ct.DoubleType(),
+                            ),
+                        ),
+                    ),
+                ),
+                order=1,
+            ),
+        ],
+        current_user=current_user,
+        query="SELECT probe_id, device_health FROM test.probes",
+    )
+
+    # Transform accesses a 3-level deep struct path (no explicit table alias)
+    transform_node, _ = await create_node_with_query(
+        session,
+        name="telemetry.probe_transform",
+        display_name="Probe Transform",
+        node_type=NodeType.TRANSFORM,
+        query=(
+            "SELECT probe_id, device_health.network.rtt_ms AS rtt_ms "
+            "FROM telemetry.probe_source"
+        ),
+        columns=[
+            Column(name="probe_id", type=ct.BigIntType(), order=0),
+            Column(name="rtt_ms", type=ct.BigIntType(), order=1),
+        ],
+        current_user=current_user,
+    )
+
+    query_builder = await QueryBuilder.create(session, transform_node.current)
+    query_ast = await query_builder.build()
+
+    # The struct field path device_health.network.rtt_ms must be fully preserved in
+    # the CTE body. Before the fix, struct_column_name() returned only "rtt_ms" for
+    # namespace depth > 2, collapsing to `<alias>.rtt_ms.rtt_ms`.
+    assert_sql_equal(
+        str(query_ast),
+        """
+        WITH telemetry_DOT_probe_transform AS (
+            SELECT
+                telemetry_DOT_probe_source.probe_id,
+                telemetry_DOT_probe_source.device_health.network.rtt_ms AS rtt_ms
+            FROM test.probes AS telemetry_DOT_probe_source
+        )
+        SELECT
+            telemetry_DOT_probe_transform.probe_id,
+            telemetry_DOT_probe_transform.rtt_ms
+        FROM telemetry_DOT_probe_transform
+        """,
+    )
