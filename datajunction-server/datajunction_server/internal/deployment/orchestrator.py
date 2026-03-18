@@ -1049,7 +1049,6 @@ class DeploymentOrchestrator:
                 role=join_link.role,
                 default_value=join_link.default_value,
             )
-            print("link_input", link_input)
             (
                 dimension_link,
                 activity_type,
