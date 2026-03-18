@@ -22,7 +22,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.api.deployments import InProcessExecutor
 from datajunction_server.models.dimensionlink import JoinType
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRelationship
 from datajunction_server.database.tag import Tag
 from datajunction_server.models.node import (
     MetricDirection,
@@ -3997,3 +3997,108 @@ class TestHistoryUser:
         spec = DeploymentSpec(namespace="test")
         orchestrator = self._make_orchestrator(spec, username="admin")
         assert orchestrator._history_user == "admin"
+
+
+class TestDeploymentRevalidation:
+    """
+    Option A: deployment calls revalidate_node after each level, ensuring
+    NodeRelationship rows are always rebuilt from SQL AST parsing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_redeploy_repairs_stale_parent_relationships(
+        self,
+        client,
+        session,
+    ):
+        """
+        Re-deploying nodes should restore NodeRelationship rows even if they
+        were corrupted/cleared between deployments.  This verifies that
+        revalidate_node is called as part of the deployment pipeline and that
+        it writes the correct parents for the current revision.
+        """
+        from sqlalchemy import select, delete
+
+        namespace = "revalidate_parents_test"
+
+        source = SourceSpec(
+            name="default.parts",
+            catalog="default",
+            schema="shop",
+            table="parts",
+            columns=[
+                ColumnSpec(name="part_id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        transform = TransformSpec(
+            name="default.parts_enriched",
+            query="SELECT part_id, name FROM ${prefix}default.parts",
+            columns=[
+                ColumnSpec(name="part_id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        spec = DeploymentSpec(namespace=namespace, nodes=[source, transform])
+
+        # Initial deployment
+        data = await deploy_and_wait(client, spec)
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Fetch the deployed transform and verify it has a parent
+        transform_name = f"{namespace}.default.parts_enriched"
+        from sqlalchemy.orm import joinedload
+
+        transform_node = (
+            await session.execute(
+                select(Node)
+                .where(Node.name == transform_name)
+                .options(joinedload(Node.current)),
+            )
+        ).scalar_one()
+        original_rev_id = transform_node.current.id
+        original_rows = (
+            await session.execute(
+                select(NodeRelationship).where(
+                    NodeRelationship.child_id == original_rev_id,
+                ),
+            )
+        ).all()
+        assert len(original_rows) == 1, "transform should have one parent after deploy"
+
+        # Corrupt: delete the NodeRelationship rows
+        await session.execute(
+            delete(NodeRelationship).where(
+                NodeRelationship.child_id == original_rev_id,
+            ),
+        )
+        await session.commit()
+        assert (
+            await session.execute(
+                select(NodeRelationship).where(
+                    NodeRelationship.child_id == original_rev_id,
+                ),
+            )
+        ).all() == []
+
+        # Re-deploy with force=True so that even unchanged nodes are re-processed
+        # and revalidate_node runs, restoring the NodeRelationship entries.
+        force_spec = DeploymentSpec(
+            namespace=namespace,
+            nodes=[source, transform],
+            force=True,
+        )
+        data = await deploy_and_wait(client, force_spec)
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Re-fetch to get the new current revision created by re-deployment
+        await session.refresh(transform_node, ["current"])
+        new_rev_id = transform_node.current.id
+        restored_rows = (
+            await session.execute(
+                select(NodeRelationship).where(NodeRelationship.child_id == new_rev_id),
+            )
+        ).all()
+        assert len(restored_rows) == 1, (
+            "revalidate_node should have rebuilt the parent relationship"
+        )

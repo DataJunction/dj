@@ -506,16 +506,28 @@ def build_select_ast(
 
     # Build GROUP BY (use same column references as projection, without aliases)
     # Skip filter-only dimensions as they're only needed for WHERE clause
+    # Deduplicate to handle cases where multiple dimensions resolve to the same
+    # physical column (e.g., via skip-join optimization mapping dateint -> calendar_date
+    # when calendar_date is also a direct local dimension).
     group_by: list[ast.Expression] = []
+    group_by_seen: set[str] = set()
     for resolved_dim in resolved_dimensions:
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
-        group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
+        col_ref = make_column_ref(resolved_dim.column_name, table_alias)
+        col_key = str(col_ref)
+        if col_key not in group_by_seen:
+            group_by_seen.add(col_key)
+            group_by.append(col_ref)
 
     # Add grain columns to GROUP BY for LIMITED aggregability
     for grain_col in grain_columns:
-        group_by.append(make_column_ref(grain_col, main_alias))
+        col_ref = make_column_ref(grain_col, main_alias)
+        col_key = str(col_ref)
+        if col_key not in group_by_seen:
+            group_by_seen.add(col_key)
+            group_by.append(col_ref)
 
     # Collect all nodes that need CTEs and their needed columns
     nodes_for_ctes: list[Node] = []

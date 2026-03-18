@@ -16,6 +16,8 @@ from datajunction_server.database.node import Node, NodeRevision, Column
 from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
 
+from datajunction_server.sql.parsing.backends.antlr4 import parse as parse_sql
+
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import collect_required_dimensions
@@ -334,6 +336,118 @@ async def preload_join_paths(
                 ctx.nodes[link.dimension.name] = link.dimension
 
 
+def _node_load_options():
+    """Shared eager-load options for batch loading nodes."""
+    return [
+        load_only(
+            Node.name,
+            Node.type,
+            Node.current_version,
+        ),
+        joinedload(Node.current).options(
+            noload(NodeRevision.created_by),
+            load_only(
+                NodeRevision.name,
+                NodeRevision.query,
+                NodeRevision.schema_,
+                NodeRevision.table,
+            ),
+            selectinload(NodeRevision.columns).options(
+                load_only(Column.name, Column.type),
+            ),
+            joinedload(NodeRevision.catalog),
+            selectinload(NodeRevision.required_dimensions).options(
+                joinedload(Column.node_revision).options(
+                    noload(NodeRevision.created_by),
+                    joinedload(NodeRevision.node).options(
+                        noload(Node.created_by),
+                    ),
+                ),
+            ),
+            joinedload(NodeRevision.availability),
+            selectinload(NodeRevision.dimension_links).options(
+                joinedload(DimensionLink.dimension).options(
+                    noload(Node.created_by),
+                ),
+            ),
+        ),
+    ]
+
+
+async def _load_missing_upstream_nodes(ctx: BuildContext) -> None:
+    """
+    Self-healing fallback: scan loaded nodes' SQL for table references that are
+    not in ctx.nodes, and load them from the DB.
+
+    This guards against stale NodeRelationship data (e.g. a node was saved via a
+    code path that did not call revalidate_node, so its parent rows are missing or
+    wrong).  When the relationship table is healthy this function is a no-op.
+    """
+    for _ in range(5):  # Each iteration loads one layer of missing upstream nodes
+        # (e.g. A→B missing, then B→C missing). find_upstream_node_names uses a
+        # recursive CTE so intact NodeRelationship chains resolve in a single pass;
+        # multiple iterations are only needed when staleness is multi-level.
+        # The cap guards against cycles in the reference graph (which shouldn't
+        # exist but would otherwise cause an infinite loop). The inner break
+        # conditions guarantee convergence for well-formed data.
+        missing: set[str] = set()
+        for node in ctx.nodes.values():
+            if (
+                node.type in (NodeType.SOURCE,)
+                or not node.current
+                or not node.current.query
+            ):
+                continue
+            try:
+                query_ast = parse_sql(node.current.query)
+                cte_names = {cte.alias_or_name.identifier() for cte in query_ast.ctes}
+                from datajunction_server.sql.parsing import ast as sql_ast
+
+                for table in query_ast.find_all(sql_ast.Table):
+                    name = str(table.name)
+                    if name not in cte_names and name not in ctx.nodes:
+                        missing.add(name)
+            except Exception:  # pragma: no cover
+                pass
+
+        if not missing:
+            break
+
+        logger.warning(
+            "[BuildV3] %d node(s) referenced in SQL but absent from NodeRelationship "
+            "(stale parent data) — loading them now: %s",
+            len(missing),
+            missing,
+        )
+
+        # Recursively find their upstreams too, then batch-load everything
+        additional_names, additional_parent_map = await find_upstream_node_names(
+            ctx.session,
+            list(missing),
+        )
+        additional_names.update(missing)
+        new_names = additional_names - set(ctx.nodes.keys())
+        if not new_names:
+            break
+
+        stmt = (
+            select(Node)
+            .where(Node.name.in_(new_names))
+            .where(Node.deactivated_at.is_(None))
+            .options(*_node_load_options())
+        )
+        result = await ctx.session.execute(stmt)
+        for node in result.scalars().unique().all():
+            ctx.nodes[node.name] = node
+
+        # Merge newly discovered parent relationships into ctx.parent_map
+        for child, parents in additional_parent_map.items():
+            existing = ctx.parent_map.setdefault(child, [])
+            for p in parents:
+                if p not in existing:
+                    existing.append(p)
+
+
 async def load_nodes(ctx: BuildContext) -> None:
     """
     Load all nodes needed for SQL generation
@@ -370,45 +484,7 @@ async def load_nodes(ctx: BuildContext) -> None:
         select(Node)
         .where(Node.name.in_(all_node_names))
         .where(Node.deactivated_at.is_(None))
-        .options(
-            load_only(
-                Node.name,
-                Node.type,
-                Node.current_version,
-            ),
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.query,
-                    NodeRevision.schema_,
-                    NodeRevision.table,
-                ),
-                selectinload(NodeRevision.columns).options(
-                    load_only(
-                        Column.name,
-                        Column.type,
-                    ),
-                ),
-                joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
-                    joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
-                        ),
-                    ),
-                ),
-                joinedload(NodeRevision.availability),  # For materialization support
-                selectinload(NodeRevision.dimension_links).options(
-                    # Load dimension node for link matching in temporal filters
-                    joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),  # Prevent User N+1 queries
-                    ),
-                ),
-            ),
-        )
+        .options(*_node_load_options())
     )
 
     result = await ctx.session.execute(stmt)
@@ -417,6 +493,9 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Cache all loaded nodes
     for node in nodes:
         ctx.nodes[node.name] = node
+
+    # Self-healing: load any upstream nodes missing from NodeRelationship
+    await _load_missing_upstream_nodes(ctx)
 
     # Collect required dimensions from metrics and add to context
     # Required dimensions are stored as Column objects, so they don't have role info.
