@@ -484,3 +484,148 @@ class TestLoadAvailablePreaggs:
         assert minimal_node_revision.id in ctx.available_preaggs
         assert other_revision.id not in ctx.available_preaggs
         assert len(ctx.available_preaggs[minimal_node_revision.id]) == 1
+
+
+class TestLoadMissingUpstreamNodes:
+    """
+    Option B: _load_missing_upstream_nodes provides a self-healing fallback
+    that scans loaded nodes' SQL for references absent from ctx.nodes and
+    loads them directly from the DB, guarding against stale NodeRelationship data.
+    """
+
+    @pytest.mark.asyncio
+    async def test_loads_source_missing_from_node_relationship(
+        self,
+        clean_session: AsyncSession,
+    ):
+        """
+        If a source node is referenced in a transform's SQL but absent from
+        ctx.nodes (because NodeRelationship is stale), _load_missing_upstream_nodes
+        should detect the reference and load the source into ctx.nodes.
+        """
+        from datajunction_server.construction.build_v3.loaders import (
+            _load_missing_upstream_nodes,
+            _node_load_options,
+        )
+        from datajunction_server.construction.build_v3.types import BuildContext
+        from datajunction_server.database.catalog import Catalog
+        from datajunction_server.database.node import Node, NodeRevision
+        from datajunction_server.database.column import Column
+        from datajunction_server.database.user import User
+        from datajunction_server.models.node_type import NodeType
+        from datajunction_server.models.user import OAuthProvider
+        from datajunction_server.sql.parsing.types import IntegerType
+
+        user = User(
+            username="test_heal_user",
+            email="test_heal@test.com",
+            oauth_provider=OAuthProvider.BASIC,
+        )
+        clean_session.add(user)
+        await clean_session.flush()
+
+        catalog = Catalog(name="default")
+        clean_session.add(catalog)
+        await clean_session.flush()
+
+        # Source node — exists in the DB but will NOT be in ctx.nodes initially
+        src_node = Node(
+            name="heal.src_orders",
+            type=NodeType.SOURCE,
+            created_by_id=user.id,
+        )
+        clean_session.add(src_node)
+        await clean_session.flush()
+        src_rev = NodeRevision(
+            name=src_node.name,
+            node_id=src_node.id,
+            type=NodeType.SOURCE,
+            version="v1.0",
+            catalog_id=catalog.id,
+            schema_="shop",
+            table="orders",
+            columns=[Column(name="order_id", type=IntegerType(), order=0)],
+            created_by_id=user.id,
+        )
+        clean_session.add(src_rev)
+        src_node.current_version = "v1.0"
+        await clean_session.flush()
+
+        # Transform node — its SQL references heal.src_orders
+        tfm_node = Node(
+            name="heal.order_summary",
+            type=NodeType.TRANSFORM,
+            created_by_id=user.id,
+        )
+        clean_session.add(tfm_node)
+        await clean_session.flush()
+        tfm_rev = NodeRevision(
+            name=tfm_node.name,
+            node_id=tfm_node.id,
+            type=NodeType.TRANSFORM,
+            version="v1.0",
+            query="SELECT order_id FROM heal.src_orders",
+            columns=[Column(name="order_id", type=IntegerType(), order=0)],
+            created_by_id=user.id,
+        )
+        clean_session.add(tfm_rev)
+        tfm_node.current_version = "v1.0"
+        await clean_session.flush()
+        await clean_session.commit()
+
+        # Re-fetch transform with full eager loading (simulates how load_nodes populates ctx.nodes)
+        from sqlalchemy import select as sa_select
+
+        tfm_loaded = (
+            await clean_session.execute(
+                sa_select(Node)
+                .where(Node.name == "heal.order_summary")
+                .options(*_node_load_options()),
+            )
+        ).scalar_one()
+
+        # Simulate stale NodeRelationship: transform is in ctx.nodes but source is not
+        ctx = BuildContext(
+            session=clean_session,
+            metrics=[],
+            dimensions=[],
+        )
+        ctx.nodes["heal.order_summary"] = tfm_loaded
+        # heal.src_orders is intentionally absent from ctx.nodes
+
+        await _load_missing_upstream_nodes(ctx)
+
+        assert "heal.src_orders" in ctx.nodes, (
+            "self-healing should have loaded the source node referenced in the transform SQL"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_all_nodes_present(self, clean_session: AsyncSession):
+        """
+        When all referenced nodes are already in ctx.nodes, _load_missing_upstream_nodes
+        should make no DB queries and leave ctx.nodes unchanged.
+        """
+        from datajunction_server.construction.build_v3.loaders import (
+            _load_missing_upstream_nodes,
+        )
+        from datajunction_server.construction.build_v3.types import BuildContext
+        from unittest.mock import AsyncMock, patch
+
+        ctx = BuildContext(session=clean_session, metrics=[], dimensions=[])
+
+        # Populate ctx.nodes with a mock transform whose SQL only references itself (CTE)
+        mock_node = MagicMock()
+        mock_node.type = NodeType.TRANSFORM
+        mock_node.current.query = "WITH base AS (SELECT 1 AS x) SELECT x FROM base"
+        ctx.nodes["my.transform"] = mock_node
+
+        original_nodes = dict(ctx.nodes)
+
+        with patch(
+            "datajunction_server.construction.build_v3.loaders.find_upstream_node_names",
+            new_callable=AsyncMock,
+        ) as mock_find:
+            await _load_missing_upstream_nodes(ctx)
+            mock_find.assert_not_called()
+
+        assert ctx.nodes == original_nodes

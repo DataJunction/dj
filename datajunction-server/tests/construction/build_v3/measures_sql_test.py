@@ -3835,3 +3835,83 @@ class TestFilterOnlyDimensions:
 
         # Grain should only include status, not category
         assert data["grain"] == ["status"]
+
+
+class TestSelfHealingLoadNodes:
+    """
+    Tests that _load_missing_upstream_nodes heals stale NodeRelationship data
+    transparently during SQL generation, so callers never see raw node names
+    in place of expanded source table references.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sql_correct_after_noderelationship_corruption(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """
+        If NodeRelationship rows linking a transform to its source parents are
+        deleted (simulating stale/corrupt data), /sql/measures/v3/ should still
+        produce correct SQL that expands the source table references — thanks to
+        _load_missing_upstream_nodes detecting and loading the missing nodes.
+
+        Without self-healing, the CTE for v3.order_details would contain raw
+        node names like "v3.src_orders" instead of the actual table "default.v3.orders".
+        """
+        from sqlalchemy import select, delete
+        from sqlalchemy.orm import joinedload
+        from datajunction_server.database.node import Node, NodeRelationship
+
+        # Find v3.order_details' current revision and delete its parent rows
+        order_details_node = (
+            await session.execute(
+                select(Node)
+                .where(Node.name == "v3.order_details")
+                .options(joinedload(Node.current)),
+            )
+        ).scalar_one()
+        rev_id = order_details_node.current.id
+
+        # Verify there are parent rows to delete (test guard)
+        existing = (
+            await session.execute(
+                select(NodeRelationship).where(NodeRelationship.child_id == rev_id),
+            )
+        ).all()
+        assert len(existing) > 0, (
+            "v3.order_details should have parent rows before corruption"
+        )
+
+        await session.execute(
+            delete(NodeRelationship).where(NodeRelationship.child_id == rev_id),
+        )
+        await session.commit()
+
+        # SQL generation should still work and expand source table references correctly
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        data = get_first_grain_group(response.json())
+
+        # "default.v3.orders" and "default.v3.order_items" are the catalog-qualified
+        # table names for v3.src_orders and v3.src_order_items respectively.
+        # If self-healing fails, these would appear as "v3.src_orders" / "v3.src_order_items".
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+        )
