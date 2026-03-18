@@ -4001,21 +4001,20 @@ class TestHistoryUser:
 
 class TestDeploymentRevalidation:
     """
-    Option A: deployment calls revalidate_node after each level, ensuring
-    NodeRelationship rows are always rebuilt from SQL AST parsing.
+    Deployment write path: _create_node_revision sets NodeRelationship rows
+    from node_graph, ensuring each new revision has correct parent links.
     """
 
     @pytest.mark.asyncio
-    async def test_redeploy_repairs_stale_parent_relationships(
+    async def test_redeploy_creates_new_revision_with_correct_parents(
         self,
         client,
         session,
     ):
         """
-        Re-deploying nodes should restore NodeRelationship rows even if they
-        were corrupted/cleared between deployments.  This verifies that
-        revalidate_node is called as part of the deployment pipeline and that
-        it writes the correct parents for the current revision.
+        Force-redeploying a spec creates new node revisions via _create_node_revision,
+        which derives parents from node_graph. Verify the new revision has the
+        correct NodeRelationship row regardless of any corruption on the old revision.
         """
         from sqlalchemy import select, delete
 
@@ -4081,8 +4080,8 @@ class TestDeploymentRevalidation:
             )
         ).all() == []
 
-        # Re-deploy with force=True so that even unchanged nodes are re-processed
-        # and revalidate_node runs, restoring the NodeRelationship entries.
+        # Re-deploy with force=True so even unchanged nodes get new revisions
+        # with correct parent links set by _create_node_revision.
         force_spec = DeploymentSpec(
             namespace=namespace,
             nodes=[source, transform],
@@ -4100,5 +4099,5 @@ class TestDeploymentRevalidation:
             )
         ).all()
         assert len(restored_rows) == 1, (
-            "revalidate_node should have rebuilt the parent relationship"
+            "_create_node_revision should have written correct parent relationships"
         )
