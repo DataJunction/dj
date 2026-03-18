@@ -1272,10 +1272,11 @@ class Column(Aliasable, Named, Expression):
     @property
     def struct_column_name(self) -> str:
         """If this is a struct reference, the struct type's column name"""
-        column_namespace, column_name, subscript_name = self.column_names()
-        if len(self.namespace) == 1:  # non-struct
-            return column_namespace
-        return column_name
+        if len(self.namespace) == 1:  # non-struct: just the table alias
+            return self.namespace[0].name
+        # For struct depth >= 2: namespace[0] is the table alias (prepended by __str__).
+        # namespace[1:] forms the full struct field path leading to the leaf column.
+        return ".".join(n.name for n in self.namespace[1:])
 
     @property
     def struct_subscript(self) -> str:
