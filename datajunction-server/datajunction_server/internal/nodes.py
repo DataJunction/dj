@@ -2062,7 +2062,7 @@ async def column_lineage(
         # The column name (from the DB) doesn't appear in the compiled projection —
         # this can happen for derived metrics whose alias was generated differently.
         # Return what we have (empty lineage) rather than crashing.
-        return lineage_column
+        return lineage_column  # pragma: no cover
     column = matching[0]
     column_or_child = column.child if isinstance(column, ast.Alias) else column  # type: ignore
     column_expr = (
