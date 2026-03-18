@@ -392,19 +392,41 @@ async def load_nodes(ctx: BuildContext) -> None:
                 ),
                 joinedload(NodeRevision.catalog),
                 selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
+                    # Only need col.name to reconstruct full dimension path
+                    load_only(Column.name),
                     joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
+                        load_only(NodeRevision.name),
+                        noload(NodeRevision.created_by),
                         joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
+                            load_only(Node.name),
+                            noload(Node.created_by),
                         ),
                     ),
                 ),
                 joinedload(NodeRevision.availability),  # For materialization support
                 selectinload(NodeRevision.dimension_links).options(
-                    # Load dimension node for link matching in temporal filters
+                    # Restrict to fields actually used during query building
+                    load_only(
+                        DimensionLink.role,
+                        DimensionLink.join_sql,
+                        DimensionLink.join_type,
+                        DimensionLink.join_cardinality,
+                        DimensionLink.default_value,
+                        DimensionLink.dimension_id,
+                        DimensionLink.node_revision_id,
+                    ),
                     joinedload(DimensionLink.dimension).options(
-                        noload(Node.created_by),  # Prevent User N+1 queries
+                        load_only(Node.name, Node.current_version),
+                        noload(Node.created_by),
+                        # Load dimension's current revision + columns for temporal partition
+                        # support (measures.py accesses link.dimension.current.columns)
+                        joinedload(Node.current).options(
+                            load_only(NodeRevision.name),
+                            noload(NodeRevision.created_by),
+                            selectinload(NodeRevision.columns).options(
+                                load_only(Column.name, Column.type),
+                            ),
+                        ),
                     ),
                 ),
             ),
