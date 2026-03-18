@@ -2077,9 +2077,10 @@ async def test_build_transform_with_ambiguous_struct_depth(
     Regression test: when a struct column has the same field name at two depths,
     the two-level path must win over the one-level shortcut.
 
-    Schema: events.metrics: struct<
+    Schema:
+    events.metrics: struct<
         latency: struct<p99: bigint>,
-        p99: bigint,         ← same name also exists at the top level
+        p99: bigint,                  # same name also exists at the top level
     >
 
     SQL reference: metrics.latency.p99

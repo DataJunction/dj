@@ -1353,27 +1353,23 @@ def test_struct_column_name_deep_namespace():
     deeper than 2 levels.  Before the fix, only namespace[1] was returned, stripping
     everything between the table alias and the leaf field.
 
-    Regression test for: gp.cloud_measures.gameplay_delay_components.ssic.ssic_init
-    being rendered as gp.ssic_init.ssic_init instead of the full path.
+    Regression test for: alias.struct_col.level1.level2.field_leaf
     """
     # Use parse() so the AST column is built with the correct linked-Name structure
     query = parse(
-        "SELECT gp.cloud_measures.gameplay_delay_components.ssic.ssic_initialization "
-        "FROM gp",
+        "SELECT alias.struct_col.level1.level2.field_leaf FROM table",
     )
     col = list(query.find_all(ast.Column))[0]
 
     # Simulate what set_struct_ref() + add_table() do during compilation
     col.set_struct_ref()
-    col._table = ast.Table(name=ast.Name("gp"))
+    col._table = ast.Table(name=ast.Name("alias"))
 
-    assert col.struct_column_name == "cloud_measures.gameplay_delay_components.ssic", (
+    assert col.struct_column_name == "struct_col.level1.level2", (
         "struct_column_name must include all namespace elements after the table alias"
     )
-    assert col.struct_subscript == "ssic_initialization"
-    assert str(col) == (
-        "gp.cloud_measures.gameplay_delay_components.ssic.ssic_initialization"
-    ), (
+    assert col.struct_subscript == "field_leaf"
+    assert str(col) == ("alias.struct_col.level1.level2.field_leaf"), (
         "Column.__str__ must render the full struct path without dropping intermediate levels"
     )
 
