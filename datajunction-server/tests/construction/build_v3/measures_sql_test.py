@@ -3859,6 +3859,9 @@ class TestDeepNestedStructAccess:
         """
         client = client_with_build_v3
 
+        # Ensure the struct_v3 namespace exists before creating nodes
+        await client.post("/namespaces/struct_v3/")
+
         # Source with a 3-level nested struct: device_health.network.rtt_ms
         src_resp = await client.post(
             "/nodes/source",
@@ -3879,7 +3882,7 @@ class TestDeepNestedStructAccess:
                 "mode": "published",
             },
         )
-        assert src_resp.status_code == 201, src_resp.json()
+        assert src_resp.status_code == 200, src_resp.json()
 
         # Transform drilling into the 3-level deep struct path
         transform_resp = await client.post(
@@ -3892,6 +3895,23 @@ class TestDeepNestedStructAccess:
                     "SELECT probe_id, "
                     "device_health.network.rtt_ms AS rtt_ms "
                     "FROM struct_v3.probe_source"
+                ),
+                "mode": "published",
+            },
+        )
+        assert transform_resp.status_code == 201, transform_resp.json()
+
+        # Transform drilling into the 3-level deep struct path with an alias on the source node
+        transform_resp = await client.post(
+            "/nodes/transform",
+            json={
+                "name": "struct_v3.probe_transform_w_alias",
+                "display_name": "Probe Transform",
+                "description": "Accesses deep struct field",
+                "query": (
+                    "SELECT probe_id, "
+                    "ps.device_health.network.rtt_ms AS rtt_ms "
+                    "FROM struct_v3.probe_source ps"
                 ),
                 "mode": "published",
             },
@@ -3911,6 +3931,19 @@ class TestDeepNestedStructAccess:
         )
         assert metric_resp.status_code == 201, metric_resp.json()
 
+        # Metric aggregating the deep struct field with an alias on the transform node
+        metric_resp = await client.post(
+            "/nodes/metric",
+            json={
+                "name": "struct_v3.total_rtt_with_alias",
+                "display_name": "Total RTT with Alias",
+                "description": "Sum of round-trip time from nested struct",
+                "query": "SELECT SUM(rtt_ms) FROM struct_v3.probe_transform_w_alias",
+                "mode": "published",
+            },
+        )
+        assert metric_resp.status_code == 201, metric_resp.json()
+
         sql_resp = await client.get(
             "/sql/measures/v3/",
             params={"metrics": ["struct_v3.total_rtt"]},
@@ -3919,17 +3952,38 @@ class TestDeepNestedStructAccess:
 
         sql = sql_resp.json()["grain_groups"][0]["sql"]
 
+        sql_resp = await client.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["struct_v3.total_rtt_with_alias"]},
+        )
+        assert sql_resp.status_code == 200, sql_resp.json()
+
+        sql_with_alias = sql_resp.json()["grain_groups"][0]["sql"]
+
         # The CTE for the transform must embed the original query verbatim, preserving
         # the full struct path device_health.network.rtt_ms.
         assert_sql_equal(
             sql,
             """
             WITH struct_v3_probe_transform AS (
-                SELECT probe_id, device_health.network.rtt_ms AS rtt_ms
+                SELECT device_health.network.rtt_ms AS rtt_ms
                 FROM default.v3.probes
             )
             SELECT SUM(t1.rtt_ms) rtt_ms_sum_HASH
             FROM struct_v3_probe_transform t1
+            """,
+            normalize_aliases=True,
+        )
+
+        assert_sql_equal(
+            sql_with_alias,
+            """
+            WITH struct_v3_probe_transform_w_alias AS (
+                SELECT ps.device_health.network.rtt_ms AS rtt_ms
+                FROM default.v3.probes ps
+            )
+            SELECT SUM(t1.rtt_ms) rtt_ms_sum_HASH
+            FROM struct_v3_probe_transform_w_alias t1
             """,
             normalize_aliases=True,
         )
