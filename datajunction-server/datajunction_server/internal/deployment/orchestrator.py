@@ -1049,6 +1049,7 @@ class DeploymentOrchestrator:
                 role=join_link.role,
                 default_value=join_link.default_value,
             )
+            print("link_input", link_input)
             (
                 dimension_link,
                 activity_type,
@@ -2421,6 +2422,7 @@ class DeploymentOrchestrator:
         if existing_link:
             if len(existing_link) >= 1:  # pragma: no cover
                 for dup_link in existing_link[1:]:
+                    node_revision.dimension_links.remove(dup_link)  # type: ignore
                     await self.session.delete(dup_link)
             # Update the existing dimension link
             activity_type = ActivityType.UPDATE
