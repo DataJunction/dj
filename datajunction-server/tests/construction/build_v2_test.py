@@ -2066,3 +2066,93 @@ async def test_build_transform_with_deep_nested_struct_access(
         FROM telemetry_DOT_probe_transform_w_alias
         """,
     )
+
+
+@pytest.mark.asyncio
+async def test_build_transform_with_ambiguous_struct_depth(
+    clean_session: AsyncSession,
+    clean_current_user: User,
+):
+    """
+    Regression test: when a struct column has the same field name at two depths,
+    the two-level path must win over the one-level shortcut.
+
+    Schema: events.metrics: struct<
+        latency: struct<p99: bigint>,
+        p99: bigint,         ← same name also exists at the top level
+    >
+
+    SQL reference: metrics.latency.p99
+    Expected:      src_alias.metrics.latency.p99   (two-level)
+    Wrong (before fix): src_alias.metrics.p99      (one-level, wrong depth)
+    """
+    from datajunction_server.sql.parsing.ast import Name
+    from tests.construction.build_v3 import assert_sql_equal
+
+    session = clean_session
+    current_user = clean_current_user
+
+    await create_source(
+        session,
+        name="telemetry.events_source",
+        display_name="Events Source",
+        schema_="test",
+        table="events",
+        columns=[
+            Column(name="event_id", type=ct.BigIntType(), order=0),
+            Column(
+                name="metrics",
+                type=ct.StructType(
+                    # top-level p99 field — same name as nested latency.p99
+                    ct.NestedField(name=Name("p99"), field_type=ct.BigIntType()),
+                    ct.NestedField(
+                        name=Name("latency"),
+                        field_type=ct.StructType(
+                            ct.NestedField(
+                                name=Name("p99"),
+                                field_type=ct.BigIntType(),
+                            ),
+                        ),
+                    ),
+                ),
+                order=1,
+            ),
+        ],
+        current_user=current_user,
+        query="SELECT event_id, metrics FROM test.events",
+    )
+
+    transform_node, _ = await create_node_with_query(
+        session,
+        name="telemetry.events_transform",
+        display_name="Events Transform",
+        node_type=NodeType.TRANSFORM,
+        query=(
+            "SELECT event_id, metrics.latency.p99 AS latency_p99 "
+            "FROM telemetry.events_source"
+        ),
+        columns=[
+            Column(name="event_id", type=ct.BigIntType(), order=0),
+            Column(name="latency_p99", type=ct.BigIntType(), order=1),
+        ],
+        current_user=current_user,
+    )
+
+    query_builder = await QueryBuilder.create(session, transform_node.current)
+    query_ast = await query_builder.build()
+
+    assert_sql_equal(
+        str(query_ast),
+        """
+        WITH telemetry_DOT_events_transform AS (
+            SELECT
+                telemetry_DOT_events_source.event_id,
+                telemetry_DOT_events_source.metrics.latency.p99 AS latency_p99
+            FROM test.events AS telemetry_DOT_events_source
+        )
+        SELECT
+            telemetry_DOT_events_transform.event_id,
+            telemetry_DOT_events_transform.latency_p99
+        FROM telemetry_DOT_events_transform
+        """,
+    )

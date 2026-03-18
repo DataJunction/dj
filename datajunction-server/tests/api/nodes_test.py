@@ -4806,6 +4806,36 @@ class TestValidateNodes:
         ]
 
     @pytest.mark.asyncio
+    async def test_node_column_lineage_derived_metric(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        A derived metric (references another metric, no FROM clause, no explicit alias)
+        stores its output column as 'col0' during creation, but column_lineage uses
+        format_metric_alias which aliases it to amenable_name(node_name). These names
+        don't match, so the projection lookup returns an empty list. Verify that the
+        endpoint returns 200 with empty lineage rather than crashing with IndexError.
+        """
+        await client_with_roads.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.derived_orders_scaled",
+                "query": "SELECT default.num_repair_orders * 2.0",
+                "mode": "published",
+                "description": "Derived metric with no explicit alias",
+            },
+        )
+        response = await client_with_roads.get(
+            "/nodes/default.derived_orders_scaled/lineage/",
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["node_name"] == "default.derived_orders_scaled"
+        assert data[0]["node_type"] == "metric"
+
+    @pytest.mark.asyncio
     async def test_revalidating_existing_nodes(self, client_with_roads: AsyncClient):
         """
         Test revalidating all example nodes and confirm that they are set to valid
