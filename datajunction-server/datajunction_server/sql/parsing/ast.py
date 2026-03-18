@@ -797,6 +797,7 @@ class Column(Aliasable, Named, Expression):
         default=None,
     )
     _is_struct_ref: bool = False
+    _struct_col_name: Optional[str] = field(repr=False, default=None)
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
@@ -858,12 +859,19 @@ class Column(Aliasable, Named, Expression):
         self._expression = expression
         return self
 
-    def set_struct_ref(self):
+    def set_struct_ref(self, struct_col_name: Optional[str] = None):
         """
         Marks this column as a struct dereference. This implies that we treat the name
         and namespace values on this object as struct column and struct subscript values.
+
+        struct_col_name: the full dotted struct field path up to (but not including) the
+        leaf subscript, e.g. "device_health.network" for `device_health.network.rtt_ms`.
+        When provided, this is used verbatim by struct_column_name instead of being
+        re-derived from the namespace at render time.
         """
         self._is_struct_ref = True
+        if struct_col_name is not None:
+            self._struct_col_name = struct_col_name
 
     def add_table(self, table: "TableExpression"):
         self._table = table
@@ -1272,10 +1280,12 @@ class Column(Aliasable, Named, Expression):
     @property
     def struct_column_name(self) -> str:
         """If this is a struct reference, the struct type's column name"""
-        column_namespace, column_name, subscript_name = self.column_names()
-        if len(self.namespace) == 1:  # non-struct
-            return column_namespace
-        return column_name
+        if self._struct_col_name is not None:
+            return self._struct_col_name
+        # Fallback for columns where set_struct_ref() was called without a name
+        if len(self.namespace) == 1:
+            return self.namespace[0].name
+        return ".".join(n.name for n in self.namespace[1:])
 
     @property
     def struct_subscript(self) -> str:
@@ -1524,23 +1534,33 @@ class TableExpression(Aliasable, Expression):
                     if len(column.namespace) == 2:
                         column_namespace, column_name, _ = column.column_names()
 
-                    if col.alias_or_name.identifier(False) in (
+                    _col_id = col.alias_or_name.identifier(False)
+                    if _col_id in (
                         column_namespace,
                         column_name,
                     ):
-                        for type_field in col.type.fields:
-                            if type_field.name.name == subscript_name:
-                                self._ref_columns.append(column)
-                                column.set_struct_ref()
-                                column.add_table(self)
-                                column.add_expression(col)
-                                column.add_type(type_field.type)
-                                return True
+                        # One-level check: find subscript_name as a direct struct field.
+                        # Skip when len(namespace)==2 and col_id==column_namespace —
+                        # the user explicitly wrote a deeper path (e.g.
+                        # struct_col.intermediate.leaf) so we must use the two-level
+                        # check below to honour the full path and not short-circuit on
+                        # a same-named field at the wrong depth.
+                        if not (
+                            len(column.namespace) == 2 and _col_id == column_namespace
+                        ):
+                            for type_field in col.type.fields:
+                                if type_field.name.name == subscript_name:
+                                    self._ref_columns.append(column)
+                                    column.set_struct_ref(_col_id)
+                                    column.add_table(self)
+                                    column.add_expression(col)
+                                    column.add_type(type_field.type)
+                                    return True
                         # Two-level struct access: col is viewing_secs (StructType),
                         # column_name is wall_clock (intermediate field), and
                         # subscript_name is total (leaf field).
                         # Find column_name in col.type.fields, then subscript_name in that.
-                        if col.alias_or_name.identifier(False) == column_namespace:
+                        if _col_id == column_namespace:
                             for mid_field in col.type.fields:
                                 if mid_field.name.name == column_name and isinstance(
                                     mid_field.type,
@@ -1549,7 +1569,9 @@ class TableExpression(Aliasable, Expression):
                                     for leaf_field in mid_field.type.fields:
                                         if leaf_field.name.name == subscript_name:
                                             self._ref_columns.append(column)
-                                            column.set_struct_ref()
+                                            column.set_struct_ref(
+                                                f"{column_namespace}.{column_name}",
+                                            )
                                             column.add_table(self)
                                             column.add_expression(col)
                                             column.add_type(leaf_field.type)
@@ -1569,7 +1591,12 @@ class TableExpression(Aliasable, Expression):
                             )
                             if resolved is not None:
                                 self._ref_columns.append(column)
-                                column.set_struct_ref()
+                                struct_col_name = (
+                                    col_id
+                                    if len(field_path) == 1
+                                    else col_id + "." + ".".join(field_path[:-1])
+                                )
+                                column.set_struct_ref(struct_col_name)
                                 column.add_table(self)
                                 column.add_expression(col)
                                 column.add_type(resolved)
