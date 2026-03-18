@@ -2009,6 +2009,23 @@ async def test_build_transform_with_deep_nested_struct_access(
         current_user=current_user,
     )
 
+    # Transform accesses a 3-level deep struct path (no explicit table alias)
+    transform_node_w_alias, _ = await create_node_with_query(
+        session,
+        name="telemetry.probe_transform_w_alias",
+        display_name="Probe Transform",
+        node_type=NodeType.TRANSFORM,
+        query=(
+            "SELECT probe_id, ps.device_health.network.rtt_ms AS rtt_ms "
+            "FROM telemetry.probe_source ps"
+        ),
+        columns=[
+            Column(name="probe_id", type=ct.BigIntType(), order=0),
+            Column(name="rtt_ms", type=ct.BigIntType(), order=1),
+        ],
+        current_user=current_user,
+    )
+
     query_builder = await QueryBuilder.create(session, transform_node.current)
     query_ast = await query_builder.build()
 
@@ -2028,5 +2045,24 @@ async def test_build_transform_with_deep_nested_struct_access(
             telemetry_DOT_probe_transform.probe_id,
             telemetry_DOT_probe_transform.rtt_ms
         FROM telemetry_DOT_probe_transform
+        """,
+    )
+
+    # Check the same struct field path is preserved when a table alias is used in the transform
+    query_builder = await QueryBuilder.create(session, transform_node_w_alias.current)
+    query_ast = await query_builder.build()
+    assert_sql_equal(
+        str(query_ast),
+        """
+        WITH telemetry_DOT_probe_transform_w_alias AS (
+          SELECT
+            ps.probe_id,
+            ps.device_health.network.rtt_ms AS rtt_ms
+          FROM test.probes AS ps
+        )
+        SELECT
+          telemetry_DOT_probe_transform_w_alias.probe_id,
+          telemetry_DOT_probe_transform_w_alias.rtt_ms
+        FROM telemetry_DOT_probe_transform_w_alias
         """,
     )
