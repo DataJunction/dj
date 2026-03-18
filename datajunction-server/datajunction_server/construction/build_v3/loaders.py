@@ -400,12 +400,10 @@ async def _load_missing_upstream_nodes(ctx: BuildContext) -> None:
 
                 for table in query_ast.find_all(sql_ast.Table):
                     name = str(table.name)
-                    print("had table", name)
                     if name not in cte_names and name not in ctx.nodes:
                         missing.add(name)
             except Exception:  # pragma: no cover
                 pass
-        print("missing", missing)
         if not missing:
             break
 

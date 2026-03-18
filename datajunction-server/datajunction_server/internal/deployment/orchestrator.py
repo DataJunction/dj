@@ -50,7 +50,6 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.construction.build import validate_shared_dimensions
 from datajunction_server.internal.nodes import (
     hard_delete_node,
-    revalidate_node,
     validate_complex_dimension_link,
 )
 from datajunction_server.models.attribute import ColumnAttributes
@@ -2019,28 +2018,6 @@ class DeploymentOrchestrator:
         all_nodes = await self.refresh_nodes(
             [node.rendered_name for node in node_specs],
         )
-
-        # Revalidate non-source nodes to ensure NodeRelationship entries are
-        # freshly built from SQL AST parsing. This heals any stale parent
-        # relationships that could prevent upstream CTEs from being expanded.
-        async def _noop_save_history(event, session):
-            pass
-
-        non_source_names = [
-            node.rendered_name
-            for node in node_specs
-            if node.node_type != NodeType.SOURCE
-        ]
-        for name in non_source_names:
-            try:
-                await revalidate_node(
-                    name=name,
-                    session=self.session,
-                    current_user=self.context.current_user,
-                    save_history=_noop_save_history,
-                )
-            except Exception:  # pragma: no cover
-                logger.warning("Revalidation failed for %s after deployment", name)
 
         logger.info(
             f"Deployed {len(nodes)} nodes in bulk in {time.perf_counter() - start:.2f}s",
