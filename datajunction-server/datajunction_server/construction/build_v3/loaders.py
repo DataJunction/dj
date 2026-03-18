@@ -381,15 +381,10 @@ async def _load_missing_upstream_nodes(ctx: BuildContext) -> None:
 
     This guards against stale NodeRelationship data (e.g. a node was saved via a
     code path that did not call revalidate_node, so its parent rows are missing or
-    wrong).  When the relationship table is healthy this function is a no-op.
+    wrong). When the relationship table is healthy this function is a no-op.
     """
-    for _ in range(5):  # Each iteration loads one layer of missing upstream nodes
-        # (e.g. A→B missing, then B→C missing). find_upstream_node_names uses a
-        # recursive CTE so intact NodeRelationship chains resolve in a single pass;
-        # multiple iterations are only needed when staleness is multi-level.
-        # The cap guards against cycles in the reference graph (which shouldn't
-        # exist but would otherwise cause an infinite loop). The inner break
-        # conditions guarantee convergence for well-formed data.
+    max_stale_upstream_node_depth = 5
+    for _ in range(max_stale_upstream_node_depth):
         missing: set[str] = set()
         for node in ctx.nodes.values():
             if (
@@ -405,11 +400,12 @@ async def _load_missing_upstream_nodes(ctx: BuildContext) -> None:
 
                 for table in query_ast.find_all(sql_ast.Table):
                     name = str(table.name)
+                    print("had table", name)
                     if name not in cte_names and name not in ctx.nodes:
                         missing.add(name)
             except Exception:  # pragma: no cover
                 pass
-
+        print("missing", missing)
         if not missing:
             break
 
