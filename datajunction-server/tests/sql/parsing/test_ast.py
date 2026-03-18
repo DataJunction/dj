@@ -1345,3 +1345,45 @@ def test_bake_ctes_multiple_references_different_aliases():
     # Should not have CTE names as table references in column prefixes
     assert "base_data.id" not in result_sql
     assert "aggregated.total" not in result_sql
+
+
+def test_struct_column_name_deep_namespace():
+    """
+    struct_column_name must preserve the full intermediate struct path for namespaces
+    deeper than 2 levels.  Before the fix, only namespace[1] was returned, stripping
+    everything between the table alias and the leaf field.
+
+    Regression test for: alias.struct_col.level1.level2.field_leaf
+    """
+    # Use parse() so the AST column is built with the correct linked-Name structure
+    query = parse(
+        "SELECT alias.struct_col.level1.level2.field_leaf FROM table",
+    )
+    col = list(query.find_all(ast.Column))[0]
+
+    # Simulate what set_struct_ref() + add_table() do during compilation
+    col.set_struct_ref()
+    col._table = ast.Table(name=ast.Name("alias"))
+
+    assert col.struct_column_name == "struct_col.level1.level2", (
+        "struct_column_name must include all namespace elements after the table alias"
+    )
+    assert col.struct_subscript == "field_leaf"
+    assert str(col) == ("alias.struct_col.level1.level2.field_leaf"), (
+        "Column.__str__ must render the full struct path without dropping intermediate levels"
+    )
+
+
+def test_struct_column_name_two_level():
+    """
+    The original 2-level struct case must continue to work after the deep-namespace fix.
+    """
+    query = parse("SELECT tbl.struct_col.field_leaf FROM tbl")
+    col = list(query.find_all(ast.Column))[0]
+
+    col.set_struct_ref()
+    col._table = ast.Table(name=ast.Name("tbl"))
+
+    assert col.struct_column_name == "struct_col"
+    assert col.struct_subscript == "field_leaf"
+    assert str(col) == "tbl.struct_col.field_leaf"

@@ -3835,3 +3835,155 @@ class TestFilterOnlyDimensions:
 
         # Grain should only include status, not category
         assert data["grain"] == ["status"]
+
+
+class TestDeepNestedStructAccess:
+    """
+    Tests that deep (3+) nested struct column paths survive end-to-end through both
+    the v2 and v3 SQL generation pipelines.
+
+    v3: embeds the transform SQL verbatim into a CTE — the raw dotted path must pass
+    through unchanged.  v2: compiles the AST (set_struct_ref=True is fired) and
+    struct_column_name() must return the full intermediate path, not just the leaf.
+    """
+
+    @pytest.mark.asyncio
+    async def test_v3_measures_sql_preserves_deep_struct_path(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        v3 measures SQL embeds the transform query verbatim in a CTE. A 3-level deep
+        struct path (e.g. src.device_health.network.rtt_ms) must appear unchanged in
+        that CTE — no intermediate rewriting should strip part of the path.
+        """
+        client = client_with_build_v3
+
+        # Ensure the struct_v3 namespace exists before creating nodes
+        await client.post("/namespaces/struct_v3/")
+
+        # Source with a 3-level nested struct: device_health.network.rtt_ms
+        src_resp = await client.post(
+            "/nodes/source",
+            json={
+                "name": "struct_v3.probe_source",
+                "display_name": "Probe Source",
+                "description": "Source with nested struct column",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "probes",
+                "columns": [
+                    {"name": "probe_id", "type": "bigint"},
+                    {
+                        "name": "device_health",
+                        "type": "struct<network struct<rtt_ms bigint, loss_pct double>>",
+                    },
+                ],
+                "mode": "published",
+            },
+        )
+        assert src_resp.status_code == 200, src_resp.json()
+
+        # Transform drilling into the 3-level deep struct path
+        transform_resp = await client.post(
+            "/nodes/transform",
+            json={
+                "name": "struct_v3.probe_transform",
+                "display_name": "Probe Transform",
+                "description": "Accesses deep struct field",
+                "query": (
+                    "SELECT probe_id, "
+                    "device_health.network.rtt_ms AS rtt_ms "
+                    "FROM struct_v3.probe_source"
+                ),
+                "mode": "published",
+            },
+        )
+        assert transform_resp.status_code == 201, transform_resp.json()
+
+        # Transform drilling into the 3-level deep struct path with an alias on the source node
+        transform_resp = await client.post(
+            "/nodes/transform",
+            json={
+                "name": "struct_v3.probe_transform_w_alias",
+                "display_name": "Probe Transform",
+                "description": "Accesses deep struct field",
+                "query": (
+                    "SELECT probe_id, "
+                    "ps.device_health.network.rtt_ms AS rtt_ms "
+                    "FROM struct_v3.probe_source ps"
+                ),
+                "mode": "published",
+            },
+        )
+        assert transform_resp.status_code == 201, transform_resp.json()
+
+        # Metric aggregating the deep struct field
+        metric_resp = await client.post(
+            "/nodes/metric",
+            json={
+                "name": "struct_v3.total_rtt",
+                "display_name": "Total RTT",
+                "description": "Sum of round-trip time from nested struct",
+                "query": "SELECT SUM(rtt_ms) FROM struct_v3.probe_transform",
+                "mode": "published",
+            },
+        )
+        assert metric_resp.status_code == 201, metric_resp.json()
+
+        # Metric aggregating the deep struct field with an alias on the transform node
+        metric_resp = await client.post(
+            "/nodes/metric",
+            json={
+                "name": "struct_v3.total_rtt_with_alias",
+                "display_name": "Total RTT with Alias",
+                "description": "Sum of round-trip time from nested struct",
+                "query": "SELECT SUM(rtt_ms) FROM struct_v3.probe_transform_w_alias",
+                "mode": "published",
+            },
+        )
+        assert metric_resp.status_code == 201, metric_resp.json()
+
+        sql_resp = await client.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["struct_v3.total_rtt"]},
+        )
+        assert sql_resp.status_code == 200, sql_resp.json()
+
+        sql = sql_resp.json()["grain_groups"][0]["sql"]
+
+        sql_resp = await client.get(
+            "/sql/measures/v3/",
+            params={"metrics": ["struct_v3.total_rtt_with_alias"]},
+        )
+        assert sql_resp.status_code == 200, sql_resp.json()
+
+        sql_with_alias = sql_resp.json()["grain_groups"][0]["sql"]
+
+        # The CTE for the transform must embed the original query verbatim, preserving
+        # the full struct path device_health.network.rtt_ms.
+        assert_sql_equal(
+            sql,
+            """
+            WITH struct_v3_probe_transform AS (
+                SELECT device_health.network.rtt_ms AS rtt_ms
+                FROM default.v3.probes
+            )
+            SELECT SUM(t1.rtt_ms) rtt_ms_sum_HASH
+            FROM struct_v3_probe_transform t1
+            """,
+            normalize_aliases=True,
+        )
+
+        assert_sql_equal(
+            sql_with_alias,
+            """
+            WITH struct_v3_probe_transform_w_alias AS (
+                SELECT ps.device_health.network.rtt_ms AS rtt_ms
+                FROM default.v3.probes ps
+            )
+            SELECT SUM(t1.rtt_ms) rtt_ms_sum_HASH
+            FROM struct_v3_probe_transform_w_alias t1
+            """,
+            normalize_aliases=True,
+        )

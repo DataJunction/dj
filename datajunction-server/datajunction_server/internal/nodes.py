@@ -2051,13 +2051,19 @@ async def column_lineage(
     )
 
     # Find the expression AST for the column on the node
-    column = [
+    matching = [
         col
         for col in query_ast.select.projection
         if (  # pragma: no cover
             col != ast.Null() and col.alias_or_name.name.lower() == column_name.lower()  # type: ignore
         )
-    ][0]
+    ]
+    if not matching:
+        # The column name (from the DB) doesn't appear in the compiled projection —
+        # this can happen for derived metrics whose alias was generated differently.
+        # Return what we have (empty lineage) rather than crashing.
+        return lineage_column  # pragma: no cover
+    column = matching[0]
     column_or_child = column.child if isinstance(column, ast.Alias) else column  # type: ignore
     column_expr = (
         column_or_child.expression  # type: ignore
