@@ -3987,3 +3987,205 @@ class TestDeepNestedStructAccess:
             """,
             normalize_aliases=True,
         )
+
+
+class TestIntermediateDimLinkUpstreamExpansion:
+    """
+    Regression tests for intermediate DimensionLink nodes whose upstream SQL
+    dependencies were not being loaded into ctx.nodes.
+
+    When a dimension node is only reachable via a DimensionLink (not via
+    NodeRelationship from the starting metrics/dimensions), its own upstream
+    dependencies would be absent from ctx.nodes. This caused raw DJ node names
+    (e.g. "v3.spine_calendar_dim") to appear in generated CTE bodies instead of
+    being replaced with their CTE aliases (e.g. "v3_spine_calendar_dim").
+    """
+
+    @pytest.fixture
+    async def setup_spine_nodes(self, client_with_build_v3):
+        """
+        Set up a 2-hop DimensionLink chain where the intermediate hop node
+        references a non-source node in its SQL (via CROSS JOIN).
+
+        Chain:
+          v3.spine_test_count (metric)
+            -> v3.src_spine_fact (source/parent)
+            -[dim link 1]-> v3.spine_fact_expanded (intermediate dim, cross-joins v3.spine_calendar_dim)
+            -[dim link 2]-> v3.spine_output_dim (final dim, requested by user)
+
+          v3.spine_calendar_dim (non-source dimension, referenced in v3.spine_fact_expanded SQL)
+            -> v3.src_spine_calendar (source)
+        """
+        # Source: fact table
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_spine_fact",
+                "description": "Fact table for spine test",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "value", "type": "float"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "spine_fact",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Source: calendar table (upstream of spine_calendar_dim)
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.src_spine_calendar",
+                "description": "Calendar source for spine test",
+                "columns": [
+                    {"name": "day_num", "type": "int"},
+                    {"name": "label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "spine_calendar",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Non-source dimension: calendar spine - this is what the intermediate node cross-joins
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.spine_calendar_dim",
+                "description": "Calendar dimension for spine expansion",
+                "query": "SELECT day_num, label FROM v3.src_spine_calendar",
+                "mode": "published",
+                "primary_key": ["day_num"],
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Intermediate dimension: cross-joins spine_calendar_dim
+        # This node is only reachable via DimensionLink (not NodeRelationship),
+        # so its upstream dependencies (spine_calendar_dim) won't be found by
+        # find_upstream_node_names() in the first pass.
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.spine_fact_expanded",
+                "description": "Fact expanded with calendar spine (intermediate DimensionLink hop)",
+                "query": """
+                    SELECT f.id, c.day_num
+                    FROM v3.src_spine_fact f
+                    CROSS JOIN v3.spine_calendar_dim c
+                """,
+                "mode": "published",
+                "primary_key": ["id"],
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Final dimension: requested by the user
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.spine_output_dim",
+                "description": "Output dimension for spine test",
+                "query": "SELECT id, id * 100 AS id_scaled FROM v3.src_spine_fact",
+                "mode": "published",
+                "primary_key": ["id"],
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Metric: simple count on the fact source
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.spine_test_count",
+                "description": "Count metric for spine test",
+                "query": "SELECT COUNT(id) FROM v3.src_spine_fact",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # DimensionLink 1: fact source -> intermediate dim (1st hop)
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.src_spine_fact/link",
+            json={
+                "dimension_node": "v3.spine_fact_expanded",
+                "join_type": "left",
+                "join_on": "v3.src_spine_fact.id = v3.spine_fact_expanded.id",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # DimensionLink 2: intermediate dim -> final dim (2nd hop)
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.spine_fact_expanded/link",
+            json={
+                "dimension_node": "v3.spine_output_dim",
+                "join_type": "left",
+                "join_on": "v3.spine_fact_expanded.id = v3.spine_output_dim.id",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+    @pytest.mark.asyncio
+    async def test_intermediate_dim_upstream_node_expanded_in_cte(
+        self,
+        client_with_build_v3,
+        setup_spine_nodes,
+    ):
+        """
+        The intermediate dimension node (v3.spine_fact_expanded) is only added to
+        ctx.nodes via preload_join_paths(), not via find_upstream_node_names(). Its
+        SQL references v3.spine_calendar_dim (a non-source node) which must also be
+        loaded so it gets a CTE and its name is rewritten correctly.
+
+        Without the fix in load_nodes(), v3.spine_calendar_dim would appear as the
+        raw dotted DJ node name in the CTE body instead of being replaced with the
+        CTE alias v3_spine_calendar_dim.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.spine_test_count"],
+                "dimensions": ["v3.spine_output_dim.id_scaled"],
+            },
+        )
+        assert response.status_code == 200
+
+        sql = response.json()["grain_groups"][0]["sql"]
+
+        # v3.spine_calendar_dim is referenced in v3.spine_fact_expanded's SQL via
+        # CROSS JOIN. Since spine_fact_expanded is only added to ctx.nodes via
+        # preload_join_paths() (not by the initial find_upstream_node_names traversal),
+        # its upstream dependency spine_calendar_dim must be loaded in a second pass
+        # so that its name gets replaced with the CTE alias in the CTE body.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_spine_calendar_dim AS (
+                SELECT day_num, label
+                FROM default.v3.spine_calendar
+            ),
+            v3_spine_output_dim AS (
+                SELECT id, id * 100 AS id_scaled
+                FROM default.v3.spine_fact
+            ),
+            v3_spine_fact_expanded AS (
+                SELECT f.id
+                FROM default.v3.spine_fact f
+                CROSS JOIN v3_spine_calendar_dim c
+            )
+            SELECT t3.id_scaled, COUNT(t1.id) id_count_HASH
+            FROM default.v3.spine_fact t1
+            LEFT OUTER JOIN v3_spine_fact_expanded t2 ON t1.id = t2.id
+            LEFT OUTER JOIN v3_spine_output_dim t3 ON t2.id = t3.id
+            GROUP BY t3.id_scaled
+            """,
+            normalize_aliases=True,
+        )
