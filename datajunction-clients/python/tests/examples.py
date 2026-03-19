@@ -1169,7 +1169,10 @@ COLUMN_MAPPINGS = {
     ],
 }
 
-QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
+QUERY_DATA_MAPPINGS: Dict[
+    Union[str, frozenset],
+    Union[DJException, QueryWithResults],
+] = {
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
     "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT"
     "_repair_order_details.price,\tdefault_DOT_repair_order_details.quantity,\tdefault"
@@ -1215,17 +1218,10 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "errors": [],
         },
     ),
-    # Build V3 SQL for default.avg_repair_price with dimension default.hard_hat.city
-    "WITHdefault_hard_hatAS(SELECThard_hat_id,\tcityFROMdefault.roads.hard_hats),"
-    "default_repair_orderAS(SELECTrepair_order_id,\thard_hat_idFROMdefault.roads.repair_orders),"
-    "repair_order_details_0AS(SELECTt3.city,\tCOUNT(t1.price)price_count_252381cf,"
-    "\tSUM(t1.price)price_sum_252381cfFROMdefault.roads.repair_order_detailst1"
-    "LEFTOUTERJOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_id"
-    "LEFTOUTERJOINdefault_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.city)"
-    "SELECTrepair_order_details_0.cityAScity,"
-    "\tSUM(repair_order_details_0.price_sum_252381cf)"
-    "/SUM(repair_order_details_0.price_count_252381cf)ASavg_repair_price"
-    "FROMrepair_order_details_0GROUPBYrepair_order_details_0.city": QueryWithResults(
+    # Build V3 SQL-agnostic entries keyed by output column aliases (frozenset).
+    # These match any SQL that produces the given output column names, regardless
+    # of how the SQL was generated (build_v2, build_v3, etc.).
+    frozenset(["city", "avg_repair_price"]): QueryWithResults(
         **{
             "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee3",
             "submitted_query": "...",
@@ -1243,6 +1239,15 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
                     "sql": "",
                 },
             ],
+            "errors": [],
+        },
+    ),
+    frozenset(["state", "avg_repair_price"]): QueryWithResults(
+        **{
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee4",
+            "submitted_query": "...",
+            "state": QueryState.FINISHED,
+            "results": [],
             "errors": [],
         },
     ),

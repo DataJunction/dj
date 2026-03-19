@@ -209,6 +209,34 @@ def module__query_service_client(
         mock_get_columns_for_table,
     )
 
+    def _extract_outer_aliases(sql: str) -> frozenset:
+        """
+        Extract column aliases from the outermost SELECT of a SQL query.
+
+        Works for both plain SELECT and CTE (WITH ... SELECT) queries.
+        Tracks parenthesis depth to find the outermost SELECT, then
+        extracts AS<alias> patterns from the SELECT clause up to FROM.
+        """
+        norm = sql.strip().replace('"', "").replace("\n", "").replace(" ", "")
+        # Find the outermost SELECT by tracking paren depth
+        depth = 0
+        last_outer_select = 0
+        i = 0
+        while i < len(norm):
+            if norm[i] == "(":
+                depth += 1
+            elif norm[i] == ")":
+                depth -= 1
+            elif depth == 0 and norm[i : i + 6] == "SELECT":
+                last_outer_select = i
+            i += 1
+        outer = norm[last_outer_select + 6 :]  # skip "SELECT"
+        # Take only up to FROM to avoid aliases in WHERE/GROUP BY
+        from_idx = outer.find("FROM")
+        if from_idx > 0:
+            outer = outer[:from_idx]
+        return frozenset(re.findall(r"AS([A-Za-z_]\w*)", outer))
+
     def mock_submit_query(
         query_create: QueryCreate,
         request_headers: Optional[  # pylint: disable=unused-argument
@@ -224,9 +252,14 @@ def module__query_service_client(
         # Strip LIMIT clause for matching (allows queries with/without LIMIT to match)
         normalized_query = re.sub(r"LIMIT\d+$", "", normalized_query)
 
-        if normalized_query not in QUERY_DATA_MAPPINGS:
+        # Try alias-based lookup first (SQL-agnostic, stable across SQL generation changes)
+        outer_aliases = _extract_outer_aliases(query_create.submitted_query)
+        if outer_aliases in QUERY_DATA_MAPPINGS:
+            results = QUERY_DATA_MAPPINGS[outer_aliases]
+        elif normalized_query not in QUERY_DATA_MAPPINGS:
             raise KeyError(f"No mock found for query:\n{normalized_query}")
-        results = QUERY_DATA_MAPPINGS[normalized_query]
+        else:
+            results = QUERY_DATA_MAPPINGS[normalized_query]
 
         if isinstance(results, Exception):
             raise results
