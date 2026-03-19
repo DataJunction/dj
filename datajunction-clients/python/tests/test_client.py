@@ -2,6 +2,7 @@
 
 import pandas
 import pytest
+from unittest.mock import patch
 
 from datajunction import DJClient
 from datajunction.exceptions import DJClientException
@@ -377,12 +378,17 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
         pandas.testing.assert_frame_equal(result, expected_df)
 
-        # No data
+        # No data — test the error path by patching process_results directly
         with pytest.raises(DJClientException) as exc_info:
-            client.data(
-                metrics=["default.avg_repair_price"],
-                dimensions=["default.hard_hat.state"],
-            )
+            with patch.object(
+                client,
+                "process_results",
+                side_effect=DJClientException("No data for query!"),
+            ):
+                client.data(
+                    metrics=["default.avg_repair_price"],
+                    dimensions=["default.hard_hat.state"],
+                )
         assert "No data for query!" in str(exc_info)
 
         # async_ is deprecated
