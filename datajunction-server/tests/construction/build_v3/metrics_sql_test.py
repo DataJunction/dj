@@ -3468,7 +3468,7 @@ class TestMultiHopIntermediateDimensionColumns:
             WITH
             v3_customer AS (
                 SELECT customer_id, location_id
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_location AS (
                 SELECT location_id, country
@@ -3537,7 +3537,7 @@ class TestMultiHopIntermediateDimensionColumns:
             WITH
             v3_customer AS (
                 SELECT customer_id, registration_date
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_date AS (
                 SELECT date_id, year
@@ -3743,7 +3743,7 @@ class TestMultiHopIntermediateDimensionColumns:
             WITH
             v3_customer AS (
                 SELECT customer_id, location_id
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_location AS (
                 SELECT location_id, country
@@ -4163,7 +4163,7 @@ class TestFilterOnRoleDimension:
             WITH
             v3_customer AS (
                 SELECT customer_id, location_id
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_location AS (
                 SELECT location_id, country

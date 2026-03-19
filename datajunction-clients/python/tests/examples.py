@@ -1246,6 +1246,24 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             },
         )
     ),
+    # v3 SQL format for avg_repair_price + hard_hat.state (returns empty to test "No data" path)
+    "WITHdefault_hard_hatAS(SELECThard_hat_id,\tstateFROMdefault.roads.hard_hats),"
+    "default_repair_orderAS(SELECTrepair_order_id,\thard_hat_idFROMdefault.roads.repair_orders),"
+    "repair_order_details_0AS(SELECTt3.state,\tCOUNT(t1.price)price_count_252381cf,\t"
+    "SUM(t1.price)price_sum_252381cfFROMdefault.roads.repair_order_detailst1LEFTOUTER"
+    "JOINdefault_repair_ordert2ONt1.repair_order_id=t2.repair_order_idLEFTOUTERJOIN"
+    "default_hard_hatt3ONt2.hard_hat_id=t3.hard_hat_idGROUPBYt3.state)SELECT"
+    "repair_order_details_0.stateASstate,\tSUM(repair_order_details_0.price_sum_252381cf)"
+    "/SUM(repair_order_details_0.price_count_252381cf)ASavg_repair_priceFROM"
+    "repair_order_details_0GROUPBYrepair_order_details_0.state": QueryWithResults(
+        **{
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "submitted_query": "...",
+            "state": QueryState.FINISHED,
+            "results": [],
+            "errors": [],
+        },
+    ),
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_hard_hat.postal_codedefault_"
     "DOT_hard_hat_DOT_postal_code,\tavg(default_DOT_repair_order_details.price)ASdefault_"
     "DOT_avg_repair_priceFROMroads.repair_order_detailsASdefault_DOT_repair_order_details"

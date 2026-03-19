@@ -482,6 +482,44 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Preload join paths for ALL parent nodes in a single batch
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
 
+    # After preload_join_paths, the dimension nodes that are being joined in may reference
+    # other upstream nodes that weren't in the original find_upstream_node_names traversal.
+    # Load these upstream dependencies so that collect_refs() can resolve them and
+    # rewrite_table_references() can replace them with CTE names.
+    newly_added_nodes = set(ctx.nodes.keys()) - all_node_names
+    if newly_added_nodes:
+        extra_names, _ = await find_upstream_node_names(
+            ctx.session,
+            list(newly_added_nodes),
+        )
+        nodes_to_load = extra_names - set(ctx.nodes.keys())
+        if nodes_to_load:
+            extra_stmt = (
+                select(Node)
+                .where(Node.name.in_(nodes_to_load))
+                .where(Node.deactivated_at.is_(None))
+                .options(
+                    load_only(Node.name, Node.type, Node.current_version),
+                    joinedload(Node.current).options(
+                        noload(NodeRevision.created_by),
+                        load_only(
+                            NodeRevision.name,
+                            NodeRevision.query,
+                            NodeRevision.schema_,
+                            NodeRevision.table,
+                        ),
+                        selectinload(NodeRevision.columns).options(
+                            load_only(Column.name, Column.type),
+                        ),
+                        joinedload(NodeRevision.catalog),
+                        joinedload(NodeRevision.availability),
+                    ),
+                )
+            )
+            extra_result = await ctx.session.execute(extra_stmt)
+            for node in extra_result.scalars().unique().all():
+                ctx.nodes[node.name] = node
+
     # Store parent_revision_ids for pre-agg loading (if needed)
     ctx._parent_revision_ids = parent_revision_ids
 
