@@ -378,13 +378,9 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
         pandas.testing.assert_frame_equal(result, expected_df)
 
-        # No data — test the error path by patching process_results directly
+        # No data — server returns empty results, client retries then raises
         with pytest.raises(DJClientException) as exc_info:
-            with patch.object(
-                client,
-                "process_results",
-                side_effect=DJClientException("No data for query!"),
-            ):
+            with patch("datajunction.client.time.sleep"):
                 client.data(
                     metrics=["default.avg_repair_price"],
                     dimensions=["default.hard_hat.state"],
