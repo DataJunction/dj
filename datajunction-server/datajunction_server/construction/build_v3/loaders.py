@@ -482,11 +482,10 @@ async def load_nodes(ctx: BuildContext) -> None:
     # Preload join paths for ALL parent nodes in a single batch
     await preload_join_paths(ctx, parent_revision_ids, target_dim_names)
 
-    # After preload_join_paths, intermediate DimensionLink nodes may have been added
-    # to ctx.nodes that weren't in the original find_upstream_node_names traversal.
-    # Those intermediate nodes may reference other nodes (e.g. via CROSS JOIN in their
-    # SQL) whose upstream dependencies also need to be loaded so that collect_refs()
-    # can resolve them and rewrite_table_references() can replace them with CTE names.
+    # After preload_join_paths, the dimension nodes that are being joined in may reference
+    # other upstream nodes that weren't in the original find_upstream_node_names traversal.
+    # Load these upstream dependencies so that collect_refs() can resolve them and
+    # rewrite_table_references() can replace them with CTE names.
     newly_added_nodes = set(ctx.nodes.keys()) - all_node_names
     if newly_added_nodes:
         extra_names, _ = await find_upstream_node_names(
