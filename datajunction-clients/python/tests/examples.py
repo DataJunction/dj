@@ -1169,10 +1169,7 @@ COLUMN_MAPPINGS = {
     ],
 }
 
-QUERY_DATA_MAPPINGS: Dict[
-    Union[str, frozenset],
-    Union[DJException, QueryWithResults],
-] = {
+QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
     "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT"
     "_repair_order_details.price,\tdefault_DOT_repair_order_details.quantity,\tdefault"
@@ -1215,39 +1212,6 @@ QUERY_DATA_MAPPINGS: Dict[
                     "sql": "",
                 },
             ],
-            "errors": [],
-        },
-    ),
-    # Build V3 SQL-agnostic entries keyed by output column aliases (frozenset).
-    # These match any SQL that produces the given output column names, regardless
-    # of how the SQL was generated (build_v2, build_v3, etc.).
-    frozenset(["city", "avg_repair_price"]): QueryWithResults(
-        **{
-            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee3",
-            "submitted_query": "...",
-            "state": QueryState.FINISHED,
-            "results": [
-                {
-                    "columns": [
-                        {"name": "city", "type": "str"},
-                        {"name": "avg_repair_price", "type": "float"},
-                    ],
-                    "rows": [
-                        ("Foo", 1.0),
-                        ("Bar", 2.0),
-                    ],
-                    "sql": "",
-                },
-            ],
-            "errors": [],
-        },
-    ),
-    frozenset(["state", "avg_repair_price"]): QueryWithResults(
-        **{
-            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee4",
-            "submitted_query": "...",
-            "state": QueryState.FINISHED,
-            "results": [],
             "errors": [],
         },
     ),
