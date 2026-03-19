@@ -390,7 +390,11 @@ def build_join_clause(
 
     # Build a simple ON clause by parsing the join SQL
     # We'll create a binary comparison
-    on_clause = parse(f"SELECT 1 WHERE {join_sql}").select.where
+    # CROSS JOINs have no ON condition, so join_sql may be empty/None
+    if join_sql:
+        on_clause = parse(f"SELECT 1 WHERE {join_sql}").select.where
+    else:
+        on_clause = None
 
     # Detect self-join: when joining a dimension to itself
     is_self_join = left_node_name == right_node_name
@@ -399,7 +403,7 @@ def build_join_clause(
     # For self-joins: track occurrence order (first occurrence -> left, second -> right)
     # For regular joins: match by node name (left node -> left alias, right node -> right alias)
     occurrence_count = [0]  # Mutable counter for self-join occurrence tracking
-    if on_clause:  # pragma: no branch
+    if on_clause:
         _rewrite_column_refs_with_aliases(
             on_clause,
             left_node_name,
@@ -422,6 +426,8 @@ def build_join_clause(
         join_type_str = "RIGHT OUTER"
     elif link.join_type == JoinType.FULL:  # pragma: no cover
         join_type_str = "FULL OUTER"
+    elif link.join_type == JoinType.CROSS:
+        join_type_str = "CROSS"
 
     # Build the right table reference (use materialized table if available)
     # Look up full node from ctx.nodes to avoid lazy loading
