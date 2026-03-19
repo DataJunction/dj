@@ -687,7 +687,7 @@ class TestMeasuresSQLRoles:
             WITH
             v3_customer AS (
                 SELECT customer_id, registration_date
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_date AS (
                 SELECT date_id, year
@@ -774,7 +774,7 @@ class TestMeasuresSQLRoles:
             WITH
             v3_customer AS (
                 SELECT customer_id, location_id
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_location AS (
                 SELECT location_id, country
@@ -799,6 +799,53 @@ class TestMeasuresSQLRoles:
             "v3.location.country[from]",
             "v3.location.country[customer->home]",
         ]
+
+    @pytest.mark.asyncio
+    async def test_filter_on_multi_hop_dimension_column(self, client_with_build_v3):
+        """
+        Test that a filter on a dimension column reachable only via a 2-hop
+        DimensionLink path (order_details -> customer -> location) is correctly
+        pushed into the WHERE clause of the outer query.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[customer->home]"],
+                "filters": ["v3.location.country[customer->home] = 'US'"],
+            },
+        )
+        assert response.status_code == 200
+        data = get_first_grain_group(response.json())
+
+        # The filter on the 2-hop dimension column should appear in the WHERE clause,
+        # referencing the aliased join table (t3), not the raw dimension node name.
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_customer AS (
+                SELECT customer_id, location_id
+                FROM default.v3.customers
+            ),
+            v3_location AS (
+                SELECT location_id, country
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+            WHERE t3.country = 'US'
+            GROUP BY t3.country
+            """,
+            normalize_aliases=True,
+        )
 
     @pytest.mark.asyncio
     async def test_all_location_roles_in_single_query(self, client_with_build_v3):
@@ -857,7 +904,7 @@ class TestMeasuresSQLRoles:
             WITH
             v3_customer AS (
                 SELECT customer_id, location_id
-                FROM v3.src_customers
+                FROM default.v3.customers
             ),
             v3_location AS (
                 SELECT location_id, city
