@@ -1926,7 +1926,8 @@ def generate_metrics_sql(
                 base_ref = get_column_full_name(subscript.expr)
                 if base_ref:
                     for fd in ctx.filter_dimensions:
-                        if fd.startswith(f"{base_ref}["):
+                        fd_base = fd.split("[")[0] if "[" in fd else fd
+                        if fd_base == base_ref:
                             refs_filter_only = True
                             break
                 if refs_filter_only:
