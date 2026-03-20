@@ -1542,6 +1542,87 @@ class TestMetricsSQLCrossFact:
             or "shared dimension" in str(error_detail).lower()
         )
 
+    @pytest.mark.asyncio
+    async def test_cross_fact_full_plus_limited_fan_out(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that combining a FULL metric with a LIMITED (COUNT DISTINCT) metric from a
+        different fact table produces correct values for both metrics.
+
+        collect_and_build_ctes() adds a pre-aggregation wrapper CTE for LIMITED grain groups.
+        The wrapper collapses N rows per dimension (one per distinct grain key) into 1 row by
+        computing COUNT(DISTINCT grain_key) inside the CTE. The FULL OUTER JOIN then sees 1:1
+        rows from both sides, so SUM() does not overcount.
+
+        Setup:
+          - v3.total_revenue  (FULL, from order_details)
+            grain group CTE: GROUP BY category → 1 row per category
+          - v3.visitor_count  (LIMITED, COUNT DISTINCT customer_id, from page_views_enriched)
+            raw grain group CTE: GROUP BY (category, customer_id) -> N rows per category
+            wrapper CTE (page_views_enriched_0_agg): GROUP BY category -> 1 row per category
+
+        After FULL OUTER JOIN on category both sides have 1 row per category.
+        SUM(order_details_0.line_total_sum_HASH) = correct revenue.
+        SUM(page_views_enriched_0_agg.customer_id_distinct_HASH) = correct visitor count.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.visitor_count"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views_enriched AS (
+                SELECT customer_id, product_id
+                FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, t1.customer_id
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT category, COUNT(DISTINCT customer_id) customer_id_distinct_dd4be7a5
+                FROM page_views_enriched_0
+                GROUP BY category
+            )
+            SELECT
+                COALESCE(order_details_0.category, page_views_enriched_0_agg.category) AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                SUM(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5) AS visitor_count
+            FROM order_details_0
+            FULL OUTER JOIN page_views_enriched_0_agg
+                ON order_details_0.category = page_views_enriched_0_agg.category
+            GROUP BY 1
+            """,
+        )
+
 
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""

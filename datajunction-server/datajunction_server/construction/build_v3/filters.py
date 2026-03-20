@@ -45,16 +45,19 @@ def extract_subscript_role(subscript: ast.Subscript) -> str | None:
     Extract the role string from a subscript index node.
 
     Handles the three forms that can appear as a subscript index:
-    - ``ast.Column``  → simple role like ``order``
-    - ``ast.Name``    → simple role like ``order``
-    - ``ast.Lambda``  → multi-hop role like ``customer->home``
+    - ast.Column: simple role like "order" (e.g., "v3.date.year[order]")
+    - ast.Name: simple role like "order" (fallback if parser produces Name instead of Column)
+    - ast.Lambda: multi-hop role (e.g., "v3.user[customer->home]")
 
     Returns the role string, or None if the index is not a recognised form.
     """
+    # simple role like "dim.attr[order]"
     if isinstance(subscript.index, ast.Column):
         return subscript.index.name.name if subscript.index.name else None
+    # simple role like "dim.attr[order]"
     if isinstance(subscript.index, ast.Name):  # pragma: no cover
         return subscript.index.name
+    # multi-hop role like "dim.attr[customer->home]"
     if isinstance(subscript.index, ast.Lambda):
         return str(subscript.index)
     return None  # pragma: no cover
