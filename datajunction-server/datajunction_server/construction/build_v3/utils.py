@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from datajunction_server.construction.build_v3.filters import (
+    extract_subscript_role,
+    parse_filter,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import SEPARATOR
@@ -188,7 +192,7 @@ def _try_add_dim_to_ctx(
             and existing_ref.column_name == dim_ref.column_name
         ):
             return
-    logger.info(f"[BuildV3] Auto-adding dimension {full_name} from {log_source}")
+    logger.info("[BuildV3] Auto-adding dimension %s from %s", full_name, log_source)
     ctx.dimensions.append(full_name)
     existing_dims.add(full_name)
 
@@ -259,10 +263,9 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
     Args:
         ctx: BuildContext with filters and dimensions lists to update
     """
-    # Import here to avoid circular imports
+    # Import here to avoid circular imports (cte.py imports utils.py)
     from datajunction_server.construction.build_v3.cte import get_column_full_name
     from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-    from datajunction_server.construction.build_v3.filters import parse_filter
 
     if not ctx.filters:
         return
@@ -273,7 +276,7 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
         try:
             filter_ast = parse_filter(filter_str)
         except Exception:  # pragma: no cover
-            logger.warning(f"[BuildV3] Failed to parse filter: {filter_str}")
+            logger.warning("[BuildV3] Failed to parse filter: %s", filter_str)
             continue
 
         # Track base column refs handled via role-qualified subscript notation
@@ -292,15 +295,7 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
             if not base_col_ref or SEPARATOR not in base_col_ref:
                 continue
 
-            # Extract role from subscript index (same logic as filters.py)
-            role = None
-            if isinstance(subscript.index, ast.Column):
-                role = subscript.index.name.name if subscript.index.name else None
-            elif isinstance(subscript.index, ast.Name):  # pragma: no cover
-                role = subscript.index.name
-            elif isinstance(subscript.index, ast.Lambda):
-                role = str(subscript.index)
-
+            role = extract_subscript_role(subscript)
             if role:
                 full_name = f"{base_col_ref}[{role}]"
             else:  # pragma: no cover
@@ -329,7 +324,8 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
 
             if not is_covered:
                 logger.info(
-                    f"[BuildV3] Auto-adding filter-only dimension {full_name}",
+                    "[BuildV3] Auto-adding filter-only dimension %s",
+                    full_name,
                 )
                 ctx.dimensions.append(full_name)
                 ctx.filter_dimensions.add(full_name)
@@ -371,7 +367,8 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
 
             if not is_covered:
                 logger.info(
-                    f"[BuildV3] Auto-adding filter-only dimension {full_name}",
+                    "[BuildV3] Auto-adding filter-only dimension %s",
+                    full_name,
                 )
                 ctx.dimensions.append(full_name)
                 ctx.filter_dimensions.add(full_name)
