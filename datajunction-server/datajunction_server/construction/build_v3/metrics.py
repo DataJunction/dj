@@ -1915,13 +1915,28 @@ def generate_metrics_sql(
         applicable_dimension_filters = []
         for f in dimension_filters_raw:
             filter_ast = parse_filter(f)
-            # Check if any column ref in this filter is a filter-only dimension
+            # Check if any column ref in this filter is a filter-only dimension.
+            # Must handle both plain column refs and role-qualified subscript refs
+            # (e.g., "v3.location.country[customer->home]"), because find_all(ast.Column)
+            # returns only the base Column inside the Subscript, not the full role string.
             refs_filter_only = False
-            for col in filter_ast.find_all(ast.Column):
-                full_name = get_column_full_name(col)
-                if full_name and full_name in ctx.filter_dimensions:
-                    refs_filter_only = True
+            for subscript in filter_ast.find_all(ast.Subscript):
+                if not isinstance(subscript.expr, ast.Column):
+                    continue  # pragma: no cover
+                base_ref = get_column_full_name(subscript.expr)
+                if base_ref:
+                    for fd in ctx.filter_dimensions:
+                        if fd.startswith(f"{base_ref}["):
+                            refs_filter_only = True
+                            break
+                if refs_filter_only:
                     break
+            if not refs_filter_only:
+                for col in filter_ast.find_all(ast.Column):
+                    full_name = get_column_full_name(col)
+                    if full_name and full_name in ctx.filter_dimensions:
+                        refs_filter_only = True
+                        break
             if not refs_filter_only:
                 applicable_dimension_filters.append(f)
 

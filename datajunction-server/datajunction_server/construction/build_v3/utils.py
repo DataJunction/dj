@@ -162,6 +162,37 @@ def collect_required_dimensions(
     return sorted(required_dims)
 
 
+def _try_add_dim_to_ctx(
+    full_name: str,
+    ctx: "BuildContext",
+    existing_dims: set[str],
+    log_source: str,
+) -> None:
+    """
+    Add a fully-qualified dimension ref to ctx.dimensions if not already covered.
+
+    Helper used by add_dimensions_from_metric_expressions to deduplicate logic.
+    """
+    # Import here to avoid circular imports
+    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+
+    if not full_name or SEPARATOR not in full_name or full_name in existing_dims:
+        return
+    if full_name in ctx.metrics:
+        return
+    dim_ref = parse_dimension_ref(full_name)
+    for existing_dim in ctx.dimensions:
+        existing_ref = parse_dimension_ref(existing_dim)
+        if (
+            existing_ref.node_name == dim_ref.node_name
+            and existing_ref.column_name == dim_ref.column_name
+        ):
+            return
+    logger.info(f"[BuildV3] Auto-adding dimension {full_name} from {log_source}")
+    ctx.dimensions.append(full_name)
+    existing_dims.add(full_name)
+
+
 def add_dimensions_from_metric_expressions(
     ctx: "BuildContext",
     decomposed_metrics: dict[str, "DecomposedMetricInfo"],
@@ -173,42 +204,44 @@ def add_dimensions_from_metric_expressions(
     weren't explicitly requested by the user or marked as required_dimensions.
     We add them so they're included in the grain group SQL.
 
+    Also scans the original metric query's window function ORDER BY clauses, because
+    decomposition strips OVER clauses from derived_ast (the combiner_ast source), so
+    ORDER BY dimension refs like ``common.dimensions.time.date.dateint`` would otherwise
+    be invisible to this scan.
+
     Args:
         ctx: BuildContext with dimensions list to update
         decomposed_metrics: Dict of metric_name -> DecomposedMetricInfo with combiner ASTs
     """
     # Import here to avoid circular imports
     from datajunction_server.construction.build_v3.cte import get_column_full_name
-    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 
     existing_dims = set(ctx.dimensions)
-    for decomposed in decomposed_metrics.values():
+    for metric_name, decomposed in decomposed_metrics.items():
         combiner_ast = decomposed.combiner_ast
         for col in combiner_ast.find_all(ast.Column):
             full_name = get_column_full_name(col)
-            if full_name and SEPARATOR in full_name and full_name not in existing_dims:
-                # Skip if this is a metric reference (e.g., in derived metric combiners)
-                # Metrics should not be added as dimensions
-                if full_name in ctx.metrics:
-                    continue  # pragma: no cover
+            _try_add_dim_to_ctx(full_name, ctx, existing_dims, "metric expression")
 
-                # Check if any existing dimension already covers this (node, column)
-                dim_ref = parse_dimension_ref(full_name)
-                is_covered = False
-                for existing_dim in ctx.dimensions:
-                    existing_ref = parse_dimension_ref(existing_dim)
-                    if (
-                        existing_ref.node_name == dim_ref.node_name
-                        and existing_ref.column_name == dim_ref.column_name
-                    ):
-                        is_covered = True
-                        break
-                if not is_covered:
-                    logger.info(
-                        f"[BuildV3] Auto-adding dimension {full_name} from metric expression",
-                    )
-                    ctx.dimensions.append(full_name)
-                    existing_dims.add(full_name)
+        # Also scan the original metric query for window function ORDER BY dimension refs.
+        # During decomposition, aggregation functions like SUM(...) OVER (ORDER BY dim)
+        # are replaced with component names, losing the OVER clause from derived_ast.
+        # So combiner_ast.find_all(ast.Column) never sees ORDER BY dimension refs.
+        metric_node = ctx.nodes.get(metric_name)
+        if metric_node:
+            original_query = ctx.get_parsed_query(metric_node)
+            for func in original_query.find_all(ast.Function):
+                if not func.over or not func.over.order_by:
+                    continue
+                for sort_item in func.over.order_by:
+                    for col in sort_item.find_all(ast.Column):
+                        full_name = get_column_full_name(col)
+                        _try_add_dim_to_ctx(
+                            full_name,
+                            ctx,
+                            existing_dims,
+                            "metric window ORDER BY",
+                        )
 
 
 def add_dimensions_from_filters(ctx: "BuildContext") -> None:
@@ -243,11 +276,75 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
             logger.warning(f"[BuildV3] Failed to parse filter: {filter_str}")
             continue
 
-        # Find all column references in the filter
+        # Track base column refs handled via role-qualified subscript notation
+        # (e.g., "v3.location.country" from "v3.location.country[customer->home]")
+        # so we don't also add the role-less version in the Column pass below.
+        subscript_handled_refs: set[str] = set()
+
+        # First pass: handle Subscript nodes for role-qualified dimension refs.
+        # SQL like "v3.location.country[customer->home]" is parsed as
+        # Subscript(Column(v3.location.country), Lambda(customer->home)).
+        for subscript in filter_ast.find_all(ast.Subscript):
+            if not isinstance(subscript.expr, ast.Column):
+                continue
+
+            base_col_ref = get_column_full_name(subscript.expr)
+            if not base_col_ref or SEPARATOR not in base_col_ref:
+                continue
+
+            # Extract role from subscript index (same logic as filters.py)
+            role = None
+            if isinstance(subscript.index, ast.Column):
+                role = subscript.index.name.name if subscript.index.name else None
+            elif isinstance(subscript.index, ast.Name):  # pragma: no cover
+                role = subscript.index.name
+            elif isinstance(subscript.index, ast.Lambda):
+                role = str(subscript.index)
+
+            if role:
+                full_name = f"{base_col_ref}[{role}]"
+            else:  # pragma: no cover
+                full_name = base_col_ref
+
+            # Mark this base ref as handled so the Column pass skips it
+            subscript_handled_refs.add(base_col_ref)
+
+            if full_name in existing_dims:
+                continue
+
+            if full_name in ctx.metrics:  # pragma: no cover
+                continue
+
+            dim_ref = parse_dimension_ref(full_name)
+            is_covered = False
+            for existing_dim in ctx.dimensions:
+                existing_ref = parse_dimension_ref(existing_dim)
+                if (
+                    existing_ref.node_name == dim_ref.node_name
+                    and existing_ref.column_name == dim_ref.column_name
+                    and existing_ref.role == dim_ref.role
+                ):
+                    is_covered = True
+                    break
+
+            if not is_covered:
+                logger.info(
+                    f"[BuildV3] Auto-adding filter-only dimension {full_name}",
+                )
+                ctx.dimensions.append(full_name)
+                ctx.filter_dimensions.add(full_name)
+                existing_dims.add(full_name)
+
+        # Second pass: handle regular Column references.
+        # Skip columns that were already added via the subscript pass above.
         for col in filter_ast.find_all(ast.Column):
             full_name = get_column_full_name(col)
             if not full_name or SEPARATOR not in full_name:
                 # Simple column name (e.g., "status") - will be resolved from parent node
+                continue
+
+            # Skip if already handled as a role-qualified subscript ref
+            if full_name in subscript_handled_refs:
                 continue
 
             if full_name in existing_dims:
