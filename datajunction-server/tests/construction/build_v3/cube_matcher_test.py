@@ -1147,6 +1147,107 @@ class TestBuildSqlFromCube:
         assert "trailing_wow_revenue_change" in column_names
 
     @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_inferred_order_by_dimension(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Window function ORDER BY dim auto-detected even without required_dimensions.
+
+        v3.trailing_7d_revenue_inferred_dim has no required_dimensions set, but its
+        metric expression uses ORDER BY v3.date.date_id[order]. The fix in
+        add_dimensions_from_metric_expressions scans the original metric query's
+        window function ORDER BY clauses and auto-adds the dimension to ctx.dimensions.
+
+        Without the fix, the ORDER BY would contain the raw unresolved ref
+        "v3.date.date_id[order]" instead of "base_metrics.date_id_order".
+        """
+        all_metrics = ["v3.total_revenue", "v3.trailing_7d_revenue_inferred_dim"]
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_inferred_order_by_dim",
+                "metrics": all_metrics,
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
+                "mode": "published",
+                "description": "Cube for testing inferred ORDER BY dimension",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_inferred_order_by_dim/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_inferred_order_by_dim",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        cube = await find_matching_cube(
+            session,
+            metrics=all_metrics,
+            dimensions=["v3.date.date_id[order]", "v3.product.category"],
+        )
+        assert cube is not None
+
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=all_metrics,
+            dimensions=["v3.date.date_id[order]", "v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+        )
+
+        assert result is not None
+        assert result.sql is not None
+
+        # The ORDER BY should use the aliased column name (date_id_order),
+        # NOT the raw dimension ref (v3.date.date_id[order]).
+        assert "v3.date.date_id" not in result.sql, (
+            "Raw dimension ref found in SQL — ORDER BY dimension was not resolved"
+        )
+        assert "date_id_order" in result.sql, (
+            "Aliased column name missing — ORDER BY dimension was not resolved to alias"
+        )
+
+        expected_sql = """
+        WITH test_cube_inferred_order_by_dim_0 AS (
+          SELECT
+            date_id_order,
+            category,
+            line_total_sum_e1f61696
+          FROM default.analytics.cube_inferred_order_by_dim
+        ),
+        base_metrics AS (
+          SELECT
+            test_cube_inferred_order_by_dim_0.date_id_order AS date_id_order,
+            test_cube_inferred_order_by_dim_0.category AS category,
+            SUM(test_cube_inferred_order_by_dim_0.line_total_sum_e1f61696) AS total_revenue
+          FROM test_cube_inferred_order_by_dim_0
+          GROUP BY
+            test_cube_inferred_order_by_dim_0.date_id_order,
+            test_cube_inferred_order_by_dim_0.category
+        )
+        SELECT
+          base_metrics.date_id_order AS date_id_order,
+          base_metrics.category AS category,
+          base_metrics.total_revenue AS total_revenue,
+          SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue_inferred_dim
+        FROM base_metrics
+        """
+        assert_sql_equal(result.sql, expected_sql, normalize_aliases=False)
+
+        column_names = [col.name for col in result.columns]
+        assert "total_revenue" in column_names
+        assert "trailing_7d_revenue_inferred_dim" in column_names
+
+    @pytest.mark.asyncio
     async def test_builds_sql_with_rollup_dimensions(
         self,
         client_with_build_v3,
