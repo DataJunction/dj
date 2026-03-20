@@ -242,6 +242,12 @@ class GrainGroupSQL:
     # instead of individual grain group CTEs.
     is_cross_fact_window: bool = False
 
+    # Pre-aggregation: True when collect_and_build_ctes() added a wrapper CTE that
+    # applies COUNT(DISTINCT grain_key) per requested dimension combination.
+    # When True, _build_metric_aggregation() should emit SUM(pre_agg_col) instead of
+    # COUNT(DISTINCT raw_grain_col), since the wrapper CTE already did the DISTINCT work.
+    is_pre_aggregated: bool = False
+
     # Scan estimation: source tables accessed during SQL generation
     # Populated by collect_node_ctes during CTE building
     scanned_sources: list[str] = field(default_factory=list)

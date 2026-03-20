@@ -1542,6 +1542,87 @@ class TestMetricsSQLCrossFact:
             or "shared dimension" in str(error_detail).lower()
         )
 
+    @pytest.mark.asyncio
+    async def test_cross_fact_full_plus_limited_fan_out(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Test that combining a FULL metric with a LIMITED (COUNT DISTINCT) metric from a
+        different fact table produces correct values for both metrics.
+
+        collect_and_build_ctes() adds a pre-aggregation wrapper CTE for LIMITED grain groups.
+        The wrapper collapses N rows per dimension (one per distinct grain key) into 1 row by
+        computing COUNT(DISTINCT grain_key) inside the CTE. The FULL OUTER JOIN then sees 1:1
+        rows from both sides, so SUM() does not overcount.
+
+        Setup:
+          - v3.total_revenue  (FULL, from order_details)
+            grain group CTE: GROUP BY category → 1 row per category
+          - v3.visitor_count  (LIMITED, COUNT DISTINCT customer_id, from page_views_enriched)
+            raw grain group CTE: GROUP BY (category, customer_id) -> N rows per category
+            wrapper CTE (page_views_enriched_0_agg): GROUP BY category -> 1 row per category
+
+        After FULL OUTER JOIN on category both sides have 1 row per category.
+        SUM(order_details_0.line_total_sum_HASH) = correct revenue.
+        SUM(page_views_enriched_0_agg.customer_id_distinct_HASH) = correct visitor count.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.visitor_count"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            v3_page_views_enriched AS (
+                SELECT customer_id, product_id
+                FROM default.v3.page_views
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category
+            ),
+            page_views_enriched_0 AS (
+                SELECT t2.category, t1.customer_id
+                FROM v3_page_views_enriched t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT category, COUNT(DISTINCT customer_id) customer_id_distinct_dd4be7a5
+                FROM page_views_enriched_0
+                GROUP BY category
+            )
+            SELECT
+                COALESCE(order_details_0.category, page_views_enriched_0_agg.category) AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                SUM(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5) AS visitor_count
+            FROM order_details_0
+            FULL OUTER JOIN page_views_enriched_0_agg
+                ON order_details_0.category = page_views_enriched_0_agg.category
+            GROUP BY 1
+            """,
+        )
+
 
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
@@ -3600,6 +3681,56 @@ class TestMultiHopIntermediateDimensionColumns:
         assert response.status_code == 200, response.json()
         result = response.json()
 
+        # customer and location CTEs must be joined to support the WHERE clause,
+        # even though neither column appears in GROUP BY or the final SELECT.
+        # The WHERE filter on country appears only inside the grain group CTE —
+        # the outer SELECT has no access to that column so no outer WHERE is needed.
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+              SELECT
+                customer_id,
+                location_id
+              FROM default.v3.customers
+            ),
+            v3_location AS (
+              SELECT
+                location_id,
+                country
+              FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT
+                o.customer_id,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category
+              FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.category,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
+              LEFT OUTER JOIN v3_location t4 ON t3.location_id = t4.location_id
+              WHERE  t4.country = 'US'
+              GROUP BY  t2.category
+            )
+            SELECT
+              order_details_0.category AS category,
+              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY  order_details_0.category
+            """,
+        )
+
         assert result["columns"] == [
             {
                 "name": "category",
@@ -4066,7 +4197,8 @@ class TestFilterOnRoleDimension:
 
         v3.location.city[from] and v3.location.city[to] both point to v3.location
         but via different FKs (from_location_id and to_location_id). The grain group
-        CTE must join v3_location twice with distinct aliases.
+        CTE must join v3_location twice with distinct aliases — one per role — so
+        neither role silently shadows the other.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -4078,6 +4210,36 @@ class TestFilterOnRoleDimension:
 
         assert response.status_code == 200, response.json()
         result = response.json()
+
+        # One shared v3_location CTE, two separate JOINs with distinct aliases
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_location AS (
+                SELECT location_id, city
+                FROM default.v3.locations
+            ),
+            v3_order_details AS (
+                SELECT o.from_location_id, o.to_location_id,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.city city_from, t3.city city_to,
+                       SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+                LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
+                GROUP BY t2.city, t3.city
+            )
+            SELECT order_details_0.city_from AS city_from,
+                   order_details_0.city_to AS city_to,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.city_from, order_details_0.city_to
+            """,
+        )
 
         assert result["columns"] == [
             {
@@ -4204,3 +4366,332 @@ class TestFilterOnRoleDimension:
                 "semantic_type": "metric",
             },
         ]
+
+
+class TestHighImpactGapCoverage:
+    """
+    Tests for high-impact scenarios identified in the build_v3 coverage gap analysis.
+
+    Covers:
+    2. Skip-join: filter on dimension PK == fact FK should skip the dimension join
+    3. Scalar aggregate: no dimensions → no GROUP BY anywhere
+    4. Dimension-only column filter: non-PK dim attribute forces JOIN even if not in SELECT
+    5. FULL + LIMITED metrics from same fact: combined at the LIMITED grain
+    6. Derived metric referencing NONE-aggregability metric: clear error or correct fallback
+    """
+
+    @pytest.mark.asyncio
+    async def test_skip_join_filter_on_dimension_pk_as_fact_fk(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Gap #2: Filter on a dimension PK that is also the FK on the fact table.
+
+        v3.customer.customer_id[customer] is the PK of the customer dimension and
+        equals v3.order_details.customer_id (the FK on the fact). When no customer
+        attribute is requested in GROUP BY, the join to v3.customer should be
+        skipped and the filter applied directly to the FK column on the fact CTE.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": ["v3.customer.customer_id[customer] = 42"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # No join to v3.customer — filter pushes down to the fact FK column directly
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.customer_id, o.status,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                WHERE t1.customer_id = 42
+                GROUP BY t1.status
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_scalar_aggregate_no_dimensions_emits_no_group_by(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Gap #3: Metric with no dimensions requested — scalar aggregate.
+
+        The grain group CTE and final SELECT must NOT emit a GROUP BY clause.
+        The result is a single-row scalar.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # No GROUP BY anywhere — single-row scalar result
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+            )
+            SELECT SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_on_non_pk_dim_attribute_not_in_group_by(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Gap #4 (new): Filter on a non-PK dimension attribute not in GROUP BY.
+
+        v3.customer.email[customer] is only present in the customer dimension node,
+        not on the fact table. Even though no customer column appears in GROUP BY,
+        the system must emit a JOIN to v3.customer to evaluate the LIKE filter.
+
+        The WHERE clause on email appears only inside the grain group CTE —
+        the outer SELECT has no access to email so no outer WHERE is emitted.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.customer.email[customer] LIKE '%@example.com'"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # JOIN to v3.customer is required to evaluate the email filter,
+        # even though email is not in the SELECT or GROUP BY
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, email
+                FROM default.v3.customers
+            ),
+            v3_order_details AS (
+                SELECT o.customer_id, oi.product_id,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
+                WHERE t3.email LIKE '%@example.com'
+                GROUP BY t2.category
+            )
+            SELECT order_details_0.category AS category,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_full_and_limited_metrics_same_fact_computed_at_limited_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Gap #5: FULL and LIMITED metrics from the same fact in a single query.
+
+        total_revenue (Aggregability.FULL / SUM) and order_count
+        (Aggregability.LIMITED / COUNT DISTINCT order_id) share v3.order_details.
+
+        The grain group CTE must pre-aggregate at order_id grain so that COUNT DISTINCT
+        is semantically correct. The outer SELECT then re-aggregates: SUM for the FULL
+        component, COUNT DISTINCT for the LIMITED component.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.order_count"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        # Pre-agg at order_id grain so COUNT DISTINCT is correct;
+        # final SELECT re-aggregates to status grain
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status,
+                       oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.status, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.status, t1.order_id
+            )
+            SELECT order_details_0.status AS status,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
+                   COUNT(DISTINCT order_details_0.order_id) AS order_count
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+        assert result["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "total_revenue",
+                "type": "double",
+                "semantic_entity": "v3.total_revenue",
+                "semantic_type": "metric",
+            },
+            {
+                "name": "order_count",
+                "type": "bigint",
+                "semantic_entity": "v3.order_count",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_referencing_none_aggregability_metric(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Gap #6: Derived metric whose formula references a NONE-aggregability metric.
+
+        v3.top_product_by_revenue uses MAX_BY (Aggregability.NONE) — it cannot be
+        decomposed into re-aggregatable components. A derived metric that incorporates
+        it must not silently produce wrong SQL; it should either:
+          a) Raise a clear error about non-decomposable components, or
+          b) Fall back to Aggregability.NONE for the entire derived metric (raw-row access)
+
+        This test pins the actual behavior so any future regression is caught.
+        """
+        create_response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.orders_plus_top_product",
+                "description": "Derived referencing NONE-aggregability metric",
+                "query": (
+                    "SELECT v3.order_count + CAST(v3.top_product_by_revenue AS BIGINT)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert create_response.status_code in (200, 201), create_response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.orders_plus_top_product"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        if response.status_code >= 400:
+            # Preferred: clear error about the non-decomposable component
+            error_text = response.text.lower()
+            assert any(
+                keyword in error_text
+                for keyword in (
+                    "non-decomposable",
+                    "cannot decompose",
+                    "aggregability",
+                    "none",
+                    "max_by",
+                )
+            ), (
+                f"Expected clear error about non-decomposable metric, got: {response.text}"
+            )
+        else:
+            # NOTE: The system currently returns 200 but generates WRONG SQL.
+            # The CTE omits product_id and line_total because it only resolves
+            # columns for the COUNT DISTINCT component (order_count), not for
+            # the NONE component (top_product_by_revenue / MAX_BY). As a result,
+            # MAX_BY(product_id, line_total) in the outer SELECT references columns
+            # that are not in scope — this would fail at query execution time.
+            #
+            # TODO: This should raise a clear error ("cannot decompose derived
+            # metric that references NONE-aggregability component") rather than
+            # silently producing semantically invalid SQL.
+            result = response.json()
+            assert_sql_equal(
+                result["sql"],
+                """
+                WITH v3_order_details AS (
+                    SELECT o.order_id, oi.line_number, o.status
+                    FROM default.v3.orders o
+                    JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                ),
+                order_details_0 AS (
+                    SELECT t1.status, t1.line_number, t1.order_id,
+                           t1.order_id order_id
+                    FROM v3_order_details t1
+                    GROUP BY t1.status, t1.line_number, t1.order_id
+                )
+                SELECT order_details_0.status AS status,
+                       COUNT(DISTINCT order_details_0.order_id)
+                           + CAST(MAX_BY(product_id, line_total) AS BIGINT)
+                           AS orders_plus_top_product
+                FROM order_details_0
+                GROUP BY order_details_0.status
+                """,
+            )

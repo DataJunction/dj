@@ -7,6 +7,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Optional
 
+from datajunction_server.construction.build_v3.filters import extract_subscript_role
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
@@ -261,15 +262,7 @@ def replace_dimension_refs_in_ast(
         if not base_col_name:  # pragma: no cover
             continue
 
-        # Get the role from the index (e.g., "order")
-        role = None
-        if isinstance(subscript.index, ast.Column):
-            role = subscript.index.name.name if subscript.index.name else None
-        elif isinstance(subscript.index, ast.Name):  # pragma: no cover
-            role = subscript.index.name  # pragma: no cover
-        elif hasattr(subscript.index, "name"):  # pragma: no cover
-            role = str(subscript.index.name)  # type: ignore
-
+        role = extract_subscript_role(subscript)
         if not role:  # pragma: no cover
             continue
 
