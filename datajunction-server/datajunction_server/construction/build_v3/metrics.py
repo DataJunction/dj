@@ -375,12 +375,22 @@ def collect_and_build_ctes(
         # uses GROUP BY + COUNT(DISTINCT ...) directly, handling fan-out correctly.
         # Also skip when there's only one grain group: no FULL OUTER JOIN means no
         # fan-out, so COUNT(DISTINCT ...) in the final GROUP BY is sufficient.
+        # Also skip when the grain key IS the dimension (dim_col_names would be empty):
+        # the grain group already has 1 row per dimension so there's no fan-out.
+        # A wrapper with no GROUP BY would produce a scalar aggregate, which is wrong.
+        limited_grain_keys = {
+            comp.rule.level[0]
+            for comp in gg.components
+            if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
+        }
+        has_non_grain_dims = any(col not in limited_grain_keys for col in gg.grain)
         needs_pre_agg = (
             not skip_pre_agg
             and len(grain_groups) > 1
             and not gg.is_merged
             and gg.aggregability == Aggregability.LIMITED
             and gg.components
+            and has_non_grain_dims
         )
         if needs_pre_agg:
             wrapper_cte, wrapper_alias = _build_pre_agg_wrapper_cte(alias, gg)
