@@ -209,8 +209,11 @@ def _build_metric_aggregation(
             _, col_name = comp_mappings[comp.name]
             col_ref = make_column_ref(col_name, cte_alias)
             if gg.is_pre_aggregated:
-                # Wrapper CTE already has COUNT(DISTINCT) as a named column; just SUM it.
-                return ast.Function(ast.Name("SUM"), args=[col_ref])
+                # Wrapper CTE already computed COUNT(DISTINCT) as a named integer column.
+                # Use MAX() as a no-op passthrough — there is exactly 1 row per dimension
+                # group so MAX = the value itself. MAX is semantically cleaner than SUM
+                # (which implies addition) and more widely supported than ANY_VALUE.
+                return ast.Function(ast.Name("MAX"), args=[col_ref])
             agg_name = comp.aggregation or "COUNT"
             return ast.Function(
                 ast.Name(agg_name),
@@ -304,6 +307,7 @@ def _build_pre_agg_wrapper_cte(
 
 def collect_and_build_ctes(
     grain_groups: list[GrainGroupSQL],
+    skip_pre_agg: bool = False,
 ) -> tuple[list[ast.Query], list[str]]:
     """
     Collect shared CTEs and convert grain groups to CTEs.
@@ -312,6 +316,10 @@ def collect_and_build_ctes(
     CTE that collapses the N-rows-per-dimension output to 1 row per dimension by
     computing COUNT(DISTINCT grain_key) inside the CTE.  This prevents fan-out when
     FULL OUTER JOINing with FULL grain groups.
+
+    When skip_pre_agg=True (window function case), the wrapper CTEs are skipped.
+    The base_metrics CTE will use COUNT(DISTINCT ...) in its own GROUP BY, which
+    correctly handles fan-out from the FULL OUTER JOIN without the extra wrappers.
 
     Returns (all_cte_asts, cte_aliases).
     """
@@ -363,8 +371,14 @@ def collect_and_build_ctes(
         # This collapses N rows per dimension (one per distinct grain key) into 1 row
         # by computing COUNT(DISTINCT grain_key) inside the CTE, preventing fan-out
         # in the FULL OUTER JOIN step.
+        # Skip when skip_pre_agg=True (window function case): the base_metrics CTE
+        # uses GROUP BY + COUNT(DISTINCT ...) directly, handling fan-out correctly.
+        # Also skip when there's only one grain group: no FULL OUTER JOIN means no
+        # fan-out, so COUNT(DISTINCT ...) in the final GROUP BY is sufficient.
         needs_pre_agg = (
-            not gg.is_merged
+            not skip_pre_agg
+            and len(grain_groups) > 1
+            and not gg.is_merged
             and gg.aggregability == Aggregability.LIMITED
             and gg.components
         )
@@ -1012,6 +1026,7 @@ def process_derived_metrics(
     resolver: ColumnResolver,
     partition_columns: list[str],
     window_cte_alias: str | None,
+    base_metric_exprs: dict[str, MetricExprInfo],
     intermediate_metric_names: set[str] | None = None,
     alias_to_dimension_node: dict[str, str] | None = None,
 ) -> dict[str, MetricExprInfo]:
@@ -1020,7 +1035,7 @@ def process_derived_metrics(
 
     Derived metrics are computed from base metrics and may include:
     - Window function metrics (LAG, LEAD, etc.) that reference base_metrics CTE
-    - Non-window derived metrics that reference other metric columns
+    - Non-window derived metrics that inline base metric expressions directly
 
     Args:
         ctx: Build context with metrics list and nodes
@@ -1029,6 +1044,8 @@ def process_derived_metrics(
         resolver: ColumnResolver with metric, component, and dimension refs
         partition_columns: Column names for PARTITION BY injection
         window_cte_alias: Alias of base_metrics CTE ("base_metrics" or None)
+        base_metric_exprs: Pre-built expressions for base metrics, used to inline
+            into derived metric formulas (correctly handles pre-aggregated cases)
         intermediate_metric_names: Optional set of intermediate derived metric names
 
     Returns:
@@ -1073,11 +1090,21 @@ def process_derived_metrics(
             )
             derived_cte_alias = window_cte_alias
         else:
-            expr_ast = build_derived_metric_expr(
-                decomposed,
-                resolver,
-                partition_columns,
-                alias_to_dimension_node,
+            # Use build_intermediate_metric_expr to inline pre-built base metric
+            # expressions into the derived metric formula. This correctly handles
+            # COUNT DISTINCT base metrics from pre-aggregated (_agg) CTEs, where
+            # the combiner_ast would produce COUNT(DISTINCT ...) but the pre-built
+            # expression already uses MAX(...) as the correct passthrough aggregation.
+            # Fall back to build_derived_metric_expr when some base metrics are missing
+            # from base_metric_exprs (e.g., NONE-aggregability metrics not in any grain group).
+            expr_ast = (  # type: ignore[assignment]
+                build_intermediate_metric_expr(ctx, metric_name, base_metric_exprs)
+                or build_derived_metric_expr(
+                    decomposed,
+                    resolver,
+                    partition_columns,
+                    alias_to_dimension_node,
+                )
             )
             derived_cte_alias = default_cte_alias
 
@@ -1668,8 +1695,30 @@ def generate_metrics_sql(
     base_grain_groups = [gg for gg in grain_groups if not gg.is_window_grain_group]
     window_grain_groups = [gg for gg in grain_groups if gg.is_window_grain_group]
 
+    # Pre-detect whether there will be a base_metrics CTE (any window function metrics).
+    # When a base_metrics CTE is built, it uses GROUP BY + COUNT(DISTINCT ...) which
+    # correctly handles fan-out from FULL OUTER JOIN — so _agg wrapper CTEs are unnecessary.
+    # _agg wrappers are only needed when cross-grain CTEs are joined directly in the
+    # final SELECT without a GROUP BY that can apply COUNT(DISTINCT).
+    all_base_metrics_precheck: set[str] = {
+        m for gg in base_grain_groups for m in gg.metrics
+    }
+    will_have_base_metrics_cte = (
+        bool(window_grain_groups)
+        or bool(measures_result.window_metric_grains)
+        or any(
+            decomposed_metrics.get(m)
+            and has_window_function(decomposed_metrics[m].combiner_ast)
+            for m in ctx.metrics
+            if m not in all_base_metrics_precheck
+        )
+    )
+
     # Convert base grain groups to CTEs (window grain groups handled separately)
-    all_cte_asts, cte_aliases = collect_and_build_ctes(base_grain_groups)
+    all_cte_asts, cte_aliases = collect_and_build_ctes(
+        base_grain_groups,
+        skip_pre_agg=will_have_base_metrics_cte,
+    )
 
     # Build dimension info and projection
     # Filter out filter-only dimensions (they're needed for WHERE but not output)
@@ -1972,6 +2021,7 @@ def generate_metrics_sql(
         resolver,
         all_dim_aliases,
         window_metrics_cte_alias,
+        base_metrics_result.metric_exprs,
         set(),  # No intermediate derived metrics in new architecture
         alias_to_dimension_node,
     )

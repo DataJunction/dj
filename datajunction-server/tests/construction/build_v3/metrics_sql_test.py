@@ -247,16 +247,29 @@ class TestMetricsSQLDerived:
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.order_id
             ),
+            order_details_0_agg AS (
+                SELECT
+                  category,
+                  COUNT(DISTINCT order_id) order_id_distinct_f93d50ab
+                FROM order_details_0
+                GROUP BY category
+            ),
             page_views_enriched_0 AS (
                 SELECT t2.category, t1.customer_id
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT  category,
+                    COUNT( DISTINCT customer_id) customer_id_distinct_dd4be7a5
+                FROM page_views_enriched_0
+                GROUP BY  category
             )
-            SELECT COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                   CAST(COUNT(DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
-            FROM order_details_0
-            FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
+            SELECT COALESCE(order_details_0_agg.category, page_views_enriched_0_agg.category) AS category,
+                   CAST(MAX(order_details_0_agg.order_id_distinct_f93d50ab) AS DOUBLE) / NULLIF(MAX(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5), 0) AS conversion_rate
+            FROM order_details_0_agg
+            FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0_agg.category = page_views_enriched_0_agg.category
             GROUP BY 1
             """,
         )
@@ -1565,7 +1578,7 @@ class TestMetricsSQLCrossFact:
 
         After FULL OUTER JOIN on category both sides have 1 row per category.
         SUM(order_details_0.line_total_sum_HASH) = correct revenue.
-        SUM(page_views_enriched_0_agg.customer_id_distinct_HASH) = correct visitor count.
+        MAX(page_views_enriched_0_agg.customer_id_distinct_HASH) = correct visitor count.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1615,7 +1628,7 @@ class TestMetricsSQLCrossFact:
             SELECT
                 COALESCE(order_details_0.category, page_views_enriched_0_agg.category) AS category,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5) AS visitor_count
+                MAX(page_views_enriched_0_agg.customer_id_distinct_dd4be7a5) AS visitor_count
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0_agg
                 ON order_details_0.category = page_views_enriched_0_agg.category
@@ -4368,16 +4381,16 @@ class TestFilterOnRoleDimension:
         ]
 
 
-class TestHighImpactGapCoverage:
+class TestMetricsSQLEdgeCases:
     """
-    Tests for high-impact scenarios identified in the build_v3 coverage gap analysis.
+    Edge case tests for metric SQL generation.
 
-    Covers:
-    2. Skip-join: filter on dimension PK == fact FK should skip the dimension join
-    3. Scalar aggregate: no dimensions → no GROUP BY anywhere
-    4. Dimension-only column filter: non-PK dim attribute forces JOIN even if not in SELECT
-    5. FULL + LIMITED metrics from same fact: combined at the LIMITED grain
-    6. Derived metric referencing NONE-aggregability metric: clear error or correct fallback
+    Covers unusual but valid query patterns:
+    - Skip-join: filter on dimension PK == fact FK should skip the dimension join
+    - Scalar aggregate: no dimensions → no GROUP BY anywhere
+    - Dimension-only column filter: non-PK dim attribute forces JOIN even if not in SELECT
+    - FULL + LIMITED metrics from same fact: combined at the LIMITED grain
+    - Derived metric referencing NONE-aggregability metric: clear error or correct fallback
     """
 
     @pytest.mark.asyncio
