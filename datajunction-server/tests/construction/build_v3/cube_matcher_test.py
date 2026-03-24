@@ -882,7 +882,7 @@ class TestBuildSqlFromCube:
             unit_price_sum_55cff00f,
             unit_price_max_55cff00f,
             unit_price_min_55cff00f
-          FROM default.analytics.cube_all_order_metrics
+          FROM cube_all_order_metrics
         )
         SELECT
           test_cube_all_order_metrics_0.category AS category,
@@ -1383,8 +1383,8 @@ class TestBuildSqlFromCube:
             dialect=Dialect.DRUID,
         )
 
-        # Both should produce valid SQL with expected structure
-        expected_sql = """
+        # Spark uses catalog.schema.table; Druid uses table name only
+        spark_expected_sql = """
         WITH test_cube_dialect_0 AS (
           SELECT
             category,
@@ -1397,8 +1397,21 @@ class TestBuildSqlFromCube:
         FROM test_cube_dialect_0
         GROUP BY  test_cube_dialect_0.category
         """
-        assert_sql_equal(spark_result.sql, expected_sql)
-        assert_sql_equal(druid_result.sql, expected_sql)
+        druid_expected_sql = """
+        WITH test_cube_dialect_0 AS (
+          SELECT
+            category,
+            line_total_sum_e1f61696
+          FROM cube_dialect
+        )
+        SELECT
+          test_cube_dialect_0.category AS category,
+          SUM(test_cube_dialect_0.line_total_sum_e1f61696) AS total_revenue
+        FROM test_cube_dialect_0
+        GROUP BY  test_cube_dialect_0.category
+        """
+        assert_sql_equal(spark_result.sql, spark_expected_sql)
+        assert_sql_equal(druid_result.sql, druid_expected_sql)
 
     @pytest.mark.asyncio
     async def test_builds_sql_from_cube_with_filter(
@@ -2059,13 +2072,14 @@ class TestBuildMetricsSqlCubePath:
         )
         assert response.status_code == 200, response.json()
 
-        # Call build_metrics_sql - should use cube path
+        # Call build_metrics_sql with DRUID dialect - should use cube path
+        # (cube path is only taken when dialect is DRUID or unset)
         result = await build_metrics_sql(
             session=session,
             metrics=["v3.total_revenue"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2076,7 +2090,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_for_metrics_sql_0 AS (
                 SELECT category, line_total_sum_e1f61696
-                FROM default.analytics.cube_for_metrics_sql
+                FROM cube_for_metrics_sql
             )
             SELECT
                 cube_for_metrics_sql_0.category AS category,
@@ -2264,7 +2278,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.avg_unit_price"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2276,12 +2290,12 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_avg_metric_0 AS (
                 SELECT category, unit_price_count_55cff00f, unit_price_sum_55cff00f
-                FROM default.analytics.cube_avg_metric
+                FROM cube_avg_metric
             )
             SELECT
                 cube_avg_metric_0.category AS category,
-                SUM(cube_avg_metric_0.unit_price_sum_55cff00f)
-                    / SUM(cube_avg_metric_0.unit_price_count_55cff00f) AS avg_unit_price
+                SAFE_DIVIDE(SUM(cube_avg_metric_0.unit_price_sum_55cff00f),
+                    SUM(cube_avg_metric_0.unit_price_count_55cff00f)) AS avg_unit_price
             FROM cube_avg_metric_0
             GROUP BY cube_avg_metric_0.category
             """,
@@ -2335,7 +2349,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.total_revenue", "v3.total_quantity"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2346,7 +2360,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_multi_metrics_0 AS (
                 SELECT category, line_total_sum_e1f61696, quantity_sum_06b64d2e
-                FROM default.analytics.cube_multi_metrics
+                FROM cube_multi_metrics
             )
             SELECT
                 cube_multi_metrics_0.category AS category,
@@ -2408,7 +2422,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.total_revenue"],
             dimensions=["v3.product.category"],  # Subset of cube dims
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2420,7 +2434,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_rollup_test_0 AS (
                 SELECT category, line_total_sum_e1f61696
-                FROM default.analytics.cube_rollup_test
+                FROM cube_rollup_test
             )
             SELECT
                 cube_rollup_test_0.category AS category,
