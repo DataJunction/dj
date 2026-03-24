@@ -391,14 +391,55 @@ async def build_sql_from_cube(
     return build_sql_from_cube_impl(ctx, cube, ctx.decomposed_metrics)
 
 
+def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
+    """
+    Build a mapping from short column name -> physical column name by reading
+    the cube's materialization config columns.
+
+    Example entry in config["columns"]:
+      {
+        "name": "common_DOT_dimensions_DOT_time_DOT_date_DOT_dateint",  # physical Druid col
+        "column": "dateint",                                               # short col name
+        "semantic_entity": "common.dimensions.time.date.dateint",
+        "semantic_type": "dimension",
+        ...
+      }
+
+    We key on ``column`` (the short name) because that is what
+    parse_dimension_ref().column_name returns, and it is stable across
+    different namespace / path representations.
+
+    Returns {} when no materialization config is available (e.g. in tests that
+    set availability directly without going through the materialization pipeline),
+    in which case callers fall back to the short column name unchanged.
+    """
+    lookup: dict[str, str] = {}
+    for mat in cube.materializations or []:
+        for combiner in (mat.config or {}).get("combiners") or []:
+            for col_data in (combiner or {}).get("columns") or []:
+                short_name = col_data.get("column")
+                physical_name = col_data.get("name")
+                if short_name and physical_name:
+                    lookup[short_name] = physical_name
+    return lookup
+
+
 def build_synthetic_grain_group(
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
     cube: NodeRevision,
 ) -> GrainGroupSQL:
     """
-    Collect components from base metrics only (not derived).
-    V3 cube column naming always uses component.name (the hashed name) for consistency.
+    Build a synthetic GrainGroupSQL that reads from the cube's materialized Druid table.
+
+    Physical column names are resolved from the cube's materialization config
+    (``materialization.config["columns"]``).  Each entry there carries a
+    ``column`` key (the short column name, e.g. ``dateint``) and a ``name`` key
+    (the physical column name as it exists in the Druid table, e.g.
+    ``common_DOT_dimensions_DOT_time_DOT_date_DOT_dateint``).  We key on the
+    short column name because that is what parse_dimension_ref().column_name
+    returns.  When a match is found the physical name is used; otherwise we fall
+    back to the short name (which is correct for new-style materializations).
     """
     all_components = []
     component_aliases: dict[str, str] = {}
@@ -406,8 +447,18 @@ def build_synthetic_grain_group(
     avail = cube.availability
     if not avail:  # pragma: no cover
         raise ValueError(f"Cube {cube.name} has no availability")
-    table_parts = [p for p in [avail.catalog, avail.schema_, avail.table] if p]
-    table_name = ".".join(table_parts)
+    # Druid tables are referenced by the table name only (schema/catalog are not part of the ref).
+    # For other engines (e.g. Iceberg/Spark) we use the full catalog.schema.table path.
+    if ctx.dialect == Dialect.DRUID:
+        table_name = avail.table
+    else:
+        table_name = ".".join(
+            p for p in [avail.catalog, avail.schema_, avail.table] if p
+        )
+
+    # short_col_name -> physical column name from the materialization config.
+    # Empty when no materialization config is present (tests / direct calls).
+    mat_col_lookup = _build_mat_col_lookup(cube)
 
     for metric_name, decomposed in decomposed_metrics.items():
         # Only process BASE metrics for component alias mapping
@@ -418,40 +469,46 @@ def build_synthetic_grain_group(
 
         for comp in decomposed.components:
             if comp.name not in component_aliases:  # pragma: no branch
-                # Always use component.name for consistency - no special case for single-component
-                cube_col_name = comp.name
-
+                cube_col_name = mat_col_lookup.get(comp.name, comp.name)
                 component_aliases[comp.name] = cube_col_name
                 all_components.append(comp)
 
     # Build column metadata for the synthetic grain group
     grain_group_columns: list[ColumnMetadata] = []
 
-    # Build mapping from dimension ref to short column name for filter resolution
+    # Build mapping from dimension ref to physical column name for filter resolution.
     # ctx.dimensions includes both requested dimensions AND filter-only dimensions
     # (filter-only dimensions were added by add_dimensions_from_filters() in setup_build_context)
     dimension_aliases: dict[str, str] = {}
 
     # Add all dimensions (requested + filter-only). We need all dimensions
-    # in the cube SELECT for proper filter resolution
+    # in the cube SELECT for proper filter resolution.
+    # dim_short_names holds the alias (short name) used everywhere outside the CTE.
+    # dim_physical_names holds the actual column name in the Druid table (may differ).
     dim_short_names = []
+    dim_physical_names = []
     for dim_ref in ctx.dimensions:
         parsed_dim = parse_dimension_ref(dim_ref)
-        col_name = parsed_dim.column_name
+        short_name = parsed_dim.column_name
         if parsed_dim.role:
-            col_name = f"{col_name}_{parsed_dim.role}"
-        dim_short_names.append(col_name)
-        dimension_aliases[dim_ref] = col_name
+            short_name = f"{short_name}_{parsed_dim.role}"
+        physical_name = mat_col_lookup.get(parsed_dim.column_name, short_name)
+        dim_short_names.append(short_name)
+        dim_physical_names.append(physical_name)
+        # Use the physical column name for WHERE clause resolution:
+        # the WHERE is applied directly on the cube table, so we must reference
+        # the physical column (e.g. common_DOT_..._DOT_dateint) not the alias.
+        dimension_aliases[dim_ref] = physical_name
         grain_group_columns.append(
             ColumnMetadata(
-                name=col_name,
+                name=short_name,
                 semantic_name=dim_ref,
                 type="string",  # Will be refined by generate_metrics_sql
                 semantic_type="dimension",
             ),
         )
 
-    # Add component columns (using cube column names from component_aliases)
+    # Add component columns (always use the short/hash name as both physical and alias)
     for comp in all_components:
         cube_col_name = component_aliases[comp.name]
         grain_group_columns.append(
@@ -466,9 +523,13 @@ def build_synthetic_grain_group(
     # Build the synthetic query: SELECT dims, components FROM cube_table WHERE filters
     projection: list[ast.Column] = []
 
-    # Add all dimension columns (requested + filter-only)
-    for dim_col in dim_short_names:
-        projection.append(ast.Column(name=ast.Name(dim_col)))
+    # Add all dimension columns. When the physical name differs from the short alias,
+    # emit "physical_name AS short_name" so the rest of the query can use the short name.
+    for short_name, physical_name in zip(dim_short_names, dim_physical_names):
+        col = ast.Column(name=ast.Name(physical_name))
+        if physical_name != short_name:
+            col = col.set_alias(ast.Name(short_name))  # type: ignore[assignment]
+        projection.append(col)
 
     # Add component columns (using cube column names)
     for comp in all_components:

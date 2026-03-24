@@ -7,6 +7,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Optional
 
+from datajunction_server.construction.build_v3.filters import extract_subscript_role
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
@@ -185,7 +186,7 @@ def replace_component_refs_in_ast(
         component_aliases: Mapping from component name to (table_alias, column_name)
             e.g., {"unit_price_sum_abc123": ("gg0", "sum_unit_price")}
     """
-    for col in expr_ast.find_all(ast.Column):
+    for col in list(expr_ast.find_all(ast.Column)):
         # Get the column name (might be in name.name or just name)
         col_name = col.name.name if col.name else None
         if not col_name:  # pragma: no cover
@@ -194,7 +195,6 @@ def replace_component_refs_in_ast(
         # Check if this column name matches a component
         if col_name in component_aliases:  # pragma: no branch
             table_alias, actual_col = component_aliases[col_name]
-            # Replace with qualified column reference
             col.name = ast.Name(actual_col)
             # Only set table if alias is non-empty (empty = no CTE prefix)
             col._table = ast.Table(ast.Name(table_alias)) if table_alias else None
@@ -261,15 +261,7 @@ def replace_dimension_refs_in_ast(
         if not base_col_name:  # pragma: no cover
             continue
 
-        # Get the role from the index (e.g., "order")
-        role = None
-        if isinstance(subscript.index, ast.Column):
-            role = subscript.index.name.name if subscript.index.name else None
-        elif isinstance(subscript.index, ast.Name):  # pragma: no cover
-            role = subscript.index.name  # pragma: no cover
-        elif hasattr(subscript.index, "name"):  # pragma: no cover
-            role = str(subscript.index.name)  # type: ignore
-
+        role = extract_subscript_role(subscript)
         if not role:  # pragma: no cover
             continue
 
@@ -1019,15 +1011,14 @@ def process_metric_combiner_expression(
     """
     Process a metric combiner expression for final output.
 
-    This function applies the same transformations used in generate_metrics_sql
-    (specifically build_derived_metric_expr) to ensure consistency between
-    SQL generation and stored metric expressions.
+    Transforms a raw combiner AST into the final SQL expression by replacing
+    component, metric, and dimension references with qualified column refs.
 
     Used by:
     - build_derived_metric_expr in generate_metrics_sql
     - cube materialization for storing metric_expression in config
 
-    Transformations applied (in order, matching build_derived_metric_expr):
+    Transformations applied (in order):
     1. Replace metric references (e.g., "v3.total_revenue" -> column ref)
     2. Replace component references (e.g., "revenue_sum_abc123" -> column ref)
     3. Replace dimension references (e.g., "v3.date.dateint" -> column ref)
@@ -1056,7 +1047,6 @@ def process_metric_combiner_expression(
     expr_ast = deepcopy(combiner_ast)
 
     # Replace metric references (for derived metrics referencing other metrics)
-    # This must happen first, matching build_derived_metric_expr order
     if metric_refs:
         replace_metric_refs_in_ast(expr_ast, metric_refs)
 

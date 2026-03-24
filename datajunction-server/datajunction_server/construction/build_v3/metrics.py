@@ -195,19 +195,29 @@ def _build_metric_aggregation(
             return gg.component_aggregabilities.get(comp_name, Aggregability.FULL)
         return decomposed.aggregability
 
-    # Handle LIMITED aggregability (COUNT DISTINCT) specially
-    # This can't be pre-aggregated, so we need COUNT(DISTINCT grain_col)
+    # Handle LIMITED aggregability (COUNT DISTINCT).
+    # If the grain group was pre-aggregated (is_pre_aggregated=True), the wrapper CTE
+    # already computed COUNT(DISTINCT grain_key) and stored it as a named column.
+    # Emit SUM(pre_agg_col) — a no-op re-aggregation since the wrapper produces
+    # exactly 1 row per dimension combination.
+    # Otherwise fall through to COUNT(DISTINCT grain_col) against the raw CTE.
     if len(decomposed.components) == 1:
         comp = decomposed.components[0]
         orig_agg = get_comp_aggregability(comp.name)
 
         if orig_agg == Aggregability.LIMITED:
             _, col_name = comp_mappings[comp.name]
-            distinct_col = make_column_ref(col_name, cte_alias)
+            col_ref = make_column_ref(col_name, cte_alias)
+            if gg.is_pre_aggregated:
+                # Wrapper CTE already computed COUNT(DISTINCT) as a named integer column.
+                # Use MAX() as a no-op passthrough — there is exactly 1 row per dimension
+                # group so MAX = the value itself. MAX is semantically cleaner than SUM
+                # (which implies addition) and more widely supported than ANY_VALUE.
+                return ast.Function(ast.Name("MAX"), args=[col_ref])
             agg_name = comp.aggregation or "COUNT"
             return ast.Function(
                 ast.Name(agg_name),
-                args=[distinct_col],
+                args=[col_ref],
                 quantifier=ast.SetQuantifier.Distinct,
             )
 
@@ -220,11 +230,97 @@ def _build_metric_aggregation(
     return expr_ast
 
 
+def _build_pre_agg_wrapper_cte(
+    alias: str,
+    gg: GrainGroupSQL,
+) -> tuple[ast.Query, str]:
+    """
+    Build a pre-aggregation wrapper CTE for a LIMITED grain group.
+
+    A LIMITED grain group CTE outputs N rows per dimension combination (one per distinct
+    grain key, e.g. customer_id).  When FULL OUTER JOINed with other CTEs that have 1
+    row per dimension combination, those rows fan out 1:N, causing SUM() to overcount.
+
+    This wrapper collapses the N rows into 1 by applying COUNT(DISTINCT grain_key) inside
+    the CTE instead of in the outer SELECT.  The outer SELECT can then use SUM() on the
+    already-computed count, which is a no-op when there's exactly 1 row per group.
+
+    Args:
+        alias: The raw grain group CTE alias (e.g., "page_views_enriched_0")
+        gg: The LIMITED grain group
+
+    Returns:
+        (wrapper_cte_ast, wrapper_alias) where wrapper_alias is e.g.
+        "page_views_enriched_0_agg"
+    """
+    wrapper_alias = f"{alias}_agg"
+
+    # Dimension columns for the GROUP BY: all grain columns except the LIMITED grain keys.
+    # gg.grain = [dim_col_aliases..., grain_key, ...]
+    # We want only the user-requested dimension columns (e.g., "category"), not the
+    # extra grain keys (e.g., "customer_id") that are being collapsed by COUNT DISTINCT.
+    limited_grain_keys = {
+        comp.rule.level[0]
+        for comp in gg.components
+        if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
+    }
+    dim_col_names = [col for col in gg.grain if col not in limited_grain_keys]
+
+    # Build SELECT projection: dim cols + COUNT(DISTINCT grain_key) per component
+    projection: list[Any] = [
+        ast.Column(name=ast.Name(col_name)) for col_name in dim_col_names
+    ]
+    for comp in gg.components:
+        if comp.rule and comp.rule.type == Aggregability.LIMITED:  # pragma: no branch
+            grain_col = comp.rule.level[0] if comp.rule.level else None
+            if not grain_col:
+                continue  # pragma: no cover
+            grain_col_ref = ast.Column(name=ast.Name(grain_col))
+            count_expr = ast.Function(
+                ast.Name("COUNT"),
+                args=[grain_col_ref],
+                quantifier=ast.SetQuantifier.Distinct,
+            )
+            projection.append(ast.Alias(child=count_expr, alias=ast.Name(comp.name)))
+
+    # GROUP BY the dimension columns only (not the grain key)
+    group_by: list[ast.Expression] = [
+        ast.Column(name=ast.Name(col_name)) for col_name in dim_col_names
+    ]
+
+    from_clause = ast.From(
+        relations=[
+            ast.Relation(primary=ast.Table(name=ast.Name(alias))),
+        ],
+    )
+
+    wrapper_query = ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=from_clause,
+            group_by=group_by if group_by else [],
+        ),
+    )
+    wrapper_query.to_cte(ast.Name(wrapper_alias), None)
+    return wrapper_query, wrapper_alias
+
+
 def collect_and_build_ctes(
     grain_groups: list[GrainGroupSQL],
+    skip_pre_agg: bool = False,
 ) -> tuple[list[ast.Query], list[str]]:
     """
     Collect shared CTEs and convert grain groups to CTEs.
+
+    For LIMITED grain groups (COUNT DISTINCT), also emits a pre-aggregation wrapper
+    CTE that collapses the N-rows-per-dimension output to 1 row per dimension by
+    computing COUNT(DISTINCT grain_key) inside the CTE.  This prevents fan-out when
+    FULL OUTER JOINing with FULL grain groups.
+
+    When skip_pre_agg=True (window function case), the wrapper CTEs are skipped.
+    The base_metrics CTE will use COUNT(DISTINCT ...) in its own GROUP BY, which
+    correctly handles fan-out from the FULL OUTER JOIN without the extra wrappers.
+
     Returns (all_cte_asts, cte_aliases).
     """
     # Collect all inner CTEs, dedupe by original name
@@ -258,7 +354,6 @@ def collect_and_build_ctes(
         idx = parent_index_counter.get(parent_short, 0)
         parent_index_counter[parent_short] = idx + 1
         alias = f"{parent_short}_{idx}"
-        cte_aliases.append(alias)
 
         # gg.query is already an AST - no need to parse!
         gg_query = gg.query
@@ -271,6 +366,47 @@ def collect_and_build_ctes(
         # Convert to CTE with the grain group alias
         gg_main.to_cte(ast.Name(alias), None)
         all_cte_asts.append(gg_main)
+
+        # For non-merged LIMITED grain groups, add a pre-aggregation wrapper CTE.
+        # This collapses N rows per dimension (one per distinct grain key) into 1 row
+        # by computing COUNT(DISTINCT grain_key) inside the CTE, preventing fan-out
+        # in the FULL OUTER JOIN step.
+        # Skip when skip_pre_agg=True (window function case): the base_metrics CTE
+        # uses GROUP BY + COUNT(DISTINCT ...) directly, handling fan-out correctly.
+        # Also skip when there's only one grain group: no FULL OUTER JOIN means no
+        # fan-out, so COUNT(DISTINCT ...) in the final GROUP BY is sufficient.
+        # Also skip when the grain key IS the dimension (dim_col_names would be empty):
+        # the grain group already has 1 row per dimension so there's no fan-out.
+        # A wrapper with no GROUP BY would produce a scalar aggregate, which is wrong.
+        limited_grain_keys = {
+            comp.rule.level[0]
+            for comp in gg.components
+            if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
+        }
+        has_non_grain_dims = any(col not in limited_grain_keys for col in gg.grain)
+        needs_pre_agg = (
+            not skip_pre_agg
+            and len(grain_groups) > 1
+            and not gg.is_merged
+            and gg.aggregability == Aggregability.LIMITED
+            and gg.components
+            and has_non_grain_dims
+        )
+        if needs_pre_agg:
+            wrapper_cte, wrapper_alias = _build_pre_agg_wrapper_cte(alias, gg)
+            all_cte_asts.append(wrapper_cte)
+            # Record the pre-aggregated column name for each LIMITED component so that
+            # _build_metric_aggregation() can reference it by name instead of re-applying
+            # COUNT(DISTINCT).
+            for comp in gg.components:
+                if (
+                    comp.rule and comp.rule.type == Aggregability.LIMITED
+                ):  # pragma: no branch
+                    gg.component_aliases[comp.name] = comp.name
+            gg.is_pre_aggregated = True
+            cte_aliases.append(wrapper_alias)
+        else:
+            cte_aliases.append(alias)
 
     return all_cte_asts, cte_aliases
 
@@ -902,6 +1038,7 @@ def process_derived_metrics(
     resolver: ColumnResolver,
     partition_columns: list[str],
     window_cte_alias: str | None,
+    base_metric_exprs: dict[str, MetricExprInfo],
     intermediate_metric_names: set[str] | None = None,
     alias_to_dimension_node: dict[str, str] | None = None,
 ) -> dict[str, MetricExprInfo]:
@@ -910,7 +1047,7 @@ def process_derived_metrics(
 
     Derived metrics are computed from base metrics and may include:
     - Window function metrics (LAG, LEAD, etc.) that reference base_metrics CTE
-    - Non-window derived metrics that reference other metric columns
+    - Non-window derived metrics that inline base metric expressions directly
 
     Args:
         ctx: Build context with metrics list and nodes
@@ -919,6 +1056,8 @@ def process_derived_metrics(
         resolver: ColumnResolver with metric, component, and dimension refs
         partition_columns: Column names for PARTITION BY injection
         window_cte_alias: Alias of base_metrics CTE ("base_metrics" or None)
+        base_metric_exprs: Pre-built expressions for base metrics, used to inline
+            into derived metric formulas (correctly handles pre-aggregated cases)
         intermediate_metric_names: Optional set of intermediate derived metric names
 
     Returns:
@@ -947,6 +1086,29 @@ def process_derived_metrics(
         if not decomposed:  # pragma: no cover
             continue
 
+        # Check if this derived metric references any NONE-aggregability parent metrics.
+        # NONE-aggregability metrics (e.g. MAX_BY) cannot be safely combined into
+        # derived metrics — their raw-grain expressions reference columns that are
+        # not in scope at the derived metric's aggregation level.
+        parent_names = ctx.parent_map.get(metric_name, [])
+        none_parents = [
+            p
+            for p in parent_names
+            if ctx.nodes.get(p)
+            and ctx.nodes.get(p).type == NodeType.METRIC  # type: ignore
+            and decomposed_metrics.get(p)
+            and decomposed_metrics[p].aggregability == Aggregability.NONE
+        ]
+        if none_parents:
+            raise DJInvalidInputException(
+                f"Cannot compute derived metric '{metric_name}' because it references "
+                f"non-decomposable metric(s) with Aggregability.NONE: "
+                f"{none_parents}. "
+                f"Non-decomposable metrics (e.g. MAX_BY) cannot be combined into "
+                f"derived metrics — their expressions require raw-grain access that "
+                f"is not available at the derived metric's aggregation level.",
+            )
+
         short_name = get_short_name(metric_name)
 
         # Handle window function metrics specially
@@ -963,11 +1125,21 @@ def process_derived_metrics(
             )
             derived_cte_alias = window_cte_alias
         else:
-            expr_ast = build_derived_metric_expr(
-                decomposed,
-                resolver,
-                partition_columns,
-                alias_to_dimension_node,
+            # Use build_intermediate_metric_expr to inline pre-built base metric
+            # expressions into the derived metric formula. This correctly handles
+            # COUNT DISTINCT base metrics from pre-aggregated (_agg) CTEs, where
+            # the combiner_ast would produce COUNT(DISTINCT ...) but the pre-built
+            # expression already uses MAX(...) as the correct passthrough aggregation.
+            # Fall back to build_derived_metric_expr when some base metrics are missing
+            # from base_metric_exprs (e.g., NONE-aggregability metrics not in any grain group).
+            expr_ast = (  # type: ignore[assignment]
+                build_intermediate_metric_expr(ctx, metric_name, base_metric_exprs)
+                or build_derived_metric_expr(
+                    decomposed,
+                    resolver,
+                    partition_columns,
+                    alias_to_dimension_node,
+                )
             )
             derived_cte_alias = default_cte_alias
 
@@ -1558,8 +1730,30 @@ def generate_metrics_sql(
     base_grain_groups = [gg for gg in grain_groups if not gg.is_window_grain_group]
     window_grain_groups = [gg for gg in grain_groups if gg.is_window_grain_group]
 
+    # Pre-detect whether there will be a base_metrics CTE (any window function metrics).
+    # When a base_metrics CTE is built, it uses GROUP BY + COUNT(DISTINCT ...) which
+    # correctly handles fan-out from FULL OUTER JOIN — so _agg wrapper CTEs are unnecessary.
+    # _agg wrappers are only needed when cross-grain CTEs are joined directly in the
+    # final SELECT without a GROUP BY that can apply COUNT(DISTINCT).
+    all_base_metrics_precheck: set[str] = {
+        m for gg in base_grain_groups for m in gg.metrics
+    }
+    will_have_base_metrics_cte = (
+        bool(window_grain_groups)
+        or bool(measures_result.window_metric_grains)
+        or any(
+            decomposed_metrics.get(m)
+            and has_window_function(decomposed_metrics[m].combiner_ast)
+            for m in ctx.metrics
+            if m not in all_base_metrics_precheck
+        )
+    )
+
     # Convert base grain groups to CTEs (window grain groups handled separately)
-    all_cte_asts, cte_aliases = collect_and_build_ctes(base_grain_groups)
+    all_cte_asts, cte_aliases = collect_and_build_ctes(
+        base_grain_groups,
+        skip_pre_agg=will_have_base_metrics_cte,
+    )
 
     # Build dimension info and projection
     # Filter out filter-only dimensions (they're needed for WHERE but not output)
@@ -1862,6 +2056,7 @@ def generate_metrics_sql(
         resolver,
         all_dim_aliases,
         window_metrics_cte_alias,
+        base_metrics_result.metric_exprs,
         set(),  # No intermediate derived metrics in new architecture
         alias_to_dimension_node,
     )
@@ -1915,13 +2110,29 @@ def generate_metrics_sql(
         applicable_dimension_filters = []
         for f in dimension_filters_raw:
             filter_ast = parse_filter(f)
-            # Check if any column ref in this filter is a filter-only dimension
+            # Check if any column ref in this filter is a filter-only dimension.
+            # Must handle both plain column refs and role-qualified subscript refs
+            # (e.g., "v3.location.country[customer->home]"), because find_all(ast.Column)
+            # returns only the base Column inside the Subscript, not the full role string.
             refs_filter_only = False
-            for col in filter_ast.find_all(ast.Column):
-                full_name = get_column_full_name(col)
-                if full_name and full_name in ctx.filter_dimensions:
-                    refs_filter_only = True
+            for subscript in filter_ast.find_all(ast.Subscript):
+                if not isinstance(subscript.expr, ast.Column):
+                    continue  # pragma: no cover
+                base_ref = get_column_full_name(subscript.expr)
+                if base_ref:  # pragma: no branch
+                    for fd in ctx.filter_dimensions:
+                        fd_base = fd.split("[")[0] if "[" in fd else fd
+                        if fd_base == base_ref:  # pragma: no branch
+                            refs_filter_only = True
+                            break
+                if refs_filter_only:
                     break
+            if not refs_filter_only:
+                for col in filter_ast.find_all(ast.Column):
+                    full_name = get_column_full_name(col)
+                    if full_name and full_name in ctx.filter_dimensions:
+                        refs_filter_only = True
+                        break
             if not refs_filter_only:
                 applicable_dimension_filters.append(f)
 

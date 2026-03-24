@@ -343,6 +343,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.total_revenue",
         "v3.total_unit_price",
         "v3.trailing_7d_revenue",
+        "v3.trailing_7d_revenue_inferred_dim",
         "v3.trailing_wow_revenue_change",
         "v3.visitor_count",
         "v3.wow_order_growth",

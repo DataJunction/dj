@@ -79,7 +79,7 @@ async def test_list_all_namespaces(
         {"namespace": "different.basic.transform", "num_nodes": 1},
         {"namespace": "foo.bar", "num_nodes": 26},
         {"namespace": "hll", "num_nodes": 4},
-        {"namespace": "v3", "num_nodes": 44},
+        {"namespace": "v3", "num_nodes": 45},
     ]
 
 

@@ -728,6 +728,10 @@ class TestGetPreaggregationById:
                         "name": "v3.trailing_7d_revenue",
                     },
                     {
+                        "display_name": "Trailing 7D Revenue Inferred Dim",
+                        "name": "v3.trailing_7d_revenue_inferred_dim",
+                    },
+                    {
                         "display_name": "Trailing Wow Revenue Change",
                         "name": "v3.trailing_wow_revenue_change",
                     },

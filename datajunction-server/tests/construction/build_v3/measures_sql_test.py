@@ -2198,6 +2198,7 @@ class TestMeasuresSQLDerived:
 
 
 class TestMeasuresSQLFilters:
+    @pytest.mark.asyncio
     async def test_simple_filter_on_local_column(self, client_with_build_v3):
         """Test a simple filter on a local (fact) column."""
         response = await client_with_build_v3.get(
@@ -2210,16 +2211,25 @@ class TestMeasuresSQLFilters:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["grain_groups"][0]["sql"]
+        data = get_first_grain_group(response.json())
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.status = 'completed'
+            GROUP BY t1.status
+            """,
+        )
 
-        # Should have WHERE clause with the filter
-        assert "WHERE" in sql
-        assert "status" in sql
-        assert "'completed'" in sql
-
+    @pytest.mark.asyncio
     async def test_filter_on_dimension_column(self, client_with_build_v3):
-        """Test a filter on a joined dimension column."""
+        """Test a filter on a joined dimension column that is also in GROUP BY."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -2230,14 +2240,29 @@ class TestMeasuresSQLFilters:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["grain_groups"][0]["sql"]
+        data = get_first_grain_group(response.json())
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t2.category = 'Electronics'
+            GROUP BY t2.category
+            """,
+        )
 
-        # Should have WHERE clause referencing the dimension column
-        assert "WHERE" in sql
-        assert "category" in sql
-        assert "'Electronics'" in sql
-
+    @pytest.mark.asyncio
     async def test_multiple_filters_combined_with_and(self, client_with_build_v3):
         """Test multiple filters are combined with AND."""
         response = await client_with_build_v3.get(
@@ -2253,17 +2278,31 @@ class TestMeasuresSQLFilters:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["grain_groups"][0]["sql"]
+        data = get_first_grain_group(response.json())
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.status = 'completed' AND t2.category = 'Electronics'
+            GROUP BY t1.status, t2.category
+            """,
+        )
 
-        # Should have WHERE clause with both filters combined with AND
-        assert "WHERE" in sql
-        assert "AND" in sql
-        assert "'completed'" in sql
-        assert "'Electronics'" in sql
-
+    @pytest.mark.asyncio
     async def test_filter_with_comparison_operators(self, client_with_build_v3):
-        """Test filters with various comparison operators."""
+        """Test filters with comparison operators on a role-qualified dimension."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -2274,16 +2313,31 @@ class TestMeasuresSQLFilters:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["grain_groups"][0]["sql"]
+        data = get_first_grain_group(response.json())
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, year
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.year year_order, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+            WHERE t2.year >= 2024
+            GROUP BY t2.year
+            """,
+        )
 
-        # Should have filter with >= operator
-        assert "WHERE" in sql
-        assert ">=" in sql
-        assert "2024" in sql
-
+    @pytest.mark.asyncio
     async def test_filter_with_in_operator(self, client_with_build_v3):
-        """Test filter with IN operator."""
+        """Test filter with IN operator on a local column."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -2294,14 +2348,21 @@ class TestMeasuresSQLFilters:
         )
 
         assert response.status_code == 200, response.json()
-        data = response.json()
-        sql = data["grain_groups"][0]["sql"]
-
-        # Should have filter with IN operator
-        assert "WHERE" in sql
-        assert "IN" in sql
-        assert "'completed'" in sql
-        assert "'pending'" in sql
+        data = get_first_grain_group(response.json())
+        assert_sql_equal(
+            data["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.status IN ('completed', 'pending')
+            GROUP BY t1.status
+            """,
+        )
 
 
 class TestBaseMetricCaching:
