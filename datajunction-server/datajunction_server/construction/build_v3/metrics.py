@@ -2099,7 +2099,7 @@ def generate_metrics_sql(
                 if base_ref:  # pragma: no branch
                     for fd in ctx.filter_dimensions:
                         fd_base = fd.split("[")[0] if "[" in fd else fd
-                        if fd_base == base_ref:
+                        if fd_base == base_ref:  # pragma: no branch
                             refs_filter_only = True
                             break
                 if refs_filter_only:

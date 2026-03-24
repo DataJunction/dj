@@ -2619,6 +2619,9 @@ class TestBuildMetricsSqlCubePath:
                                 "column": "line_total_sum_e1f61696",
                                 "name": "line_total_sum_e1f61696",
                             },
+                            # Entry with missing 'name' — exercises the
+                            # if short_name and physical_name: False branch (422->419)
+                            {"column": "orphan_col"},
                         ],
                     },
                 ],
