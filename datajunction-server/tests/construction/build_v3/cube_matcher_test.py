@@ -2452,6 +2452,237 @@ class TestBuildMetricsSqlCubePath:
         assert "category" in column_names
         assert "subcategory" not in column_names
 
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_dialect_none_with_cube_auto_detects_druid(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """dialect=None + use_materialized=True + matching cube → auto-selects DRUID.
+
+        Covers builder.py lines 502-503: the probe_cube path that sets dialect=DRUID
+        when no dialect is specified but a materialized cube is available.
+        """
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_dialect_none_auto",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for dialect=None auto-detection test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_dialect_none_auto/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_dialect_none_auto",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # dialect=None with use_materialized=True → should auto-detect DRUID
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=None,
+            use_materialized=True,
+        )
+
+        # DRUID path → table-only name (no catalog/schema prefix)
+        assert result.cube_name == "v3.cube_dialect_none_auto"
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_dialect_none_auto_0 AS (
+                SELECT category, line_total_sum_e1f61696
+                FROM cube_dialect_none_auto
+            )
+            SELECT
+                cube_dialect_none_auto_0.category AS category,
+                SUM(cube_dialect_none_auto_0.line_total_sum_e1f61696) AS total_revenue
+            FROM cube_dialect_none_auto_0
+            GROUP BY cube_dialect_none_auto_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_dialect_none_no_materialized_defaults_spark(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """dialect=None + use_materialized=False → falls through to SPARK source tables.
+
+        Covers builder.py line 509: when use_materialized=False, dialect defaults to
+        SPARK regardless of whether a cube exists.
+        """
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=None,
+            use_materialized=False,
+        )
+
+        # SPARK path → catalog.schema.table references, no cube used
+        assert result.cube_name is None
+        assert "default.v3.orders" in result.sql
+        assert "default.v3.order_items" in result.sql
+
+    @pytest.mark.asyncio
+    async def test_build_mat_col_lookup_returns_physical_name_mapping(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """_build_mat_col_lookup reads combiners[*].columns to build short→physical map.
+
+        Covers cube_matcher.py lines 418-423 (inner loop body) and line 531 (alias
+        emission when physical_name != short_name).
+
+        Creates a cube with a Materialization record whose config mimics the old-style
+        Druid format where physical column names use amenable_name encoding (e.g.,
+        v3_DOT_product_DOT_category instead of category).
+        """
+        from sqlalchemy import select
+
+        from datajunction_server.construction.build_v3.cube_matcher import (
+            _build_mat_col_lookup,
+            build_sql_from_cube,
+            find_matching_cube,
+        )
+        from datajunction_server.database.materialization import Materialization
+        from datajunction_server.database.node import NodeRevision
+
+        # Create a cube
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_old_style_druid",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for old-style Druid physical column test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_old_style_druid/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_old_style_druid",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Fetch the NodeRevision for the cube and add a materialization with
+        # old-style Druid column names (physical names use DOT encoding)
+        result = await session.execute(
+            select(NodeRevision).where(NodeRevision.name == "v3.cube_old_style_druid"),
+        )
+        node_rev = result.scalars().first()
+        assert node_rev is not None
+
+        old_style_mat = Materialization(
+            node_revision_id=node_rev.id,
+            name="old_style_druid_mat",
+            strategy=None,
+            schedule="",
+            config={
+                "combiners": [
+                    {
+                        "columns": [
+                            {
+                                "column": "category",
+                                "name": "v3_DOT_product_DOT_category",
+                            },
+                            {
+                                "column": "line_total_sum_e1f61696",
+                                "name": "line_total_sum_e1f61696",
+                            },
+                        ],
+                    },
+                ],
+            },
+            job="DruidMaterializationJob",
+        )
+        session.add(old_style_mat)
+        await session.commit()
+
+        # Expire to force reload from DB
+        session.expire(node_rev)
+
+        # Re-fetch with materializations eagerly loaded
+        from sqlalchemy.orm import selectinload
+
+        result2 = await session.execute(
+            select(NodeRevision)
+            .where(NodeRevision.name == "v3.cube_old_style_druid")
+            .options(selectinload(NodeRevision.materializations)),
+        )
+        node_rev2 = result2.scalars().first()
+
+        # Verify _build_mat_col_lookup returns the physical name mapping
+        lookup = _build_mat_col_lookup(node_rev2)
+        assert lookup == {
+            "category": "v3_DOT_product_DOT_category",
+            "line_total_sum_e1f61696": "line_total_sum_e1f61696",
+        }
+
+        # Verify build_sql_from_cube uses physical name alias (line 531)
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        sql_result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.DRUID,
+        )
+
+        # The SELECT should alias the physical name to the short name
+        # (physical_name != short_name triggers the alias branch at cube_matcher.py:531)
+        assert_sql_equal(
+            sql_result.sql,
+            """
+            WITH
+            cube_old_style_druid_0 AS (
+                SELECT v3_DOT_product_DOT_category category, line_total_sum_e1f61696
+                FROM cube_old_style_druid
+            )
+            SELECT
+                cube_old_style_druid_0.category AS category,
+                SUM(cube_old_style_druid_0.line_total_sum_e1f61696) AS total_revenue
+            FROM cube_old_style_druid_0
+            GROUP BY cube_old_style_druid_0.category
+            """,
+        )
+
 
 class TestDataEndpointCubePath:
     """
