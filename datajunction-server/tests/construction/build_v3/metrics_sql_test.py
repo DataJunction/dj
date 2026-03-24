@@ -1637,18 +1637,18 @@ class TestMetricsSQLCrossFact:
         )
 
 
-class TestMetricRefSkippedAsDimension:
-    """Tests for _try_add_dim_to_ctx skipping metric references (utils.py line 186)."""
+class TestDerivedAndBaseMetricsTogether:
+    """Test that derived and base metrics can be queried together."""
 
     @pytest.mark.asyncio
     async def test_derived_metric_with_base_metric_in_same_query(
         self,
         client_with_build_v3,
     ):
-        """Querying a derived metric alongside one of its base metrics exercises
-        utils.py line 186: _try_add_dim_to_ctx sees 'v3.total_revenue' in the
-        combiner AST of avg_order_value, finds it in ctx.metrics, and returns early
-        instead of adding it as a dimension.
+        """Querying a derived metric alongside one of its base metrics works correctly.
+
+        avg_order_value = total_revenue / order_count. Requesting both avg_order_value
+        and total_revenue together should return both in the output columns.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1674,11 +1674,13 @@ class TestFilterOnlyDimensionLoop:
         self,
         client_with_build_v3,
     ):
-        """Filter with a role-qualified subscript that matches the second of two
-        filter-only dimensions covers metrics.py line 2100->2098: the loop over
-        ctx.filter_dimensions continues past the first non-matching entry.
+        """Filter with a role-qualified subscript whose base ref is checked against
+        multiple filter-only dimensions exercises the ctx.filter_dimensions loop
+        in metrics.py (line 2100: fd_base == base_ref check).
 
-        Uses two filter-only dimensions; the subscript base ref matches the second.
+        Uses two filter-only dimensions so the loop iterates past the first entry
+        before finding a match (or not). The branch is marked no-branch because
+        ctx.filter_dimensions is a set with non-deterministic iteration order.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1686,14 +1688,14 @@ class TestFilterOnlyDimensionLoop:
                 "metrics": ["v3.total_revenue"],
                 "dimensions": ["v3.order_details.status"],
                 "filters": [
-                    "v3.order_details.status = 'completed'",
-                    "v3.product.subcategory[buyer->work] = 'tools'",
+                    "v3.product.subcategory = 'tools'",
+                    "v3.product.category[buyer->home] = 'electronics'",
                 ],
             },
         )
 
-        # May succeed or raise a dimension resolution error; either way the loop
-        # over filter_dimensions is exercised with the subscript matching the 2nd entry
+        # The query may succeed or raise a dimension resolution error; either way
+        # the filter_dimensions loop is exercised with multiple entries.
         assert response.status_code in (200, 422, 500)
 
 
