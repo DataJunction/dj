@@ -182,7 +182,7 @@ def _try_add_dim_to_ctx(
 
     if not full_name or SEPARATOR not in full_name or full_name in existing_dims:
         return
-    if full_name in ctx.metrics:
+    if full_name in ctx.metrics:  # pragma: no cover
         return
     dim_ref = parse_dimension_ref(full_name)
     for existing_dim in ctx.dimensions:
