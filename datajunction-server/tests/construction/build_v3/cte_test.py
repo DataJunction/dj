@@ -329,9 +329,9 @@ class TestProcessMetricCombinerExpression:
     """Tests for process_metric_combiner_expression."""
 
     def test_no_partition_dimensions_skips_partition_by_injection(self):
-        """When partition_dimensions is None the function skips the PARTITION BY
-        injection block (cte.py line 1061->1076: the branch where partition_dimensions
-        is falsy goes directly to return).
+        """
+        When partition_dimensions is None the function skips the PARTITION BY
+        injection block.
         """
         query = parse("SELECT SUM(revenue) / NULLIF(COUNT(DISTINCT order_id), 0)")
         combiner_ast = query.select.projection[0]

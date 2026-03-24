@@ -2539,7 +2539,7 @@ class TestBuildMetricsSqlCubePath:
             use_materialized=False,
         )
 
-        # SPARK path → catalog.schema.table references, no cube used
+        # SPARK path -> catalog.schema.table references, no cube used
         assert result.cube_name is None
         assert "default.v3.orders" in result.sql
         assert "default.v3.order_items" in result.sql
@@ -2550,10 +2550,9 @@ class TestBuildMetricsSqlCubePath:
         client_with_build_v3,
         session,
     ):
-        """_build_mat_col_lookup reads combiners[*].columns to build short→physical map.
-
-        Covers cube_matcher.py lines 418-423 (inner loop body) and line 531 (alias
-        emission when physical_name != short_name).
+        """
+        Verifies that _build_mat_col_lookup reads combiners[*].columns to build short name to
+        physical column name map.
 
         Creates a cube with a Materialization record whose config mimics the old-style
         Druid format where physical column names use amenable_name encoding (e.g.,
@@ -2620,7 +2619,7 @@ class TestBuildMetricsSqlCubePath:
                                 "name": "line_total_sum_e1f61696",
                             },
                             # Entry with missing 'name' — exercises the
-                            # if short_name and physical_name: False branch (422->419)
+                            # if short_name and physical_name: False branch
                             {"column": "orphan_col"},
                         ],
                     },
@@ -2651,7 +2650,7 @@ class TestBuildMetricsSqlCubePath:
             "line_total_sum_e1f61696": "line_total_sum_e1f61696",
         }
 
-        # Verify build_sql_from_cube uses physical name alias (line 531)
+        # Verify build_sql_from_cube uses physical name alias
         cube = await find_matching_cube(
             session,
             metrics=["v3.total_revenue"],
@@ -2669,7 +2668,7 @@ class TestBuildMetricsSqlCubePath:
         )
 
         # The SELECT should alias the physical name to the short name
-        # (physical_name != short_name triggers the alias branch at cube_matcher.py:531)
+        # (physical_name != short_name triggers the alias branch)
         assert_sql_equal(
             sql_result.sql,
             """

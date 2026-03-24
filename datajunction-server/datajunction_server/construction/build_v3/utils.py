@@ -319,10 +319,10 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
                     and existing_ref.column_name == dim_ref.column_name
                     and existing_ref.role == dim_ref.role
                 ):
-                    is_covered = True  # pragma: no cover
-                    break  # pragma: no cover
+                    is_covered = True
+                    break
 
-            if not is_covered:  # pragma: no branch
+            if not is_covered:
                 logger.info(
                     "[BuildV3] Auto-adding filter-only dimension %s",
                     full_name,

@@ -1086,6 +1086,29 @@ def process_derived_metrics(
         if not decomposed:  # pragma: no cover
             continue
 
+        # Check if this derived metric references any NONE-aggregability parent metrics.
+        # NONE-aggregability metrics (e.g. MAX_BY) cannot be safely combined into
+        # derived metrics — their raw-grain expressions reference columns that are
+        # not in scope at the derived metric's aggregation level.
+        parent_names = ctx.parent_map.get(metric_name, [])
+        none_parents = [
+            p
+            for p in parent_names
+            if ctx.nodes.get(p)
+            and ctx.nodes.get(p).type == NodeType.METRIC  # type: ignore
+            and decomposed_metrics.get(p)
+            and decomposed_metrics[p].aggregability == Aggregability.NONE
+        ]
+        if none_parents:
+            raise DJInvalidInputException(
+                f"Cannot compute derived metric '{metric_name}' because it references "
+                f"non-decomposable metric(s) with Aggregability.NONE: "
+                f"{none_parents}. "
+                f"Non-decomposable metrics (e.g. MAX_BY) cannot be combined into "
+                f"derived metrics — their expressions require raw-grain access that "
+                f"is not available at the derived metric's aggregation level.",
+            )
+
         short_name = get_short_name(metric_name)
 
         # Handle window function metrics specially
