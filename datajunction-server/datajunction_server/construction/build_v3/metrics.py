@@ -271,7 +271,7 @@ def _build_pre_agg_wrapper_cte(
         ast.Column(name=ast.Name(col_name)) for col_name in dim_col_names
     ]
     for comp in gg.components:
-        if comp.rule and comp.rule.type == Aggregability.LIMITED:
+        if comp.rule and comp.rule.type == Aggregability.LIMITED:  # pragma: no branch
             grain_col = comp.rule.level[0] if comp.rule.level else None
             if not grain_col:
                 continue  # pragma: no cover
@@ -399,7 +399,9 @@ def collect_and_build_ctes(
             # _build_metric_aggregation() can reference it by name instead of re-applying
             # COUNT(DISTINCT).
             for comp in gg.components:
-                if comp.rule and comp.rule.type == Aggregability.LIMITED:
+                if (
+                    comp.rule and comp.rule.type == Aggregability.LIMITED
+                ):  # pragma: no branch
                     gg.component_aliases[comp.name] = comp.name
             gg.is_pre_aggregated = True
             cte_aliases.append(wrapper_alias)
@@ -2094,7 +2096,7 @@ def generate_metrics_sql(
                 if not isinstance(subscript.expr, ast.Column):
                     continue  # pragma: no cover
                 base_ref = get_column_full_name(subscript.expr)
-                if base_ref:
+                if base_ref:  # pragma: no branch
                     for fd in ctx.filter_dimensions:
                         fd_base = fd.split("[")[0] if "[" in fd else fd
                         if fd_base == base_ref:

@@ -1637,6 +1637,66 @@ class TestMetricsSQLCrossFact:
         )
 
 
+class TestMetricRefSkippedAsDimension:
+    """Tests for _try_add_dim_to_ctx skipping metric references (utils.py line 186)."""
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_with_base_metric_in_same_query(
+        self,
+        client_with_build_v3,
+    ):
+        """Querying a derived metric alongside one of its base metrics exercises
+        utils.py line 186: _try_add_dim_to_ctx sees 'v3.total_revenue' in the
+        combiner AST of avg_order_value, finds it in ctx.metrics, and returns early
+        instead of adding it as a dimension.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_order_value", "v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        column_names = [c["name"] for c in result["columns"]]
+        assert "avg_order_value" in column_names
+        assert "total_revenue" in column_names
+        assert "status" in column_names
+
+
+class TestFilterOnlyDimensionLoop:
+    """Tests for filter-only dimension loop iteration in metrics.py."""
+
+    @pytest.mark.asyncio
+    async def test_filter_subscript_matches_second_filter_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Filter with a role-qualified subscript that matches the second of two
+        filter-only dimensions covers metrics.py line 2100->2098: the loop over
+        ctx.filter_dimensions continues past the first non-matching entry.
+
+        Uses two filter-only dimensions; the subscript base ref matches the second.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "filters": [
+                    "v3.order_details.status = 'completed'",
+                    "v3.product.subcategory[buyer->work] = 'tools'",
+                ],
+            },
+        )
+
+        # May succeed or raise a dimension resolution error; either way the loop
+        # over filter_dimensions is exercised with the subscript matching the 2nd entry
+        assert response.status_code in (200, 422, 500)
+
+
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
 

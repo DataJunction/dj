@@ -3,6 +3,7 @@
 from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
     inject_partition_by_into_windows,
+    process_metric_combiner_expression,
     replace_metric_refs_in_ast,
 )
 from datajunction_server.sql.parsing import ast
@@ -321,4 +322,30 @@ class TestInjectPartitionByIntoWindows:
         result_sql = str(expr)
         # AVG OVER () should remain empty
         assert "AVG(value) OVER ()" in result_sql
+        assert "PARTITION BY" not in result_sql
+
+
+class TestProcessMetricCombinerExpression:
+    """Tests for process_metric_combiner_expression."""
+
+    def test_no_partition_dimensions_skips_partition_by_injection(self):
+        """When partition_dimensions is None the function skips the PARTITION BY
+        injection block (cte.py line 1061->1076: the branch where partition_dimensions
+        is falsy goes directly to return).
+        """
+        query = parse("SELECT SUM(revenue) / NULLIF(COUNT(DISTINCT order_id), 0)")
+        combiner_ast = query.select.projection[0]
+
+        dimension_refs = {
+            "v3.order_details.status": ("order_details_0", "status"),
+        }
+
+        result = process_metric_combiner_expression(
+            combiner_ast=combiner_ast,
+            dimension_refs=dimension_refs,
+            partition_dimensions=None,
+        )
+
+        # Function should return without error; no PARTITION BY injected
+        result_sql = str(result)
         assert "PARTITION BY" not in result_sql
