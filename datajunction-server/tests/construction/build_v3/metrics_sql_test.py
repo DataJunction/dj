@@ -1664,6 +1664,33 @@ class TestDerivedAndBaseMetricsTogether:
         assert "avg_order_value" in column_names
         assert "total_revenue" in column_names
         assert "status" in column_names
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY  t1.status, t1.order_id
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value,
+              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY  order_details_0.status
+            """,
+        )
 
 
 class TestFilterOnlyDimensionLoop:
@@ -1674,13 +1701,10 @@ class TestFilterOnlyDimensionLoop:
         self,
         client_with_build_v3,
     ):
-        """Filter with a role-qualified subscript whose base ref is checked against
+        """
+        Filter with a role-qualified subscript whose base ref is checked against
         multiple filter-only dimensions exercises the ctx.filter_dimensions loop
-        in metrics.py (line 2100: fd_base == base_ref check).
-
-        Uses two filter-only dimensions so the loop iterates past the first entry
-        before finding a match (or not). The branch is marked no-branch because
-        ctx.filter_dimensions is a set with non-deterministic iteration order.
+        in metrics.py.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -1696,7 +1720,40 @@ class TestFilterOnlyDimensionLoop:
 
         # The query may succeed or raise a dimension resolution error; either way
         # the filter_dimensions loop is exercised with multiple entries.
-        assert response.status_code in (200, 422, 500)
+        assert response.status_code == 200
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.status,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category,
+                subcategory
+              FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              WHERE  t2.subcategory = 'tools' AND t2.category = 'electronics'
+              GROUP BY  t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY  order_details_0.status
+            """,
+        )
 
 
 class TestNonDecomposableMetrics:
@@ -4461,7 +4518,7 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Gap #2: Filter on a dimension PK that is also the FK on the fact table.
+        Verify filtering on a dimension PK that is also the FK on the fact table.
 
         v3.customer.customer_id[customer] is the PK of the customer dimension and
         equals v3.order_details.customer_id (the FK on the fact). When no customer
@@ -4509,7 +4566,7 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Gap #3: Metric with no dimensions requested — scalar aggregate.
+        Verify metric with no dimensions requested — scalar aggregate.
 
         The grain group CTE and final SELECT must NOT emit a GROUP BY clause.
         The result is a single-row scalar.
@@ -4558,13 +4615,13 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Gap #4 (new): Filter on a non-PK dimension attribute not in GROUP BY.
+        Verify filtering on a non-PK dimension attribute not in GROUP BY.
 
         v3.customer.email[customer] is only present in the customer dimension node,
         not on the fact table. Even though no customer column appears in GROUP BY,
         the system must emit a JOIN to v3.customer to evaluate the LIKE filter.
 
-        The WHERE clause on email appears only inside the grain group CTE —
+        The WHERE clause on email appears only inside the grain group CTE -
         the outer SELECT has no access to email so no outer WHERE is emitted.
         """
         response = await client_with_build_v3.get(
@@ -4619,7 +4676,7 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Gap #5: FULL and LIMITED metrics from the same fact in a single query.
+        Verify FULL and LIMITED metrics from the same fact in a single query.
 
         total_revenue (Aggregability.FULL / SUM) and order_count
         (Aggregability.LIMITED / COUNT DISTINCT order_id) share v3.order_details.
@@ -4690,7 +4747,7 @@ class TestMetricsSQLEdgeCases:
         client_with_build_v3,
     ):
         """
-        Gap #6: Derived metric whose formula references a NONE-aggregability metric.
+        Verify derived metric whose formula references a NONE-aggregability metric.
 
         v3.top_product_by_revenue uses MAX_BY (Aggregability.NONE) — it cannot be
         decomposed into re-aggregatable components. A derived metric that incorporates
@@ -4721,52 +4778,12 @@ class TestMetricsSQLEdgeCases:
             },
         )
 
-        if response.status_code >= 400:
-            # Preferred: clear error about the non-decomposable component
-            error_text = response.text.lower()
-            assert any(
-                keyword in error_text
-                for keyword in (
-                    "non-decomposable",
-                    "cannot decompose",
-                    "aggregability",
-                    "none",
-                    "max_by",
-                )
-            ), (
-                f"Expected clear error about non-decomposable metric, got: {response.text}"
-            )
-        else:
-            # NOTE: The system currently returns 200 but generates WRONG SQL.
-            # The CTE omits product_id and line_total because it only resolves
-            # columns for the COUNT DISTINCT component (order_count), not for
-            # the NONE component (top_product_by_revenue / MAX_BY). As a result,
-            # MAX_BY(product_id, line_total) in the outer SELECT references columns
-            # that are not in scope — this would fail at query execution time.
-            #
-            # TODO: This should raise a clear error ("cannot decompose derived
-            # metric that references NONE-aggregability component") rather than
-            # silently producing semantically invalid SQL.
-            result = response.json()
-            assert_sql_equal(
-                result["sql"],
-                """
-                WITH v3_order_details AS (
-                    SELECT o.order_id, oi.line_number, o.status
-                    FROM default.v3.orders o
-                    JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                ),
-                order_details_0 AS (
-                    SELECT t1.status, t1.line_number, t1.order_id,
-                           t1.order_id order_id
-                    FROM v3_order_details t1
-                    GROUP BY t1.status, t1.line_number, t1.order_id
-                )
-                SELECT order_details_0.status AS status,
-                       COUNT(DISTINCT order_details_0.order_id)
-                           + CAST(MAX_BY(product_id, line_total) AS BIGINT)
-                           AS orders_plus_top_product
-                FROM order_details_0
-                GROUP BY order_details_0.status
-                """,
-            )
+        assert response.status_code == 422, response.text
+        error_text = response.json().get("message", "")
+        assert error_text.lower() == (
+            "cannot compute derived metric 'v3.orders_plus_top_product' because it references"
+            " non-decomposable metric(s) with aggregability.none: ['v3.top_product_by_revenue']."
+            " non-decomposable metrics (e.g. max_by) cannot be combined into derived metrics — "
+            "their expressions require raw-grain access that is not available at the derived "
+            "metric's aggregation level."
+        ), f"Expected clear error about non-decomposable metric, got: {response.text}"
