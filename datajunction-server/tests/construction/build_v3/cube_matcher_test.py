@@ -882,7 +882,7 @@ class TestBuildSqlFromCube:
             unit_price_sum_55cff00f,
             unit_price_max_55cff00f,
             unit_price_min_55cff00f
-          FROM default.analytics.cube_all_order_metrics
+          FROM cube_all_order_metrics
         )
         SELECT
           test_cube_all_order_metrics_0.category AS category,
@@ -1147,6 +1147,107 @@ class TestBuildSqlFromCube:
         assert "trailing_wow_revenue_change" in column_names
 
     @pytest.mark.asyncio
+    async def test_builds_sql_from_cube_with_inferred_order_by_dimension(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """Window function ORDER BY dim auto-detected even without required_dimensions.
+
+        v3.trailing_7d_revenue_inferred_dim has no required_dimensions set, but its
+        metric expression uses ORDER BY v3.date.date_id[order]. The fix in
+        add_dimensions_from_metric_expressions scans the original metric query's
+        window function ORDER BY clauses and auto-adds the dimension to ctx.dimensions.
+
+        Without the fix, the ORDER BY would contain the raw unresolved ref
+        "v3.date.date_id[order]" instead of "base_metrics.date_id_order".
+        """
+        all_metrics = ["v3.total_revenue", "v3.trailing_7d_revenue_inferred_dim"]
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.test_cube_inferred_order_by_dim",
+                "metrics": all_metrics,
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
+                "mode": "published",
+                "description": "Cube for testing inferred ORDER BY dimension",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.test_cube_inferred_order_by_dim/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_inferred_order_by_dim",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        cube = await find_matching_cube(
+            session,
+            metrics=all_metrics,
+            dimensions=["v3.date.date_id[order]", "v3.product.category"],
+        )
+        assert cube is not None
+
+        result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=all_metrics,
+            dimensions=["v3.date.date_id[order]", "v3.product.category"],
+            filters=None,
+            dialect=Dialect.SPARK,
+        )
+
+        assert result is not None
+        assert result.sql is not None
+
+        # The ORDER BY should use the aliased column name (date_id_order),
+        # NOT the raw dimension ref (v3.date.date_id[order]).
+        assert "v3.date.date_id" not in result.sql, (
+            "Raw dimension ref found in SQL — ORDER BY dimension was not resolved"
+        )
+        assert "date_id_order" in result.sql, (
+            "Aliased column name missing — ORDER BY dimension was not resolved to alias"
+        )
+
+        expected_sql = """
+        WITH test_cube_inferred_order_by_dim_0 AS (
+          SELECT
+            date_id_order,
+            category,
+            line_total_sum_e1f61696
+          FROM default.analytics.cube_inferred_order_by_dim
+        ),
+        base_metrics AS (
+          SELECT
+            test_cube_inferred_order_by_dim_0.date_id_order AS date_id_order,
+            test_cube_inferred_order_by_dim_0.category AS category,
+            SUM(test_cube_inferred_order_by_dim_0.line_total_sum_e1f61696) AS total_revenue
+          FROM test_cube_inferred_order_by_dim_0
+          GROUP BY
+            test_cube_inferred_order_by_dim_0.date_id_order,
+            test_cube_inferred_order_by_dim_0.category
+        )
+        SELECT
+          base_metrics.date_id_order AS date_id_order,
+          base_metrics.category AS category,
+          base_metrics.total_revenue AS total_revenue,
+          SUM(base_metrics.total_revenue) OVER ( PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue_inferred_dim
+        FROM base_metrics
+        """
+        assert_sql_equal(result.sql, expected_sql, normalize_aliases=False)
+
+        column_names = [col.name for col in result.columns]
+        assert "total_revenue" in column_names
+        assert "trailing_7d_revenue_inferred_dim" in column_names
+
+    @pytest.mark.asyncio
     async def test_builds_sql_with_rollup_dimensions(
         self,
         client_with_build_v3,
@@ -1282,8 +1383,8 @@ class TestBuildSqlFromCube:
             dialect=Dialect.DRUID,
         )
 
-        # Both should produce valid SQL with expected structure
-        expected_sql = """
+        # Spark uses catalog.schema.table; Druid uses table name only
+        spark_expected_sql = """
         WITH test_cube_dialect_0 AS (
           SELECT
             category,
@@ -1296,8 +1397,21 @@ class TestBuildSqlFromCube:
         FROM test_cube_dialect_0
         GROUP BY  test_cube_dialect_0.category
         """
-        assert_sql_equal(spark_result.sql, expected_sql)
-        assert_sql_equal(druid_result.sql, expected_sql)
+        druid_expected_sql = """
+        WITH test_cube_dialect_0 AS (
+          SELECT
+            category,
+            line_total_sum_e1f61696
+          FROM cube_dialect
+        )
+        SELECT
+          test_cube_dialect_0.category AS category,
+          SUM(test_cube_dialect_0.line_total_sum_e1f61696) AS total_revenue
+        FROM test_cube_dialect_0
+        GROUP BY  test_cube_dialect_0.category
+        """
+        assert_sql_equal(spark_result.sql, spark_expected_sql)
+        assert_sql_equal(druid_result.sql, druid_expected_sql)
 
     @pytest.mark.asyncio
     async def test_builds_sql_from_cube_with_filter(
@@ -1958,13 +2072,14 @@ class TestBuildMetricsSqlCubePath:
         )
         assert response.status_code == 200, response.json()
 
-        # Call build_metrics_sql - should use cube path
+        # Call build_metrics_sql with DRUID dialect - should use cube path
+        # (cube path is only taken when dialect is DRUID or unset)
         result = await build_metrics_sql(
             session=session,
             metrics=["v3.total_revenue"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -1975,7 +2090,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_for_metrics_sql_0 AS (
                 SELECT category, line_total_sum_e1f61696
-                FROM default.analytics.cube_for_metrics_sql
+                FROM cube_for_metrics_sql
             )
             SELECT
                 cube_for_metrics_sql_0.category AS category,
@@ -2163,7 +2278,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.avg_unit_price"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2175,12 +2290,12 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_avg_metric_0 AS (
                 SELECT category, unit_price_count_55cff00f, unit_price_sum_55cff00f
-                FROM default.analytics.cube_avg_metric
+                FROM cube_avg_metric
             )
             SELECT
                 cube_avg_metric_0.category AS category,
-                SUM(cube_avg_metric_0.unit_price_sum_55cff00f)
-                    / SUM(cube_avg_metric_0.unit_price_count_55cff00f) AS avg_unit_price
+                SAFE_DIVIDE(SUM(cube_avg_metric_0.unit_price_sum_55cff00f),
+                    SUM(cube_avg_metric_0.unit_price_count_55cff00f)) AS avg_unit_price
             FROM cube_avg_metric_0
             GROUP BY cube_avg_metric_0.category
             """,
@@ -2234,7 +2349,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.total_revenue", "v3.total_quantity"],
             dimensions=["v3.product.category"],
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2245,7 +2360,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_multi_metrics_0 AS (
                 SELECT category, line_total_sum_e1f61696, quantity_sum_06b64d2e
-                FROM default.analytics.cube_multi_metrics
+                FROM cube_multi_metrics
             )
             SELECT
                 cube_multi_metrics_0.category AS category,
@@ -2307,7 +2422,7 @@ class TestBuildMetricsSqlCubePath:
             metrics=["v3.total_revenue"],
             dimensions=["v3.product.category"],  # Subset of cube dims
             filters=None,
-            dialect=Dialect.SPARK,
+            dialect=Dialect.DRUID,
             use_materialized=True,
         )
 
@@ -2319,7 +2434,7 @@ class TestBuildMetricsSqlCubePath:
             WITH
             cube_rollup_test_0 AS (
                 SELECT category, line_total_sum_e1f61696
-                FROM default.analytics.cube_rollup_test
+                FROM cube_rollup_test
             )
             SELECT
                 cube_rollup_test_0.category AS category,
@@ -2336,6 +2451,239 @@ class TestBuildMetricsSqlCubePath:
         column_names = [col.name for col in result.columns]
         assert "category" in column_names
         assert "subcategory" not in column_names
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_dialect_none_with_cube_auto_detects_druid(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """dialect=None + use_materialized=True + matching cube → auto-selects DRUID.
+
+        Covers builder.py lines 502-503: the probe_cube path that sets dialect=DRUID
+        when no dialect is specified but a materialized cube is available.
+        """
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_dialect_none_auto",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for dialect=None auto-detection test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_dialect_none_auto/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_dialect_none_auto",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # dialect=None with use_materialized=True → should auto-detect DRUID
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=None,
+            use_materialized=True,
+        )
+
+        # DRUID path → table-only name (no catalog/schema prefix)
+        assert result.cube_name == "v3.cube_dialect_none_auto"
+        assert_sql_equal(
+            result.sql,
+            """
+            WITH
+            cube_dialect_none_auto_0 AS (
+                SELECT category, line_total_sum_e1f61696
+                FROM cube_dialect_none_auto
+            )
+            SELECT
+                cube_dialect_none_auto_0.category AS category,
+                SUM(cube_dialect_none_auto_0.line_total_sum_e1f61696) AS total_revenue
+            FROM cube_dialect_none_auto_0
+            GROUP BY cube_dialect_none_auto_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_metrics_sql_dialect_none_no_materialized_defaults_spark(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """dialect=None + use_materialized=False → falls through to SPARK source tables.
+
+        Covers builder.py line 509: when use_materialized=False, dialect defaults to
+        SPARK regardless of whether a cube exists.
+        """
+        from datajunction_server.construction.build_v3 import build_metrics_sql
+
+        result = await build_metrics_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=None,
+            use_materialized=False,
+        )
+
+        # SPARK path -> catalog.schema.table references, no cube used
+        assert result.cube_name is None
+        assert "default.v3.orders" in result.sql
+        assert "default.v3.order_items" in result.sql
+
+    @pytest.mark.asyncio
+    async def test_build_mat_col_lookup_returns_physical_name_mapping(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """
+        Verifies that _build_mat_col_lookup reads combiners[*].columns to build short name to
+        physical column name map.
+
+        Creates a cube with a Materialization record whose config mimics the old-style
+        Druid format where physical column names use amenable_name encoding (e.g.,
+        v3_DOT_product_DOT_category instead of category).
+        """
+        from sqlalchemy import select
+
+        from datajunction_server.construction.build_v3.cube_matcher import (
+            _build_mat_col_lookup,
+            build_sql_from_cube,
+            find_matching_cube,
+        )
+        from datajunction_server.database.materialization import Materialization
+        from datajunction_server.database.node import NodeRevision
+
+        # Create a cube
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.cube_old_style_druid",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Cube for old-style Druid physical column test",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        valid_through_ts = int(time.time() * 1000)
+        response = await client_with_build_v3.post(
+            "/data/v3.cube_old_style_druid/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "cube_old_style_druid",
+                "valid_through_ts": valid_through_ts,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # Fetch the NodeRevision for the cube and add a materialization with
+        # old-style Druid column names (physical names use DOT encoding)
+        result = await session.execute(
+            select(NodeRevision).where(NodeRevision.name == "v3.cube_old_style_druid"),
+        )
+        node_rev = result.scalars().first()
+        assert node_rev is not None
+
+        old_style_mat = Materialization(
+            node_revision_id=node_rev.id,
+            name="old_style_druid_mat",
+            strategy=None,
+            schedule="",
+            config={
+                "combiners": [
+                    {
+                        "columns": [
+                            {
+                                "column": "category",
+                                "name": "v3_DOT_product_DOT_category",
+                            },
+                            {
+                                "column": "line_total_sum_e1f61696",
+                                "name": "line_total_sum_e1f61696",
+                            },
+                            # Entry with missing 'name' — exercises the
+                            # if short_name and physical_name: False branch
+                            {"column": "orphan_col"},
+                        ],
+                    },
+                ],
+            },
+            job="DruidMaterializationJob",
+        )
+        session.add(old_style_mat)
+        await session.commit()
+
+        # Expire to force reload from DB
+        session.expire(node_rev)
+
+        # Re-fetch with materializations eagerly loaded
+        from sqlalchemy.orm import selectinload
+
+        result2 = await session.execute(
+            select(NodeRevision)
+            .where(NodeRevision.name == "v3.cube_old_style_druid")
+            .options(selectinload(NodeRevision.materializations)),
+        )
+        node_rev2 = result2.scalars().first()
+
+        # Verify _build_mat_col_lookup returns the physical name mapping
+        lookup = _build_mat_col_lookup(node_rev2)
+        assert lookup == {
+            "category": "v3_DOT_product_DOT_category",
+            "line_total_sum_e1f61696": "line_total_sum_e1f61696",
+        }
+
+        # Verify build_sql_from_cube uses physical name alias
+        cube = await find_matching_cube(
+            session,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+        )
+        assert cube is not None
+
+        sql_result = await build_sql_from_cube(
+            session=session,
+            cube=cube,
+            metrics=["v3.total_revenue"],
+            dimensions=["v3.product.category"],
+            filters=None,
+            dialect=Dialect.DRUID,
+        )
+
+        # The SELECT should alias the physical name to the short name
+        # (physical_name != short_name triggers the alias branch)
+        assert_sql_equal(
+            sql_result.sql,
+            """
+            WITH
+            cube_old_style_druid_0 AS (
+                SELECT v3_DOT_product_DOT_category category, line_total_sum_e1f61696
+                FROM cube_old_style_druid
+            )
+            SELECT
+                cube_old_style_druid_0.category AS category,
+                SUM(cube_old_style_druid_0.line_total_sum_e1f61696) AS total_revenue
+            FROM cube_old_style_druid_0
+            GROUP BY cube_old_style_druid_0.category
+            """,
+        )
 
 
 class TestDataEndpointCubePath:

@@ -40,6 +40,29 @@ def parse_filter(filter_str: str) -> ast.Expression:
     return query.select.where
 
 
+def extract_subscript_role(subscript: ast.Subscript) -> str | None:
+    """
+    Extract the role string from a subscript index node.
+
+    Handles the three forms that can appear as a subscript index:
+    - ast.Column: simple role like "order" (e.g., "v3.date.year[order]")
+    - ast.Name: simple role like "order" (fallback if parser produces Name instead of Column)
+    - ast.Lambda: multi-hop role (e.g., "v3.user[customer->home]")
+
+    Returns the role string, or None if the index is not a recognised form.
+    """
+    # simple role like "dim.attr[order]"
+    if isinstance(subscript.index, ast.Column):
+        return subscript.index.name.name if subscript.index.name else None
+    # simple role like "dim.attr[order]"
+    if isinstance(subscript.index, ast.Name):  # pragma: no cover
+        return subscript.index.name
+    # multi-hop role like "dim.attr[customer->home]"
+    if isinstance(subscript.index, ast.Lambda):
+        return str(subscript.index)
+    return None  # pragma: no cover
+
+
 def resolve_filter_references(
     filter_ast: ast.Expression,
     column_aliases: dict[str, str],
@@ -81,17 +104,7 @@ def resolve_filter_references(
         if not base_col_ref:
             continue  # pragma: no cover
 
-        # Extract the role from the subscript index
-        role = None
-        if isinstance(subscript.index, ast.Column):
-            role = subscript.index.name.name if subscript.index.name else None
-        elif isinstance(subscript.index, ast.Name):  # pragma: no cover
-            role = subscript.index.name
-        elif isinstance(subscript.index, ast.Lambda):
-            # Multi-hop role notation like "customer->home" is parsed as a Lambda node.
-            # Lambda.__str__ returns the canonical role string (e.g., "customer->home").
-            role = str(subscript.index)
-
+        role = extract_subscript_role(subscript)
         if not role:
             continue  # pragma: no cover
 

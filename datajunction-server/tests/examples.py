@@ -3579,6 +3579,24 @@ BUILD_V3 = (  # type: ignore
     (
         "/nodes/metric/",
         {
+            "name": "v3.trailing_7d_revenue_inferred_dim",
+            "description": (
+                "Trailing 7-day revenue without required_dimensions set. "
+                "Tests that the ORDER BY dimension is auto-detected from the metric expression."
+            ),
+            "query": """
+                SELECT
+                    SUM(v3.total_revenue) OVER (
+                        ORDER BY v3.date.date_id[order]
+                        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                    )
+            """,
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
             "name": "v3.trailing_wow_revenue_change",
             "description": (
                 "Trailing week-over-week revenue change (%). "
