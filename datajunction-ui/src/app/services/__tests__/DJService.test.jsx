@@ -2999,7 +2999,7 @@ describe('DataJunctionAPI', () => {
   // ===== metricsV3 — useMaterialized=false branch (lines 1224-1225) =====
   it('calls metricsV3 with useMaterialized=false (trino dialect)', async () => {
     fetch.mockResponseOnce(JSON.stringify({ sql: 'SELECT ...' }));
-    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], [], false);
+    await DataJunctionAPI.metricsV3(['metric1'], ['dim1'], [], false, 'trino');
     const url = fetch.mock.calls[0][0];
     expect(url).toContain('use_materialized=false');
     expect(url).toContain('dialect=trino');
