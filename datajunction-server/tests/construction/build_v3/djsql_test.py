@@ -598,4 +598,4 @@ class TestDJSQLDialects:
 
         assert response.status_code == 200, response.json()
         result = response.json()
-        assert result["dialect"] == "spark"
+        assert result["dialect"] == "trino"
