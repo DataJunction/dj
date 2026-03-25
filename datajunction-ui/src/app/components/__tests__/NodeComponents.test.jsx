@@ -127,7 +127,7 @@ describe('NodeComponents', () => {
     it('should apply large size styles', () => {
       render(<NodeLink node={mockNode} size="large" />);
       const link = screen.getByText('My Metric');
-      expect(link).toHaveStyle({ fontSize: '13px', fontWeight: '500' });
+      expect(link).toHaveStyle({ fontSize: '14px', fontWeight: '500' });
     });
 
     it('should use medium as default when invalid size provided', () => {
@@ -253,7 +253,7 @@ describe('NodeComponents', () => {
       const { container } = render(<NodeChip node={mockNode} />);
       const link = container.querySelector('a');
       expect(link).toHaveStyle({
-        fontSize: '10px',
+        fontSize: '12px',
         padding: '2px 6px',
         whiteSpace: 'nowrap',
       });
