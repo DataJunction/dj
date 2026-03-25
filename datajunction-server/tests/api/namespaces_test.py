@@ -2387,3 +2387,107 @@ async def test_git_inheritance_with_no_git_path(
     assert data["github_repo_path"] == "corp/nopath-repo"
     assert data["git_path"] is None  # Inherited as None from parent
     assert data["git_branch"] == "feature"
+
+
+@pytest.mark.asyncio
+async def test_list_namespace_branches_empty(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Namespace with no branch children returns an empty list."""
+    # Use an existing namespace that has no parent_namespace children
+    response = await module__client_with_all_examples.get(
+        "/namespaces/default/branches",
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_namespace_branches_not_found(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Non-existent namespace returns 404."""
+    response = await module__client_with_all_examples.get(
+        "/namespaces/nonexistent.project/branches",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_namespace_branches(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Returns all branch namespaces for a given parent namespace."""
+    root = "branches.test.root"
+    main_ns = "branches.test.root.main"
+    feature_ns = "branches.test.root.feature_x"
+
+    # Set up root namespace with git config
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/finance-repo", "git_path": "nodes/"},
+    )
+
+    # Create two branch namespaces under root
+    await module__client_with_all_examples.post(f"/namespaces/{main_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{main_ns}/git",
+        json={"parent_namespace": root, "git_branch": "main", "git_only": True},
+    )
+
+    await module__client_with_all_examples.post(f"/namespaces/{feature_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{feature_ns}/git",
+        json={"parent_namespace": root, "git_branch": "feature_x"},
+    )
+
+    response = await module__client_with_all_examples.get(
+        f"/namespaces/{root}/branches",
+    )
+    assert response.status_code == 200
+
+    branches = {b["namespace"]: b for b in response.json()}
+    assert set(branches.keys()) == {main_ns, feature_ns}
+
+    assert branches[main_ns]["branch"] == "main"
+    assert branches[main_ns]["git_only"] is True
+    assert branches[main_ns]["num_nodes"] == 0
+
+    assert branches[feature_ns]["branch"] == "feature_x"
+    assert branches[feature_ns]["git_only"] is False
+    assert branches[feature_ns]["num_nodes"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_namespace_branches_excludes_deactivated(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """Deactivated branch namespaces are not included in the results."""
+    root = "branches.deact.root"
+    active_ns = "branches.deact.root.main"
+    deact_ns = "branches.deact.root.old"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/deact-repo"},
+    )
+
+    for ns, branch in [(active_ns, "main"), (deact_ns, "old")]:
+        await module__client_with_all_examples.post(f"/namespaces/{ns}/")
+        await module__client_with_all_examples.patch(
+            f"/namespaces/{ns}/git",
+            json={"parent_namespace": root, "git_branch": branch},
+        )
+
+    # Deactivate the old branch
+    await module__client_with_all_examples.delete(f"/namespaces/{deact_ns}/")
+
+    response = await module__client_with_all_examples.get(
+        f"/namespaces/{root}/branches",
+    )
+    assert response.status_code == 200
+    namespaces = [b["namespace"] for b in response.json()]
+    assert active_ns in namespaces
+    assert deact_ns not in namespaces
