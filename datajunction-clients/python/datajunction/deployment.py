@@ -1,7 +1,10 @@
+import json
 import os
 import re
 import socket
 import subprocess
+import urllib.parse
+import urllib.request
 from pathlib import Path
 import time
 from typing import Any, Union
@@ -345,6 +348,119 @@ class DeploymentService:
     def read_yaml_file(path: str | Path) -> dict[str, Any]:
         with open(path, "r") as f:
             return yaml.safe_load(f)
+
+    @staticmethod
+    def _resolve_email_to_github_username(
+        email: str,
+        github_api_url: str,
+        token: str,
+    ) -> str | None:
+        """
+        Look up a GitHub username by email via the GitHub search API.
+        Returns the login string, or None if not found.
+        """
+        url = f"{github_api_url.rstrip('/')}/search/users?q={urllib.parse.quote(email)}+in:email"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                items = data.get("items", [])
+                return items[0]["login"] if items else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def build_codeowners(
+        base_dir: str | Path,
+        output: str | Path = ".github/CODEOWNERS",
+        github_api_url: str | None = None,
+        github_token_env: str = "GITHUB_TOKEN",
+    ) -> int:
+        """
+        Generate a CODEOWNERS file from the owners fields in DJ node YAML files.
+
+        Walks base_dir recursively, reads every *.yaml file (skipping dj.yaml),
+        and maps each file path to its owners list.  Files with no owners are
+        omitted.  Paths in the output are relative to base_dir and prefixed with
+        / so GitHub resolves them from the repo root.
+
+        If github_api_url is provided (and GITHUB_TOKEN / github_token_env is set),
+        email addresses in owners fields are resolved to GitHub usernames via the
+        search API.  Unresolvable emails are emitted as-is with a warning comment.
+
+        Returns the number of entries written.
+        """
+        base = Path(base_dir).resolve()
+        _token = os.getenv(github_token_env)
+        # Only resolve if both API URL and token are available
+        lookup: tuple[str, str] | None = (
+            (github_api_url, _token) if (github_api_url and _token) else None
+        )
+
+        # Cache email → handle lookups to avoid duplicate API calls
+        handle_cache: dict[str, str] = {}
+        warnings: list[str] = []
+
+        def to_handle(owner: str) -> str:
+            if owner.startswith("@"):
+                return owner  # already a handle
+            if lookup is None or "@" not in owner:
+                return owner  # not an email or no lookup configured
+            if owner not in handle_cache:
+                api_url, token = lookup
+                login = DeploymentService._resolve_email_to_github_username(
+                    owner,
+                    api_url,
+                    token,
+                )
+                if login:
+                    handle_cache[owner] = f"@{login}"
+                else:
+                    handle_cache[owner] = owner
+                    warnings.append(owner)
+            return handle_cache[owner]
+
+        entries: list[str] = []
+        for path in sorted(base.rglob("*.yaml")):
+            if path.name == "dj.yaml":
+                continue
+            try:
+                node = DeploymentService.read_yaml_file(path)
+            except Exception:  # skip unreadable / non-dict files
+                continue
+            if not isinstance(node, dict):
+                continue
+            owners: list[str] = node.get("owners") or []
+            if not owners:
+                continue
+            rel = "/" + str(path.relative_to(base))
+            entries.append(f"{rel} {' '.join(to_handle(o) for o in owners)}")
+
+        lines = [
+            "# Auto-generated from DJ YAML owners fields.",
+            "# Do not edit manually — regenerate with: dj generate-codeowners",
+        ]
+        if warnings:
+            lines.append("#")
+            lines.append(
+                "# WARNING: could not resolve these emails to GitHub usernames:",
+            )
+            for w in warnings:
+                lines.append(f"#   {w}")
+        lines += ["", *entries, ""]
+        content = "\n".join(lines)
+
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(content, encoding="utf-8")
+        return len(entries)
 
     def _collect_nodes_from_dir(self, base_dir: str | Path) -> list[dict[str, Any]]:
         """
