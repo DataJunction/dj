@@ -2447,16 +2447,28 @@ async def test_list_namespace_branches(
     )
     assert response.status_code == 200
 
-    branches = {b["namespace"]: b for b in response.json()}
-    assert set(branches.keys()) == {main_ns, feature_ns}
-
-    assert branches[main_ns]["branch"] == "main"
-    assert branches[main_ns]["git_only"] is True
-    assert branches[main_ns]["num_nodes"] == 0
-
-    assert branches[feature_ns]["branch"] == "feature_x"
-    assert branches[feature_ns]["git_only"] is False
-    assert branches[feature_ns]["num_nodes"] == 0
+    assert response.json() == [
+        {
+            "git_branch": "feature_x",
+            "git_only": False,
+            "github_repo_path": "corp/finance-repo",
+            "invalid_node_count": 0,
+            "last_deployed_at": None,
+            "namespace": "branches.test.root.feature_x",
+            "num_nodes": 0,
+            "parent_namespace": "branches.test.root",
+        },
+        {
+            "git_branch": "main",
+            "git_only": True,
+            "github_repo_path": "corp/finance-repo",
+            "invalid_node_count": 0,
+            "last_deployed_at": None,
+            "namespace": "branches.test.root.main",
+            "num_nodes": 0,
+            "parent_namespace": "branches.test.root",
+        },
+    ]
 
 
 @pytest.mark.asyncio
