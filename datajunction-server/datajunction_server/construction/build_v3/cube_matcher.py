@@ -224,13 +224,15 @@ async def resolve_dialect_and_engine_for_metrics(
             avail_catalog_name = cube.availability.catalog
             avail_catalog = await Catalog.get_by_name(session, avail_catalog_name)
             if avail_catalog and avail_catalog.engines:  # pragma: no branch
-                # Prefer an engine matching dialect_override, fall back to first
+                # Prefer an engine matching dialect_override; when no override,
+                # prefer Druid (cubes are materialized for Druid).
                 engines = avail_catalog.engines
                 if dialect_override:
                     matching = [e for e in engines if e.dialect == dialect_override]
                     engine = matching[0] if matching else engines[0]
                 else:
-                    engine = engines[0]
+                    druid_engines = [e for e in engines if e.dialect == Dialect.DRUID]
+                    engine = druid_engines[0] if druid_engines else engines[0]
                 dialect = dialect_override or Dialect(engine.dialect)
                 logger.info(
                     "[BuildV3] Resolved dialect=%s engine=%s from cube %s "
@@ -267,17 +269,25 @@ async def resolve_dialect_and_engine_for_metrics(
     if not catalog_name:  # pragma: no cover
         raise ValueError(f"Metric {metrics[0]} has no catalog")
 
-    # Resolve engine, filtering by dialect_override if provided
+    # Resolve engine: when no dialect is explicitly requested, prefer Trino.
+    # Fall back to the catalog's first engine if no Trino engine exists.
+    if not dialect_override and not engine_name:
+        catalog_engines = node.current.catalog.engines
+        trino_engines = [e for e in catalog_engines if e.dialect == Dialect.TRINO]
+        preferred_dialect: Optional[Dialect] = Dialect.TRINO if trino_engines else None
+    else:
+        preferred_dialect = dialect_override
+
     engine = await resolve_engine(
         session=session,
         node=node,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect=dialect_override,
+        dialect=preferred_dialect,
     )
 
     dialect = dialect_override or (
-        Dialect(engine.dialect) if engine.dialect else Dialect.SPARK
+        Dialect(engine.dialect) if engine.dialect else Dialect.TRINO
     )
     logger.info(
         "[BuildV3] Resolved dialect=%s engine=%s from metric %s catalog=%s",
