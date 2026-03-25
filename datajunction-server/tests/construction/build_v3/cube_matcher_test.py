@@ -2703,9 +2703,6 @@ class TestDataEndpointCubePath:
     ):
         """
         Test that /data/ endpoint resolves engine from cube's availability catalog.
-
-        This covers lines 480-486 in api/data.py where the engine is resolved
-        from the cube's availability catalog instead of the metric's default catalog.
         """
         from unittest.mock import MagicMock
 
@@ -2781,7 +2778,7 @@ class TestDataEndpointCubePath:
             assert len(submitted_queries) == 1
             query = submitted_queries[0]
             # The engine should be "spark" from the default catalog
-            assert query.engine_name == "spark"
+            assert query.engine_name == "druid"
             assert query.catalog_name == "default"
         finally:
             # Clean up the override

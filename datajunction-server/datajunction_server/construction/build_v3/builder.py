@@ -55,14 +55,6 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 logger = logging.getLogger(__name__)
 
 # Engine tier preference for dialect auto-detection (fastest → slowest).
-# When no dialect is specified, build_metrics_sql probes tiers in order:
-#   DRUID  – served from a materialized cube (single Druid datasource scan)
-#   TRINO  – served from pre-agg or source tables via Trino
-#   SPARK  – served from pre-agg or source tables via Spark (default fallback)
-# Full tier resolution (including Trino catalog engine lookup) is handled by
-# resolve_dialect_and_engine_for_metrics in cube_matcher.py; the auto-detect
-# logic here covers the common DRUID-vs-SPARK split.
-_ENGINE_TIER_PREFERENCE = [Dialect.DRUID, Dialect.TRINO, Dialect.SPARK]
 
 
 def _normalize_query_param_value(param: str, value: ast.Value | Any) -> ast.Value:
@@ -481,13 +473,11 @@ async def build_metrics_sql(
     Layer 3: Derived Metrics
         Computes derived metrics that reference other metrics.
     """
-    # Auto-detect dialect when none specified: probe fastest available engine tier.
-    # See _ENGINE_TIER_PREFERENCE for priority ordering (DRUID > TRINO > SPARK).
-    # Trino resolution requires a catalog engine lookup; that is handled by
-    # resolve_dialect_and_engine_for_metrics. Here we cover the DRUID-vs-SPARK split.
+    # Auto-detect dialect when none specified: probe for a materialized Druid cube,
+    # fall back to Trino. Callers (resolve_dialect_and_engine_for_metrics) are
+    # expected to pass an already-resolved dialect, so this path is a safety net.
     if dialect is None:
         if use_materialized:
-            # Probe Druid tier: look for a matching materialized cube.
             probe_cube = (
                 matched_cube
                 if matched_cube is not None
@@ -502,11 +492,9 @@ async def build_metrics_sql(
                 dialect = Dialect.DRUID
                 matched_cube = probe_cube  # reuse below, avoids second DB round-trip
             else:
-                dialect = (
-                    Dialect.SPARK
-                )  # no cube; Trino tier needs catalog engine lookup
+                dialect = Dialect.TRINO
         else:
-            dialect = Dialect.SPARK
+            dialect = Dialect.TRINO
 
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
