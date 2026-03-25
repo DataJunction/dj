@@ -30,6 +30,7 @@ class Backfill(Base):  # type: ignore
         ForeignKey(
             "materialization.id",
             name="fk_backfill_materialization_id_materialization",
+            ondelete="CASCADE",
         ),
     )
     materialization: Mapped["Materialization"] = relationship(

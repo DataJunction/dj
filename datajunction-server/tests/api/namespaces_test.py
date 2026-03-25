@@ -477,6 +477,57 @@ async def test_hard_delete_namespace(client_example_loader: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_hard_delete_namespace_with_backfills(
+    client_example_loader,
+    query_service_client,
+):
+    """
+    Hard deleting a namespace whose nodes have materialization backfill records
+    should succeed without a foreign key violation (regression test).
+    """
+    client = await client_example_loader(["ROADS"])
+
+    # Add a temporal partition to hard_hat so we can add a materialization
+    response = await client.post(
+        "/nodes/default.hard_hat/columns/birth_date/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+            "format": "yyyyMMdd",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    # Add a materialization to the node
+    response = await client.post(
+        "/nodes/default.hard_hat/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "@daily",
+        },
+    )
+    assert response.status_code < 400, response.json()
+    materialization_name = response.json()["name"]
+
+    # Kick off a backfill, creating a Backfill record in the DB
+    response = await client.post(
+        f"/nodes/default.hard_hat/materializations/{materialization_name}/backfill",
+        json=[{"column_name": "birth_date", "range": ["20230101", "20230201"]}],
+    )
+    assert response.status_code < 400, response.json()
+
+    # Hard-deleting the namespace must not raise a FK violation
+    response = await client.delete("/namespaces/default/hard/?cascade=true")
+    assert response.status_code == 200, response.json()
+    assert (
+        response.json()["message"]
+        == "The namespace `default` has been completely removed."
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_namespace(client_with_service_setup: AsyncClient):
     """
     Verify creating namespaces, both successful and validation errors
