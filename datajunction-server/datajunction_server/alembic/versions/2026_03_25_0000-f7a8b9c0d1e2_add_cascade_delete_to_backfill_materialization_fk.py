@@ -1,6 +1,6 @@
 """add cascade delete to backfill materialization fk
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: f7a8b9c0d1e2
 Revises: 3f8c2b1d4e9a
 Create Date: 2026-03-25 00:00:00.000000+00:00
 
@@ -9,7 +9,7 @@ Create Date: 2026-03-25 00:00:00.000000+00:00
 
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "f7a8b9c0d1e2"
 down_revision = "3f8c2b1d4e9a"
 branch_labels = None
 depends_on = None
