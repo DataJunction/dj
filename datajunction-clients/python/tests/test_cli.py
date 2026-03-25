@@ -2816,14 +2816,16 @@ class TestGenerateCodeowners:
 
         mock_resp = mock.MagicMock()
         mock_resp.read.return_value = json.dumps(
-            {"items": [{"login": "alice-gh"}]}
+            {"items": [{"login": "alice-gh"}]},
         ).encode()
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = mock.MagicMock(return_value=False)
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = DeploymentService._resolve_email_to_github_username(
-                "alice@example.com", "https://api.github.com", "fake-token"
+                "alice@example.com",
+                "https://api.github.com",
+                "fake-token",
             )
 
         assert result == "alice-gh"
@@ -2839,7 +2841,9 @@ class TestGenerateCodeowners:
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = DeploymentService._resolve_email_to_github_username(
-                "nobody@example.com", "https://api.github.com", "fake-token"
+                "nobody@example.com",
+                "https://api.github.com",
+                "fake-token",
             )
 
         assert result is None
@@ -2850,7 +2854,9 @@ class TestGenerateCodeowners:
 
         with patch("urllib.request.urlopen", side_effect=OSError("network error")):
             result = DeploymentService._resolve_email_to_github_username(
-                "alice@example.com", "https://api.github.com", "fake-token"
+                "alice@example.com",
+                "https://api.github.com",
+                "fake-token",
             )
 
         assert result is None
