@@ -38,6 +38,7 @@ from datajunction_server.internal.access.authorization import (
     AuthorizationService,
 )
 from datajunction_server.models import access
+from datajunction_server.utils import get_query_service_client
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -486,6 +487,9 @@ async def test_hard_delete_namespace_with_backfills(
     should succeed without a foreign key violation (regression test).
     """
     client = await client_example_loader(["ROADS"])
+    client.app.dependency_overrides[get_query_service_client] = (
+        lambda: query_service_client
+    )
 
     # Add a temporal partition to hard_hat so we can add a materialization
     response = await client.post(
@@ -509,11 +513,10 @@ async def test_hard_delete_namespace_with_backfills(
         },
     )
     assert response.status_code < 400, response.json()
-    materialization_name = response.json()["name"]
 
     # Kick off a backfill, creating a Backfill record in the DB
     response = await client.post(
-        f"/nodes/default.hard_hat/materializations/{materialization_name}/backfill",
+        "/nodes/default.hard_hat/materializations/spark_sql__full__birth_date/backfill",
         json=[{"column_name": "birth_date", "range": ["20230101", "20230201"]}],
     )
     assert response.status_code < 400, response.json()
