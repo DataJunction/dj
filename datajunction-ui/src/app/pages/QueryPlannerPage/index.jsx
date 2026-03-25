@@ -1257,7 +1257,7 @@ export function QueryPlannerPage() {
         selectedMetrics,
         selectedDimensions,
         filters,
-        selectedEngine,
+        selectedEngine || null,
         progress => setQueryLinks(progress.links || []),
       );
       const elapsed = (Date.now() - startTime) / 1000;
