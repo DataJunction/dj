@@ -16,6 +16,10 @@ const mockDjClient = {
   listTags: jest.fn(),
   namespaceSources: jest.fn(),
   namespaceSourcesBulk: jest.fn(),
+  getNamespaceGitConfig: jest.fn(),
+  getNamespaceBranches: jest.fn(),
+  listDeployments: jest.fn(),
+  getPullRequest: jest.fn(),
 };
 
 const mockCurrentUser = { username: 'dj', email: 'dj@test.com' };
@@ -73,6 +77,10 @@ describe('NamespacePage', () => {
     mockDjClient.namespaceSourcesBulk.mockResolvedValue({
       namespace_sources: {},
     });
+    mockDjClient.getNamespaceGitConfig.mockResolvedValue(null);
+    mockDjClient.getNamespaceBranches.mockResolvedValue([]);
+    mockDjClient.listDeployments.mockResolvedValue([]);
+    mockDjClient.getPullRequest.mockResolvedValue(null);
     mockDjClient.namespaces.mockResolvedValue([
       {
         namespace: 'common.one',
@@ -624,6 +632,210 @@ describe('NamespacePage', () => {
 
       await waitFor(() => {
         expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
+    });
+
+    it('reads hasMaterialization filter from URL', async () => {
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/default?hasMaterialization=true',
+      });
+      await waitFor(() => {
+        expect(mockDjClient.listNodesForLanding).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Git-root namespace (branch landing page)', () => {
+    const gitRootConfig = {
+      github_repo_path: 'org/repo',
+      git_branch: 'main',
+      default_branch: 'main',
+      parent_namespace: null,
+      git_only: false,
+    };
+
+    const mockBranches = [
+      {
+        namespace: 'default.main',
+        git_branch: 'main',
+        num_nodes: 10,
+        invalid_node_count: 1,
+        last_deployed_at: '2024-10-18T12:00:00+00:00',
+      },
+      {
+        namespace: 'default.feature-xyz',
+        git_branch: 'feature-xyz',
+        num_nodes: 5,
+        invalid_node_count: 0,
+        last_deployed_at: null,
+      },
+    ];
+
+    beforeEach(() => {
+      mockDjClient.getNamespaceGitConfig.mockResolvedValue(gitRootConfig);
+      mockDjClient.getNamespaceBranches.mockResolvedValue(mockBranches);
+    });
+
+    it('shows Branches section for a git-root namespace', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Branches')).toBeInTheDocument();
+        // cards show git_branch value; 'main' appears in both the card title
+        // and the default branch section header, so use getAllByText
+        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+        expect(screen.getByText('feature-xyz')).toBeInTheDocument();
+      });
+    });
+
+    it('shows branch count next to Branches header', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Branches')).toBeInTheDocument();
+        // branch count (2)
+        expect(screen.getByText('2')).toBeInTheDocument();
+      });
+    });
+
+    it('shows node counts and invalid counts on branch cards', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('10 nodes')).toBeInTheDocument();
+        expect(screen.getByText('1 invalid')).toBeInTheDocument();
+        expect(screen.getByText('5 nodes')).toBeInTheDocument();
+      });
+    });
+
+    it('shows default branch section header and View all link', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      // The default branch header (name + "default" badge) and "View all" link
+      // appear as soon as gitConfig.default_branch is set and isGitRoot is true
+      await waitFor(
+        () => {
+          expect(screen.getByText('View all →')).toBeInTheDocument();
+          // default branch name shown as the section title
+          expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it('calls listNodesForLanding for the default branch namespace', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(
+        () => {
+          // After isGitRoot is set, a second listNodesForLanding call for
+          // 'default.main' should be made
+          const calls = mockDjClient.listNodesForLanding.mock.calls;
+          const defaultBranchCall = calls.find(
+            args => args[0] === 'default.main',
+          );
+          expect(defaultBranchCall).toBeDefined();
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it('shows loading state while branches are loading', async () => {
+      let resolveBranches;
+      mockDjClient.getNamespaceBranches.mockReturnValue(
+        new Promise(resolve => {
+          resolveBranches = resolve;
+        }),
+      );
+
+      renderWithProviders(<NamespacePage />);
+
+      // While loading, Branches header should still show (branchesLoading=true triggers the section)
+      await waitFor(() => {
+        expect(screen.getByText('Branches')).toBeInTheDocument();
+      });
+
+      // Resolve to avoid act() warnings
+      resolveBranches([]);
+    });
+  });
+
+  describe('Quality filter checkboxes', () => {
+    it('toggles orphanedDimension filter', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quality')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Issues'));
+      await waitFor(() => {
+        expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
+      });
+
+      const checkbox = screen.getByLabelText('Orphaned Dimensions');
+      const callsBefore = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(checkbox);
+
+      await waitFor(() => {
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(callsBefore);
+      });
+    });
+
+    it('toggles hasMaterialization filter', async () => {
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quality')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Issues'));
+      await waitFor(() => {
+        expect(screen.getByText('Has Materialization')).toBeInTheDocument();
+      });
+
+      const checkbox = screen.getByLabelText('Has Materialization');
+      const callsBefore = mockDjClient.listNodesForLanding.mock.calls.length;
+      fireEvent.click(checkbox);
+
+      await waitFor(() => {
+        expect(
+          mockDjClient.listNodesForLanding.mock.calls.length,
+        ).toBeGreaterThan(callsBefore);
+      });
+    });
+  });
+
+  describe('formatRelativeTime', () => {
+    it('shows last_deployed_at timestamp on branch cards', async () => {
+      mockDjClient.getNamespaceGitConfig.mockResolvedValue({
+        github_repo_path: 'org/repo',
+        git_branch: 'main',
+        default_branch: 'main',
+        parent_namespace: null,
+        git_only: false,
+      });
+      mockDjClient.getNamespaceBranches.mockResolvedValue([
+        {
+          namespace: 'default.main',
+          git_branch: 'main',
+          num_nodes: 3,
+          invalid_node_count: 0,
+          last_deployed_at: new Date(
+            Date.now() - 2 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+        },
+      ]);
+
+      renderWithProviders(<NamespacePage />);
+
+      await waitFor(() => {
+        // 'main' appears in both the card title and default branch section header
+        expect(screen.getAllByText('main').length).toBeGreaterThan(0);
+        // Should show relative time like "2d ago" (may appear on multiple elements)
+        expect(screen.getAllByText(/ago/).length).toBeGreaterThan(0);
       });
     });
   });
