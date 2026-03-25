@@ -33,6 +33,7 @@ export function NodeBadge({
         ...sizeStyles,
         flexShrink: 0,
         ...style,
+        marginRight: 0,
       }}
     >
       {displayText}
@@ -62,7 +63,7 @@ export function NodeLink({
   const sizeMap = {
     small: { fontSize: '10px', fontWeight: '500' },
     medium: { fontSize: '12px', fontWeight: '500' },
-    large: { fontSize: '13px', fontWeight: '500' },
+    large: { fontSize: '14px', fontWeight: '500' },
   };
 
   const sizeStyles = sizeMap[size] || sizeMap.medium;
@@ -160,7 +161,7 @@ export function NodeChip({ node }) {
         alignItems: 'center',
         gap: '3px',
         padding: '2px 6px',
-        fontSize: '10px',
+        fontSize: '12px',
         border: '1px solid var(--border-color, #ddd)',
         borderRadius: '3px',
         textDecoration: 'none',

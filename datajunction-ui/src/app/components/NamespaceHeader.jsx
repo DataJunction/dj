@@ -26,6 +26,11 @@ export default function NamespaceHeader({
   const [existingPR, setExistingPR] = useState(null);
   const [prLoading, setPrLoading] = useState(false);
 
+  // Branch switcher state
+  const [branches, setBranches] = useState([]);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const branchDropdownRef = useRef(null);
+
   // Modal states
   const [showGitSettings, setShowGitSettings] = useState(false);
   const [showCreateBranch, setShowCreateBranch] = useState(false);
@@ -65,7 +70,7 @@ export default function NamespaceHeader({
             onGitConfigLoaded(config);
           }
 
-          // If this is a branch namespace, fetch parent's git config and check for existing PR
+          // If this is a branch namespace, fetch parent's git config, branches, and check for existing PR
           if (config?.parent_namespace) {
             try {
               const parentConfig = await djClient.getNamespaceGitConfig(
@@ -74,6 +79,15 @@ export default function NamespaceHeader({
               setParentGitConfig(parentConfig);
             } catch (e) {
               console.error('Failed to fetch parent git config:', e);
+            }
+
+            try {
+              const branchList = await djClient.getNamespaceBranches(
+                config.parent_namespace,
+              );
+              setBranches(branchList || []);
+            } catch (e) {
+              console.error('Failed to fetch branches:', e);
             }
 
             // Check for existing PR
@@ -102,11 +116,17 @@ export default function NamespaceHeader({
     fetchData();
   }, [djClient, namespace]);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = event => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDeploymentsDropdownOpen(false);
+      }
+      if (
+        branchDropdownRef.current &&
+        !branchDropdownRef.current.contains(event.target)
+      ) {
+        setBranchDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -243,85 +263,212 @@ export default function NamespaceHeader({
             />
           </svg>
           {namespace ? (
-            namespaceParts.map((part, index, arr) => (
-              <span
-                key={index}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <a
-                  href={`/namespaces/${arr.slice(0, index + 1).join('.')}`}
-                  style={{
-                    fontWeight: '400',
-                    color: '#1e293b',
-                    textDecoration: 'none',
-                  }}
+            namespaceParts.map((part, index, arr) => {
+              const isLast = index === arr.length - 1;
+              const href = `/namespaces/${arr.slice(0, index + 1).join('.')}`;
+              return (
+                <span
+                  key={index}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  {part}
-                </a>
-                {index < arr.length - 1 && (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="12"
-                    height="12"
-                    fill="#94a3b8"
-                    viewBox="0 0 16 16"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-                    />
-                  </svg>
-                )}
-              </span>
-            ))
+                  {/* Last segment of a branch namespace becomes the branch switcher */}
+                  {isLast && isBranchNamespace ? (
+                    <div
+                      ref={branchDropdownRef}
+                      style={{ position: 'relative' }}
+                    >
+                      <button
+                        onClick={() => setBranchDropdownOpen(o => !o)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '0',
+                          background: 'none',
+                          border: 'none',
+                          fontWeight: '400',
+                          fontSize: 'inherit',
+                          color: '#1e293b',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#64748b"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <line x1="6" y1="3" x2="6" y2="15" />
+                          <circle cx="18" cy="6" r="3" />
+                          <circle cx="6" cy="18" r="3" />
+                          <path d="M18 9a9 9 0 0 1-9 9" />
+                        </svg>
+                        {part}
+                        <span style={{ fontSize: '8px', color: '#94a3b8' }}>
+                          {branchDropdownOpen ? '▲' : '▼'}
+                        </span>
+                      </button>
+
+                      {branchDropdownOpen && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '4px',
+                            backgroundColor: 'white',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                            zIndex: 1000,
+                            minWidth: '180px',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              padding: '8px 12px 6px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: '#94a3b8',
+                              borderBottom: '1px solid #f1f5f9',
+                            }}
+                          >
+                            <a
+                              href={`/namespaces/${gitConfig.parent_namespace}`}
+                              style={{
+                                color: '#94a3b8',
+                                textDecoration: 'none',
+                              }}
+                              onClick={() => setBranchDropdownOpen(false)}
+                            >
+                              {gitConfig.parent_namespace}
+                            </a>
+                          </div>
+                          {branches.length === 0 ? (
+                            <div
+                              style={{
+                                padding: '10px 12px',
+                                fontSize: '12px',
+                                color: '#94a3b8',
+                              }}
+                            >
+                              No branches found
+                            </div>
+                          ) : (
+                            branches.map(b => {
+                              const isCurrent = b.namespace === namespace;
+                              return (
+                                <a
+                                  key={b.namespace}
+                                  href={`/namespaces/${b.namespace}`}
+                                  onClick={() => setBranchDropdownOpen(false)}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 12px',
+                                    fontSize: '13px',
+                                    color: isCurrent ? '#1e40af' : '#1e293b',
+                                    backgroundColor: isCurrent
+                                      ? '#eff6ff'
+                                      : 'white',
+                                    textDecoration: 'none',
+                                    borderBottom: '1px solid #f8fafc',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      minWidth: 0,
+                                    }}
+                                  >
+                                    {isCurrent && (
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="10"
+                                        height="10"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="3"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        style={{ flexShrink: 0 }}
+                                      >
+                                        <polyline points="20 6 9 17 4 12" />
+                                      </svg>
+                                    )}
+                                    <span
+                                      style={{
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        maxWidth: '180px',
+                                      }}
+                                      title={b.git_branch || b.namespace}
+                                    >
+                                      {b.git_branch || b.namespace}
+                                    </span>
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      color: '#94a3b8',
+                                      flexShrink: 0,
+                                      marginLeft: '8px',
+                                    }}
+                                  >
+                                    {b.num_nodes} nodes
+                                  </span>
+                                </a>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <a
+                      href={href}
+                      style={{
+                        fontWeight: '400',
+                        color: '#1e293b',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {part}
+                    </a>
+                  )}
+                  {!isLast && (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      fill="#94a3b8"
+                      viewBox="0 0 16 16"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
+                      />
+                    </svg>
+                  )}
+                </span>
+              );
+            })
           ) : (
             <span style={{ fontWeight: '600', color: '#1e293b' }}>
               All Namespaces
-            </span>
-          )}
-
-          {/* Branch indicator */}
-          {isBranchNamespace && (
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '2px 8px',
-                backgroundColor: '#dbeafe',
-                borderRadius: '12px',
-                fontSize: '11px',
-                color: '#1e40af',
-                marginLeft: '4px',
-              }}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="6" y1="3" x2="6" y2="15" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-                <path d="M18 9a9 9 0 0 1-9 9" />
-              </svg>
-              Branch of{' '}
-              <a
-                href={`/namespaces/${gitConfig.parent_namespace}`}
-                style={{ color: '#1e40af', textDecoration: 'underline' }}
-              >
-                {gitConfig.parent_namespace}
-              </a>
             </span>
           )}
 
