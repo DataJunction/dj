@@ -7,18 +7,21 @@ to git branches for the git-backed workflow.
 
 import asyncio
 import logging
+from datetime import datetime
 from http import HTTPStatus
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
+from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -58,6 +61,10 @@ class BranchInfo(BaseModel):
     git_branch: str  # e.g., "feature-x"
     parent_namespace: str  # e.g., "myproject.main"
     github_repo_path: str  # e.g., "owner/repo"
+    num_nodes: int = 0
+    invalid_node_count: int = 0
+    git_only: bool = False
+    last_deployed_at: Optional[datetime] = None
 
 
 class CreateBranchResult(BaseModel):
@@ -457,27 +464,76 @@ async def list_branches(
     access_checker.add_namespace(namespace, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Verify namespace exists
     source_ns = await get_node_namespace(session, namespace)
 
-    # Build query to find related branches
+    # Root namespace → direct children; branch namespace → siblings (same parent, excl. self)
+    parent = source_ns.parent_namespace if source_ns.parent_namespace else namespace
+    base_filter = NodeNamespace.parent_namespace == parent
     if source_ns.parent_namespace:
-        # This is a branch namespace - find siblings that share the same parent
-        # (excluding self)
-        stmt = (
-            select(NodeNamespace)
-            .where(NodeNamespace.parent_namespace == source_ns.parent_namespace)
-            .where(NodeNamespace.namespace != namespace)
+        base_filter = base_filter & (NodeNamespace.namespace != namespace)
+
+    # Correlated subqueries for counts and last deployment
+    node_count_subq = (
+        select(func.count(Node.id))
+        .where(
+            or_(
+                Node.namespace == NodeNamespace.namespace,
+                Node.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
         )
-    else:
-        # This is a root namespace - find direct children
-        stmt = select(NodeNamespace).where(NodeNamespace.parent_namespace == namespace)
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+    invalid_count_subq = (
+        select(func.count(Node.id))
+        .join(
+            NodeRevision,
+            (NodeRevision.node_id == Node.id)
+            & (NodeRevision.version == Node.current_version),
+        )
+        .where(
+            or_(
+                Node.namespace == NodeNamespace.namespace,
+                Node.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
+            NodeRevision.status == "invalid",
+        )
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+    last_deployed_subq = (
+        select(func.max(Deployment.created_at))
+        .where(
+            or_(
+                Deployment.namespace == NodeNamespace.namespace,
+                Deployment.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
+            Deployment.status == DeploymentStatus.SUCCESS,
+        )
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+
+    stmt = select(
+        NodeNamespace,
+        node_count_subq.label("num_nodes"),
+        invalid_count_subq.label("invalid_node_count"),
+        last_deployed_subq.label("last_deployed_at"),
+    ).where(base_filter, NodeNamespace.deactivated_at.is_(None))
 
     result = await session.execute(stmt)
-    child_namespaces = result.scalars().all()
+    rows = result.all()
 
-    # Resolve github_repo_path for response
     github_repo_path, _, _ = await resolve_git_config(session, namespace)
+
+    # Default branch comes first, then alphabetically by namespace
+    default_branch = source_ns.default_branch or ""
+    rows.sort(
+        key=lambda row: (
+            0 if (row[0].git_branch or "") == default_branch else 1,
+            row[0].namespace,
+        ),
+    )
 
     return [
         BranchInfo(
@@ -485,8 +541,12 @@ async def list_branches(
             git_branch=ns.git_branch or "",
             parent_namespace=ns.parent_namespace or "",
             github_repo_path=github_repo_path or "",
+            num_nodes=num_nodes or 0,
+            invalid_node_count=invalid_node_count or 0,
+            git_only=ns.git_only,
+            last_deployed_at=last_deployed_at,
         )
-        for ns in child_namespaces
+        for ns, num_nodes, invalid_node_count, last_deployed_at in rows
     ]
 
 
