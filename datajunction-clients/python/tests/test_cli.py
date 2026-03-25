@@ -2807,3 +2807,85 @@ class TestGenerateCodeowners:
         _, kwargs = mock_build.call_args
         assert kwargs["github_api_url"] == "https://github.example.com/api/v3"
         assert kwargs["github_token_env"] == "MY_TOKEN"
+
+    # --- _resolve_email_to_github_username (lines 362-377) ---
+
+    def test_resolve_returns_login_when_found(self):
+        """Returns the first matching login from the search API response."""
+        from datajunction.deployment import DeploymentService
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = json.dumps(
+            {"items": [{"login": "alice-gh"}]}
+        ).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = DeploymentService._resolve_email_to_github_username(
+                "alice@example.com", "https://api.github.com", "fake-token"
+            )
+
+        assert result == "alice-gh"
+
+    def test_resolve_returns_none_when_no_items(self):
+        """Returns None when the search API returns an empty items list."""
+        from datajunction.deployment import DeploymentService
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = json.dumps({"items": []}).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = DeploymentService._resolve_email_to_github_username(
+                "nobody@example.com", "https://api.github.com", "fake-token"
+            )
+
+        assert result is None
+
+    def test_resolve_returns_none_on_network_error(self):
+        """Returns None (does not raise) when the API call fails."""
+        from datajunction.deployment import DeploymentService
+
+        with patch("urllib.request.urlopen", side_effect=OSError("network error")):
+            result = DeploymentService._resolve_email_to_github_username(
+                "alice@example.com", "https://api.github.com", "fake-token"
+            )
+
+        assert result is None
+
+    # --- edge cases in build_codeowners (lines 436-437, 439) ---
+
+    def test_unreadable_yaml_file_is_skipped(self, tmp_path):
+        """A YAML file that raises on read is silently skipped."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "good.metric.yaml", owners=["alice@example.com"])
+        (tmp_path / "bad.metric.yaml").write_text("valid: yaml\n")
+
+        output = tmp_path / "CODEOWNERS"
+        with patch(
+            "datajunction.deployment.DeploymentService.read_yaml_file",
+            side_effect=lambda p: (_ for _ in ()).throw(OSError("unreadable"))
+            if "bad" in str(p)
+            else {"name": "good", "owners": ["alice@example.com"]},
+        ):
+            count = DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert count == 1
+        assert "bad" not in output.read_text()
+
+    def test_non_dict_yaml_file_is_skipped(self, tmp_path):
+        """A YAML file that parses to a non-dict (e.g. a list) is silently skipped."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "good.metric.yaml", owners=["alice@example.com"])
+        # Write a YAML file whose top-level value is a list, not a dict
+        (tmp_path / "list.metric.yaml").write_text("- item1\n- item2\n")
+
+        output = tmp_path / "CODEOWNERS"
+        count = DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert count == 1
+        assert "list.metric" not in output.read_text()
