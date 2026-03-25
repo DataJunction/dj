@@ -1259,9 +1259,10 @@ export const DataJunctionAPI = {
     if (filters && filters.length > 0) {
       filters.forEach(f => params.append('filters', f));
     }
-    const resolvedDialect = dialect || (useMaterialized ? 'druid' : 'trino');
     params.append('use_materialized', useMaterialized ? 'true' : 'false');
-    params.append('dialect', resolvedDialect);
+    if (dialect) {
+      params.append('dialect', dialect);
+    }
     return await (
       await fetch(`${DJ_URL}/sql/metrics/v3/?${params}`, {
         credentials: 'include',
@@ -1284,7 +1285,9 @@ export const DataJunctionAPI = {
     }
     params.append('limit', '10000');
     params.append('async_', 'true');
-    params.append('dialect', dialect || 'trino');
+    if (dialect) {
+      params.append('dialect', dialect);
+    }
 
     let pollInterval = 1000;
 
