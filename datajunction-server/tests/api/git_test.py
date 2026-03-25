@@ -614,15 +614,25 @@ class TestBranchManagement:
     ):
         """Test listing branches that have child namespaces."""
         # Create parent namespace
-        await client_with_service_setup.post("/namespaces/list_parent.main")
+        await client_with_service_setup.post("/namespaces/list_parent")
         await client_with_service_setup.patch(
-            "/namespaces/list_parent.main/git",
+            "/namespaces/list_parent/git",
             json={
                 "github_repo_path": "myorg/myrepo",
-                "git_branch": "main",
+                "default_branch": "main",
+                "git_path": "nodes/",
             },
         )
 
+        # Create main namespace with parent namespace set
+        await client_with_service_setup.post("/namespaces/list_parent.main")
+        response = await client_with_service_setup.patch(
+            "/namespaces/list_parent.main/git",
+            json={
+                "parent_namespace": "list_parent",
+                "git_branch": "main",
+            },
+        )
         # Create branch namespaces with parent_namespace set via mock
         with patch(
             "datajunction_server.api.branches.GitHubService",
@@ -634,7 +644,7 @@ class TestBranchManagement:
             mock_github_class.return_value = mock_github
 
             await client_with_service_setup.post(
-                "/namespaces/list_parent.main/branches",
+                "/namespaces/list_parent/branches",
                 json={"branch_name": "feat1"},
             )
 
@@ -648,21 +658,49 @@ class TestBranchManagement:
             mock_github_class.return_value = mock_github
 
             await client_with_service_setup.post(
-                "/namespaces/list_parent.main/branches",
+                "/namespaces/list_parent/branches",
                 json={"branch_name": "feat2"},
             )
 
         response = await client_with_service_setup.get(
-            "/namespaces/list_parent.main/branches",
+            "/namespaces/list_parent/branches",
         )
         assert response.status_code == HTTPStatus.OK
 
         branches = response.json()
-        assert len(branches) == 2
-
-        branch_names = {b["namespace"] for b in branches}
-        assert "list_parent.feat1" in branch_names
-        assert "list_parent.feat2" in branch_names
+        assert len(branches) == 3
+        assert branches == [
+            {
+                "namespace": "list_parent.main",
+                "git_branch": "main",
+                "parent_namespace": "list_parent",
+                "github_repo_path": "myorg/myrepo",
+                "num_nodes": 0,
+                "invalid_node_count": 0,
+                "git_only": False,
+                "last_deployed_at": None,
+            },
+            {
+                "namespace": "list_parent.feat1",
+                "git_branch": "feat1",
+                "parent_namespace": "list_parent",
+                "github_repo_path": "myorg/myrepo",
+                "num_nodes": 0,
+                "invalid_node_count": 0,
+                "git_only": False,
+                "last_deployed_at": None,
+            },
+            {
+                "namespace": "list_parent.feat2",
+                "git_branch": "feat2",
+                "parent_namespace": "list_parent",
+                "github_repo_path": "myorg/myrepo",
+                "num_nodes": 0,
+                "invalid_node_count": 0,
+                "git_only": False,
+                "last_deployed_at": None,
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_delete_branch(

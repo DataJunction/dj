@@ -1163,6 +1163,20 @@ class NamespaceOutput(BaseModel):
     num_nodes: int
 
 
+class BranchNamespaceOutput(BaseModel):
+    """
+    Output for a branch namespace — a namespace whose parent_namespace points
+    to a git root namespace.
+    """
+
+    namespace: str
+    branch: str | None
+    num_nodes: int
+    invalid_node_count: int
+    git_only: bool
+    last_deployed_at: UTCDatetime | None
+
+
 class NodeIndegreeOutput(BaseModel):
     """
     Node indegree output
