@@ -70,6 +70,9 @@ export const DataJunctionAPI = {
                 tagType
               }
               editedBy
+              owners {
+                username
+              }
               current {
                 displayName
                 status
@@ -2735,6 +2738,19 @@ export const DataJunctionAPI = {
   // ============================================================
   // Git Branch Management APIs
   // ============================================================
+
+  // Get all branch namespaces for a parent namespace
+  getNamespaceBranches: async function (namespace) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}/branches`, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.message || 'Failed to get branches');
+    }
+    return response.json();
+  },
 
   // Get git configuration for a namespace
   getNamespaceGitConfig: async function (namespace) {
