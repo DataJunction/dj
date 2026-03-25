@@ -2570,3 +2570,328 @@ class TestDeploymentFailureExitsWithCode1:
                 with pytest.raises(SystemExit) as exc_info:
                     cli.run()
                 assert exc_info.value.code == 1
+
+
+class TestGenerateCodeowners:
+    """Tests for `dj generate-codeowners` and DeploymentService.build_codeowners."""
+
+    def _write_node(self, directory, filename, owners=None, extra=None):
+        """Write a minimal node YAML file."""
+        import yaml
+
+        data = {"name": filename.replace(".yaml", ""), "node_type": "metric"}
+        if owners is not None:
+            data["owners"] = owners
+        if extra:
+            data.update(extra)
+        path = directory / filename
+        path.write_text(yaml.dump(data))
+        return path
+
+    def test_basic_codeowners_generation(self, tmp_path):
+        """Files with owners get entries; files without are omitted."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        self._write_node(tmp_path, "no_owner.metric.yaml")
+
+        output = tmp_path / "CODEOWNERS"
+        count = DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert count == 1
+        content = output.read_text()
+        assert "/revenue.metric.yaml alice@example.com" in content
+        assert "no_owner" not in content
+
+    def test_dj_yaml_is_skipped(self, tmp_path):
+        """dj.yaml project config must never appear in CODEOWNERS."""
+        from datajunction.deployment import DeploymentService
+
+        (tmp_path / "dj.yaml").write_text("namespace: test\n")
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+
+        output = tmp_path / "CODEOWNERS"
+        DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert "dj.yaml" not in output.read_text()
+
+    def test_multiple_owners_on_one_file(self, tmp_path):
+        """Multiple owners on a single node are space-separated."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(
+            tmp_path,
+            "revenue.metric.yaml",
+            owners=["alice@example.com", "bob@example.com"],
+        )
+
+        output = tmp_path / "CODEOWNERS"
+        DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert "alice@example.com bob@example.com" in output.read_text()
+
+    def test_handles_passed_through_unchanged(self, tmp_path):
+        """Owners already in @handle format are not modified."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["@alice"])
+
+        output = tmp_path / "CODEOWNERS"
+        DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert "@alice" in output.read_text()
+
+    def test_output_dir_created_if_missing(self, tmp_path):
+        """Output parent directory is created automatically."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / ".github" / "CODEOWNERS"
+
+        DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert output.exists()
+
+    def test_header_comment_in_output(self, tmp_path):
+        """Output file starts with the auto-generated header."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+        DeploymentService.build_codeowners(tmp_path, output=output)
+
+        content = output.read_text()
+        assert "Auto-generated from DJ YAML owners fields" in content
+        assert "dj generate-codeowners" in content
+
+    def test_email_resolved_to_github_username(self, tmp_path):
+        """When github_api_url and token are set, emails are resolved via search API."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+
+        with patch(
+            "datajunction.deployment.DeploymentService._resolve_email_to_github_username",
+            return_value="alice-gh",
+        ) as mock_resolve:
+            with patch.dict(os.environ, {"GITHUB_TOKEN": "fake-token"}):
+                DeploymentService.build_codeowners(
+                    tmp_path,
+                    output=output,
+                    github_api_url="https://api.github.com",
+                )
+
+        mock_resolve.assert_called_once_with(
+            "alice@example.com",
+            "https://api.github.com",
+            "fake-token",
+        )
+        assert "@alice-gh" in output.read_text()
+
+    def test_unresolvable_email_emitted_with_warning(self, tmp_path):
+        """Emails that can't be resolved appear as-is with a warning comment."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(
+            tmp_path,
+            "revenue.metric.yaml",
+            owners=["unknown@example.com"],
+        )
+        output = tmp_path / "CODEOWNERS"
+
+        with patch(
+            "datajunction.deployment.DeploymentService._resolve_email_to_github_username",
+            return_value=None,
+        ):
+            with patch.dict(os.environ, {"GITHUB_TOKEN": "fake-token"}):
+                DeploymentService.build_codeowners(
+                    tmp_path,
+                    output=output,
+                    github_api_url="https://api.github.com",
+                )
+
+        content = output.read_text()
+        assert "WARNING" in content
+        assert "unknown@example.com" in content
+
+    def test_no_lookup_without_api_url(self, tmp_path):
+        """Without --github-api-url, no API calls are made and emails are used as-is."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "revenue.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+
+        with patch(
+            "datajunction.deployment.DeploymentService._resolve_email_to_github_username",
+        ) as mock_resolve:
+            with patch.dict(os.environ, {"GITHUB_TOKEN": "fake-token"}):
+                DeploymentService.build_codeowners(tmp_path, output=output)
+
+        mock_resolve.assert_not_called()
+        assert "alice@example.com" in output.read_text()
+
+    def test_lookup_cached_across_files(self, tmp_path):
+        """The same email across multiple files only triggers one API call."""
+        from datajunction.deployment import DeploymentService
+
+        subdir = tmp_path / "sub"
+        subdir.mkdir()
+        self._write_node(tmp_path, "a.metric.yaml", owners=["alice@example.com"])
+        self._write_node(subdir, "b.metric.yaml", owners=["alice@example.com"])
+        output = tmp_path / "CODEOWNERS"
+
+        with patch(
+            "datajunction.deployment.DeploymentService._resolve_email_to_github_username",
+            return_value="alice-gh",
+        ) as mock_resolve:
+            with patch.dict(os.environ, {"GITHUB_TOKEN": "fake-token"}):
+                DeploymentService.build_codeowners(
+                    tmp_path,
+                    output=output,
+                    github_api_url="https://api.github.com",
+                )
+
+        assert mock_resolve.call_count == 1
+
+    def test_cli_generate_codeowners_command(self, tmp_path):
+        """CLI wiring: `dj generate-codeowners <dir>` calls build_codeowners."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        output = tmp_path / "CODEOWNERS"
+
+        with patch(
+            "datajunction.deployment.DeploymentService.build_codeowners",
+            return_value=3,
+        ) as mock_build:
+            with patch.object(
+                sys,
+                "argv",
+                ["dj", "generate-codeowners", str(tmp_path), "--output", str(output)],
+            ):
+                cli.run()
+
+        mock_build.assert_called_once_with(
+            str(tmp_path),
+            output=str(output),
+            github_api_url=None,
+            github_token_env="GITHUB_TOKEN",
+        )
+
+    def test_cli_generate_codeowners_github_flags(self, tmp_path):
+        """--github-api-url and --github-token-env are forwarded to build_codeowners."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+
+        with patch(
+            "datajunction.deployment.DeploymentService.build_codeowners",
+            return_value=0,
+        ) as mock_build:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dj",
+                    "generate-codeowners",
+                    str(tmp_path),
+                    "--github-api-url",
+                    "https://github.example.com/api/v3",
+                    "--github-token-env",
+                    "MY_TOKEN",
+                ],
+            ):
+                cli.run()
+
+        _, kwargs = mock_build.call_args
+        assert kwargs["github_api_url"] == "https://github.example.com/api/v3"
+        assert kwargs["github_token_env"] == "MY_TOKEN"
+
+    # --- _resolve_email_to_github_username (lines 362-377) ---
+
+    def test_resolve_returns_login_when_found(self):
+        """Returns the first matching login from the search API response."""
+        from datajunction.deployment import DeploymentService
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = json.dumps(
+            {"items": [{"login": "alice-gh"}]},
+        ).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = DeploymentService._resolve_email_to_github_username(
+                "alice@example.com",
+                "https://api.github.com",
+                "fake-token",
+            )
+
+        assert result == "alice-gh"
+
+    def test_resolve_returns_none_when_no_items(self):
+        """Returns None when the search API returns an empty items list."""
+        from datajunction.deployment import DeploymentService
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = json.dumps({"items": []}).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = DeploymentService._resolve_email_to_github_username(
+                "nobody@example.com",
+                "https://api.github.com",
+                "fake-token",
+            )
+
+        assert result is None
+
+    def test_resolve_returns_none_on_network_error(self):
+        """Returns None (does not raise) when the API call fails."""
+        from datajunction.deployment import DeploymentService
+
+        with patch("urllib.request.urlopen", side_effect=OSError("network error")):
+            result = DeploymentService._resolve_email_to_github_username(
+                "alice@example.com",
+                "https://api.github.com",
+                "fake-token",
+            )
+
+        assert result is None
+
+    # --- edge cases in build_codeowners (lines 436-437, 439) ---
+
+    def test_unreadable_yaml_file_is_skipped(self, tmp_path):
+        """A YAML file that raises on read is silently skipped."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "good.metric.yaml", owners=["alice@example.com"])
+        (tmp_path / "bad.metric.yaml").write_text("valid: yaml\n")
+
+        output = tmp_path / "CODEOWNERS"
+        with patch(
+            "datajunction.deployment.DeploymentService.read_yaml_file",
+            side_effect=lambda p: (_ for _ in ()).throw(OSError("unreadable"))
+            if "bad" in str(p)
+            else {"name": "good", "owners": ["alice@example.com"]},
+        ):
+            count = DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert count == 1
+        assert "bad" not in output.read_text()
+
+    def test_non_dict_yaml_file_is_skipped(self, tmp_path):
+        """A YAML file that parses to a non-dict (e.g. a list) is silently skipped."""
+        from datajunction.deployment import DeploymentService
+
+        self._write_node(tmp_path, "good.metric.yaml", owners=["alice@example.com"])
+        # Write a YAML file whose top-level value is a list, not a dict
+        (tmp_path / "list.metric.yaml").write_text("- item1\n- item2\n")
+
+        output = tmp_path / "CODEOWNERS"
+        count = DeploymentService.build_codeowners(tmp_path, output=output)
+
+        assert count == 1
+        assert "list.metric" not in output.read_text()

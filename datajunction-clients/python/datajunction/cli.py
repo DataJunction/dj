@@ -961,6 +961,40 @@ class DJCLI:
             help="URL to the CI run/build (overrides DJ_DEPLOY_CI_RUN_URL env var)",
         )
 
+        # `dj generate-codeowners <directory>`
+        codeowners_parser = subparsers.add_parser(
+            "generate-codeowners",
+            help="Generate a CODEOWNERS file from the owners fields in DJ node YAML files",
+        )
+        codeowners_parser.add_argument(
+            "directory",
+            nargs="?",
+            default=".",
+            help="Path to the DJ repo root (default: current directory)",
+        )
+        codeowners_parser.add_argument(
+            "--output",
+            type=str,
+            default=".github/CODEOWNERS",
+            help="Output file path (default: .github/CODEOWNERS)",
+        )
+        codeowners_parser.add_argument(
+            "--github-api-url",
+            type=str,
+            default=None,
+            help=(
+                "GitHub API base URL for resolving emails to usernames "
+                "(e.g. https://api.github.com or https://github.example.com/api/v3). "
+                "If omitted, no email resolution is performed."
+            ),
+        )
+        codeowners_parser.add_argument(
+            "--github-token-env",
+            type=str,
+            default="GITHUB_TOKEN",
+            help="Name of the env var holding the GitHub token (default: GITHUB_TOKEN)",
+        )
+
         # `dj pull <namespace> <directory>`
         pull_parser = subparsers.add_parser(
             "pull",
@@ -1356,6 +1390,18 @@ class DJCLI:
             except DJDeploymentFailure as exc:
                 logger.error("Deployment failed: %s", exc)
                 raise SystemExit(1)
+        elif args.command == "generate-codeowners":
+            count = DeploymentService.build_codeowners(
+                args.directory,
+                output=args.output,
+                github_api_url=args.github_api_url,
+                github_token_env=args.github_token_env,
+            )
+            console = Console()
+            console.print(
+                f"[green]CODEOWNERS written to[/green] [bold]{args.output}[/bold] "
+                f"([cyan]{count} entries[/cyan])",
+            )
         elif args.command == "pull":
             self.pull(args.namespace, args.directory)
         elif args.command == "seed":
@@ -1424,8 +1470,9 @@ class DJCLI:
         parser = self.create_parser()
         args = parser.parse_args()
         # Skip login if client was provided (e.g., for testing with pre-authenticated client)
-        # Also skip login for setup-claude since skills endpoints are public
-        if not self._client_provided and args.command != "setup-claude":
+        # Also skip login for commands that are purely local (no server needed)
+        local_commands = {"setup-claude", "generate-codeowners"}
+        if not self._client_provided and args.command not in local_commands:
             self.builder_client.basic_login()  # pragma: no cover
         self.dispatch_command(args, parser)
 
