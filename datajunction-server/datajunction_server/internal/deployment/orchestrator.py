@@ -169,21 +169,48 @@ class DeploymentOrchestrator:
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
 
+        # Cache for the resolved author user (populated lazily)
+        self._author_user_cache: User | None | bool = False  # False = not yet fetched
+
+    def _commit_author_email(self) -> str | None:
+        """Return the commit author email from the deployment source, if present."""
+        source = self.deployment_spec.source
+        if source is not None and source.type == "git":
+            return source.commit_author_email or None
+        return None
+
     @property
     def _history_user(self) -> str:
         """
-        Returns the username to record in History events.
+        Returns the identity to record in History events.
 
-        For git-backed deployments, uses the commit author (name or email) so that
+        For git-backed deployments, uses the commit author email so that
         node revision history reflects the person who edited the YAML, not the CI
-        service account that ran `dj push`.  Falls back to the authenticated user.
+        service account that ran `dj push`.  Falls back to the authenticated user's
+        username.
         """
-        source = self.deployment_spec.source
-        if source is not None and source.type == "git":
-            author = source.commit_author_name or source.commit_author_email
-            if author:
-                return author
+        email = self._commit_author_email()
+        if email:
+            return email
         return self.context.current_user.username
+
+    async def _get_author_user(self) -> User:
+        """
+        Return the User record for the commit author, falling back to the
+        authenticated deploying user if no email is provided or no matching
+        user is found.
+
+        Result is cached so the DB is only queried once per deployment.
+        """
+        if self._author_user_cache is not False:
+            return self._author_user_cache or self.context.current_user  # type: ignore[return-value]
+        email = self._commit_author_email()
+        if email:
+            user = await User.get_by_email(self.session, email)
+            self._author_user_cache = user
+        else:
+            self._author_user_cache = None
+        return self._author_user_cache or self.context.current_user
 
     async def execute(self) -> list[DeploymentResult]:
         """
@@ -586,7 +613,7 @@ class DeploymentOrchestrator:
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
                     display_name=tag_spec.display_name or labelize(tag_name),
-                    created_by=self.context.current_user,
+                    created_by=await self._get_author_user(),
                 )
                 self.session.add(tag)
             existing_tags[tag_name] = tag
@@ -1498,7 +1525,7 @@ class DeploymentOrchestrator:
                                 self.registry.tags[tag_name]
                                 for tag_name in cube_spec.tags
                             ],
-                            created_by_id=self.context.current_user.id,
+                            created_by_id=(await self._get_author_user()).id,
                             owners=[
                                 self.registry.owners[owner_name]
                                 for owner_name in cube_spec.owners
@@ -1623,7 +1650,7 @@ class DeploymentOrchestrator:
             ),
             status=NodeStatus.VALID,  # Already validated
             catalog=validation_data.catalog,
-            created_by_id=self.context.current_user.id,
+            created_by_id=(await self._get_author_user()).id,
             node=new_node,
             version=new_node.current_version,
             mode=cube_spec.mode,
@@ -2126,7 +2153,7 @@ class DeploymentOrchestrator:
             else DeploymentResult.Operation.CREATE
         )
         changelog = await self._generate_changelog(result)
-        new_node = self._create_or_update_node(result.spec, existing)
+        new_node = await self._create_or_update_node(result.spec, existing)
         new_revision = await self._create_node_revision(
             new_node,
             result,
@@ -2194,7 +2221,7 @@ class DeploymentOrchestrator:
         ) if changed_fields else ""
         return changelog
 
-    def _create_or_update_node(
+    async def _create_or_update_node(
         self,
         node_spec: NodeSpec,
         existing: Node | None,
@@ -2212,7 +2239,7 @@ class DeploymentOrchestrator:
                     else str(DEFAULT_PUBLISHED_VERSION)
                 ),
                 tags=[self.registry.tags[tag_name] for tag_name in node_spec.tags],
-                created_by_id=self.context.current_user.id,
+                created_by_id=(await self._get_author_user()).id,
                 owners=[
                     self.registry.owners[owner_name]
                     for owner_name in node_spec.owners
@@ -2279,7 +2306,7 @@ class DeploymentOrchestrator:
                 for parent in node_graph.get(result.spec.rendered_name, [])
                 if parent in dependency_nodes
             ],
-            created_by_id=self.context.current_user.id,
+            created_by_id=(await self._get_author_user()).id,
             custom_metadata=result.spec.custom_metadata,
         )
         new_revision.version = new_node.current_version

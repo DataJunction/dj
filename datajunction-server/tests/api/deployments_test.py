@@ -3328,7 +3328,7 @@ class TestDeploymentHistoryTracking:
     ):
         """
         When a deployment includes a GitDeploymentSource with commit author info,
-        history events should record the git author rather than the service account.
+        history events should record the git author's email rather than the service account.
         """
         namespace = "history_git_author_test"
 
@@ -3355,7 +3355,8 @@ class TestDeploymentHistoryTracking:
         history = response.json()
         create_events = [h for h in history if h["activity_type"] == "create"]
         assert len(create_events) >= 1
-        assert create_events[0]["user"] == "Alice Smith"
+        # History.user is set to commit_author_email (not name)
+        assert create_events[0]["user"] == "alice@example.com"
 
     @pytest.mark.asyncio
     async def test_git_author_email_used_when_no_name(

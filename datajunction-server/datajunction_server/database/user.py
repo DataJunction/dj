@@ -221,6 +221,19 @@ class User(Base):
         return users
 
     @classmethod
+    async def get_by_email(
+        cls,
+        session: AsyncSession,
+        email: str,
+    ) -> Optional["User"]:
+        """
+        Find a user by email address.  Returns None if no matching user exists.
+        """
+        statement = select(User).where(User.email == email)
+        result = await session.execute(statement)
+        return result.unique().scalar_one_or_none()
+
+    @classmethod
     async def get_service_accounts_for_user_id(
         cls,
         session: AsyncSession,
