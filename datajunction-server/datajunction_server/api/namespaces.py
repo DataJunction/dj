@@ -53,7 +53,10 @@ from datajunction_server.internal.namespaces import (
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
+from datajunction_server.models.node import (
+    NamespaceOutput,
+    NodeMinimumDetail,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
