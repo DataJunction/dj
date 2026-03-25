@@ -15,7 +15,8 @@ from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
-from datajunction_server.database.node import Node
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
@@ -24,6 +25,7 @@ from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
     DeploymentSpec,
+    DeploymentStatus,
     NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
@@ -53,7 +55,11 @@ from datajunction_server.internal.namespaces import (
 )
 from datajunction_server.internal.nodes import activate_node, deactivate_node
 from datajunction_server.models import access
-from datajunction_server.models.node import NamespaceOutput, NodeMinimumDetail
+from datajunction_server.models.node import (
+    BranchNamespaceOutput,
+    NamespaceOutput,
+    NodeMinimumDetail,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
@@ -226,6 +232,121 @@ async def list_nodes_in_namespace(
         if decision.approved
     }
     return [node for node in nodes if node.name in approved_names]
+
+
+@router.get(
+    "/namespaces/{namespace}/branches",
+    response_model=List[BranchNamespaceOutput],
+    status_code=HTTPStatus.OK,
+)
+async def list_namespace_branches(
+    namespace: str,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> List[BranchNamespaceOutput]:
+    """
+    List all branch namespaces that have this namespace as their parent.
+
+    A branch namespace is one where parent_namespace points back to this
+    namespace, reflecting the git branching pattern (e.g., finance.main and
+    finance.feature_x are branches of finance).
+    """
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    parent_ns = await NodeNamespace.get(session, namespace, raise_if_not_exists=True)
+    assert parent_ns is not None  # raise_if_not_exists=True guarantees this
+
+    # Include namespaces with parent_namespace set, plus the default branch namespace
+    # which may predate the parent_namespace convention (e.g., finance.main set up as
+    # a git root directly, without parent_namespace = "finance").
+    default_branch_ns = (
+        f"{namespace}.{parent_ns.default_branch}" if parent_ns.default_branch else None
+    )
+
+    # Correlated subquery: count all nodes in the branch namespace and sub-namespaces
+    node_count_subq = (
+        select(func.count(Node.id))
+        .where(
+            or_(
+                Node.namespace == NodeNamespace.namespace,
+                Node.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
+        )
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+
+    # Correlated subquery: count invalid nodes
+    invalid_count_subq = (
+        select(func.count(Node.id))
+        .join(
+            NodeRevision,
+            (NodeRevision.node_id == Node.id)
+            & (NodeRevision.version == Node.current_version),
+        )
+        .where(
+            or_(
+                Node.namespace == NodeNamespace.namespace,
+                Node.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
+            NodeRevision.status == "invalid",
+        )
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+
+    # Correlated subquery: most recent successful deployment timestamp
+    last_deployed_subq = (
+        select(func.max(Deployment.created_at))
+        .where(
+            or_(
+                Deployment.namespace == NodeNamespace.namespace,
+                Deployment.namespace.like(NodeNamespace.namespace + ".%"),
+            ),
+            Deployment.status == DeploymentStatus.SUCCESS,
+        )
+        .correlate(NodeNamespace)
+        .scalar_subquery()
+    )
+
+    statement = select(
+        NodeNamespace,
+        node_count_subq.label("num_nodes"),
+        invalid_count_subq.label("invalid_node_count"),
+        last_deployed_subq.label("last_deployed_at"),
+    ).where(
+        or_(
+            NodeNamespace.parent_namespace == namespace,
+            NodeNamespace.namespace == default_branch_ns
+            if default_branch_ns
+            else False,
+        ),
+        NodeNamespace.deactivated_at.is_(None),
+    )
+
+    result = await session.execute(statement)
+    rows = result.all()
+
+    # Sort: default branch first, then alphabetically
+    def branch_sort_key(row):
+        ns, *_ = row
+        is_default = ns.namespace == default_branch_ns
+        return (0 if is_default else 1, ns.namespace)
+
+    rows.sort(key=branch_sort_key)
+
+    return [
+        BranchNamespaceOutput(
+            namespace=ns.namespace,
+            branch=ns.git_branch,
+            num_nodes=num_nodes or 0,
+            invalid_node_count=invalid_node_count or 0,
+            git_only=ns.git_only,
+            last_deployed_at=last_deployed_at,
+        )
+        for ns, num_nodes, invalid_node_count, last_deployed_at in rows
+    ]
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
