@@ -393,12 +393,26 @@ def analyze_grain_groups(
     # Convert buckets to GrainGroup objects
     grain_groups = []
     for (agg_type, grain_cols), components in grain_buckets.items():
+        # Map each grain expression to its SQL alias.
+        # LIMITED: alias comes from component.grain_alias (_make_component decides:
+        #   plain column maps to the bare name, complex expr maps to component.name).
+        # NONE: grain columns are plain PK identifiers; alias = the column name itself.
+        grain_col_aliases: dict[str, str] = {}
+        if agg_type == Aggregability.LIMITED:
+            for _, component in components:
+                if component.grain_alias is not None:
+                    for expr_str in component.rule.level or []:
+                        grain_col_aliases[expr_str] = component.grain_alias
+        elif agg_type == Aggregability.NONE:
+            for col in grain_cols:
+                grain_col_aliases[col] = col
         grain_groups.append(
             GrainGroup(
                 parent_node=parent_node,
                 aggregability=agg_type,
                 grain_columns=list(grain_cols),
                 components=components,
+                grain_col_aliases=grain_col_aliases,
             ),
         )
 
@@ -516,8 +530,10 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
 
     # Compute finest grain (union of all grain columns)
     finest_grain_set: set[str] = set()
+    merged_grain_col_aliases: dict[str, str] = {}
     for gg in groups:
         finest_grain_set.update(gg.grain_columns)
+        merged_grain_col_aliases.update(gg.grain_col_aliases)
     finest_grain = sorted(finest_grain_set)
 
     # Determine worst-case aggregability
@@ -535,4 +551,5 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
         components=all_components,
         is_merged=True,
         component_aggregabilities=component_aggregabilities,
+        grain_col_aliases=merged_grain_col_aliases,
     )

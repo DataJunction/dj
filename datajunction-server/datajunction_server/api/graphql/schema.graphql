@@ -276,6 +276,7 @@ type MetricComponent {
   aggregation: String
   merge: String
   rule: AggregationRule!
+  grainAlias: String
 }
 
 enum MetricDirection {

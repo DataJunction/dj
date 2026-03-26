@@ -4,6 +4,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from datajunction_server.models.decompose import (
     AggregationRule,
     MetricComponent,
 )
-from datajunction_server.naming import amenable_name
+from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -1103,25 +1104,38 @@ class MetricComponentExtractor:
         # Build component name from columns in the expression
         if is_distinct:
             # DISTINCT uses column names + "_distinct"
-            base_name = (
-                "_".join(amenable_name(str(col)) for col in columns) + "_distinct"
-            )
+            base_name = amenable_col_names(columns) + "_distinct"
         elif columns:
             # Normal case: column names + suffix
-            base_name = (
-                "_".join(amenable_name(str(col)) for col in columns) + comp_def.suffix
-            )
+            base_name = amenable_col_names(columns) + comp_def.suffix
         else:
             # No columns (e.g., COUNT(*)) - use suffix without leading underscore
             base_name = comp_def.suffix.lstrip("_") or "count"
 
         short_hash = self._short_hash(expression, query_ast)
+        component_name = f"{base_name}_{short_hash}"
+
+        # For LIMITED (COUNT DISTINCT) components, compute the SQL alias that
+        # measures.py should use for the grain column.  Simple column args get the
+        # bare column name, whereas complex expressions (like IF, CASE etc) get
+        # component_name, so the alias is a stable identifier derived from the same logic.
+        grain_alias: str | None = None
+        if is_distinct:
+            _arg = (
+                cast(ast.Expression, func.args[comp_def.arg_index])
+                if comp_def.arg_index is not None
+                else None
+            )
+            if isinstance(_arg, ast.Column):
+                grain_alias = _arg.name.name
+            else:
+                grain_alias = component_name
 
         # Build accumulate expression with template expansion
         accumulate_expr = self._expand_template(comp_def.accumulate, func.args)
 
         return MetricComponent(
-            name=f"{base_name}_{short_hash}",
+            name=component_name,
             expression=expression,
             aggregation=None if is_distinct else accumulate_expr,
             merge=None if is_distinct else comp_def.merge,
@@ -1129,6 +1143,7 @@ class MetricComponentExtractor:
                 type=Aggregability.LIMITED if is_distinct else Aggregability.FULL,
                 level=[str(a) for a in func.args] if is_distinct else None,
             ),
+            grain_alias=grain_alias,
         )
 
     def _expand_template(self, template: str, args: list) -> str:
