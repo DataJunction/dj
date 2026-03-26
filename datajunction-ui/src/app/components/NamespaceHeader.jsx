@@ -45,6 +45,11 @@ export default function NamespaceHeader({
     setExistingPR(null);
 
     const fetchData = async () => {
+      if (!namespace) {
+        if (onGitConfigLoaded) onGitConfigLoaded(null);
+        setGitConfigLoading(false);
+        return;
+      }
       if (namespace) {
         // Fetch deployment sources
         try {
