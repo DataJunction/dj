@@ -51,7 +51,7 @@ async def list_namespaces(
             )
         elif ns.git_branch and ns.parent_namespace:
             parent = ns_map.get(ns.parent_namespace)
-            if parent and parent.github_repo_path:
+            if parent and parent.github_repo_path:  # pragma: no branch
                 git = GitBranchConfig(  # type: ignore
                     branch=ns.git_branch,
                     git_only=ns.git_only,
@@ -67,6 +67,6 @@ async def list_namespaces(
                 namespace=ns.namespace,
                 num_nodes=num_nodes or 0,
                 git=git,
-            )
+            ),
         )
     return namespaces

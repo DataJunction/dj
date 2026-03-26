@@ -376,7 +376,7 @@ export function NamespacePage() {
   const [retrieved, setRetrieved] = useState(false);
 
   const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
-  const [namespaceSources, setNamespaceSources] = useState({});
+  const [gitRoots, setGitRoots] = useState(new Set());
   // Use undefined to indicate "not yet loaded", null means "loaded but no config"
   const [gitConfig, setGitConfig] = useState(undefined);
 
@@ -506,23 +506,19 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const namespaces = await djClient.namespaces();
+      const namespaces = await djClient.listNamespacesWithGit();
       const hierarchy = createNamespaceHierarchy(namespaces);
       setNamespaceHierarchy(hierarchy);
 
-      // Fetch sources for all namespaces in bulk
-      const allNamespaceNames = namespaces.map(ns => ns.namespace);
-      if (allNamespaceNames.length > 0) {
-        const sourcesResponse = await djClient.namespaceSourcesBulk(
-          allNamespaceNames,
-        );
-        if (sourcesResponse && sourcesResponse.sources) {
-          setNamespaceSources(sourcesResponse.sources);
-        }
-      }
+      const roots = new Set(
+        namespaces
+          .filter(ns => ns.git?.__typename === 'GitRootConfig')
+          .map(ns => ns.namespace),
+      );
+      setGitRoots(roots);
     };
     fetchData().catch(console.error);
-  }, [djClient, djClient.namespaces]);
+  }, [djClient]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1133,7 +1129,7 @@ export function NamespacePage() {
                       defaultExpand={true}
                       isTopLevel={true}
                       key={child.namespace}
-                      namespaceSources={namespaceSources}
+                      gitRoots={gitRoots}
                     />
                   ))
                 : null}

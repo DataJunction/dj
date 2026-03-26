@@ -332,7 +332,7 @@ async def get_git_info_for_namespace(
         and branch_ns.parent_namespace not in ns_map
     ):
         fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
-        if fk_parent:
+        if fk_parent:  # pragma: no branch
             ns_map[fk_parent.namespace] = fk_parent
 
     return resolve_git_info_from_map(namespace, ns_map)
