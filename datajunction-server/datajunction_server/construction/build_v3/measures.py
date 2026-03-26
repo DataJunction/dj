@@ -80,6 +80,37 @@ import re
 _logger = logging.getLogger(__name__)
 
 
+def _alias_for_grain_expr(expr: ast.Expression) -> str:
+    """
+    Return a clean SQL identifier alias for a pre-parsed grain column expression.
+
+    For simple column references (e.g., ``ast.Column("session_id")``), returns
+    the column name unchanged.  For complex expressions (e.g.,
+    ``IF(is_product_view = 1, session_id, NULL)``), sanitizes the SQL string
+    representation into a valid identifier by replacing non-alphanumeric
+    characters with underscores.
+
+    Callers must parse the grain column string to an AST expression first so
+    that the ``isinstance`` check operates on the original AST node rather than
+    a regex over the raw string.
+    """
+    if isinstance(expr, ast.Column):
+        return expr.name.name
+    alias = re.sub(r"[^a-zA-Z0-9]", "_", str(expr).lower())
+    alias = re.sub(r"_+", "_", alias).strip("_")
+    return alias or "expr"
+
+
+def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
+    """Add a table alias prefix to all unqualified column references in an expression."""
+    if isinstance(expr, ast.Column):
+        if expr.name and not (expr.name.namespace and expr.name.namespace.name):
+            expr.name = ast.Name(expr.name.name, namespace=ast.Name(table_alias))
+    for child in expr.children if hasattr(expr, "children") else []:
+        if child:
+            _rewrite_col_refs(child, table_alias)
+
+
 # Mapping from type string to ColumnType instance
 # Used to convert stored type strings back to type objects for function inference
 _TYPE_STRING_MAP: dict[str, ct.ColumnType] = {
@@ -471,13 +502,27 @@ def build_select_ast(
 
         projection.append(col_expr)
 
+    # Parse grain column strings once into (expression, alias) pairs so that
+    # all subsequent loops can work directly with the AST without re-parsing.
+    grain_col_specs: list[tuple[ast.Expression, str]] = []
+    for gc in grain_columns:
+        _gc_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
+        grain_col_specs.append((_gc_expr, _alias_for_grain_expr(_gc_expr)))
+
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
-    # These are added to the output so the result can be re-aggregated
+    # These are added to the output so the result can be re-aggregated.
+    # When the grain column is a complex expression (e.g., IF(...)), rewrite
+    # column references to use the table alias, and select it with a clean alias.
     grain_col_refs: list[ast.Column] = []
-    for grain_col in grain_columns:
-        col_ref = make_column_ref(grain_col, main_alias)
-        grain_col_refs.append(col_ref)
-        projection.append(col_ref)
+    for gc_expr, gc_alias in grain_col_specs:
+        if isinstance(gc_expr, ast.Column):
+            col_ref = make_column_ref(gc_expr.name.name, main_alias)
+            grain_col_refs.append(col_ref)
+            projection.append(col_ref)
+        else:
+            _rewrite_col_refs(gc_expr, main_alias)
+            projection.append(ast.Alias(child=gc_expr, alias=ast.Name(gc_alias)))
+            grain_col_refs.append(ast.Column(name=ast.Name(gc_alias)))
 
     # Add metric expressions
     for alias_name, expr in metric_expressions:
@@ -513,9 +558,14 @@ def build_select_ast(
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
         group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
 
-    # Add grain columns to GROUP BY for LIMITED aggregability
-    for grain_col in grain_columns:
-        group_by.append(make_column_ref(grain_col, main_alias))
+    # Add grain columns to GROUP BY for LIMITED aggregability.
+    # Simple columns are referenced with the table alias (same as dimensions).
+    # Complex expressions are already aliased in the SELECT, so reference just the alias.
+    for gc_expr, gc_alias in grain_col_specs:
+        if isinstance(gc_expr, ast.Column):
+            group_by.append(make_column_ref(gc_expr.name.name, main_alias))
+        else:
+            group_by.append(ast.Column(name=ast.Name(gc_alias)))
 
     # Collect all nodes that need CTEs and their needed columns
     nodes_for_ctes: list[Node] = []
@@ -529,8 +579,13 @@ def build_select_ast(
         if resolved_dim.is_local:
             parent_needed_cols.add(resolved_dim.column_name)
 
-    # Add grain columns for LIMITED aggregability
-    parent_needed_cols.update(grain_columns)
+    # Add grain columns for LIMITED aggregability.
+    # For complex expressions, extract the actual leaf columns they reference.
+    for gc_expr, _ in grain_col_specs:
+        if isinstance(gc_expr, ast.Column):
+            parent_needed_cols.add(gc_expr.name.name)
+        else:
+            parent_needed_cols.update(extract_columns_from_expression(gc_expr))
 
     # Add columns from metric expressions
     for _, expr in metric_expressions:
@@ -1293,13 +1348,20 @@ def build_grain_group_sql(
             ),
         )
 
-    # Add grain columns (for LIMITED and NONE)
-    for grain_col in effective_grain_columns:
-        col_type = get_column_type(parent_node, grain_col)
+    # Add grain columns (for LIMITED and NONE).
+    # Parse once here so we can inspect the AST directly for alias derivation.
+    # For complex expressions, use the sanitized alias as the column name.
+    effective_grain_specs: list[tuple[ast.Expression, str]] = []
+    for gc in effective_grain_columns:
+        _eff_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
+        effective_grain_specs.append((_eff_expr, _alias_for_grain_expr(_eff_expr)))
+
+    for _, gc_alias in effective_grain_specs:
+        col_type = get_column_type(parent_node, gc_alias)
         columns_metadata.append(
             ColumnMetadata(
-                name=grain_col,
-                semantic_name=f"{parent_node.name}{SEPARATOR}{grain_col}",
+                name=gc_alias,
+                semantic_name=f"{parent_node.name}{SEPARATOR}{gc_alias}",
                 type=col_type,
                 semantic_type="dimension",  # Added for aggregability (e.g., customer_id for COUNT DISTINCT)
             ),
@@ -1359,10 +1421,11 @@ def build_grain_group_sql(
             )
             full_grain.append(alias)
 
-    # Add any additional grain columns (from LIMITED/NONE aggregability)
-    for grain_col in effective_grain_columns:
-        if grain_col not in full_grain:  # pragma: no branch
-            full_grain.append(grain_col)
+    # Add any additional grain columns (from LIMITED/NONE aggregability).
+    # Use the alias for complex expressions so the grain list stays clean.
+    for _, gc_alias in effective_grain_specs:
+        if gc_alias not in full_grain:  # pragma: no branch
+            full_grain.append(gc_alias)
 
     # Sort for deterministic output
     full_grain.sort()

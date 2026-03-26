@@ -1998,6 +1998,81 @@ class TestMetricTypesMeasuresSQL:
         # Validate requested_dimensions
         assert result["requested_dimensions"] == ["v3.order_details.status"]
 
+    @pytest.mark.asyncio
+    async def test_count_distinct_with_if_expression(self, client_with_build_v3):
+        """
+        Regression test: COUNT(DISTINCT IF(cond, col, NULL)) should produce a clean
+        SQL identifier as the grain column name, not the raw IF expression string.
+
+        v3.product_session_count = COUNT(DISTINCT IF(is_product_view = 1, session_id, NULL))
+
+        The grain column level is the full IF expression. Previously, this expression
+        was passed directly as a column name to make_column_ref(), producing a quoted
+        expression like t1."if(is_product_view = 1, session_id, NULL)" in the SQL and
+        the raw expression string as the column `name` in the response metadata.
+
+        After the fix, the expression should be:
+        - Selected with a clean alias in the SQL
+        - Referenced by that alias in GROUP BY
+        - Reported with the clean alias as `name` in column metadata
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.product_session_count"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+
+        assert len(result["grain_groups"]) == 1
+        gg = result["grain_groups"][0]
+
+        assert gg["aggregability"] == "limited"
+        assert sorted(gg["grain"]) == [
+            "category",
+            "if_is_product_view_1_session_id_null",
+        ]
+        assert gg["metrics"] == ["v3.product_session_count"]
+
+        assert gg["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "if_is_product_view_1_session_id_null",
+                "type": "string",
+                "semantic_entity": "v3.page_views_enriched.if_is_product_view_1_session_id_null",
+                "semantic_type": "dimension",
+            },
+        ]
+
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH
+            v3_page_views_enriched AS (
+                SELECT session_id, product_id,
+                    CASE WHEN page_type = 'product' THEN 1 ELSE 0 END AS is_product_view
+                FROM default.v3.page_views
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            )
+            SELECT t2.category,
+                IF(t1.is_product_view = 1, t1.session_id, NULL) if_is_product_view_1_session_id_null
+            FROM v3_page_views_enriched t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category, if_is_product_view_1_session_id_null
+            """,
+        )
+
 
 class TestMeasuresSQLDerived:
     @pytest.mark.asyncio
