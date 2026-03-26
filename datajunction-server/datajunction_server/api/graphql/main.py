@@ -19,6 +19,7 @@ from datajunction_server.api.graphql.dataloaders import (
 )
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.collections import list_collections
+from datajunction_server.api.graphql.queries.namespaces import list_namespaces
 from datajunction_server.api.graphql.queries.dag import (
     common_dimensions,
     downstream_nodes,
@@ -41,6 +42,7 @@ from datajunction_server.api.graphql.scalars.catalog_engine import (
     DialectInfo,
 )
 from datajunction_server.api.graphql.scalars.collection import Collection
+from datajunction_server.api.graphql.scalars.namespace import Namespace
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute, Node
 from datajunction_server.api.graphql.scalars.sql import (
     GeneratedSQL,
@@ -192,6 +194,12 @@ class Query:
     list_collections: list[Collection] = strawberry.field(
         resolver=log_resolver(list_collections),
         description="List collections, optionally filtered by creator (for My Workspace).",
+    )
+
+    # Namespace queries
+    list_namespaces: list[Namespace] = strawberry.field(
+        resolver=log_resolver(list_namespaces),
+        description="List all active namespaces with node counts and git configuration.",
     )
 
 
