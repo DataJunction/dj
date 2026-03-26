@@ -615,7 +615,10 @@ class GitHubService:
                 headers=self.headers,
                 timeout=30.0,
             )
-            return resp.status_code == 200
+            if resp.status_code == 404:
+                return False
+            self._handle_error(resp, f"verify commit {commit_sha} in {repo_path}")
+            return True
 
     async def download_archive(
         self,
