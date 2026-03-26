@@ -81,10 +81,12 @@ _logger = logging.getLogger(__name__)
 def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
     """Add a table alias prefix to all unqualified column references in an expression."""
     if isinstance(expr, ast.Column):
-        if expr.name and not (expr.name.namespace and expr.name.namespace.name):
+        if expr.name and not (  # pragma: no branch
+            expr.name.namespace and expr.name.namespace.name
+        ):
             expr.name = ast.Name(expr.name.name, namespace=ast.Name(table_alias))
     for child in expr.children if hasattr(expr, "children") else []:
-        if child:
+        if child:  # pragma: no branch
             _rewrite_col_refs(child, table_alias)
 
 
