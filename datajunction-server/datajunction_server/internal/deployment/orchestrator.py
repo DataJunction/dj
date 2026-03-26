@@ -586,7 +586,7 @@ class DeploymentOrchestrator:
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
                     display_name=tag_spec.display_name or labelize(tag_name),
-                    created_by=self.context.current_user,
+                    created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
             existing_tags[tag_name] = tag
