@@ -4787,3 +4787,103 @@ class TestMetricsSQLEdgeCases:
             "their expressions require raw-grain access that is not available at the derived "
             "metric's aggregation level."
         ), f"Expected clear error about non-decomposable metric, got: {response.text}"
+
+    @pytest.mark.asyncio
+    async def test_metric_count_distinct_with_if_expression(self, client_with_build_v3):
+        """
+        Validate that COUNT DISTINCT metric with an IF expression generates correct SQL.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.product_session_count"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_page_views_enriched AS (
+              SELECT
+                session_id,
+                product_id,
+                CASE
+                    WHEN page_type = 'product' THEN 1
+                    ELSE 0
+                END AS is_product_view
+              FROM default.v3.page_views
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category
+              FROM default.v3.products
+            ),
+            page_views_enriched_0 AS (
+              SELECT
+                t2.category,
+                IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40
+              FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY  t2.category, is_product_view_session_id_distinct_ee91aa40
+            )
+            SELECT  page_views_enriched_0.category AS category,
+                COUNT( DISTINCT page_views_enriched_0.is_product_view_session_id_distinct_ee91aa40) AS product_session_count
+            FROM page_views_enriched_0
+            GROUP BY  page_views_enriched_0.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_metric_combine_count_distinct_w_sum(self, client_with_build_v3):
+        """
+        Validate that two metrics accessed together, one COUNT DISTINCT metric with an IF
+        expression and one SUM metric, generates correct SQL.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.product_session_count", "v3.product_view_count"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_page_views_enriched AS (
+              SELECT
+                session_id,
+                product_id,
+                CASE
+                    WHEN page_type = 'product' THEN 1
+                    ELSE 0
+                END AS is_product_view
+              FROM default.v3.page_views
+            ),
+            v3_product AS (
+              SELECT
+                product_id,
+                category
+              FROM default.v3.products
+            ),
+            page_views_enriched_0 AS (
+              SELECT
+                t2.category,
+                IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40,
+                SUM(t1.is_product_view) is_product_view_sum_eb3a4b41
+              FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY  t2.category, is_product_view_session_id_distinct_ee91aa40
+            )
+            SELECT
+              page_views_enriched_0.category AS category,
+              COUNT(DISTINCT page_views_enriched_0.is_product_view_session_id_distinct_ee91aa40) AS product_session_count,
+              SUM(page_views_enriched_0.is_product_view_sum_eb3a4b41) AS product_view_count
+            FROM page_views_enriched_0
+            GROUP BY  page_views_enriched_0.category
+            """,
+        )

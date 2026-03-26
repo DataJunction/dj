@@ -93,6 +93,11 @@ class MetricComponent(BaseModel):
     aggregation: str | None  # Phase 1: function name or template
     merge: str | None = None  # Phase 2: merge function name
     rule: AggregationRule
+    # SQL alias to use for the grain column in measures SQL (LIMITED components only).
+    # For simple column grains (e.g. COUNT(DISTINCT order_id)) this is the column name
+    # ("order_id"); for complex expressions it is component.name so the identifier stays
+    # valid and consistent with what decompose.py computed.
+    grain_alias: str | None = None
 
 
 class PreAggMeasure(MetricComponent):

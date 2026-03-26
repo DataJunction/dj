@@ -684,6 +684,7 @@ class TestGetPreaggregationById:
                 "aggregation": "SUM",
                 "expr_hash": "83632b779d87",
                 "expression": "line_total",
+                "grain_alias": None,
                 "merge": "SUM",
                 "name": "line_total_sum_e1f61696",
                 "rule": {
@@ -749,6 +750,7 @@ class TestGetPreaggregationById:
                 "aggregation": "SUM",
                 "expr_hash": "221d2a4bfdae",
                 "expression": "quantity",
+                "grain_alias": None,
                 "merge": "SUM",
                 "name": "quantity_sum_06b64d2e",
                 "rule": {

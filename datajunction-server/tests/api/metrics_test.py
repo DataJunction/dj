@@ -421,6 +421,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         {
             "aggregation": "SUM",
             "expression": "if(discount > 0.0, 1, 0)",
+            "grain_alias": None,
             "name": "discount_sum_30b84e6c",
             "merge": "SUM",
             "rule": {
@@ -431,6 +432,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         {
             "aggregation": "COUNT",
             "expression": "*",
+            "grain_alias": None,
             "merge": "SUM",
             "name": "count_c8e42e74",
             "rule": {
