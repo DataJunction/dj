@@ -620,7 +620,14 @@ export function NamespacePage() {
     state.nodes.length > 0 ? (
       state.nodes.map(node => (
         <tr key={node.name}>
-          <td>
+          <td
+            style={{
+              maxWidth: '300px',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
             <a href={'/nodes/' + node.name} className="link-table">
               {isBranchNamespace && node.name.startsWith(namespace + '.')
                 ? node.name.slice(namespace.length + 1)
@@ -633,7 +640,14 @@ export function NamespacePage() {
               {node.currentVersion}
             </span>
           </td>
-          <td>
+          <td
+            style={{
+              maxWidth: '250px',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
             <a href={'/nodes/' + node.name} className="link-table">
               {node.type !== 'source' ? node.current.displayName : ''}
             </a>
