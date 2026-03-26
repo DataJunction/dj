@@ -219,7 +219,15 @@ export function NamespacePage() {
   const ASC = 'ascending';
   const DESC = 'descending';
 
-  const fields = ['name', 'displayName', 'type', 'status', 'mode', 'updatedAt'];
+  const fields = [
+    'name',
+    'displayName',
+    'type',
+    'status',
+    'mode',
+    'owners',
+    'updatedAt',
+  ];
 
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { currentUser } = useCurrentUser();
@@ -486,6 +494,7 @@ export function NamespacePage() {
             path: path,
           };
           currentLevel.push(existingNamespace);
+          currentLevel.sort((a, b) => a.namespace.localeCompare(b.namespace));
         }
 
         currentLevel = existingNamespace.children;
@@ -688,8 +697,43 @@ export function NamespacePage() {
             </span>
           </td>
           <td>
+            {node.owners?.length > 0 && (
+              <div style={{ display: 'flex', gap: '2px' }}>
+                {node.owners.slice(0, 3).map(owner => {
+                  const initials = owner.username
+                    .split('@')[0]
+                    .slice(0, 2)
+                    .toUpperCase();
+                  const [bg, fg] =
+                    AVATAR_COLORS[avatarColorIndex(owner.username)];
+                  return (
+                    <span
+                      key={owner.username}
+                      title={owner.username}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: bg,
+                        color: fg,
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {initials}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </td>
+          <td>
             <span className="status">
-              {new Date(node.current.updatedAt).toLocaleString('en-us')}
+              {new Date(node.current.updatedAt).toLocaleDateString('en-us')}
             </span>
           </td>
           {showEditControls && (
@@ -701,7 +745,7 @@ export function NamespacePage() {
       ))
     ) : (
       <tr>
-        <td colSpan={7}>
+        <td colSpan={8}>
           <span
             style={{
               display: 'block',
