@@ -2031,9 +2031,11 @@ class TestMetricTypesMeasuresSQL:
         gg = result["grain_groups"][0]
 
         assert gg["aggregability"] == "limited"
+        # The grain alias is component.name from decompose.py:
+        # amenable_col_names([is_product_view, session_id]) + "_distinct" + "_" + short_hash
         assert sorted(gg["grain"]) == [
             "category",
-            "if_is_product_view_1_ses_2d8b47cd",
+            "is_product_view_session_id_distinct_ee91aa40",
         ]
         assert gg["metrics"] == ["v3.product_session_count"]
 
@@ -2045,9 +2047,9 @@ class TestMetricTypesMeasuresSQL:
                 "semantic_type": "dimension",
             },
             {
-                "name": "if_is_product_view_1_ses_2d8b47cd",
+                "name": "is_product_view_session_id_distinct_ee91aa40",
                 "type": "string",
-                "semantic_entity": "v3.page_views_enriched.if_is_product_view_1_ses_2d8b47cd",
+                "semantic_entity": "v3.page_views_enriched.is_product_view_session_id_distinct_ee91aa40",
                 "semantic_type": "dimension",
             },
         ]
@@ -2066,10 +2068,10 @@ class TestMetricTypesMeasuresSQL:
                 FROM default.v3.products
             )
             SELECT t2.category,
-                IF(t1.is_product_view = 1, t1.session_id, NULL) if_is_product_view_1_ses_2d8b47cd
+                IF(t1.is_product_view = 1, t1.session_id, NULL) is_product_view_session_id_distinct_ee91aa40
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            GROUP BY t2.category, if_is_product_view_1_ses_2d8b47cd
+            GROUP BY t2.category, is_product_view_session_id_distinct_ee91aa40
             """,
         )
 

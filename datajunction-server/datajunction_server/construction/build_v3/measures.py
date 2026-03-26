@@ -1232,11 +1232,17 @@ def build_grain_group_sql(
                 Aggregability.FULL,
             )
             if orig_agg == Aggregability.LIMITED:
-                # LIMITED: grain column is already in GROUP BY, no output needed
-                # The grain column (e.g., order_id) will be used for COUNT DISTINCT
-                # in the final SELECT.  The SQL alias is component.name — the same
-                # identifier that decompose.py assigned — so naming is consistent.
-                component_aliases[component.name] = component.name
+                # LIMITED: grain column is already in GROUP BY, no output needed.
+                # For complex expressions the alias is component.name (from grain_col_aliases);
+                # for simple column names it's the raw expression string (e.g. "order_id").
+                grain_col = (
+                    component.rule.level[0]
+                    if component.rule.level
+                    else component.expression
+                )
+                component_aliases[component.name] = (
+                    grain_group.grain_col_aliases.get(grain_col) or grain_col
+                )
                 continue
             else:
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
@@ -1252,10 +1258,17 @@ def build_grain_group_sql(
 
         # Skip LIMITED aggregability components with no aggregation
         # These are represented by grain columns instead.
-        # The SQL alias is component.name — the same identifier that decompose.py
-        # assigned — so naming is consistent without re-parsing the expression.
+        # For complex expressions the alias is component.name (from grain_col_aliases);
+        # for simple column names it's the raw expression string (e.g. "order_id").
         if component.rule.type == Aggregability.LIMITED and not component.aggregation:
-            component_aliases[component.name] = component.name
+            grain_col = (
+                component.rule.level[0]
+                if component.rule.level
+                else component.expression
+            )
+            component_aliases[component.name] = (
+                grain_group.grain_col_aliases.get(grain_col) or grain_col
+            )
             continue
 
         # Always use component.name for consistency - no special case for single-component

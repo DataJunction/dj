@@ -393,14 +393,18 @@ def analyze_grain_groups(
     # Convert buckets to GrainGroup objects
     grain_groups = []
     for (agg_type, grain_cols), components in grain_buckets.items():
-        # For LIMITED grain groups, map each grain expression to the component.name
-        # that owns it so that build_select_ast can use component.name as the SQL alias,
-        # keeping decompose and measures naming in sync.
+        # For LIMITED grain groups, map complex grain expressions to component.name
+        # so that build_select_ast uses component.name as the SQL alias, keeping
+        # decompose and measures naming in sync.  Simple column names (e.g. "order_id")
+        # are excluded — they are already valid SQL identifiers and don't need an override.
         grain_col_aliases: dict[str, str] = {}
         if agg_type == Aggregability.LIMITED:
             for _, component in components:
                 for expr_str in component.rule.level or []:
-                    grain_col_aliases[expr_str] = component.name
+                    # A plain column name has no spaces, parens, operators, etc.
+                    # Only override the alias for complex expressions.
+                    if not expr_str.replace("_", "").replace(".", "").isalnum():
+                        grain_col_aliases[expr_str] = component.name
         grain_groups.append(
             GrainGroup(
                 parent_node=parent_node,
