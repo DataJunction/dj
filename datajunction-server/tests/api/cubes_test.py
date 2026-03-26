@@ -3562,6 +3562,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "discount_sum_30b84e6c",
                     "expression": "if(discount > 0.0, 1, 0)",
+                    "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3569,6 +3570,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "count_c8e42e74",
                     "expression": "*",
+                    "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3576,6 +3578,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "repair_order_id_count_bd241964",
                     "expression": "repair_order_id",
+                    "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3583,6 +3586,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "price_count_935e7117",
                     "expression": "price",
+                    "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3590,6 +3594,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "price_sum_935e7117",
                     "expression": "price",
+                    "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3597,6 +3602,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "total_repair_cost_sum_67874507",
                     "expression": "total_repair_cost",
+                    "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3604,6 +3610,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "price_discount_sum_e4ba5456",
                     "expression": "price * discount",
+                    "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
@@ -3611,6 +3618,7 @@ async def test_cube_materialization_metadata(
                 {
                     "name": "price_sum_252381cf",
                     "expression": "price",
+                    "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {"type": "full", "level": None},
