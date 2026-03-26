@@ -494,6 +494,7 @@ export function NamespacePage() {
             path: path,
           };
           currentLevel.push(existingNamespace);
+          currentLevel.sort((a, b) => a.namespace.localeCompare(b.namespace));
         }
 
         currentLevel = existingNamespace.children;
