@@ -7,7 +7,6 @@ which aggregates metric components to the requested dimensional grain.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -36,7 +35,6 @@ from datajunction_server.construction.build_v3.utils import (
     make_column_ref,
     make_name,
 )
-from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
@@ -79,33 +77,6 @@ from datajunction_server.sql.parsing import types as ct
 
 _logger = logging.getLogger(__name__)
 
-
-_GRAIN_EXPR_HASH_LEN = 8  # hex chars appended for uniqueness
-
-
-def _alias_for_grain_expr(expr: ast.Expression) -> str:
-    """
-    Return a clean SQL identifier alias for a pre-parsed grain column expression.
-
-    For simple column references (e.g., ``ast.Column("session_id")``), returns
-    the column name unchanged.
-
-    For complex expressions (e.g., ``IF(is_product_view = 1, session_id, NULL)``),
-    uses the same leaf-column extraction approach as ``decompose.py`` component
-    naming: collects leaf ``ast.Column`` nodes in expression order, applies
-    ``amenable_name`` to each, joins with ``_``, then appends an 8-hex-character
-    MD5 digest of the expression string for collision-resistance.
-
-    Example: ``IF(is_product_view = 1, session_id, NULL)``
-      → leaf columns: [is_product_view, session_id]
-      → ``is_product_view_session_id_2d8b47cd``
-    """
-    if isinstance(expr, ast.Column):
-        return expr.name.name
-    cols = list(expr.find_all(ast.Column))
-    prefix = amenable_col_names(cols) if cols else "expr"
-    short_hash = hashlib.md5(str(expr).encode()).hexdigest()[:_GRAIN_EXPR_HASH_LEN]
-    return f"{prefix}_{short_hash}"
 
 
 def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
@@ -527,7 +498,10 @@ def build_select_ast(
     _gc_alias_map = grain_col_aliases or {}
     for gc in grain_columns:
         _gc_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
-        alias = _gc_alias_map.get(gc) or _alias_for_grain_expr(_gc_expr)
+        # grain_col_aliases covers all LIMITED and NONE grain expressions; for any
+        # edge case not in the map, fall back to the raw expression string (which is
+        # the column name for plain identifiers).
+        alias = _gc_alias_map.get(gc) or gc
         grain_col_specs.append((_gc_expr, alias))
 
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
@@ -1372,7 +1346,7 @@ def build_grain_group_sql(
     _eff_alias_map = grain_group.grain_col_aliases
     for gc in effective_grain_columns:
         _eff_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
-        alias = _eff_alias_map.get(gc) or _alias_for_grain_expr(_eff_expr)
+        alias = _eff_alias_map.get(gc) or gc
         effective_grain_specs.append((_eff_expr, alias))
 
     for _, gc_alias in effective_grain_specs:
