@@ -618,6 +618,7 @@ async def test_count_distinct_rate(session: AsyncSession, create_metric):
                 type=Aggregability.LIMITED,
                 level=["user_id"],
             ),
+            grain_alias="user_id",
         ),
         MetricComponent(
             name="action_count_50d753fd",
@@ -702,6 +703,7 @@ async def test_multiple_aggregations_with_conditions(
                 type=Aggregability.LIMITED,
                 level=["IF(region = 'US', account_id, NULL)"],
             ),
+            grain_alias="region_account_id_distinct_ee608f27",
         ),
     ]
     assert measures == expected_measures

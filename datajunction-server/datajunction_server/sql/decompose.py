@@ -1112,12 +1112,25 @@ class MetricComponentExtractor:
             base_name = comp_def.suffix.lstrip("_") or "count"
 
         short_hash = self._short_hash(expression, query_ast)
+        component_name = f"{base_name}_{short_hash}"
+
+        # For LIMITED (COUNT DISTINCT) components, compute the SQL alias that
+        # measures.py should use for the grain column.  Simple column args get the
+        # bare column name; complex expressions (IF, CASE, …) get component_name so
+        # the alias is a valid, stable identifier derived from the same logic.
+        grain_alias: str | None = None
+        if is_distinct:
+            arg = func.args[comp_def.arg_index] if comp_def.arg_index is not None else None
+            if arg is not None and isinstance(arg, ast.Column):
+                grain_alias = arg.name.name
+            else:
+                grain_alias = component_name
 
         # Build accumulate expression with template expansion
         accumulate_expr = self._expand_template(comp_def.accumulate, func.args)
 
         return MetricComponent(
-            name=f"{base_name}_{short_hash}",
+            name=component_name,
             expression=expression,
             aggregation=None if is_distinct else accumulate_expr,
             merge=None if is_distinct else comp_def.merge,
@@ -1125,6 +1138,7 @@ class MetricComponentExtractor:
                 type=Aggregability.LIMITED if is_distinct else Aggregability.FULL,
                 level=[str(a) for a in func.args] if is_distinct else None,
             ),
+            grain_alias=grain_alias,
         )
 
     def _expand_template(self, template: str, args: list) -> str:
