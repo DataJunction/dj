@@ -4,6 +4,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1121,7 +1122,7 @@ class MetricComponentExtractor:
         grain_alias: str | None = None
         if is_distinct:
             _arg = (
-                func.args[comp_def.arg_index]
+                cast(ast.Expression, func.args[comp_def.arg_index])
                 if comp_def.arg_index is not None
                 else None
             )
