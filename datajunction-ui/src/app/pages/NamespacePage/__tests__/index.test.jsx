@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 
 const mockDjClient = {
   namespaces: jest.fn(),
+  listNamespacesWithGit: jest.fn(),
   namespace: jest.fn(),
   listNodesForLanding: jest.fn(),
   addNamespace: jest.fn(),
@@ -81,40 +82,18 @@ describe('NamespacePage', () => {
     mockDjClient.getNamespaceBranches.mockResolvedValue([]);
     mockDjClient.listDeployments.mockResolvedValue([]);
     mockDjClient.getPullRequest.mockResolvedValue(null);
-    mockDjClient.namespaces.mockResolvedValue([
-      {
-        namespace: 'common.one',
-        num_nodes: 3,
-      },
-      {
-        namespace: 'common.one.a',
-        num_nodes: 6,
-      },
-      {
-        namespace: 'common.one.b',
-        num_nodes: 17,
-      },
-      {
-        namespace: 'common.one.c',
-        num_nodes: 64,
-      },
-      {
-        namespace: 'default',
-        num_nodes: 41,
-      },
-      {
-        namespace: 'default.fruits',
-        num_nodes: 1,
-      },
-      {
-        namespace: 'default.fruits.citrus.lemons',
-        num_nodes: 1,
-      },
-      {
-        namespace: 'default.vegetables',
-        num_nodes: 2,
-      },
-    ]);
+    const mockNamespaces = [
+      { namespace: 'common.one', numNodes: 3, git: null },
+      { namespace: 'common.one.a', numNodes: 6, git: null },
+      { namespace: 'common.one.b', numNodes: 17, git: null },
+      { namespace: 'common.one.c', numNodes: 64, git: null },
+      { namespace: 'default', numNodes: 41, git: null },
+      { namespace: 'default.fruits', numNodes: 1, git: null },
+      { namespace: 'default.fruits.citrus.lemons', numNodes: 1, git: null },
+      { namespace: 'default.vegetables', numNodes: 2, git: null },
+    ];
+    mockDjClient.namespaces.mockResolvedValue(mockNamespaces);
+    mockDjClient.listNamespacesWithGit.mockResolvedValue(mockNamespaces);
     mockDjClient.namespace.mockResolvedValue([
       {
         name: 'testNode',
