@@ -237,27 +237,19 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
-async def get_git_info_for_namespace(
-    session: AsyncSession,
+def resolve_git_info_from_map(
     namespace: str,
+    ns_map: dict,
 ) -> Optional[dict]:
     """
-    Return git repository info for a namespace.
+    Resolve git info for a namespace using a pre-loaded map of NodeNamespace rows.
 
-    Algorithm:
-    1. Batch-load all string ancestors (e.g. ``projectx``, ``projectx.feature_one``
-       for ``projectx.feature_one.cubes``) and find the nearest one with
-       ``git_branch`` set — that is the branch namespace.
-    2. If the branch namespace has ``parent_namespace`` set, do one FK hop to
-       load the git root (which carries ``github_repo_path`` / ``git_path``).
-       Otherwise, look for ``github_repo_path`` among the string ancestors
-       (self-contained root case).
+    The map must contain all string ancestors of ``namespace`` (and their FK-hop
+    parents if applicable) — callers are responsible for pre-loading these rows.
+    This is the pure resolution logic extracted from ``get_git_info_for_namespace``
+    so it can be shared with batch DataLoader callers.
     """
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
-    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
-    rows = (await session.execute(stmt)).scalars().all()
-    ns_map = {ns.namespace: ns for ns in rows}
-
     reversed_names = list(reversed(ancestor_names))
 
     branch_ns = next(
@@ -267,16 +259,17 @@ async def get_git_info_for_namespace(
 
     # Resolve config_ns: find the git root (has github_repo_path).
     # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
-    # do one FK hop — that sibling is the git root.
+    # use the FK-hop parent if it was pre-loaded into ns_map.
     # Otherwise, the git root is reachable via string ancestors.
     config_ns: Optional[NodeNamespace] = None
     if (
         branch_ns
         and branch_ns.parent_namespace
-        and branch_ns.parent_namespace not in ns_map
+        and branch_ns.parent_namespace not in ancestor_names
+        and branch_ns.parent_namespace in ns_map
     ):
-        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
-        if fk_parent and fk_parent.github_repo_path:
+        fk_parent = ns_map[branch_ns.parent_namespace]
+        if fk_parent.github_repo_path:
             config_ns = fk_parent
     if not config_ns:
         config_ns = next(
@@ -304,6 +297,45 @@ async def get_git_info_for_namespace(
         "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
         "git_only": config_ns.git_only,
     }
+
+
+async def get_git_info_for_namespace(
+    session: AsyncSession,
+    namespace: str,
+) -> Optional[dict]:
+    """
+    Return git repository info for a namespace.
+
+    Algorithm:
+    1. Batch-load all string ancestors (e.g. ``projectx``, ``projectx.feature_one``
+       for ``projectx.feature_one.cubes``) and find the nearest one with
+       ``git_branch`` set — that is the branch namespace.
+    2. If the branch namespace has ``parent_namespace`` set, do one FK hop to
+       load the git root (which carries ``github_repo_path`` / ``git_path``).
+       Otherwise, look for ``github_repo_path`` among the string ancestors
+       (self-contained root case).
+    """
+    ancestor_names = get_parent_namespaces(namespace) + [namespace]
+    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
+    rows = (await session.execute(stmt)).scalars().all()
+    ns_map = {ns.namespace: ns for ns in rows}
+
+    # Handle FK hop: if the branch ns points outside the string hierarchy, load it
+    reversed_names = list(reversed(ancestor_names))
+    branch_ns = next(
+        (ns_map[n] for n in reversed_names if ns_map.get(n) and ns_map[n].git_branch),
+        None,
+    )
+    if (
+        branch_ns
+        and branch_ns.parent_namespace
+        and branch_ns.parent_namespace not in ns_map
+    ):
+        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
+        if fk_parent:  # pragma: no branch
+            ns_map[fk_parent.namespace] = fk_parent
+
+    return resolve_git_info_from_map(namespace, ns_map)
 
 
 async def create_namespace(

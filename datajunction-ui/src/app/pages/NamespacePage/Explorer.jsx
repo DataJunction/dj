@@ -8,7 +8,7 @@ const Explorer = ({
   item = [],
   current,
   isTopLevel = false,
-  namespaceSources = {},
+  gitRoots = new Set(),
 }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [items, setItems] = useState([]);
@@ -139,50 +139,41 @@ const Explorer = ({
           >
             {items.namespace}
           </a>
-          {/* Deployment source badge */}
-          {namespaceSources[items.path] &&
-            namespaceSources[items.path].total_deployments > 0 &&
-            namespaceSources[items.path].primary_source?.type === 'git' && (
-              <span
-                title={`Git: ${
-                  namespaceSources[items.path].primary_source.repository ||
-                  'unknown'
-                }${
-                  namespaceSources[items.path].primary_source.branch
-                    ? ` (${namespaceSources[items.path].primary_source.branch})`
-                    : ''
-                }`}
-                style={{
-                  marginLeft: '6px',
-                  fontSize: '9px',
-                  padding: '1px 4px',
-                  borderRadius: '3px',
-                  backgroundColor: '#d4edda',
-                  color: '#155724',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '2px',
-                }}
+          {/* Git root badge */}
+          {gitRoots.has(items.path) && (
+            <span
+              title="Git-backed namespace"
+              style={{
+                marginLeft: '6px',
+                fontSize: '9px',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                backgroundColor: '#d4edda',
+                color: '#155724',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '2px',
+              }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="6" y1="3" x2="6" y2="15"></line>
-                  <circle cx="18" cy="6" r="3"></circle>
-                  <circle cx="6" cy="18" r="3"></circle>
-                  <path d="M18 9a9 9 0 0 1-9 9"></path>
-                </svg>
-                Git
-              </span>
-            )}
+                <line x1="6" y1="3" x2="6" y2="15"></line>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="6" cy="18" r="3"></circle>
+                <path d="M18 9a9 9 0 0 1-9 9"></path>
+              </svg>
+              Git
+            </span>
+          )}
           <button
             className="namespace-add-button"
             onClick={e => {
@@ -289,7 +280,7 @@ const Explorer = ({
                     item={item}
                     current={highlight}
                     isTopLevel={false}
-                    namespaceSources={namespaceSources}
+                    gitRoots={gitRoots}
                   />
                 </div>
               </div>
