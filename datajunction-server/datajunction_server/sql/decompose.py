@@ -16,7 +16,7 @@ from datajunction_server.models.decompose import (
     AggregationRule,
     MetricComponent,
 )
-from datajunction_server.naming import amenable_name
+from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
@@ -1103,14 +1103,10 @@ class MetricComponentExtractor:
         # Build component name from columns in the expression
         if is_distinct:
             # DISTINCT uses column names + "_distinct"
-            base_name = (
-                "_".join(amenable_name(str(col)) for col in columns) + "_distinct"
-            )
+            base_name = amenable_col_names(columns) + "_distinct"
         elif columns:
             # Normal case: column names + suffix
-            base_name = (
-                "_".join(amenable_name(str(col)) for col in columns) + comp_def.suffix
-            )
+            base_name = amenable_col_names(columns) + comp_def.suffix
         else:
             # No columns (e.g., COUNT(*)) - use suffix without leading underscore
             base_name = comp_def.suffix.lstrip("_") or "count"

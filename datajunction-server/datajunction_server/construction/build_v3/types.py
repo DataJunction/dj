@@ -620,6 +620,11 @@ class GrainGroup:
     # Maps component.name -> original Aggregability
     component_aggregabilities: dict[str, Aggregability] = field(default_factory=dict)
 
+    # Maps grain column expression string -> SQL alias to use in generated SQL.
+    # For LIMITED grain groups this is component.name, ensuring consistent naming
+    # between decompose.py component identifiers and measures.py SQL aliases.
+    grain_col_aliases: dict[str, str] = field(default_factory=dict)
+
     # Non-decomposable metrics that couldn't be broken into components
     # These need their raw metric expression applied in the final SELECT
     non_decomposable_metrics: list["DecomposedMetricInfo"] = field(default_factory=list)

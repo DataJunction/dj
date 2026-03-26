@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -29,15 +30,14 @@ from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
 )
 from datajunction_server.construction.build_v3.utils import (
+    extract_columns_from_expression,
     get_column_type,
     get_short_name,
     make_column_ref,
     make_name,
 )
+from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.construction.build_v3.utils import (
-    extract_columns_from_expression,
-)
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
 )
@@ -75,13 +75,11 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.sql.functions import function_registry
 from datajunction_server.sql.parsing import types as ct
-import re
 
 
 _logger = logging.getLogger(__name__)
 
 
-_GRAIN_EXPR_PREFIX_LEN = 24  # chars kept from the sanitized expression
 _GRAIN_EXPR_HASH_LEN = 8  # hex chars appended for uniqueness
 
 
@@ -92,23 +90,21 @@ def _alias_for_grain_expr(expr: ast.Expression) -> str:
     For simple column references (e.g., ``ast.Column("session_id")``), returns
     the column name unchanged.
 
-    For complex expressions (e.g., ``IF(is_reach_plan_selection = 1, alloc_account_id, NULL)``),
-    builds ``<prefix>_<hash>`` where *prefix* is the first ``_GRAIN_EXPR_PREFIX_LEN``
-    characters of the sanitized expression string and *hash* is an 8-hex-character
-    MD5 digest of the original expression string.  This keeps the alias short,
-    human-readable, and collision-resistant regardless of expression length.
+    For complex expressions (e.g., ``IF(is_product_view = 1, session_id, NULL)``),
+    uses the same leaf-column extraction approach as ``decompose.py`` component
+    naming: collects leaf ``ast.Column`` nodes in expression order, applies
+    ``amenable_name`` to each, joins with ``_``, then appends an 8-hex-character
+    MD5 digest of the expression string for collision-resistance.
 
-    Callers must parse the grain column string to an AST expression first so
-    that the ``isinstance`` check operates on the original AST node rather than
-    a regex over the raw string.
+    Example: ``IF(is_product_view = 1, session_id, NULL)``
+      → leaf columns: [is_product_view, session_id]
+      → ``is_product_view_session_id_2d8b47cd``
     """
     if isinstance(expr, ast.Column):
         return expr.name.name
-    expr_str = str(expr)
-    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", expr_str.lower())
-    sanitized = re.sub(r"_+", "_", sanitized).strip("_") or "expr"
-    prefix = sanitized[:_GRAIN_EXPR_PREFIX_LEN].rstrip("_")
-    short_hash = hashlib.md5(expr_str.encode()).hexdigest()[:_GRAIN_EXPR_HASH_LEN]
+    cols = list(expr.find_all(ast.Column))
+    prefix = amenable_col_names(cols) if cols else "expr"
+    short_hash = hashlib.md5(str(expr).encode()).hexdigest()[:_GRAIN_EXPR_HASH_LEN]
     return f"{prefix}_{short_hash}"
 
 
@@ -393,6 +389,7 @@ def build_select_ast(
     resolved_dimensions: list[ResolvedDimension],
     parent_node: Node,
     grain_columns: list[str] | None = None,
+    grain_col_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
 ) -> tuple[ast.Query, list[str]]:
@@ -407,6 +404,13 @@ def build_select_ast(
         grain_columns: Optional list of columns required in GROUP BY for LIMITED
                        aggregability (e.g., ["customer_id"] for COUNT DISTINCT).
                        These are added to the output grain to enable re-aggregation.
+        grain_col_aliases: Optional mapping from grain column expression string to
+                           the SQL alias to use in the generated SELECT.  When provided,
+                           the alias is taken from this dict (keyed by the raw expression
+                           string from ``rule.level``) rather than derived by
+                           ``_alias_for_grain_expr``.  This lets callers use
+                           ``component.name`` directly so decompose and measures
+                           naming stay in sync.
         filters: Optional list of filter strings to apply as WHERE clause.
                  Filter strings can reference dimensions (e.g., "v3.product.category = 'Electronics'")
                  or local columns (e.g., "status = 'active'").
@@ -515,10 +519,16 @@ def build_select_ast(
 
     # Parse grain column strings once into (expression, alias) pairs so that
     # all subsequent loops can work directly with the AST without re-parsing.
+    # When grain_col_aliases provides an override (keyed by the raw expression
+    # string), that alias is used instead of deriving one from the AST.  This
+    # lets callers pass component.name so the SQL alias matches the decompose
+    # component identifier exactly.
     grain_col_specs: list[tuple[ast.Expression, str]] = []
+    _gc_alias_map = grain_col_aliases or {}
     for gc in grain_columns:
         _gc_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
-        grain_col_specs.append((_gc_expr, _alias_for_grain_expr(_gc_expr)))
+        alias = _gc_alias_map.get(gc) or _alias_for_grain_expr(_gc_expr)
+        grain_col_specs.append((_gc_expr, alias))
 
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
     # These are added to the output so the result can be re-aggregated.
@@ -1224,18 +1234,9 @@ def build_grain_group_sql(
             if orig_agg == Aggregability.LIMITED:
                 # LIMITED: grain column is already in GROUP BY, no output needed
                 # The grain column (e.g., order_id) will be used for COUNT DISTINCT
-                # in the final SELECT
-                # Still set alias to the grain column name for pre-agg creation
-                grain_col = (
-                    component.rule.level[0]
-                    if component.rule.level
-                    else component.expression
-                )
-                _gc = cast(
-                    ast.Expression,
-                    parse(f"SELECT {grain_col}").select.projection[0],
-                )
-                component_aliases[component.name] = _alias_for_grain_expr(_gc)
+                # in the final SELECT.  The SQL alias is component.name — the same
+                # identifier that decompose.py assigned — so naming is consistent.
+                component_aliases[component.name] = component.name
                 continue
             else:
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
@@ -1250,19 +1251,11 @@ def build_grain_group_sql(
             continue
 
         # Skip LIMITED aggregability components with no aggregation
-        # These are represented by grain columns instead
+        # These are represented by grain columns instead.
+        # The SQL alias is component.name — the same identifier that decompose.py
+        # assigned — so naming is consistent without re-parsing the expression.
         if component.rule.type == Aggregability.LIMITED and not component.aggregation:
-            # Still set alias to the grain column name for pre-agg creation
-            grain_col = (
-                component.rule.level[0]
-                if component.rule.level
-                else component.expression
-            )
-            _gc = cast(
-                ast.Expression,
-                parse(f"SELECT {grain_col}").select.projection[0],
-            )
-            component_aliases[component.name] = _alias_for_grain_expr(_gc)
+            component_aliases[component.name] = component.name
             continue
 
         # Always use component.name for consistency - no special case for single-component
@@ -1333,6 +1326,7 @@ def build_grain_group_sql(
             resolved_dimensions=resolved_dimensions,
             parent_node=parent_node,
             grain_columns=effective_grain_columns,
+            grain_col_aliases=grain_group.grain_col_aliases or None,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
         )
 
@@ -1369,11 +1363,14 @@ def build_grain_group_sql(
 
     # Add grain columns (for LIMITED and NONE).
     # Parse once here so we can inspect the AST directly for alias derivation.
-    # For complex expressions, use the sanitized alias as the column name.
+    # Prefer the pre-computed alias from grain_col_aliases (= component.name) when
+    # available so the column metadata name matches the SQL alias exactly.
     effective_grain_specs: list[tuple[ast.Expression, str]] = []
+    _eff_alias_map = grain_group.grain_col_aliases
     for gc in effective_grain_columns:
         _eff_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
-        effective_grain_specs.append((_eff_expr, _alias_for_grain_expr(_eff_expr)))
+        alias = _eff_alias_map.get(gc) or _alias_for_grain_expr(_eff_expr)
+        effective_grain_specs.append((_eff_expr, alias))
 
     for _, gc_alias in effective_grain_specs:
         col_type = get_column_type(parent_node, gc_alias)

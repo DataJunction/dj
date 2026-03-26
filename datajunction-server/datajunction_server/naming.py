@@ -1,7 +1,7 @@
 """Naming related utils."""
 
 from string import ascii_letters, digits
-from typing import List
+from typing import Any, Iterable, List
 
 SEPARATOR = "."
 
@@ -48,6 +48,22 @@ def amenable_name(name: str) -> str:
             cont = []
 
     return ("_".join(ret) + "_" + "".join(cont)).strip("_")
+
+
+def amenable_col_names(columns: Iterable[Any]) -> str:
+    """Return underscore-joined amenable names for a sequence of SQL column nodes.
+
+    Applies :func:`amenable_name` to ``str(col)`` for each item and joins with
+    ``"_"``.  Used by both ``decompose.py`` component naming and
+    ``measures.py`` grain-column alias derivation so both code paths produce
+    identical identifiers for the same leaf columns.
+
+    Example::
+
+        amenable_col_names([col("is_product_view"), col("session_id")])
+        # → "is_product_view_session_id"
+    """
+    return "_".join(amenable_name(str(col)) for col in columns)
 
 
 def from_amenable_name(name: str) -> str:
