@@ -191,6 +191,13 @@ type GeneratedSQL {
   errors: [DJError!]!
 }
 
+type GitBranchConfig {
+  branch: String!
+  gitOnly: Boolean!
+  parentNamespace: String!
+  root: GitRootConfig!
+}
+
 type GitRepositoryInfo {
   """GitHub repository path (e.g., 'owner/repo')"""
   repo: String!
@@ -214,6 +221,12 @@ type GitRepositoryInfo {
 
   """If true, UI edits are blocked; must edit via git"""
   gitOnly: Boolean!
+}
+
+type GitRootConfig {
+  repo: String!
+  path: String
+  defaultBranch: String
 }
 
 """
@@ -280,6 +293,14 @@ type MetricMetadata {
   expression: String!
   incompatibleDruidFunctions: [String!]!
 }
+
+type Namespace {
+  namespace: String!
+  numNodes: Int!
+  git: NamespaceGit
+}
+
+union NamespaceGit = GitRootConfig | GitBranchConfig
 
 type Node {
   id: Union!
@@ -609,6 +630,9 @@ type Query {
     """Limit collections"""
     limit: Int = 100
   ): [Collection!]!
+
+  """List all active namespaces with node counts and git configuration."""
+  listNamespaces: [Namespace!]!
 }
 
 type SemanticEntity {
