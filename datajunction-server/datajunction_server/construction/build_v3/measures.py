@@ -7,6 +7,7 @@ which aggregates metric components to the requested dimensional grain.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -80,15 +81,22 @@ import re
 _logger = logging.getLogger(__name__)
 
 
+_GRAIN_EXPR_PREFIX_LEN = 24  # chars kept from the sanitized expression
+_GRAIN_EXPR_HASH_LEN = 8  # hex chars appended for uniqueness
+
+
 def _alias_for_grain_expr(expr: ast.Expression) -> str:
     """
     Return a clean SQL identifier alias for a pre-parsed grain column expression.
 
     For simple column references (e.g., ``ast.Column("session_id")``), returns
-    the column name unchanged.  For complex expressions (e.g.,
-    ``IF(is_product_view = 1, session_id, NULL)``), sanitizes the SQL string
-    representation into a valid identifier by replacing non-alphanumeric
-    characters with underscores.
+    the column name unchanged.
+
+    For complex expressions (e.g., ``IF(is_reach_plan_selection = 1, alloc_account_id, NULL)``),
+    builds ``<prefix>_<hash>`` where *prefix* is the first ``_GRAIN_EXPR_PREFIX_LEN``
+    characters of the sanitized expression string and *hash* is an 8-hex-character
+    MD5 digest of the original expression string.  This keeps the alias short,
+    human-readable, and collision-resistant regardless of expression length.
 
     Callers must parse the grain column string to an AST expression first so
     that the ``isinstance`` check operates on the original AST node rather than
@@ -96,9 +104,12 @@ def _alias_for_grain_expr(expr: ast.Expression) -> str:
     """
     if isinstance(expr, ast.Column):
         return expr.name.name
-    alias = re.sub(r"[^a-zA-Z0-9]", "_", str(expr).lower())
-    alias = re.sub(r"_+", "_", alias).strip("_")
-    return alias or "expr"
+    expr_str = str(expr)
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", expr_str.lower())
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_") or "expr"
+    prefix = sanitized[:_GRAIN_EXPR_PREFIX_LEN].rstrip("_")
+    short_hash = hashlib.md5(expr_str.encode()).hexdigest()[:_GRAIN_EXPR_HASH_LEN]
+    return f"{prefix}_{short_hash}"
 
 
 def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
@@ -1220,7 +1231,11 @@ def build_grain_group_sql(
                     if component.rule.level
                     else component.expression
                 )
-                component_aliases[component.name] = grain_col
+                _gc = cast(
+                    ast.Expression,
+                    parse(f"SELECT {grain_col}").select.projection[0],
+                )
+                component_aliases[component.name] = _alias_for_grain_expr(_gc)
                 continue
             else:
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
@@ -1243,7 +1258,11 @@ def build_grain_group_sql(
                 if component.rule.level
                 else component.expression
             )
-            component_aliases[component.name] = grain_col
+            _gc = cast(
+                ast.Expression,
+                parse(f"SELECT {grain_col}").select.projection[0],
+            )
+            component_aliases[component.name] = _alias_for_grain_expr(_gc)
             continue
 
         # Always use component.name for consistency - no special case for single-component

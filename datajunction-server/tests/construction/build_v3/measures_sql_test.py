@@ -2033,7 +2033,7 @@ class TestMetricTypesMeasuresSQL:
         assert gg["aggregability"] == "limited"
         assert sorted(gg["grain"]) == [
             "category",
-            "if_is_product_view_1_session_id_null",
+            "if_is_product_view_1_ses_2d8b47cd",
         ]
         assert gg["metrics"] == ["v3.product_session_count"]
 
@@ -2045,9 +2045,9 @@ class TestMetricTypesMeasuresSQL:
                 "semantic_type": "dimension",
             },
             {
-                "name": "if_is_product_view_1_session_id_null",
+                "name": "if_is_product_view_1_ses_2d8b47cd",
                 "type": "string",
-                "semantic_entity": "v3.page_views_enriched.if_is_product_view_1_session_id_null",
+                "semantic_entity": "v3.page_views_enriched.if_is_product_view_1_ses_2d8b47cd",
                 "semantic_type": "dimension",
             },
         ]
@@ -2066,10 +2066,10 @@ class TestMetricTypesMeasuresSQL:
                 FROM default.v3.products
             )
             SELECT t2.category,
-                IF(t1.is_product_view = 1, t1.session_id, NULL) if_is_product_view_1_session_id_null
+                IF(t1.is_product_view = 1, t1.session_id, NULL) if_is_product_view_1_ses_2d8b47cd
             FROM v3_page_views_enriched t1
             LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            GROUP BY t2.category, if_is_product_view_1_session_id_null
+            GROUP BY t2.category, if_is_product_view_1_ses_2d8b47cd
             """,
         )
 
