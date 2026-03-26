@@ -1123,6 +1123,44 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  listNamespacesWithGit: async function () {
+    const query = `
+      query ListNamespaces {
+        listNamespaces {
+          namespace
+          numNodes
+          git {
+            __typename
+            ... on GitRootConfig {
+              repo
+              path
+              defaultBranch
+            }
+            ... on GitBranchConfig {
+              branch
+              gitOnly
+              parentNamespace
+              root {
+                repo
+                path
+                defaultBranch
+              }
+            }
+          }
+        }
+      }
+    `;
+    const result = await (
+      await fetch(DJ_GQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query }),
+      })
+    ).json();
+    return result?.data?.listNamespaces || [];
+  },
+
   namespaceSources: async function (namespace) {
     return await (
       await fetch(`${DJ_URL}/namespaces/${namespace}/sources`, {
