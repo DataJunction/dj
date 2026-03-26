@@ -378,10 +378,7 @@ def build_select_ast(
         grain_col_aliases: Optional mapping from grain column expression string to
                            the SQL alias to use in the generated SELECT.  When provided,
                            the alias is taken from this dict (keyed by the raw expression
-                           string from ``rule.level``) rather than derived by
-                           ``_alias_for_grain_expr``.  This lets callers use
-                           ``component.name`` directly so decompose and measures
-                           naming stay in sync.
+                           string from ``rule.level``).
         filters: Optional list of filter strings to apply as WHERE clause.
                  Filter strings can reference dimensions (e.g., "v3.product.category = 'Electronics'")
                  or local columns (e.g., "status = 'active'").
