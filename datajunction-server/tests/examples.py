@@ -3372,6 +3372,15 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.product_session_count",
+            "description": "Distinct sessions where a product page was viewed (COUNT DISTINCT with IF expression)",
+            "query": "SELECT COUNT(DISTINCT IF(is_product_view = 1, session_id, NULL)) FROM v3.page_views_enriched",
+            "mode": "published",
+        },
+    ),
     # =========================================================================
     # Derived Metrics - Same Fact Ratios
     # =========================================================================
