@@ -34,6 +34,8 @@ from datajunction_server.construction.build_v3.utils import (
     make_column_ref,
     make_name,
 )
+from datajunction_server.naming import amenable_col_names
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.construction.build_v3.utils import (
     extract_columns_from_expression,
 )
@@ -120,6 +122,35 @@ class TestNameHelpers:
         """Test converting node name to SQL-safe name."""
         assert amenable_name("v3.order_details") == "v3_order_details"
         assert amenable_name("my.node.name") == "my_node_name"
+
+    def test_amenable_col_names_simple_column(self):
+        """Single bare column reference."""
+        cols = list(parse("SELECT session_id FROM t").find_all(ast.Column))
+        assert amenable_col_names(cols) == "session_id"
+
+    def test_amenable_col_names_if_expression(self):
+        """IF expression yields leaf columns in order, joined with underscores."""
+        expr = parse("SELECT IF(is_product_view = 1, session_id, NULL) FROM t")
+        cols = list(expr.find_all(ast.Column))
+        assert amenable_col_names(cols) == "is_product_view_session_id"
+
+    def test_amenable_col_names_case_expression(self):
+        """CASE WHEN expression with multiple column references."""
+        expr = parse(
+            "SELECT CASE WHEN region = 'US' THEN account_id ELSE NULL END FROM t",
+        )
+        cols = list(expr.find_all(ast.Column))
+        assert amenable_col_names(cols) == "region_account_id"
+
+    def test_amenable_col_names_qualified_column(self):
+        """Table-qualified column — str(col) includes the qualifier, amenable_name sanitises the dot."""
+        cols = list(parse("SELECT t1.order_id FROM t1").find_all(ast.Column))
+        # str(ast.Column) for a qualified col includes the table prefix; dot → '_DOT_'
+        assert amenable_col_names(cols) == "t1_DOT_order_id"
+
+    def test_amenable_col_names_empty(self):
+        """Empty sequence produces an empty string."""
+        assert amenable_col_names([]) == ""
 
     def test_get_cte_name(self):
         """Test generating CTE name from node name."""
