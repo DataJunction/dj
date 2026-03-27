@@ -4374,3 +4374,201 @@ class TestIntermediateDimLinkUpstreamExpansion:
             """,
             normalize_aliases=True,
         )
+
+
+class TestDimReferencingDimViaAlias:
+    """
+    Integration test for the bug where needed_columns_by_node incorrectly pruned
+    CTE projections when a dimension node references another dimension node via
+    an aliased JOIN in its SQL body.
+
+    Scenario:
+        td.dim_a joins td.dim_b AS b_alias and selects b_alias.p and b_alias.q AS y.
+        td.fact links to both td.dim_a and td.dim_b.
+        When querying dimensions td.dim_a.x, td.dim_a.y, td.dim_b.p,
+        the td_dim_b CTE must project both p and q — even though only p is
+        explicitly requested, q is needed by td.dim_a's SQL body.
+    """
+
+    @pytest.mark.asyncio
+    async def test_dim_b_retains_referenced_column_from_dim_a(
+        self,
+        client_with_service_setup,
+    ):
+        """
+        Verify that when dim_a references dim_b.q via an alias, the td_dim_b CTE
+        retains q in its projection even though only td.dim_b.p was requested.
+        """
+        # Create namespace
+        resp = await client_with_service_setup.post("/namespaces/td/")
+        assert resp.status_code in (200, 201), resp.text
+
+        # Source: id, val
+        resp = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "td.src_fact",
+                "catalog": "default",
+                "schema_": "td",
+                "table": "src_fact",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "val", "type": "float"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Source: id, x
+        resp = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "td.src_a",
+                "catalog": "default",
+                "schema_": "td",
+                "table": "src_a",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "x", "type": "string"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Source: id, p, q, r
+        resp = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "td.src_b",
+                "catalog": "default",
+                "schema_": "td",
+                "table": "src_b",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "p", "type": "string"},
+                    {"name": "q", "type": "string"},
+                    {"name": "r", "type": "string"},
+                ],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # dim_b: id, p, q, r — exposes all columns from src_b
+        resp = await client_with_service_setup.post(
+            "/nodes/dimension/",
+            json={
+                "name": "td.dim_b",
+                "mode": "published",
+                "primary_key": ["id"],
+                "query": "SELECT id, p, q, r FROM td.src_b",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # dim_a: joins td.dim_b AS b_alias and selects b_alias.p and b_alias.q AS y
+        # This means dim_a's SQL body references two columns from dim_b: p and q
+        resp = await client_with_service_setup.post(
+            "/nodes/dimension/",
+            json={
+                "name": "td.dim_a",
+                "mode": "published",
+                "primary_key": ["id"],
+                "query": (
+                    "SELECT a.id, a.x, b_alias.p, b_alias.q AS y"
+                    " FROM td.src_a a"
+                    " CROSS JOIN td.dim_b AS b_alias"
+                ),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # fact transform
+        resp = await client_with_service_setup.post(
+            "/nodes/transform/",
+            json={
+                "name": "td.fact",
+                "mode": "published",
+                "query": "SELECT id, val FROM td.src_fact",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # metric
+        resp = await client_with_service_setup.post(
+            "/nodes/metric/",
+            json={
+                "name": "td.total_val",
+                "mode": "published",
+                "query": "SELECT SUM(val) FROM td.fact",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Link fact -> dim_a and fact -> dim_b
+        resp = await client_with_service_setup.post(
+            "/nodes/td.fact/link",
+            json={
+                "dimension_node": "td.dim_a",
+                "join_type": "left",
+                "join_on": "td.fact.id = td.dim_a.id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client_with_service_setup.post(
+            "/nodes/td.fact/link",
+            json={
+                "dimension_node": "td.dim_b",
+                "join_type": "left",
+                "join_on": "td.fact.id = td.dim_b.id",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Query: request dimensions from both dim_a and dim_b
+        resp = await client_with_service_setup.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["td.total_val"],
+                "dimensions": [
+                    "td.dim_a.x",
+                    "td.dim_a.y",
+                    "td.dim_b.p",
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+        sql = resp.json()["grain_groups"][0]["sql"]
+
+        # The td_dim_b CTE must project id, p, AND q.
+        # q is not directly requested but is needed by td_dim_a's SQL body via b_alias.q.
+        # If q is missing, td_dim_a's CTE body would be broken.
+        assert_sql_equal(
+            sql,
+            """
+            WITH td_dim_b AS (
+                SELECT id, p, q
+                FROM default.td.src_b
+            ),
+            td_fact AS (
+                SELECT id, val
+                FROM default.td.src_fact
+            ),
+            td_dim_a AS (
+                SELECT a.id, a.x, b_alias.q AS y
+                FROM default.td.src_a a
+                CROSS JOIN td_dim_b AS b_alias
+            )
+            SELECT
+                t2.x,
+                t2.y,
+                t3.p,
+                SUM(t1.val) val_sum_HASH
+            FROM td_fact t1
+            LEFT OUTER JOIN td_dim_a t2 ON t1.id = t2.id
+            LEFT OUTER JOIN td_dim_b t3 ON t1.id = t3.id
+            GROUP BY t2.x, t2.y, t3.p
+            """,
+            normalize_aliases=True,
+        )
