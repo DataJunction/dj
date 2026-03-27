@@ -400,7 +400,9 @@ async def compute_impact(
         holder_names: set[str] = set()
         for dim_node in dim_nodes_losing_cols:
             holder_displays, _ = await get_dimension_inbound_bfs(
-                session, dim_node, depth=1,
+                session,
+                dim_node,
+                depth=1,
             )
             holder_names.update(d.name for d in holder_displays)
 
@@ -438,7 +440,9 @@ async def compute_impact(
         parent_ids = [node_cache[name].id for name in frontier if name in node_cache]
         # Single round-trip: get all direct children for the entire frontier
         children_by_parent = await _batch_get_children(
-            session, parent_ids, list(_node_output_options()),
+            session,
+            parent_ids,
+            list(_node_output_options()),
         )
         # Map node.id → node_name so we can look up propagated_change
         id_to_name = {node_cache[n].id: n for n in frontier if n in node_cache}
@@ -510,7 +514,8 @@ async def compute_impact(
                         # Fallback heuristic when no proposed column state available
                         is_terminal = child.type in (NodeType.METRIC, NodeType.CUBE)
                         if is_terminal or references_changed_columns(
-                            child, prop.columns_removed,
+                            child,
+                            prop.columns_removed,
                         ):
                             _record_impact(
                                 impacted,
