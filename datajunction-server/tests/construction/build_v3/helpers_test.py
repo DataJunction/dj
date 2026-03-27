@@ -25,6 +25,11 @@ from datajunction_server.construction.build_v3.filters import (
 )
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
+    collect_cte_nodes_and_needed_columns,
+)
+from datajunction_server.construction.build_v3.types import (
+    JoinPath,
+    ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import (
     amenable_name,
@@ -1870,3 +1875,263 @@ class TestAnalyzeGrainGroups:
 
         assert result[0].parent_node == parent_node
         assert result[0].parent_node.name == "v3.my_parent"
+
+
+class TestCollectCteNodesAndNeededColumns:
+    """
+    Tests for collect_cte_nodes_and_needed_columns.
+
+    Focuses on the case where a dimension node's SQL references another
+    dimension node via a table alias, and columns used through that alias
+    must be included in the referenced node's CTE projection.
+    """
+
+    def test_dim_referencing_dim_via_alias(self):
+        """
+        Columns used by one dimension's SQL from another dimension (via a table
+        alias) must appear in the referenced dimension's needed_columns set.
+
+        Setup:
+          test.fact  --(id)-->  test.dim_a   (requested: x)
+          test.fact  --(id)-->  test.dim_b   (requested: p)
+
+          test.dim_a's SQL:
+            SELECT id, x, b_alias.p, b_alias.q
+            FROM test.source_a
+            CROSS JOIN test.dim_b AS b_alias
+
+        Expected needed columns:
+          test.dim_a: {x, id}          -- x requested, id from join key
+          test.dim_b: {p, q, id}       -- p requested, id from join key,
+                                          q pulled in because dim_a selects b_alias.q
+        """
+        # --- nodes ---
+        fact_node = MagicMock()
+        fact_node.name = "test.fact"
+        fact_node.type = NodeType.TRANSFORM
+        fact_node.current.query = "SELECT id, val FROM test.source"
+        fact_node.current.dimension_links = []
+
+        dim_a_node = MagicMock()
+        dim_a_node.name = "test.dim_a"
+        dim_a_node.type = NodeType.DIMENSION
+        dim_a_node.current.query = (
+            "SELECT id, x, b_alias.p, b_alias.q "
+            "FROM test.source_a "
+            "CROSS JOIN test.dim_b AS b_alias"
+        )
+
+        dim_b_node = MagicMock()
+        dim_b_node.name = "test.dim_b"
+        dim_b_node.type = NodeType.DIMENSION
+        dim_b_node.current.query = "SELECT id, p, q, r FROM test.source_b"
+
+        # --- dimension links ---
+        link_fact_to_dim_a = MagicMock()
+        link_fact_to_dim_a.dimension = dim_a_node
+        link_fact_to_dim_a.join_sql = "test.fact.id = test.dim_a.id"
+        link_fact_to_dim_a.node_revision.name = "test.fact"
+
+        link_fact_to_dim_b = MagicMock()
+        link_fact_to_dim_b.dimension = dim_b_node
+        link_fact_to_dim_b.join_sql = "test.fact.id = test.dim_b.id"
+        link_fact_to_dim_b.node_revision.name = "test.fact"
+
+        # --- context ---
+        ctx = MagicMock()
+        ctx.temporal_partition_columns = {}
+        ctx.nodes = {"test.dim_a": dim_a_node, "test.dim_b": dim_b_node}
+        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
+
+        # --- resolved dimensions ---
+        resolved_dimensions = [
+            ResolvedDimension(
+                original_ref="test.dim_a.x",
+                node_name="test.dim_a",
+                column_name="x",
+                role=None,
+                join_path=JoinPath(
+                    links=[link_fact_to_dim_a],
+                    target_dimension=dim_a_node,
+                ),
+                is_local=False,
+            ),
+            ResolvedDimension(
+                original_ref="test.dim_b.p",
+                node_name="test.dim_b",
+                column_name="p",
+                role=None,
+                join_path=JoinPath(
+                    links=[link_fact_to_dim_b],
+                    target_dimension=dim_b_node,
+                ),
+                is_local=False,
+            ),
+        ]
+
+        nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+            ctx=ctx,
+            parent_node=fact_node,
+            resolved_dimensions=resolved_dimensions,
+            grain_col_specs=[],
+            metric_expressions=[],
+        )
+
+        assert fact_node in nodes_for_ctes
+        assert dim_a_node in nodes_for_ctes
+        assert dim_b_node in nodes_for_ctes
+
+        assert needed_columns_by_node["test.dim_a"] == {"x", "id"}
+        # q must be present even though it was never explicitly requested —
+        # it's referenced in dim_a's SQL as b_alias.q
+        assert needed_columns_by_node["test.dim_b"] == {"p", "q", "id"}
+
+    def test_parent_directly_references_dim_no_alias(self):
+        """
+        Case 1: parent_node's SQL directly selects a column from a dimension
+        node without an alias (test.dim_a.extra_col).  That column must appear
+        in needed_columns_by_node for that dimension even if it was not
+        explicitly requested as a dimension attribute.
+        """
+        fact_node = MagicMock()
+        fact_node.name = "test.fact"
+        fact_node.type = NodeType.TRANSFORM
+        # Parent selects test.dim_a.extra_col directly — nobody requests it
+        fact_node.current.query = (
+            "SELECT id, val, test.dim_a.extra_col "
+            "FROM test.source "
+            "JOIN test.dim_a ON test.source.id = test.dim_a.id"
+        )
+        fact_node.current.dimension_links = []
+
+        dim_a_node = MagicMock()
+        dim_a_node.name = "test.dim_a"
+        dim_a_node.type = NodeType.DIMENSION
+        dim_a_node.current.query = "SELECT id, x, extra_col FROM test.src_a"
+
+        link_fact_to_dim_a = MagicMock()
+        link_fact_to_dim_a.dimension = dim_a_node
+        link_fact_to_dim_a.join_sql = "test.fact.id = test.dim_a.id"
+        link_fact_to_dim_a.node_revision.name = "test.fact"
+
+        ctx = MagicMock()
+        ctx.temporal_partition_columns = {}
+        ctx.nodes = {"test.dim_a": dim_a_node}
+        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
+
+        resolved_dimensions = [
+            ResolvedDimension(
+                original_ref="test.dim_a.x",
+                node_name="test.dim_a",
+                column_name="x",
+                role=None,
+                join_path=JoinPath(
+                    links=[link_fact_to_dim_a],
+                    target_dimension=dim_a_node,
+                ),
+                is_local=False,
+            ),
+        ]
+
+        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+            ctx=ctx,
+            parent_node=fact_node,
+            resolved_dimensions=resolved_dimensions,
+            grain_col_specs=[],
+            metric_expressions=[],
+        )
+
+        # x requested, id from join key, extra_col from parent's SQL body
+        assert needed_columns_by_node["test.dim_a"] == {"x", "id", "extra_col"}
+
+    def test_source_node_excluded_from_nodes_for_ctes(self):
+        """
+        SOURCE-type nodes must not appear in nodes_for_ctes — they map to
+        physical tables and don't need CTEs.
+        """
+        source_node = MagicMock()
+        source_node.name = "test.src"
+        source_node.type = NodeType.SOURCE
+        source_node.current.dimension_links = []
+
+        ctx = MagicMock()
+        ctx.temporal_partition_columns = {}
+        ctx.nodes = {}
+        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
+
+        nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+            ctx=ctx,
+            parent_node=source_node,
+            resolved_dimensions=[],
+            grain_col_specs=[],
+            metric_expressions=[],
+        )
+
+        assert source_node not in nodes_for_ctes
+        assert needed_columns_by_node == {}
+
+    def test_metric_expressions_contribute_to_parent_needed_cols(self):
+        """
+        Columns referenced inside metric expressions must be included in
+        parent_node's needed columns so filter_cte_projection keeps them.
+        """
+        fact_node = MagicMock()
+        fact_node.name = "test.fact"
+        fact_node.type = NodeType.TRANSFORM
+        fact_node.current.query = "SELECT id, revenue, cost FROM test.src"
+        fact_node.current.dimension_links = []
+
+        ctx = MagicMock()
+        ctx.temporal_partition_columns = {}
+        ctx.nodes = {}
+        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
+
+        metric_expr = parse("SELECT revenue - cost").select.projection[0]
+
+        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+            ctx=ctx,
+            parent_node=fact_node,
+            resolved_dimensions=[],
+            grain_col_specs=[],
+            metric_expressions=[("profit", metric_expr)],
+        )
+
+        assert "revenue" in needed_columns_by_node["test.fact"]
+        assert "cost" in needed_columns_by_node["test.fact"]
+
+    def test_local_dimension_contributes_to_parent_needed_cols(self):
+        """
+        Local dimensions (columns directly on the fact table, no join required)
+        must be added to parent_node's needed columns, not to a joined dim node.
+        """
+        fact_node = MagicMock()
+        fact_node.name = "test.fact"
+        fact_node.type = NodeType.TRANSFORM
+        fact_node.current.query = "SELECT id, val, region FROM test.src"
+        fact_node.current.dimension_links = []
+
+        ctx = MagicMock()
+        ctx.temporal_partition_columns = {}
+        ctx.nodes = {}
+        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
+
+        resolved_dimensions = [
+            ResolvedDimension(
+                original_ref="test.fact.region",
+                node_name="test.fact",
+                column_name="region",
+                role=None,
+                join_path=None,
+                is_local=True,
+            ),
+        ]
+
+        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+            ctx=ctx,
+            parent_node=fact_node,
+            resolved_dimensions=resolved_dimensions,
+            grain_col_specs=[],
+            metric_expressions=[],
+        )
+
+        assert "region" in needed_columns_by_node["test.fact"]

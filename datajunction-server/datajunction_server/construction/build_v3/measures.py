@@ -30,6 +30,7 @@ from datajunction_server.construction.build_v3.filters import (
 )
 from datajunction_server.construction.build_v3.utils import (
     extract_columns_from_expression,
+    extract_columns_referenced_from_node,
     get_column_type,
     get_short_name,
     make_column_ref,
@@ -355,6 +356,172 @@ def get_dimension_table_alias(
     return main_alias  # pragma: no cover
 
 
+def collect_cte_nodes_and_needed_columns(
+    ctx: BuildContext,
+    parent_node: Node,
+    resolved_dimensions: list[ResolvedDimension],
+    grain_col_specs: list[tuple[ast.Expression, str]],
+    metric_expressions: list[tuple[str, ast.Expression]],
+) -> tuple[list[Node], dict[str, set[str]]]:
+    """
+    Determine which nodes need CTEs and the minimal set of columns each must project.
+
+    Returns a tuple of:
+    - nodes_for_ctes: ordered list of non-source nodes that require CTEs
+    - needed_columns_by_node: mapping of node name -> set of column names that
+      must remain in that node's CTE projection after filter_cte_projection runs
+
+    The needed columns for each node are gathered from:
+    - For parent_node: local dimension columns, grain columns, metric expression
+      columns, join key columns, and temporal partition columns
+    - For each dimension node: the requested dimension attribute, join key columns,
+      and any columns referenced from that node in parent_node's or other dimension
+      nodes' SQL (including aliased references like CROSS JOIN node AS alias)
+    """
+    nodes_for_ctes: list[Node] = []
+    needed_columns_by_node: dict[str, set[str]] = {}
+
+    # Collect columns needed from parent node
+    parent_needed_cols: set[str] = set()
+
+    # Add local dimension columns
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.is_local:
+            parent_needed_cols.add(resolved_dim.column_name)
+
+    # Add grain columns for LIMITED aggregability.
+    # For complex expressions, extract the actual leaf columns they reference.
+    for gc_expr, _ in grain_col_specs:
+        if isinstance(gc_expr, ast.Column):
+            parent_needed_cols.add(gc_expr.name.name)
+        else:
+            parent_needed_cols.update(extract_columns_from_expression(gc_expr))
+
+    # Add columns from metric expressions
+    for _, expr in metric_expressions:
+        parent_needed_cols.update(extract_columns_from_expression(expr))
+
+    # Add join key columns (from the left side of joins)
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.join_path:
+            for link in resolved_dim.join_path.links:
+                if link.join_sql:  # pragma: no branch
+                    parent_needed_cols.update(
+                        extract_join_columns_for_node(link.join_sql, parent_node.name),
+                    )
+
+    # Add temporal partition columns from cube if linked to this parent
+    # This ensures the columns are available in the CTE for the WHERE clause
+    if ctx.temporal_partition_columns and parent_node.current:
+        for partition_col_ref in ctx.temporal_partition_columns:
+            dimension_ref = parse_dimension_ref(partition_col_ref)
+
+            # Check if this parent has a dimension link to the partition column's node
+            if parent_node.current.dimension_links:  # pragma: no branch
+                for link in parent_node.current.dimension_links:  # pragma: no branch
+                    if link.dimension.name == dimension_ref.node_name:
+                        parent_needed_cols.add(dimension_ref.column_name)
+                        break
+
+    # Parent node needs CTE if it's not a source
+    if parent_node.type != NodeType.SOURCE:  # pragma: no branch
+        nodes_for_ctes.append(parent_node)
+        needed_columns_by_node[parent_node.name] = parent_needed_cols
+
+    # Dimension nodes from joins need CTEs
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.join_path:
+            for link in resolved_dim.join_path.links:
+                # Look up full node from ctx.nodes to avoid lazy loading
+                dim_node = ctx.nodes.get(link.dimension.name, link.dimension)
+                if dim_node and dim_node.type != NodeType.SOURCE:  # pragma: no branch
+                    if dim_node not in nodes_for_ctes:
+                        nodes_for_ctes.append(dim_node)
+
+                    # Collect needed columns for this dimension
+                    dim_cols: set[str] = set()
+
+                    # Add the dimension column being selected
+                    if resolved_dim.join_path.target_node_name == dim_node.name:
+                        dim_cols.add(resolved_dim.column_name)
+
+                    # Add join key columns from this dimension (right side of this link)
+                    if link.join_sql:  # pragma: no branch
+                        dim_cols.update(
+                            extract_join_columns_for_node(link.join_sql, dim_node.name),
+                        )
+
+                    # Case 1: parent_node's query directly selects from dim_node
+                    # (e.g. SELECT ..., D1.m FROM x JOIN D1 ON ...)
+                    nodes_to_scan: list[Node] = []
+                    if parent_node.current and parent_node.current.query:
+                        nodes_to_scan.append(parent_node)
+                    # Case 2: another dimension node's query references dim_node
+                    # (e.g. allocation_day CROSS JOINs max_observation_end
+                    #  and uses exploded.account_observation_day)
+                    for other_rdim in resolved_dimensions:
+                        if other_rdim.join_path:
+                            for other_link in other_rdim.join_path.links:
+                                other_dim = ctx.nodes.get(
+                                    other_link.dimension.name,
+                                    other_link.dimension,
+                                )
+                                if (
+                                    other_dim
+                                    and other_dim.name != dim_node.name
+                                    and other_dim.type != NodeType.SOURCE
+                                    and other_dim.current
+                                    and other_dim.current.query
+                                    and other_dim not in nodes_to_scan
+                                ):
+                                    nodes_to_scan.append(other_dim)
+                    for referencing_node in nodes_to_scan:
+                        rq = ctx.get_parsed_query(referencing_node)
+                        found = extract_columns_referenced_from_node(rq, dim_node.name)
+                        if found:
+                            _logger.info(
+                                "filter_cte_projection: %s references cols %s from %s",
+                                referencing_node.name,
+                                sorted(found),
+                                dim_node.name,
+                            )
+                        dim_cols.update(found)
+
+                    # Merge with existing if any
+                    if dim_node.name in needed_columns_by_node:
+                        needed_columns_by_node[dim_node.name].update(dim_cols)
+                    else:
+                        needed_columns_by_node[dim_node.name] = dim_cols
+                    _logger.info(
+                        "filter_cte_projection: keeping cols %s for %s",
+                        sorted(dim_cols),
+                        dim_node.name,
+                    )
+
+                # For multi-hop joins: the left side of this link is an intermediate
+                # dimension node that also needs the left-side join key columns.
+                # (For the first link, the left side is parent_node, already handled
+                # above in parent_needed_cols.)
+                left_node_name = link.node_revision.name
+                if left_node_name != parent_node.name and link.join_sql:
+                    left_node = ctx.nodes.get(left_node_name)
+                    if (
+                        left_node and left_node.type != NodeType.SOURCE
+                    ):  # pragma: no branch
+                        left_join_cols = extract_join_columns_for_node(
+                            link.join_sql,
+                            left_node_name,
+                        )
+                        if left_node_name in needed_columns_by_node:
+                            needed_columns_by_node[left_node_name].update(
+                                left_join_cols,
+                            )
+                        else:  # pragma: no cover
+                            needed_columns_by_node[left_node_name] = left_join_cols
+
+    return nodes_for_ctes, needed_columns_by_node
+
+
 def build_select_ast(
     ctx: BuildContext,
     metric_expressions: list[tuple[str, ast.Expression]],
@@ -560,107 +727,14 @@ def build_select_ast(
         else:
             group_by.append(ast.Column(name=ast.Name(gc_alias)))
 
-    # Collect all nodes that need CTEs and their needed columns
-    nodes_for_ctes: list[Node] = []
-    needed_columns_by_node: dict[str, set[str]] = {}
-
-    # Collect columns needed from parent node
-    parent_needed_cols: set[str] = set()
-
-    # Add local dimension columns
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.is_local:
-            parent_needed_cols.add(resolved_dim.column_name)
-
-    # Add grain columns for LIMITED aggregability.
-    # For complex expressions, extract the actual leaf columns they reference.
-    for gc_expr, _ in grain_col_specs:
-        if isinstance(gc_expr, ast.Column):
-            parent_needed_cols.add(gc_expr.name.name)
-        else:
-            parent_needed_cols.update(extract_columns_from_expression(gc_expr))
-
-    # Add columns from metric expressions
-    for _, expr in metric_expressions:
-        parent_needed_cols.update(extract_columns_from_expression(expr))
-
-    # Add join key columns (from the left side of joins)
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.join_path:
-            for link in resolved_dim.join_path.links:
-                if link.join_sql:  # pragma: no branch
-                    parent_needed_cols.update(
-                        extract_join_columns_for_node(link.join_sql, parent_node.name),
-                    )
-
-    # Add temporal partition columns from cube if linked to this parent
-    # This ensures the columns are available in the CTE for the WHERE clause
-    if ctx.temporal_partition_columns and parent_node.current:
-        for partition_col_ref in ctx.temporal_partition_columns:
-            dimension_ref = parse_dimension_ref(partition_col_ref)
-
-            # Check if this parent has a dimension link to the partition column's node
-            if parent_node.current.dimension_links:  # pragma: no branch
-                for link in parent_node.current.dimension_links:  # pragma: no branch
-                    if link.dimension.name == dimension_ref.node_name:
-                        # Found link - ensure the column is included
-                        parent_needed_cols.add(dimension_ref.column_name)
-                        break
-
-    # Parent node needs CTE if it's not a source
-    if parent_node.type != NodeType.SOURCE:  # pragma: no branch
-        nodes_for_ctes.append(parent_node)
-        needed_columns_by_node[parent_node.name] = parent_needed_cols
-
-    # Dimension nodes from joins need CTEs
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.join_path:
-            for link in resolved_dim.join_path.links:
-                # Look up full node from ctx.nodes to avoid lazy loading
-                dim_node = ctx.nodes.get(link.dimension.name, link.dimension)
-                if dim_node and dim_node.type != NodeType.SOURCE:  # pragma: no branch
-                    if dim_node not in nodes_for_ctes:
-                        nodes_for_ctes.append(dim_node)
-
-                    # Collect needed columns for this dimension
-                    dim_cols: set[str] = set()
-
-                    # Add the dimension column being selected
-                    if resolved_dim.join_path.target_node_name == dim_node.name:
-                        dim_cols.add(resolved_dim.column_name)
-
-                    # Add join key columns from this dimension (right side of this link)
-                    if link.join_sql:  # pragma: no branch
-                        dim_cols.update(
-                            extract_join_columns_for_node(link.join_sql, dim_node.name),
-                        )
-
-                    # Merge with existing if any
-                    if dim_node.name in needed_columns_by_node:
-                        needed_columns_by_node[dim_node.name].update(dim_cols)
-                    else:
-                        needed_columns_by_node[dim_node.name] = dim_cols
-
-                # For multi-hop joins: the left side of this link is an intermediate
-                # dimension node that also needs the left-side join key columns.
-                # (For the first link, the left side is parent_node, already handled
-                # above in parent_needed_cols.)
-                left_node_name = link.node_revision.name
-                if left_node_name != parent_node.name and link.join_sql:
-                    left_node = ctx.nodes.get(left_node_name)
-                    if (
-                        left_node and left_node.type != NodeType.SOURCE
-                    ):  # pragma: no branch
-                        left_join_cols = extract_join_columns_for_node(
-                            link.join_sql,
-                            left_node_name,
-                        )
-                        if left_node_name in needed_columns_by_node:
-                            needed_columns_by_node[left_node_name].update(
-                                left_join_cols,
-                            )
-                        else:  # pragma: no cover
-                            needed_columns_by_node[left_node_name] = left_join_cols
+    # Collect all nodes that need CTEs and the minimal columns each must project
+    nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+        ctx,
+        parent_node,
+        resolved_dimensions,
+        grain_col_specs,
+        metric_expressions,
+    )
 
     # Build temporal filter and attempt to push it into the upstream date-spine CTE.
     # Without pushdown, the filter lands on the outer grain-group query AFTER the

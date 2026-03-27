@@ -115,6 +115,54 @@ def extract_columns_from_expression(expr: ast.Expression) -> set[str]:
     return columns
 
 
+def extract_columns_referenced_from_node(
+    query_ast: ast.Query,
+    node_name: str,
+) -> set[str]:
+    """
+    Extract column names that a query uses from a specific node.
+
+    Handles both aliased references (e.g. ``CROSS JOIN node AS alias`` where
+    columns appear as ``alias.col``) and unaliased references (where columns
+    appear as ``node_short_name.col`` or ``full.node.name.col``).
+
+    Args:
+        query_ast: The parsed query to scan.
+        node_name: Full node name (e.g. ``common.dimensions.xp.max_observation_end``).
+
+    Returns:
+        Set of short column names used from that node.
+    """
+    # Build the set of table-reference prefixes that map to this node.
+    # A table may be aliased (AS exploded) or bare — we collect all identifiers
+    # by which columns may be qualified.
+    prefixes: set[str] = set()
+    for table in query_ast.find_all(ast.Table):
+        if str(table.name) == node_name:
+            if table.alias:
+                prefixes.add(str(table.alias))
+            else:
+                # No alias: SQL can qualify columns by the full name or the
+                # last segment only (most common in practice).
+                prefixes.add(node_name)
+                prefixes.add(node_name.split(SEPARATOR)[-1])
+
+    if not prefixes:
+        return set()
+
+    result: set[str] = set()
+    for col in query_ast.find_all(ast.Column):
+        # col.identifier() returns the full namespace-prefixed name
+        # (e.g. "exploded.account_observation_day") without requiring
+        # col.table to be set — that is only populated after compilation.
+        col_id = col.identifier()
+        for prefix in prefixes:
+            if col_id.startswith(prefix + SEPARATOR):
+                result.add(get_short_name(col_id))
+                break
+    return result
+
+
 def collect_required_dimensions(
     nodes: dict[str, Node],
     metrics: list[str],
