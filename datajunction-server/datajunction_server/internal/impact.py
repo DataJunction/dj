@@ -11,8 +11,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from collections import defaultdict
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload, selectinload
+from sqlalchemy.sql.expression import bindparam, text
 
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
@@ -26,7 +30,7 @@ from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     _node_output_options,
-    get_dim_link_holders,
+    get_dimension_inbound_bfs,
     get_downstream_nodes,
     topological_sort,
 )
@@ -243,6 +247,58 @@ async def _validate_downstream_node(
 # ---------------------------------------------------------------------------
 
 
+async def _batch_get_children(
+    session: AsyncSession,
+    parent_node_ids: list[int],
+    options: list,
+) -> dict[int, list[Node]]:
+    """Fetch direct DAG children for multiple parent nodes in two queries.
+
+    Returns a dict mapping parent_node_id → list of child Node objects.
+    ``noderelationship.parent_id`` is a ``node.id`` FK, so we can pass all
+    frontier node IDs in a single ``IN`` clause.
+    """
+    if not parent_node_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            text("""
+                SELECT DISTINCT n.id AS child_id, rel.parent_id
+                FROM noderelationship rel
+                JOIN noderevision nr ON rel.child_id = nr.id
+                JOIN node n ON n.id = nr.node_id
+                    AND n.current_version = nr.version
+                    AND n.deactivated_at IS NULL
+                WHERE rel.parent_id IN :parent_ids
+            """).bindparams(bindparam("parent_ids", expanding=True)),
+            {"parent_ids": parent_node_ids},
+        )
+    ).fetchall()
+
+    if not rows:
+        return {}
+
+    child_ids = list({r.child_id for r in rows})
+    child_nodes = (
+        (
+            await session.execute(
+                select(Node).where(Node.id.in_(child_ids)).options(*options),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    child_by_id: dict[int, Node] = {n.id: n for n in child_nodes}
+
+    result: dict[int, list[Node]] = defaultdict(list)
+    for row in rows:
+        if row.child_id in child_by_id:
+            result[row.parent_id].append(child_by_id[row.child_id])
+    return result
+
+
 async def compute_impact(
     session: AsyncSession,
     changed_nodes: dict[str, NodeChange],
@@ -276,28 +332,19 @@ async def compute_impact(
     visited: set[str] = set(changed_nodes.keys())
     impacted: dict[str, ImpactedNode] = {}
 
-    # Cache loaded Node objects to avoid re-fetching
+    # Batch-load all seed nodes in one query
     node_cache: dict[str, Node] = {}
-
-    async def _load_node(name: str) -> Node | None:
-        if name not in node_cache:
-            n = await Node.get_by_name(session, name, options=_node_output_options())
-            if n:
-                node_cache[name] = n
-        return node_cache.get(name)
-
-    # Seed cache with changed nodes
-    for name in changed_nodes:
-        node = await _load_node(name)
-        # Build proposed_columns only when columns were actually present and are being removed.
-        # If the "removed" column never existed, treat it as a no-op for validation purposes
-        # (fall back to the heuristic, which will correctly return no impact).
-        pc = propagated_change[name]
-        if node and pc.columns_removed and not pc.is_deleted:
+    seed_nodes = await Node.get_by_names(
+        session,
+        list(changed_nodes.keys()),
+        options=list(_node_output_options()),
+    )
+    for node in seed_nodes:
+        node_cache[node.name] = node
+        pc = propagated_change[node.name]
+        if pc.columns_removed and not pc.is_deleted:
             current_col_names = {c.name for c in node.current.columns}
             actually_removed = pc.columns_removed & current_col_names
-            # Normalize columns_removed to only those that actually existed.
-            # If none existed, clear it so the BFS doesn't enter Case 1 at all.
             pc.columns_removed = actually_removed
             if actually_removed:
                 pc.proposed_columns = [
@@ -308,7 +355,7 @@ async def compute_impact(
     # Cube dim-link impact pass: for each node that has dim_links_removed,
     # find all downstream cubes that reference those dimensions via cube_elements.
     # This is done upfront because cubes declare dimensions in cube_elements
-    # (not via SQL parents), so BFS column-level checks can't detect them.
+    # (not via SQL parents), so the BFS column checks can't detect them.
     # ---------------------------------------------------------------------------
     _logger.info(
         "[compute_impact] changed_nodes: %r",
@@ -328,81 +375,85 @@ async def compute_impact(
                 name,
                 change.dim_links_removed,
             )
-            pc = propagated_change[name]
             await _check_cube_dim_link_impacts(
                 session=session,
                 node_name=name,
                 dim_links_removed=set(change.dim_links_removed),
-                caused_by=pc.caused_by,
+                caused_by=propagated_change[name].caused_by,
                 impacted=impacted,
                 node_cache=node_cache,
             )
-        else:
-            _logger.info(
-                "[compute_impact] node %r has no dim_links_removed — skipping cube pass",
-                name,
-            )
 
     # ---------------------------------------------------------------------------
-    # Case 3 seed: if a dimension node loses columns, find all DimLink holders
-    # and seed them with dim_links_removed (they expose the dim downstream).
-    # Also run a cube dim-link impact pass for each holder.
+    # Case 3 seed: if a dimension node loses columns, find all nodes that expose
+    # it via a DimensionLink (using get_dimension_inbound_bfs at depth=1), seed
+    # them into the frontier, and run the cube pass from each.
     # ---------------------------------------------------------------------------
     dim_nodes_losing_cols = [
-        name
+        node_cache[name]
         for name, change in changed_nodes.items()
         if change.columns_removed
-        and (
-            (node := node_cache.get(name)) is not None
-            and node.type == NodeType.DIMENSION
-        )
+        and node_cache.get(name) is not None
+        and node_cache[name].type == NodeType.DIMENSION
     ]
     if dim_nodes_losing_cols:
-        holders = await get_dim_link_holders(session, dim_nodes_losing_cols)
+        holder_names: set[str] = set()
+        for dim_node in dim_nodes_losing_cols:
+            holder_displays, _ = await get_dimension_inbound_bfs(
+                session, dim_node, depth=1,
+            )
+            holder_names.update(d.name for d in holder_displays)
+
+        holders = await Node.get_by_names(
+            session,
+            list(holder_names),
+            options=list(_node_output_options()),
+        )
+        dim_node_names = [n.name for n in dim_nodes_losing_cols]
         for holder in holders:
             if holder.name not in propagated_change:
                 propagated_change[holder.name] = _PropagatedChange(
-                    caused_by=dim_nodes_losing_cols,
+                    caused_by=dim_node_names,
                 )
-            propagated_change[holder.name].dim_links_removed.update(
-                dim_nodes_losing_cols,
-            )
+            propagated_change[holder.name].dim_links_removed.update(dim_node_names)
             node_cache[holder.name] = holder
             frontier.add(holder.name)
             visited.add(holder.name)
-            # Cubes downstream of the holder that reference the losing dim columns
             await _check_cube_dim_link_impacts(
                 session=session,
                 node_name=holder.name,
-                dim_links_removed=set(dim_nodes_losing_cols),
-                caused_by=dim_nodes_losing_cols,
+                dim_links_removed=set(dim_node_names),
+                caused_by=dim_node_names,
                 impacted=impacted,
                 node_cache=node_cache,
             )
 
     # ---------------------------------------------------------------------------
-    # BFS main loop
+    # BFS main loop — one batch query per level instead of one per node
     # ---------------------------------------------------------------------------
     while frontier:
         next_frontier: set[str] = set()
 
-        for node_name in frontier:
+        # Collect the node.id for every node currently in the frontier
+        parent_ids = [node_cache[name].id for name in frontier if name in node_cache]
+        # Single round-trip: get all direct children for the entire frontier
+        children_by_parent = await _batch_get_children(
+            session, parent_ids, list(_node_output_options()),
+        )
+        # Map node.id → node_name so we can look up propagated_change
+        id_to_name = {node_cache[n].id: n for n in frontier if n in node_cache}
+
+        for parent_node_id, children in children_by_parent.items():
+            node_name = id_to_name.get(parent_node_id)
+            if node_name is None:
+                continue
             prop: _PropagatedChange | None = propagated_change.get(node_name)
             if not prop:
                 continue
 
-            # Build upstream proposed state for validation at this hop
             upstream_proposed: dict[str, list] = {}
             if prop.proposed_columns is not None:
                 upstream_proposed[node_name] = prop.proposed_columns
-
-            # Get direct DAG children (depth=1)
-            children = await get_downstream_nodes(
-                session,
-                node_name,
-                depth=1,
-                options=_node_output_options(),
-            )
 
             for child in children:
                 child_name = child.name
@@ -430,7 +481,6 @@ async def compute_impact(
                             next_frontier.add(child_name)
                             visited.add(child_name)
                     elif upstream_proposed:
-                        # Validate the child against the proposed upstream column state
                         is_impacted, new_cols = await _validate_downstream_node(
                             session,
                             child,
@@ -457,11 +507,10 @@ async def compute_impact(
                                 next_frontier.add(child_name)
                                 visited.add(child_name)
                     else:
-                        # Fallback: no proposed column state available, use heuristic
+                        # Fallback heuristic when no proposed column state available
                         is_terminal = child.type in (NodeType.METRIC, NodeType.CUBE)
                         if is_terminal or references_changed_columns(
-                            child,
-                            prop.columns_removed,
+                            child, prop.columns_removed,
                         ):
                             _record_impact(
                                 impacted,
@@ -483,8 +532,7 @@ async def compute_impact(
                                 visited.add(child_name)
 
                 # --- Case 2: dimension link removed — metrics only ---
-                # Cubes are handled by the upfront _check_cube_dim_link_impacts pass,
-                # which uses cube_elements to accurately detect dim references.
+                # Cubes are handled by the upfront _check_cube_dim_link_impacts pass.
                 if prop.dim_links_removed:
                     if child.type == NodeType.METRIC:
                         if references_removed_dim(child, prop.dim_links_removed):
@@ -495,9 +543,9 @@ async def compute_impact(
                                 caused_by=prop.caused_by,
                                 reason=_dim_link_reason(prop),
                             )
-                    elif child.type not in (NodeType.CUBE,):
-                        # Propagate through intermediate nodes (transforms, sources,
-                        # dimensions) so downstream metrics can be reached.
+                    elif child.type != NodeType.CUBE:
+                        # Propagate through intermediate nodes so downstream metrics
+                        # can be reached.
                         _merge_propagated(
                             propagated_change,
                             child_name,
