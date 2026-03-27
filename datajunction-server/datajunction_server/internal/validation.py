@@ -64,16 +64,23 @@ class NodeValidator:
 async def validate_node_data(
     data: Union[NodeRevisionBase, NodeRevision],
     session: AsyncSession,
+    compile_context: ast.CompileContext | None = None,
 ) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
     It will build the lists of issues (including errors) and return them all
     for the caller to decide what to do.
+
+    Pass ``compile_context`` to inject a pre-built context (e.g. with
+    ``column_overrides`` set for impact-preview dry-runs).
     """
     node_validator = NodeValidator()
 
-    # Create context without bulk loading for new nodes
-    ctx = ast.CompileContext(session=session, exception=DJException())
+    # Use provided context or create a fresh one (empty cache → DB lookups for all deps)
+    ctx = compile_context or ast.CompileContext(
+        session=session,
+        exception=DJException(),
+    )
 
     if isinstance(data, NodeRevision):
         validated_node = data

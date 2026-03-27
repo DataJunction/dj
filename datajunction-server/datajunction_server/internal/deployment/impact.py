@@ -11,7 +11,7 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node
 from datajunction_server.models.deployment import (
     ColumnSpec,
-    CubeSpec,
+    DimensionJoinLinkSpec,
     DeploymentSpec,
     LinkableNodeSpec,
     NodeSpec,
@@ -25,15 +25,9 @@ from datajunction_server.models.impact import (
     NodeChange,
     NodeChangeOperation,
 )
-from datajunction_server.models.node import NodeStatus, NodeType
-from datajunction_server.errors import DJException
-from datajunction_server.internal.deployment.validation import (
-    NodeSpecBulkValidator,
-    NodeValidationResult,
-    ValidationContext,
-)
-from datajunction_server.sql.dag import get_downstream_nodes
-from datajunction_server.sql.parsing.backends.antlr4 import ast
+from datajunction_server.models.node import NodeType
+from datajunction_server.internal.impact import compute_impact
+from datajunction_server.models.impact_preview import NodeChange as ImpactNodeChange
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +73,6 @@ async def analyze_deployment_impact(
     # Convert existing nodes to specs for comparison
     existing_specs = {node.name: await node.to_spec(session) for node in existing_nodes}
 
-    # Build validation context to reuse validation logic for column inference
-    validation_results_map = await _validate_specs_for_impact(
-        session,
-        deployment_spec.nodes,
-        existing_nodes_map,
-    )
-
     # Analyze direct changes
     changes = []
     to_create = []
@@ -114,24 +101,21 @@ async def analyze_deployment_impact(
             spec_changed = node_spec != existing_spec
             changed_fields = existing_spec.diff(node_spec) if spec_changed else []
 
-            # Get validation result which has inferred columns
-            validation_result = validation_results_map.get(node_spec.rendered_name)
-            inferred_columns = (
-                validation_result.inferred_columns if validation_result else None
-            )
-
-            # Detect column changes using inferred columns (or fallback to spec columns)
-            # Skip column comparison for cubes - their validity depends on metrics/dimensions
+            # Column diff: only for SOURCE nodes, which always have explicit column types
+            # in their YAML. For transform/dimension/metric nodes, column types come from
+            # SQL inference — BFS validation in compute_impact handles those accurately.
             column_changes = []
-            if node_spec.node_type != NodeType.CUBE:  # pragma: no branch
-                column_changes = _detect_column_changes(
-                    existing_node,
-                    node_spec,
-                    inferred_columns=inferred_columns,
-                )
+            if node_spec.node_type == NodeType.SOURCE and existing_node:
+                column_changes = _detect_source_column_changes(existing_node, node_spec)
 
-            # If column changes detected, this is an update even if spec __eq__ returned True
-            if spec_changed or column_changes:
+            # Dimension link diff: detect removed links for any linkable node type
+            dim_links_removed: list[str] = []
+            if existing_node and isinstance(node_spec, LinkableNodeSpec):
+                dim_links_removed = _detect_dim_link_removals(existing_node, node_spec)
+
+            # If column changes or dim link changes detected, this is an update
+            # even if spec __eq__ returned True
+            if spec_changed or column_changes or dim_links_removed:
                 changes.append(
                     NodeChange(
                         name=node_spec.rendered_name,
@@ -144,6 +128,7 @@ async def analyze_deployment_impact(
                         else None,
                         changed_fields=changed_fields,
                         column_changes=column_changes,
+                        dim_links_removed=dim_links_removed,
                     ),
                 )
                 to_update.append(node_spec)
@@ -235,86 +220,29 @@ async def analyze_deployment_impact(
     )
 
 
-async def _validate_specs_for_impact(
-    session: AsyncSession,
-    node_specs: list[NodeSpec],
-    existing_nodes_map: dict[str, Node],
-) -> dict[str, NodeValidationResult]:
-    """
-    Use the NodeSpecBulkValidator to validate specs and get inferred columns.
-
-    This reuses the same validation logic used during deployment to ensure
-    accurate column inference for all node types (transform, dimension, metric, cube).
-    """
-    if not node_specs:
-        return {}
-
-    # Build dependency graph and compile context
-    node_graph: dict[str, list[str]] = {}
-    for spec in node_specs:
-        node_graph[spec.rendered_name] = []
-
-    compile_context = ast.CompileContext(
-        session=session,
-        exception=DJException(),
-        dependencies_cache=existing_nodes_map,
-    )
-
-    # Create validation context
-    context = ValidationContext(
-        session=session,
-        node_graph=node_graph,
-        dependency_nodes=existing_nodes_map,
-        compile_context=compile_context,
-    )
-
-    # Validate nodes to get inferred columns
-    validator = NodeSpecBulkValidator(context)
-    try:
-        results = await validator.validate(node_specs)
-        return {result.spec.rendered_name: result for result in results}
-    except Exception as e:
-        logger.warning("Failed to validate specs for impact analysis: %s", e)
-        return {}
-
-
-def _detect_column_changes(
-    existing_node: Node | None,
+def _detect_source_column_changes(
+    existing_node: Node,
     new_spec: NodeSpec,
-    inferred_columns: list[ColumnSpec] | None = None,
 ) -> list[ColumnChange]:
-    """
-    Compare existing node columns to new columns and detect breaking changes.
+    """Detect column changes for SOURCE nodes, which always have explicit types in YAML.
 
-    Uses inferred_columns (from query parsing) if provided, otherwise falls
-    back to spec.columns. This enables accurate change detection even when
-    YAML doesn't include explicit column definitions.
+    For transform/dimension/metric nodes, column types come from SQL inference.
+    Those are handled by BFS validation in ``compute_impact`` rather than upfront diff.
     """
     changes: list[ColumnChange] = []
 
-    if not existing_node or not existing_node.current:
+    if not existing_node.current:
         return changes
 
     existing_columns = {col.name: col for col in existing_node.current.columns}
+    spec_columns: dict[str, ColumnSpec] = {}
+    if isinstance(new_spec, LinkableNodeSpec) and new_spec.columns:
+        spec_columns = {col.name: col for col in new_spec.columns}
 
-    # Prefer inferred columns (from query parsing) over spec columns
-    new_columns: dict[str, ColumnSpec] = {}
-    if inferred_columns:
-        # Use columns inferred from query parsing
-        new_columns = {col.name: col for col in inferred_columns}
-    elif isinstance(new_spec, LinkableNodeSpec) and new_spec.columns:
-        # Fallback to spec columns if available
-        new_columns = {col.name: col for col in new_spec.columns}
-    elif isinstance(new_spec, CubeSpec) and new_spec.columns:
-        # Cubes shouldn't have columns in spec but handle just in case
-        new_columns = {col.name: col for col in new_spec.columns}
-
-    # If no columns available, we can't detect column changes
-    if not new_columns:
+    if not spec_columns:
         return changes
 
-    # Detect removed columns (breaking change)
-    for col_name in existing_columns.keys() - new_columns.keys():
+    for col_name in existing_columns.keys() - spec_columns.keys():
         changes.append(
             ColumnChange(
                 column=col_name,
@@ -323,23 +251,19 @@ def _detect_column_changes(
             ),
         )
 
-    # Detect added columns (non-breaking)
-    for col_name in new_columns.keys() - existing_columns.keys():
+    for col_name in spec_columns.keys() - existing_columns.keys():
         changes.append(
             ColumnChange(
                 column=col_name,
                 change_type=ColumnChangeType.ADDED,
-                new_type=new_columns[col_name].type,
+                new_type=spec_columns[col_name].type,
             ),
         )
 
-    # Detect type changes (potentially breaking)
-    for col_name in existing_columns.keys() & new_columns.keys():
+    for col_name in existing_columns.keys() & spec_columns.keys():
         old_type = str(existing_columns[col_name].type)
-        new_type = new_columns[col_name].type
-        # Normalize types before comparison to avoid false positives
-        # (e.g., "bigint" vs "long" are semantically identical)
-        if _normalize_type(old_type) != _normalize_type(new_type):
+        new_type = spec_columns[col_name].type
+        if new_type and _normalize_type(old_type) != _normalize_type(new_type):
             changes.append(
                 ColumnChange(
                     column=col_name,
@@ -350,6 +274,29 @@ def _detect_column_changes(
             )
 
     return changes
+
+
+def _detect_dim_link_removals(
+    existing_node: Node,
+    new_spec: LinkableNodeSpec,
+) -> list[str]:
+    """Return dimension node names whose links exist in the DB but are absent from new_spec.
+
+    Only JOIN-type links carry dimension availability downstream (reference links are
+    column-level annotations). We compare by rendered dimension node name.
+    """
+    if not existing_node.current:
+        return []
+
+    existing_dim_names: set[str] = {
+        dl.dimension.name for dl in existing_node.current.dimension_links
+    }
+    spec_dim_names: set[str] = {
+        link.rendered_dimension_node
+        for link in new_spec.dimension_links
+        if isinstance(link, DimensionJoinLinkSpec)
+    }
+    return sorted(existing_dim_names - spec_dim_names)
 
 
 # Type aliases - map alternative names to canonical names
@@ -404,196 +351,65 @@ async def _analyze_downstream_impacts(
 ) -> list[DownstreamImpact]:
     """
     Analyze how downstream nodes will be affected by the changes.
-    """
-    impacts: list[DownstreamImpact] = []
-    seen_downstreams: set[str] = set()
 
-    # Get the names of nodes being directly changed
+    Delegates to compute_impact for BFS traversal with column-level pruning and
+    dimension-link awareness, then maps the results back to DownstreamImpact objects.
+    """
+    # Build the impact_preview NodeChange dict from deployment NodeChange objects
     directly_changed_names = {
         c.name for c in changes if c.operation != NodeChangeOperation.NOOP
     }
-
+    impact_changes: dict[str, ImpactNodeChange] = {}
     for change in changes:
-        # Only analyze impact for updates and deletes
-        if change.operation not in (
-            NodeChangeOperation.UPDATE,
-            NodeChangeOperation.DELETE,
-        ):
+        if change.operation == NodeChangeOperation.DELETE:
+            impact_changes[change.name] = ImpactNodeChange(is_deleted=True)
+        elif change.operation == NodeChangeOperation.UPDATE:
+            impact_changes[change.name] = ImpactNodeChange(
+                columns_removed=[
+                    cc.column
+                    for cc in change.column_changes
+                    if cc.change_type == ColumnChangeType.REMOVED
+                ],
+                columns_changed=[
+                    (cc.column, cc.old_type or "", cc.new_type or "")
+                    for cc in change.column_changes
+                    if cc.change_type == ColumnChangeType.TYPE_CHANGED
+                ],
+                columns_added=[
+                    cc.column
+                    for cc in change.column_changes
+                    if cc.change_type == ColumnChangeType.ADDED
+                ],
+                dim_links_removed=list(change.dim_links_removed),
+            )
+
+    impacted = await compute_impact(session, impact_changes)
+
+    impacts: list[DownstreamImpact] = []
+    for node in impacted:
+        if node.name in directly_changed_names:
             continue
-
-        # Get all downstream nodes
-        try:
-            downstreams = await get_downstream_nodes(
-                session,
-                change.name,
-                include_deactivated=False,
-                include_cubes=True,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to get downstreams for %s: %s",
-                change.name,
-                e,
-            )
-            continue
-
-        for downstream in downstreams:
-            # Skip if this downstream is being directly changed in this deployment
-            if downstream.name in directly_changed_names:
-                continue
-
-            # Skip if we've already analyzed this downstream
-            if downstream.name in seen_downstreams:
-                # But we should add this change to the caused_by list
-                for impact in impacts:
-                    if (
-                        impact.name == downstream.name
-                        and change.name not in impact.caused_by
-                    ):
-                        impact.caused_by.append(change.name)
-                continue
-
-            seen_downstreams.add(downstream.name)
-
-            # Predict impact based on change type
-            impact = _predict_downstream_impact(
-                downstream=downstream,
-                change=change,
-                deployment_namespace=deployment_namespace,
-            )
-            impacts.append(impact)
-
-    # Sort by severity and depth
-    impacts.sort(
-        key=lambda x: (
-            0 if x.impact_type == ImpactType.WILL_INVALIDATE else 1,
-            x.depth,
-            x.name,
-        ),
-    )
+        is_external = not node.name.startswith(deployment_namespace + ".")
+        impact_type = (
+            ImpactType.WILL_INVALIDATE
+            if node.impact_type in ("column", "deleted_parent")
+            else ImpactType.MAY_AFFECT
+        )
+        impacts.append(
+            DownstreamImpact(
+                name=node.name,
+                node_type=node.node_type,
+                current_status=node.current_status,
+                predicted_status=node.projected_status,
+                impact_type=impact_type,
+                impact_reason=node.reason,
+                depth=1,
+                caused_by=node.caused_by,
+                is_external=is_external,
+            ),
+        )
 
     return impacts
-
-
-def _predict_downstream_impact(
-    downstream: Node,
-    change: NodeChange,
-    deployment_namespace: str,
-) -> DownstreamImpact:
-    """
-    Predict how a single downstream node will be affected by a change.
-    """
-    current_status = (
-        downstream.current.status if downstream.current else NodeStatus.INVALID
-    )
-
-    # Determine if the downstream is external to the deployment namespace
-    is_external = not downstream.name.startswith(deployment_namespace + ".")
-
-    # Predict impact based on change type
-    if change.operation == NodeChangeOperation.DELETE:
-        # Deleting a node will definitely invalidate downstreams
-        return DownstreamImpact(
-            name=downstream.name,
-            node_type=downstream.type,
-            current_status=current_status,
-            predicted_status=NodeStatus.INVALID,
-            impact_type=ImpactType.WILL_INVALIDATE,
-            impact_reason=f"Depends on {change.name} which will be deleted",
-            depth=1,
-            caused_by=[change.name],
-            is_external=is_external,
-        )
-
-    # Cubes and derived metrics reference other metrics by node name, not by internal columns.
-    # So column-level changes in metrics don't directly affect them the same way as transforms.
-    # For these cases, just indicate that a dependency changed without showing column details.
-    if (
-        downstream.type in (NodeType.CUBE, NodeType.METRIC)
-        and change.node_type == NodeType.METRIC
-    ):
-        # For metric type changes, indicate it may affect the output type
-        if change.column_changes:
-            type_changes = [
-                cc
-                for cc in change.column_changes
-                if cc.change_type == ColumnChangeType.TYPE_CHANGED
-            ]
-            if type_changes:
-                return DownstreamImpact(
-                    name=downstream.name,
-                    node_type=downstream.type,
-                    current_status=current_status,
-                    predicted_status=NodeStatus.VALID,  # Should still be valid
-                    impact_type=ImpactType.MAY_AFFECT,
-                    impact_reason=f"Metric {change.name} has type changes that may affect output",
-                    depth=1,
-                    caused_by=[change.name],
-                    is_external=is_external,
-                )
-        # For other changes, just note it may need revalidation
-        return DownstreamImpact(
-            name=downstream.name,
-            node_type=downstream.type,
-            current_status=current_status,
-            predicted_status=current_status,
-            impact_type=ImpactType.MAY_AFFECT,
-            impact_reason=f"Depends on metric {change.name} which is being updated",
-            depth=1,
-            caused_by=[change.name],
-            is_external=is_external,
-        )
-
-    # Cubes depending on non-metric changes (dimensions)
-    if downstream.type == NodeType.CUBE:
-        return DownstreamImpact(
-            name=downstream.name,
-            node_type=downstream.type,
-            current_status=current_status,
-            predicted_status=current_status,
-            impact_type=ImpactType.MAY_AFFECT,
-            impact_reason=f"Depends on {change.node_type.value} {change.name} which is being updated",
-            depth=1,
-            caused_by=[change.name],
-            is_external=is_external,
-        )
-
-    # For non-cube downstreams, check for breaking column changes
-    breaking_column_changes = [
-        cc
-        for cc in change.column_changes
-        if cc.change_type in (ColumnChangeType.REMOVED, ColumnChangeType.TYPE_CHANGED)
-    ]
-
-    if breaking_column_changes:
-        # We can't be certain if downstream actually references these columns
-        # without parsing its query. Use MAY_AFFECT to be honest about uncertainty.
-        breaking_columns = [cc.column for cc in breaking_column_changes]
-
-        return DownstreamImpact(
-            name=downstream.name,
-            node_type=downstream.type,
-            current_status=current_status,
-            predicted_status=current_status,  # Unknown without query analysis
-            impact_type=ImpactType.MAY_AFFECT,
-            impact_reason=f"Columns {breaking_columns} changed in {change.name} - may affect if referenced",
-            depth=1,
-            caused_by=[change.name],
-            is_external=is_external,
-        )
-
-    # For other updates, the downstream may need revalidation
-    return DownstreamImpact(
-        name=downstream.name,
-        node_type=downstream.type,
-        current_status=current_status,
-        predicted_status=current_status,  # Status likely unchanged
-        impact_type=ImpactType.MAY_AFFECT,
-        impact_reason=f"Depends on {change.name} which is being updated",
-        depth=1,
-        caused_by=[change.name],
-        is_external=is_external,
-    )
 
 
 def _generate_warnings(
@@ -605,7 +421,7 @@ def _generate_warnings(
     """
     warnings = []
 
-    # Warn about breaking column changes
+    # Warn about breaking column changes and removed dimension links
     for change in changes:
         if change.operation == NodeChangeOperation.UPDATE:
             for cc in change.column_changes:
@@ -619,6 +435,11 @@ def _generate_warnings(
                         f"Potential breaking change: Column '{cc.column}' in '{change.name}' "
                         f"is changing type from {cc.old_type} to {cc.new_type}",
                     )
+            for dim_name in change.dim_links_removed:
+                warnings.append(
+                    f"Breaking change: Dimension link to '{dim_name}' is being removed from "
+                    f"'{change.name}'",
+                )
 
     # Warn about query changes where we couldn't detect column changes
     # This happens when query parsing fails or columns are unchanged

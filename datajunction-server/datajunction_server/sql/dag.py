@@ -1767,3 +1767,50 @@ async def get_dimension_outbound_bfs(
         edges,
         key=lambda e: (e.source, e.target),
     )
+
+
+async def get_dim_link_holders(
+    session: AsyncSession,
+    dimension_node_names: list[str],
+) -> list[Node]:
+    """
+    Given a list of dimension node names, return all intermediate nodes that directly
+    expose those dimensions via a DimensionLink row (i.e., nodes whose *current* revision
+    has a DimensionLink.dimension_id pointing to one of the given dimension nodes).
+
+    These are the starting points for DAG-forward propagation when a dimension node's
+    columns change.
+    """
+    if not dimension_node_names:
+        return []
+
+    # Resolve dimension names to node IDs
+    dim_nodes = await Node.get_by_names(
+        session,
+        dimension_node_names,
+        options=[],
+    )
+    if not dim_nodes:
+        return []
+
+    dim_node_ids = [n.id for n in dim_nodes]
+
+    # Find all nodes whose current revision has a DimensionLink to one of these dims
+    result_options = _node_output_options()
+    stmt = (
+        select(Node)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                Node.current_version == NodeRevision.version,
+            ),
+        )
+        .join(DimensionLink, DimensionLink.node_revision_id == NodeRevision.id)
+        .where(DimensionLink.dimension_id.in_(dim_node_ids))
+        .where(Node.deactivated_at.is_(None))
+        .distinct()
+        .options(*result_options)
+    )
+    rows = (await session.execute(stmt)).unique().scalars().all()
+    return list(rows)

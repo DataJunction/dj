@@ -48,6 +48,7 @@ class NodeChange(BaseModel):
     # For UPDATEs: what changed
     changed_fields: list[str] = Field(default_factory=list)
     column_changes: list[ColumnChange] = Field(default_factory=list)
+    dim_links_removed: list[str] = Field(default_factory=list)  # dimension node names
 
 
 class ImpactType(str, Enum):
