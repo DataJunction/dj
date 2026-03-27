@@ -452,13 +452,10 @@ def collect_cte_nodes_and_needed_columns(
                         )
 
                     # Case 1: parent_node's query directly selects from dim_node
-                    # (e.g. SELECT ..., D1.m FROM x JOIN D1 ON ...)
                     nodes_to_scan: list[Node] = []
                     if parent_node.current and parent_node.current.query:
                         nodes_to_scan.append(parent_node)
                     # Case 2: another dimension node's query references dim_node
-                    # (e.g. allocation_day CROSS JOINs max_observation_end
-                    #  and uses exploded.account_observation_day)
                     for other_rdim in resolved_dimensions:
                         if other_rdim.join_path:
                             for other_link in other_rdim.join_path.links:

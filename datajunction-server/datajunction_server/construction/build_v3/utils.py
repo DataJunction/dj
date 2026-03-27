@@ -134,7 +134,7 @@ def extract_columns_referenced_from_node(
         Set of short column names used from that node.
     """
     # Build the set of table-reference prefixes that map to this node.
-    # A table may be aliased (AS exploded) or bare — we collect all identifiers
+    # A table may be aliased (AS tbl_alias) or bare — we collect all identifiers
     # by which columns may be qualified.
     prefixes: set[str] = set()
     for table in query_ast.find_all(ast.Table):
@@ -153,8 +153,8 @@ def extract_columns_referenced_from_node(
     result: set[str] = set()
     for col in query_ast.find_all(ast.Column):
         # col.identifier() returns the full namespace-prefixed name
-        # (e.g. "exploded.account_observation_day") without requiring
-        # col.table to be set — that is only populated after compilation.
+        # (e.g. "alias.column_name") without requiring col.table to be set,
+        # since that is only populated after compilation.
         col_id = col.identifier()
         for prefix in prefixes:
             if col_id.startswith(prefix + SEPARATOR):
