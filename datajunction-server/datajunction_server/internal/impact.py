@@ -330,6 +330,17 @@ async def _check_cube_dim_link_impacts(
 
 
 @dataclass
+class _BFSState:
+    """Mutable state shared across all phases of the BFS impact computation."""
+
+    propagated_change: dict[str, "_PropagatedChange"] = field(default_factory=dict)
+    node_cache: dict[str, Node] = field(default_factory=dict)
+    frontier: set[str] = field(default_factory=set)
+    visited: set[str] = field(default_factory=set)
+    impacted: dict[str, ImpactedNode] = field(default_factory=dict)
+
+
+@dataclass
 class _PropagatedChange:
     """Accumulated change state as it propagates through the DAG."""
 
@@ -728,14 +739,21 @@ async def _compute_seed_prop(
         prop.dim_links_removed = proposed_spec.dim_links_removed
         if proposed_spec.new_query:
             proposed_cols, removed, cols_changed, _, _ = await _infer_column_diff(
-                session, existing_node, proposed_spec.new_query,
+                session,
+                existing_node,
+                proposed_spec.new_query,
             )
             prop.proposed_columns = proposed_cols
             prop.columns_removed = set(removed)
             prop.columns_changed = cols_changed
-        elif proposed_spec.explicit_columns_removed or proposed_spec.explicit_columns_changed:
+        elif (
+            proposed_spec.explicit_columns_removed
+            or proposed_spec.explicit_columns_changed
+        ):
             current_col_names = {c.name for c in existing_node.current.columns}
-            actually_removed = proposed_spec.explicit_columns_removed & current_col_names
+            actually_removed = (
+                proposed_spec.explicit_columns_removed & current_col_names
+            )
             prop.columns_removed = actually_removed
             prop.columns_changed = list(proposed_spec.explicit_columns_changed)
             if actually_removed or prop.columns_changed:
@@ -750,7 +768,9 @@ async def _compute_seed_prop(
         if proposed_spec.node_type == NodeType.SOURCE:
             col_changes = _detect_source_column_changes(existing_node, proposed_spec)
             prop.columns_removed = {
-                cc.column for cc in col_changes if cc.change_type == ColumnChangeType.REMOVED
+                cc.column
+                for cc in col_changes
+                if cc.change_type == ColumnChangeType.REMOVED
             }
             prop.columns_changed = [
                 (cc.column, cc.old_type or "", cc.new_type or "")
@@ -764,19 +784,22 @@ async def _compute_seed_prop(
                     prop.columns_changed,
                 )
         elif (
-            getattr(proposed_spec, "rendered_query", None)
-            and proposed_spec.rendered_query != existing_node.current.query
-        ):
+            rendered_query := getattr(proposed_spec, "rendered_query", None)
+        ) and rendered_query != existing_node.current.query:
             _logger.info("[seed] %r: query changed, inferring column diff", node_name)
             proposed_cols, removed_list, cols_changed, _, _ = await _infer_column_diff(
-                session, existing_node, proposed_spec.rendered_query,
+                session,
+                existing_node,
+                rendered_query,
             )
             prop.proposed_columns = proposed_cols
             prop.columns_removed = set(removed_list)
             prop.columns_changed = cols_changed
             _logger.info(
                 "[seed] %r: inferred columns_removed=%r columns_changed=%r",
-                node_name, prop.columns_removed, prop.columns_changed,
+                node_name,
+                prop.columns_removed,
+                prop.columns_changed,
             )
 
     # If any output columns were removed, check whether any of the node's own
@@ -785,7 +808,8 @@ async def _compute_seed_prop(
         if link.foreign_key_column_names & prop.columns_removed:
             _logger.info(
                 "[seed] %r: dim link to %r implicitly broken — join columns %r removed",
-                node_name, link.dimension.name,
+                node_name,
+                link.dimension.name,
                 link.foreign_key_column_names & prop.columns_removed,
             )
             prop.dim_links_removed.add(link.dimension.name)
@@ -799,54 +823,52 @@ async def _seed_bfs(
         str,
         tuple[NodeSpec | _ExplicitDiffSpec | None, Node | None, set[str]],
     ],
-) -> tuple[
-    dict[str, _PropagatedChange],
-    dict[str, Node],
-    set[str],
-    set[str],
-    dict[str, ImpactedNode],
-]:
-    """
-    Build the initial BFS state from the set of directly changed nodes.
+    state: _BFSState,
+) -> None:
+    """Populate ``state`` from the set of directly changed nodes.
 
     Three seeding stages:
     1. Main loop: compute _PropagatedChange for each directly changed node.
     2. Cube dim-link pass: for nodes with removed dim links, find all downstream
-        cubes that reference those dimensions upfront (cubes aren't reachable via
-        BFS column checks because they declare dimensions in cube_elements, not SQL).
+       cubes that reference those dimensions upfront (cubes aren't reachable via
+       BFS column checks because they declare dimensions in cube_elements, not SQL).
     3. Dimension-loses-columns pass: if a dimension node loses columns, find all
-        nodes that hold it via a DimensionLink, seed them into the frontier, and
-        run the cube pass from each holder.
+       nodes that hold it via a DimensionLink, seed them into the frontier, and
+       run the cube pass from each holder.
 
-    Returns (propagated_change, node_cache, frontier, visited, impacted).
-    The caller should yield impacted.values() as level-0 results before starting
-    the BFS main loop.
+    Caller should yield state.impacted.values() as level-0 results before
+    starting the BFS main loop.
     """
-    propagated_change: dict[str, _PropagatedChange] = {}
-    node_cache: dict[str, Node] = {}
-    frontier: set[str] = set()
-    visited: set[str] = set()
-    impacted: dict[str, ImpactedNode] = {}
-
     # ---------------------------------------------------------------------------
     # Stage 1 — compute the diff for each directly changed node
     # ---------------------------------------------------------------------------
-    for node_name, (proposed_spec, existing_node, pre_computed_dim_links) in changed_nodes.items():
+    for node_name, (
+        proposed_spec,
+        existing_node,
+        pre_computed_dim_links,
+    ) in changed_nodes.items():
         if existing_node is None:
             # New node — no downstream to affect
             continue
 
-        node_cache[node_name] = existing_node
-        visited.add(node_name)
+        state.node_cache[node_name] = existing_node
+        state.visited.add(node_name)
 
         if proposed_spec is None:
             # Deletion — all direct consumers are unconditionally impacted
-            propagated_change[node_name] = _PropagatedChange(is_deleted=True, caused_by=[node_name])
-        else:
-            propagated_change[node_name] = await _compute_seed_prop(
-                session, node_name, existing_node, proposed_spec, pre_computed_dim_links,
+            state.propagated_change[node_name] = _PropagatedChange(
+                is_deleted=True,
+                caused_by=[node_name],
             )
-        frontier.add(node_name)
+        else:
+            state.propagated_change[node_name] = await _compute_seed_prop(
+                session,
+                node_name,
+                existing_node,
+                proposed_spec,
+                pre_computed_dim_links,
+            )
+        state.frontier.add(node_name)
 
     # ---------------------------------------------------------------------------
     # Stage 2 — cube dim-link pass
@@ -859,10 +881,10 @@ async def _seed_bfs(
                 "columns_removed": list(c.columns_removed),
                 "is_deleted": c.is_deleted,
             }
-            for n, c in propagated_change.items()
+            for n, c in state.propagated_change.items()
         },
     )
-    for name, prop in propagated_change.items():
+    for name, prop in state.propagated_change.items():
         if prop.dim_links_removed:
             _logger.info(
                 "[compute_impact] node %r has dim_links_removed=%r — running cube pass",
@@ -874,32 +896,28 @@ async def _seed_bfs(
                 node_name=name,
                 dim_links_removed=prop.dim_links_removed,
                 caused_by=prop.caused_by,
-                impacted=impacted,
-                node_cache=node_cache,
+                impacted=state.impacted,
+                node_cache=state.node_cache,
             )
-            # Also check cubes of immediate downstream metrics explicitly:
-            # N → immediate metric children → their cubes → cube elements.
-            # This catches cubes that reference dim_links_removed as elements
-            # but may not be found by the full-DAG traversal above.
-            if name in node_cache:
+            if name in state.node_cache:
                 await _check_immediate_metric_cube_impacts(
                     session=session,
-                    changed_node=node_cache[name],
+                    changed_node=state.node_cache[name],
                     dim_links_removed=prop.dim_links_removed,
                     caused_by=prop.caused_by,
-                    impacted=impacted,
-                    node_cache=node_cache,
+                    impacted=state.impacted,
+                    node_cache=state.node_cache,
                 )
 
     # ---------------------------------------------------------------------------
     # Stage 3 — dimension-loses-columns pass
     # ---------------------------------------------------------------------------
     dim_nodes_losing_cols = [
-        node_cache[name]
-        for name, prop in propagated_change.items()
+        state.node_cache[name]
+        for name, prop in state.propagated_change.items()
         if prop.columns_removed
-        and node_cache.get(name) is not None
-        and node_cache[name].type == NodeType.DIMENSION
+        and state.node_cache.get(name) is not None
+        and state.node_cache[name].type == NodeType.DIMENSION
     ]
     if dim_nodes_losing_cols:
         holder_names: set[str] = set()
@@ -918,22 +936,148 @@ async def _seed_bfs(
         )
         dim_node_names = [n.name for n in dim_nodes_losing_cols]
         for holder in holders:
-            if holder.name not in propagated_change:
-                propagated_change[holder.name] = _PropagatedChange(caused_by=dim_node_names)
-            propagated_change[holder.name].dim_links_removed.update(dim_node_names)
-            node_cache[holder.name] = holder
-            frontier.add(holder.name)
-            visited.add(holder.name)
+            if holder.name not in state.propagated_change:
+                state.propagated_change[holder.name] = _PropagatedChange(
+                    caused_by=dim_node_names,
+                )
+            state.propagated_change[holder.name].dim_links_removed.update(
+                dim_node_names,
+            )
+            state.node_cache[holder.name] = holder
+            state.frontier.add(holder.name)
+            state.visited.add(holder.name)
             await _check_cube_dim_link_impacts(
                 session=session,
                 node_name=holder.name,
                 dim_links_removed=set(dim_node_names),
                 caused_by=dim_node_names,
-                impacted=impacted,
-                node_cache=node_cache,
+                impacted=state.impacted,
+                node_cache=state.node_cache,
             )
 
-    return propagated_change, node_cache, frontier, visited, impacted
+
+async def _propagate_column_change(
+    session: AsyncSession,
+    parent_name: str,
+    prop: _PropagatedChange,
+    child: Node,
+    state: _BFSState,
+    next_frontier: set[str],
+) -> None:
+    """Propagate a column schema change (or deletion/invalidation) from parent to child.
+
+    - Deleted/invalid parent: child is unconditionally marked impacted and propagated
+      as invalid so its own children are also unconditionally hit. The SQL validator is
+      bypassed because column_overrides cannot intercept metric-on-metric value
+      references (the compiler inlines parent SQL rather than resolving via the dict).
+    - Column schema changed: validate the child's SQL against the proposed upstream
+      column state; record impact only if validation fails.
+    """
+    child_name = child.name
+    if prop.is_deleted or prop.is_invalid:
+        reason = (
+            "Upstream node was deleted"
+            if prop.is_deleted
+            else f"Upstream node '{parent_name}' is invalid"
+        )
+        _record_impact(
+            state.impacted,
+            child,
+            impact_type="deleted_parent",
+            caused_by=[parent_name],
+            reason=reason,
+        )
+        _merge_propagated(
+            state.propagated_change,
+            child_name,
+            dim_links_removed=set(),
+            is_deleted=False,
+            is_invalid=True,
+            caused_by=[parent_name],
+        )
+        if child_name not in state.visited:
+            next_frontier.add(child_name)
+            state.visited.add(child_name)
+    else:
+        upstream_proposed = {
+            name: pc.proposed_columns
+            for name, pc in state.propagated_change.items()
+            if pc.proposed_columns is not None
+        }
+        _logger.info(
+            "[BFS] validating child=%r against proposed upstream %r (%d cols)",
+            child_name,
+            parent_name,
+            len(prop.proposed_columns or []),
+        )
+        is_impacted, new_cols = await _validate_downstream_node(
+            session,
+            child,
+            upstream_proposed,
+        )
+        _logger.info(
+            "[BFS] child=%r is_impacted=%r new_cols=%d",
+            child_name,
+            is_impacted,
+            len(new_cols),
+        )
+        if is_impacted:
+            _record_impact(
+                state.impacted,
+                child,
+                impact_type="column",
+                caused_by=[parent_name],
+                reason=_column_reason(prop),
+            )
+            _merge_propagated(
+                state.propagated_change,
+                child_name,
+                dim_links_removed=set(),
+                is_deleted=False,
+                is_invalid=len(new_cols) == 0,
+                caused_by=[parent_name],
+                proposed_columns=new_cols if new_cols else None,
+            )
+            if child_name not in state.visited:
+                next_frontier.add(child_name)
+                state.visited.add(child_name)
+
+
+def _propagate_dim_link_removal(
+    parent_name: str,
+    prop: _PropagatedChange,
+    child: Node,
+    state: _BFSState,
+    next_frontier: set[str],
+) -> None:
+    """Propagate a dimension link removal from parent to child.
+
+    Metrics are flagged if the removed dim is in their required_dimensions.
+    Cubes are skipped — already handled in the seed phase cube pass.
+    All other node types carry the propagation forward so downstream metrics
+    can be reached.
+    """
+    child_name = child.name
+    if child.type == NodeType.METRIC:
+        if references_removed_dim(child, prop.dim_links_removed):
+            _record_impact(
+                state.impacted,
+                child,
+                impact_type="dimension_link",
+                caused_by=[parent_name],
+                reason=_dim_link_reason(prop),
+            )
+    elif child.type != NodeType.CUBE:
+        _merge_propagated(
+            state.propagated_change,
+            child_name,
+            dim_links_removed=prop.dim_links_removed,
+            is_deleted=False,
+            caused_by=[parent_name],
+        )
+        if child_name not in state.visited:
+            next_frontier.add(child_name)
+            state.visited.add(child_name)
 
 
 async def compute_impact(
@@ -963,160 +1107,68 @@ async def compute_impact(
     if not changed_nodes:
         return
 
-    propagated_change, node_cache, frontier, visited, impacted = await _seed_bfs(
-        session, changed_nodes,
-    )
+    state = _BFSState()
+    await _seed_bfs(session, changed_nodes, state)
 
-    # Yield any impacts already recorded by the pre-BFS passes (cube dim-link and
-    # stage-3 dimension-node-loses-columns).  These are "level 0" results.
-    for node in list(impacted.values()):
+    # Yield any impacts already recorded by the seed phase (level 0).
+    for node in list(state.impacted.values()):
         yield node
 
-    # ---------------------------------------------------------------------------
     # BFS main loop — one batch query per level instead of one per node
-    # ---------------------------------------------------------------------------
-    while frontier:
+    while state.frontier:
         next_frontier: set[str] = set()
-        known_before_level: set[str] = set(impacted.keys())
+        known_before_level = set(state.impacted.keys())
 
-        # Collect the node.id for every node currently in the frontier
-        parent_ids = [node_cache[name].id for name in frontier if name in node_cache]
-        # Single round-trip: get all direct children for the entire frontier
+        parent_ids = [
+            state.node_cache[n].id for n in state.frontier if n in state.node_cache
+        ]
         children_by_parent = await _batch_get_children(
             session,
             parent_ids,
             list(_node_output_options()),
         )
-        # Map node.id → node_name so we can look up propagated_change
-        id_to_name = {node_cache[n].id: n for n in frontier if n in node_cache}
+        id_to_name = {
+            state.node_cache[n].id: n for n in state.frontier if n in state.node_cache
+        }
 
         for parent_node_id, children in children_by_parent.items():
-            bfs_node_name = id_to_name.get(parent_node_id)
-            if bfs_node_name is None:
+            parent_name = id_to_name.get(parent_node_id)
+            if parent_name is None:
                 continue
-            node_name = bfs_node_name
-            node_prop = propagated_change.get(node_name)
-            if not node_prop:
+            prop = state.propagated_change.get(parent_name)
+            if not prop:
                 continue
-            prop = node_prop
 
             for child in children:
-                child_name = child.name
-                node_cache[child_name] = child
+                state.node_cache[child.name] = child
 
-                # --- Case 1: column removed/type-changed, node deleted, or invalid ---
                 if (
                     prop.is_deleted
                     or prop.is_invalid
                     or prop.proposed_columns is not None
                 ):
-                    if prop.is_deleted or prop.is_invalid:
-                        # Deleted or invalid upstream: all noderelationship children are
-                        # unconditionally impacted.  We skip the validator because
-                        # column_overrides cannot intercept value-level references such as
-                        # metric-on-metric (the compiler inlines parent metric SQL rather
-                        # than resolving columns via the override dict).
-                        reason = (
-                            "Upstream node was deleted"
-                            if prop.is_deleted
-                            else f"Upstream node '{node_name}' is invalid"
-                        )
-                        _record_impact(
-                            impacted,
-                            child,
-                            impact_type="deleted_parent",
-                            caused_by=[node_name],
-                            reason=reason,
-                        )
-                        _merge_propagated(
-                            propagated_change,
-                            child_name,
-                            dim_links_removed=set(),
-                            is_deleted=False,
-                            is_invalid=True,
-                            caused_by=[node_name],
-                        )
-                        if child_name not in visited:
-                            next_frontier.add(child_name)
-                            visited.add(child_name)
-                    elif prop.proposed_columns is not None:
-                        # Column schema changed: validate the child's SQL against the
-                        # proposed upstream state.  Pass all known-impacted nodes in
-                        # column_overrides so siblings that also changed are included.
-                        upstream_proposed = {
-                            name: pc.proposed_columns
-                            for name, pc in propagated_change.items()
-                            if pc.proposed_columns is not None
-                        }
-                        _logger.info(
-                            "[BFS] validating child=%r against proposed upstream %r (%d cols)",
-                            child_name,
-                            node_name,
-                            len(prop.proposed_columns),
-                        )
-                        is_impacted, new_cols = await _validate_downstream_node(
-                            session,
-                            child,
-                            upstream_proposed,
-                        )
-                        _logger.info(
-                            "[BFS] child=%r is_impacted=%r new_cols=%d",
-                            child_name,
-                            is_impacted,
-                            len(new_cols),
-                        )
-                        if is_impacted:
-                            _record_impact(
-                                impacted,
-                                child,
-                                impact_type="column",
-                                caused_by=[node_name],
-                                reason=_column_reason(prop),
-                            )
-                            _merge_propagated(
-                                propagated_change,
-                                child_name,
-                                dim_links_removed=set(),
-                                is_deleted=False,
-                                is_invalid=len(new_cols) == 0,
-                                caused_by=[node_name],
-                                proposed_columns=new_cols if new_cols else None,
-                            )
-                            if child_name not in visited:
-                                next_frontier.add(child_name)
-                                visited.add(child_name)
+                    await _propagate_column_change(
+                        session,
+                        parent_name,
+                        prop,
+                        child,
+                        state,
+                        next_frontier,
+                    )
 
-                # --- Case 2: dimension link removed — metrics only ---
-                # Cubes are handled by the upfront _check_cube_dim_link_impacts pass.
                 if prop.dim_links_removed:
-                    if child.type == NodeType.METRIC:
-                        if references_removed_dim(child, prop.dim_links_removed):
-                            _record_impact(
-                                impacted,
-                                child,
-                                impact_type="dimension_link",
-                                caused_by=[node_name],
-                                reason=_dim_link_reason(prop),
-                            )
-                    elif child.type != NodeType.CUBE:
-                        # Propagate through intermediate nodes so downstream metrics
-                        # can be reached.
-                        _merge_propagated(
-                            propagated_change,
-                            child_name,
-                            dim_links_removed=prop.dim_links_removed,
-                            is_deleted=False,
-                            caused_by=[node_name],
-                        )
-                        if child_name not in visited:
-                            next_frontier.add(child_name)
-                            visited.add(child_name)
+                    _propagate_dim_link_removal(
+                        parent_name,
+                        prop,
+                        child,
+                        state,
+                        next_frontier,
+                    )
 
-        # Yield nodes newly discovered in this BFS level
-        for name in set(impacted.keys()) - known_before_level:
-            yield impacted[name]
+        for name in set(state.impacted.keys()) - known_before_level:
+            yield state.impacted[name]
 
-        frontier = next_frontier
+        state.frontier = next_frontier
 
 
 def _record_impact(
