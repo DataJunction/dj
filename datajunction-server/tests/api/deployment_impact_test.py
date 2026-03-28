@@ -2448,9 +2448,7 @@ class TestChangeDetectionCoverage:
         noop_changes = [
             c for c in impact.changes if c.operation == NodeChangeOperation.NOOP
         ]
-        assert len(noop_changes) >= 1
-        for c in noop_changes:
-            assert c.changed_fields == []
+        assert len(noop_changes) == 0
 
     # ------------------------------------------------------------------
     # Section 2i — Downstream propagation via HTTP

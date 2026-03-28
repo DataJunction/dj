@@ -708,33 +708,120 @@ async def _batch_get_children(
     return result
 
 
-async def compute_impact(
+async def _compute_seed_prop(
+    session: AsyncSession,
+    node_name: str,
+    existing_node: Node,
+    proposed_spec: NodeSpec | _ExplicitDiffSpec,
+    pre_computed_dim_links: set[str],
+) -> _PropagatedChange:
+    """Compute the initial _PropagatedChange for a directly changed node.
+
+    Handles both the single-node preview path (_ExplicitDiffSpec) and the
+    deployment path (NodeSpec), populating columns_removed, columns_changed,
+    proposed_columns, and dim_links_removed on the returned change object.
+    """
+    prop = _PropagatedChange(caused_by=[node_name])
+
+    if isinstance(proposed_spec, _ExplicitDiffSpec):
+        # Single-node preview: explicit diff supplied by the caller.
+        prop.dim_links_removed = proposed_spec.dim_links_removed
+        if proposed_spec.new_query:
+            proposed_cols, removed, cols_changed, _, _ = await _infer_column_diff(
+                session, existing_node, proposed_spec.new_query,
+            )
+            prop.proposed_columns = proposed_cols
+            prop.columns_removed = set(removed)
+            prop.columns_changed = cols_changed
+        elif proposed_spec.explicit_columns_removed or proposed_spec.explicit_columns_changed:
+            current_col_names = {c.name for c in existing_node.current.columns}
+            actually_removed = proposed_spec.explicit_columns_removed & current_col_names
+            prop.columns_removed = actually_removed
+            prop.columns_changed = list(proposed_spec.explicit_columns_changed)
+            if actually_removed or prop.columns_changed:
+                prop.proposed_columns = _build_proposed_columns(
+                    existing_node.current.columns,
+                    actually_removed,
+                    prop.columns_changed,
+                )
+    else:
+        # Deployment path: dim link removals are pre-computed by the caller.
+        prop.dim_links_removed = pre_computed_dim_links
+        if proposed_spec.node_type == NodeType.SOURCE:
+            col_changes = _detect_source_column_changes(existing_node, proposed_spec)
+            prop.columns_removed = {
+                cc.column for cc in col_changes if cc.change_type == ColumnChangeType.REMOVED
+            }
+            prop.columns_changed = [
+                (cc.column, cc.old_type or "", cc.new_type or "")
+                for cc in col_changes
+                if cc.change_type == ColumnChangeType.TYPE_CHANGED
+            ]
+            if prop.columns_removed or prop.columns_changed:
+                prop.proposed_columns = _build_proposed_columns(
+                    existing_node.current.columns,
+                    prop.columns_removed,
+                    prop.columns_changed,
+                )
+        elif (
+            getattr(proposed_spec, "rendered_query", None)
+            and proposed_spec.rendered_query != existing_node.current.query
+        ):
+            _logger.info("[seed] %r: query changed, inferring column diff", node_name)
+            proposed_cols, removed_list, cols_changed, _, _ = await _infer_column_diff(
+                session, existing_node, proposed_spec.rendered_query,
+            )
+            prop.proposed_columns = proposed_cols
+            prop.columns_removed = set(removed_list)
+            prop.columns_changed = cols_changed
+            _logger.info(
+                "[seed] %r: inferred columns_removed=%r columns_changed=%r",
+                node_name, prop.columns_removed, prop.columns_changed,
+            )
+
+    # If any output columns were removed, check whether any of the node's own
+    # DimensionLinks join on those columns — those links are now implicitly broken.
+    for link in existing_node.current.dimension_links:
+        if link.foreign_key_column_names & prop.columns_removed:
+            _logger.info(
+                "[seed] %r: dim link to %r implicitly broken — join columns %r removed",
+                node_name, link.dimension.name,
+                link.foreign_key_column_names & prop.columns_removed,
+            )
+            prop.dim_links_removed.add(link.dimension.name)
+
+    return prop
+
+
+async def _seed_bfs(
     session: AsyncSession,
     changed_nodes: dict[
         str,
         tuple[NodeSpec | _ExplicitDiffSpec | None, Node | None, set[str]],
     ],
-) -> AsyncGenerator[ImpactedNode, None]:
-    """BFS over the DAG to find all downstream nodes affected by the given changes.
-
-    Yields ImpactedNode objects in BFS level order (direct casualties first, then
-    their dependents, etc.).
-
-    Parameters
-    ----------
-    session:
-        Async DB session.
-    changed_nodes:
-        Mapping of node_name → (proposed_spec, existing_node).
-
-        - ``proposed_spec=None`` means the node is being deleted.
-        - ``existing_node=None`` means the node is new (no downstream impact).
-        - ``proposed_spec`` is either a real ``NodeSpec`` (deployment path) or an
-          ``_ExplicitDiffSpec`` (single-node preview path, temporary bridge).
+) -> tuple[
+    dict[str, _PropagatedChange],
+    dict[str, Node],
+    set[str],
+    set[str],
+    dict[str, ImpactedNode],
+]:
     """
-    if not changed_nodes:
-        return
+    Build the initial BFS state from the set of directly changed nodes.
 
+    Three seeding stages:
+    1. Main loop: compute _PropagatedChange for each directly changed node.
+    2. Cube dim-link pass: for nodes with removed dim links, find all downstream
+        cubes that reference those dimensions upfront (cubes aren't reachable via
+        BFS column checks because they declare dimensions in cube_elements, not SQL).
+    3. Dimension-loses-columns pass: if a dimension node loses columns, find all
+        nodes that hold it via a DimensionLink, seed them into the frontier, and
+        run the cube pass from each holder.
+
+    Returns (propagated_change, node_cache, frontier, visited, impacted).
+    The caller should yield impacted.values() as level-0 results before starting
+    the BFS main loop.
+    """
     propagated_change: dict[str, _PropagatedChange] = {}
     node_cache: dict[str, Node] = {}
     frontier: set[str] = set()
@@ -742,13 +829,9 @@ async def compute_impact(
     impacted: dict[str, ImpactedNode] = {}
 
     # ---------------------------------------------------------------------------
-    # Seed phase — compute the diff for each directly changed node
+    # Stage 1 — compute the diff for each directly changed node
     # ---------------------------------------------------------------------------
-    for node_name, (
-        proposed_spec,
-        existing_node,
-        pre_computed_dim_links,
-    ) in changed_nodes.items():
+    for node_name, (proposed_spec, existing_node, pre_computed_dim_links) in changed_nodes.items():
         if existing_node is None:
             # New node — no downstream to affect
             continue
@@ -758,132 +841,15 @@ async def compute_impact(
 
         if proposed_spec is None:
             # Deletion — all direct consumers are unconditionally impacted
-            propagated_change[node_name] = _PropagatedChange(
-                is_deleted=True,
-                caused_by=[node_name],
-            )
-            frontier.add(node_name)
-            continue
-
-        prop = _PropagatedChange(caused_by=[node_name])
-
-        if isinstance(proposed_spec, _ExplicitDiffSpec):
-            # Single-node preview: explicit diff supplied by the caller
-            prop.dim_links_removed = proposed_spec.dim_links_removed
-            if proposed_spec.new_query:
-                _logger.info(
-                    "[seed] %r: query changed, inferring column diff",
-                    node_name,
-                )
-                proposed_cols, removed, cols_changed, _, _ = await _infer_column_diff(
-                    session,
-                    existing_node,
-                    proposed_spec.new_query,
-                )
-                prop.proposed_columns = proposed_cols
-                prop.columns_removed = set(removed)
-                prop.columns_changed = cols_changed
-                _logger.info(
-                    "[seed] %r: inferred columns_removed=%r columns_changed=%r",
-                    node_name,
-                    prop.columns_removed,
-                    prop.columns_changed,
-                )
-            elif (
-                proposed_spec.explicit_columns_removed
-                or proposed_spec.explicit_columns_changed
-            ):
-                current_col_names = {c.name for c in existing_node.current.columns}
-                actually_removed = (
-                    proposed_spec.explicit_columns_removed & current_col_names
-                )
-                prop.columns_removed = actually_removed
-                prop.columns_changed = list(proposed_spec.explicit_columns_changed)
-                if actually_removed or proposed_spec.explicit_columns_changed:
-                    prop.proposed_columns = _build_proposed_columns(
-                        existing_node.current.columns,
-                        actually_removed,
-                        list(proposed_spec.explicit_columns_changed),
-                    )
+            propagated_change[node_name] = _PropagatedChange(is_deleted=True, caused_by=[node_name])
         else:
-            # Deployment path: use pre-computed dim link removals from the caller.
-            prop.dim_links_removed = pre_computed_dim_links
-
-            if proposed_spec.node_type == NodeType.SOURCE:
-                col_changes = _detect_source_column_changes(
-                    existing_node,
-                    proposed_spec,
-                )
-                src_removed: set[str] = {
-                    cc.column
-                    for cc in col_changes
-                    if cc.change_type == ColumnChangeType.REMOVED
-                }
-                src_cols_changed = [
-                    (cc.column, cc.old_type or "", cc.new_type or "")
-                    for cc in col_changes
-                    if cc.change_type == ColumnChangeType.TYPE_CHANGED
-                ]
-                prop.columns_removed = src_removed
-                prop.columns_changed = src_cols_changed
-                if src_removed or src_cols_changed:
-                    prop.proposed_columns = _build_proposed_columns(
-                        existing_node.current.columns,
-                        src_removed,
-                        src_cols_changed,
-                    )
-            elif (
-                hasattr(proposed_spec, "rendered_query")
-                and proposed_spec.rendered_query
-                and proposed_spec.rendered_query != existing_node.current.query
-            ):
-                _logger.info(
-                    "[seed] %r: query changed, inferring column diff",
-                    node_name,
-                )
-                (
-                    proposed_cols,
-                    removed_list,
-                    cols_changed,
-                    _,
-                    _,
-                ) = await _infer_column_diff(
-                    session,
-                    existing_node,
-                    proposed_spec.rendered_query,
-                )
-                prop.proposed_columns = proposed_cols
-                prop.columns_removed = set(removed_list)
-                prop.columns_changed = cols_changed
-                _logger.info(
-                    "[seed] %r: inferred columns_removed=%r columns_changed=%r",
-                    node_name,
-                    prop.columns_removed,
-                    prop.columns_changed,
-                )
-
-        # If any output columns were removed, check whether any of the node's own
-        # DimensionLinks join on those columns — those links are now implicitly broken.
-        if prop.columns_removed:
-            for link in existing_node.current.dimension_links:
-                if link.foreign_key_column_names & prop.columns_removed:
-                    _logger.info(
-                        "[seed] %r: dim link to %r implicitly broken — "
-                        "join columns %r removed",
-                        node_name,
-                        link.dimension.name,
-                        link.foreign_key_column_names & prop.columns_removed,
-                    )
-                    prop.dim_links_removed.add(link.dimension.name)
-
-        propagated_change[node_name] = prop
+            propagated_change[node_name] = await _compute_seed_prop(
+                session, node_name, existing_node, proposed_spec, pre_computed_dim_links,
+            )
         frontier.add(node_name)
 
     # ---------------------------------------------------------------------------
-    # Cube dim-link impact pass: for each node that has dim_links_removed,
-    # find all downstream cubes that reference those dimensions via cube_elements.
-    # This is done upfront because cubes declare dimensions in cube_elements
-    # (not via SQL parents), so the BFS column checks can't detect them.
+    # Stage 2 — cube dim-link pass
     # ---------------------------------------------------------------------------
     _logger.info(
         "[compute_impact] propagated_change: %r",
@@ -926,9 +892,7 @@ async def compute_impact(
                 )
 
     # ---------------------------------------------------------------------------
-    # Case 3 seed: if a dimension node loses columns, find all nodes that expose
-    # it via a DimensionLink (using get_dimension_inbound_bfs at depth=1), seed
-    # them into the frontier, and run the cube pass from each.
+    # Stage 3 — dimension-loses-columns pass
     # ---------------------------------------------------------------------------
     dim_nodes_losing_cols = [
         node_cache[name]
@@ -955,9 +919,7 @@ async def compute_impact(
         dim_node_names = [n.name for n in dim_nodes_losing_cols]
         for holder in holders:
             if holder.name not in propagated_change:
-                propagated_change[holder.name] = _PropagatedChange(
-                    caused_by=dim_node_names,
-                )
+                propagated_change[holder.name] = _PropagatedChange(caused_by=dim_node_names)
             propagated_change[holder.name].dim_links_removed.update(dim_node_names)
             node_cache[holder.name] = holder
             frontier.add(holder.name)
@@ -971,8 +933,42 @@ async def compute_impact(
                 node_cache=node_cache,
             )
 
+    return propagated_change, node_cache, frontier, visited, impacted
+
+
+async def compute_impact(
+    session: AsyncSession,
+    changed_nodes: dict[
+        str,
+        tuple[NodeSpec | _ExplicitDiffSpec | None, Node | None, set[str]],
+    ],
+) -> AsyncGenerator[ImpactedNode, None]:
+    """BFS over the DAG to find all downstream nodes affected by the given changes.
+
+    Yields ImpactedNode objects in BFS level order (direct casualties first, then
+    their dependents, etc.).
+
+    Parameters
+    ----------
+    session:
+        Async DB session.
+    changed_nodes:
+        Mapping of node_name → (proposed_spec, existing_node).
+
+        - ``proposed_spec=None`` means the node is being deleted.
+        - ``existing_node=None`` means the node is new (no downstream impact).
+        - ``proposed_spec`` is either a real ``NodeSpec`` (deployment path) or an
+          ``_ExplicitDiffSpec`` (single-node preview path, temporary bridge).
+    """
+    if not changed_nodes:
+        return
+
+    propagated_change, node_cache, frontier, visited, impacted = await _seed_bfs(
+        session, changed_nodes,
+    )
+
     # Yield any impacts already recorded by the pre-BFS passes (cube dim-link and
-    # case-3 dimension-node-loses-columns).  These are "level 0" results.
+    # stage-3 dimension-node-loses-columns).  These are "level 0" results.
     for node in list(impacted.values()):
         yield node
 
