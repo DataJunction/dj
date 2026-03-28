@@ -2607,9 +2607,10 @@ class Subscript(Expression):
             type_ = cast(MapType, self.expr.type)
             return type_.value.type
         if isinstance(self.expr.type, StructType):
-            nested_field = self.expr.type.fields_mapping.get(
-                self.index.value.replace("'", ""),
-            )
+            key = self.index.value.replace("'", "")
+            nested_field = self.expr.type.fields_mapping.get(key)
+            if nested_field is None:
+                raise DJParseException(f"Field '{key}' not found in '{self.expr}'")
             return nested_field.type
         return cast(ListType, self.expr.type).element.type
 

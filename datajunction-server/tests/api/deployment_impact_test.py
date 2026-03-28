@@ -707,7 +707,7 @@ class TestImpactAnalysisInternalFunctions:
         """Warning is emitted for type changes."""
         from datajunction_server.internal.deployment.impact import _generate_warnings
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
             ColumnChange,
             ColumnChangeType,
@@ -715,7 +715,7 @@ class TestImpactAnalysisInternalFunctions:
         from datajunction_server.models.node import NodeType
 
         changes = [
-            NodeChange(
+            NodeEffect(
                 name="test.source",
                 operation=NodeChangeOperation.UPDATE,
                 node_type=NodeType.SOURCE,
@@ -737,11 +737,11 @@ class TestImpactAnalysisInternalFunctions:
     def test_generate_warnings_query_changed_no_columns(self):
         """Warning is emitted when query changes but no column changes detected."""
         from datajunction_server.internal.deployment.impact import _generate_warnings
-        from datajunction_server.models.impact import NodeChange, NodeChangeOperation
+        from datajunction_server.models.impact import NodeEffect, NodeChangeOperation
         from datajunction_server.models.node import NodeType
 
         changes = [
-            NodeChange(
+            NodeEffect(
                 name="test.transform",
                 operation=NodeChangeOperation.UPDATE,
                 node_type=NodeType.TRANSFORM,
@@ -757,22 +757,22 @@ class TestImpactAnalysisInternalFunctions:
         """Warning is emitted when a deleted node has downstream dependents."""
         from datajunction_server.internal.deployment.impact import _generate_warnings
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
-            DownstreamImpact,
+            NodeEffect,
             ImpactType,
         )
         from datajunction_server.models.node import NodeType, NodeStatus
 
         changes = [
-            NodeChange(
+            NodeEffect(
                 name="test.to_delete",
                 operation=NodeChangeOperation.DELETE,
                 node_type=NodeType.SOURCE,
             ),
         ]
         downstream_impacts = [
-            DownstreamImpact(
+            NodeEffect(
                 name="test.dependent",
                 node_type=NodeType.TRANSFORM,
                 current_status=NodeStatus.VALID,
@@ -791,22 +791,22 @@ class TestImpactAnalysisInternalFunctions:
         """Warning is emitted when changes affect nodes in other namespaces."""
         from datajunction_server.internal.deployment.impact import _generate_warnings
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
-            DownstreamImpact,
+            NodeEffect,
             ImpactType,
         )
         from datajunction_server.models.node import NodeType, NodeStatus
 
         changes = [
-            NodeChange(
+            NodeEffect(
                 name="my_namespace.source",
                 operation=NodeChangeOperation.UPDATE,
                 node_type=NodeType.SOURCE,
             ),
         ]
         downstream_impacts = [
-            DownstreamImpact(
+            NodeEffect(
                 name="other_namespace.dependent",
                 node_type=NodeType.TRANSFORM,
                 current_status=NodeStatus.VALID,
@@ -826,22 +826,22 @@ class TestImpactAnalysisInternalFunctions:
         """Warning is emitted when more than 10 downstream nodes will invalidate."""
         from datajunction_server.internal.deployment.impact import _generate_warnings
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
-            DownstreamImpact,
+            NodeEffect,
             ImpactType,
         )
         from datajunction_server.models.node import NodeType, NodeStatus
 
         changes = [
-            NodeChange(
+            NodeEffect(
                 name="test.source",
                 operation=NodeChangeOperation.DELETE,
                 node_type=NodeType.SOURCE,
             ),
         ]
         downstream_impacts = [
-            DownstreamImpact(
+            NodeEffect(
                 name=f"test.dependent_{i}",
                 node_type=NodeType.TRANSFORM,
                 current_status=NodeStatus.VALID,
@@ -871,7 +871,7 @@ class TestImpactAnalysisInternalFunctions:
             _analyze_downstream_impacts,
         )
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
         )
         from datajunction_server.models.node import NodeType
@@ -881,12 +881,12 @@ class TestImpactAnalysisInternalFunctions:
         async def run_test():
             session = object()
             changes = [
-                NodeChange(
+                NodeEffect(
                     name="test.source",
                     operation=NodeChangeOperation.UPDATE,
                     node_type=NodeType.SOURCE,
                 ),
-                NodeChange(
+                NodeEffect(
                     name="test.transform",
                     operation=NodeChangeOperation.UPDATE,
                     node_type=NodeType.TRANSFORM,
@@ -925,7 +925,7 @@ class TestImpactAnalysisInternalFunctions:
             _analyze_downstream_impacts,
         )
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
             ImpactType,
         )
@@ -936,7 +936,7 @@ class TestImpactAnalysisInternalFunctions:
         async def run_test():
             session = object()
             changes = [
-                NodeChange(
+                NodeEffect(
                     name="my_ns.source",
                     operation=NodeChangeOperation.UPDATE,
                     node_type=NodeType.SOURCE,
@@ -973,7 +973,7 @@ class TestImpactAnalysisInternalFunctions:
             _analyze_downstream_impacts,
         )
         from datajunction_server.models.impact import (
-            NodeChange,
+            NodeEffect,
             NodeChangeOperation,
             ImpactType,
         )
@@ -984,7 +984,7 @@ class TestImpactAnalysisInternalFunctions:
         async def run_test():
             session = object()
             changes = [
-                NodeChange(
+                NodeEffect(
                     name="my_ns.source",
                     operation=NodeChangeOperation.UPDATE,
                     node_type=NodeType.SOURCE,

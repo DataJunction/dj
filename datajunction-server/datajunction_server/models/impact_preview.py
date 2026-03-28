@@ -27,6 +27,10 @@ class NodeChange(BaseModel):
     dim_links_added: list[str] = Field(
         default_factory=list,
     )  # dimension node names newly linked (no downstream impact)
+    # New query for the node — when set, compute_impact parses it to derive
+    # columns_removed / columns_changed rather than relying on caller-supplied lists.
+    # Takes precedence over any explicitly passed columns_removed/columns_changed.
+    new_query: str | None = None
 
 
 class NodeDiff(BaseModel):
@@ -36,6 +40,9 @@ class NodeDiff(BaseModel):
     node_type: NodeType
     change_type: Literal["modified", "deleted", "added"]
     diff: NodeChange
+    # Whether the node itself would still be valid after the proposed change.
+    # None when the node is being deleted; current status when no query change.
+    projected_status: NodeStatus | None = None
 
 
 class ImpactedNode(BaseModel):
@@ -49,10 +56,3 @@ class ImpactedNode(BaseModel):
     reason: str
     caused_by: list[str] = Field(default_factory=list)
     impact_type: Literal["column", "dimension_link", "deleted_parent"]
-
-
-class SingleNodePreviewResponse(BaseModel):
-    """Response for POST /nodes/{name}/impact-preview."""
-
-    node_diff: NodeDiff
-    downstream_impact: list[ImpactedNode]  # topo-sorted

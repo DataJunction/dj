@@ -59,7 +59,7 @@ class NodeValidator:
 
 @timed(
     "dj.node_validation.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data(
     data: Union[NodeRevisionBase, NodeRevision],
@@ -213,12 +213,21 @@ async def validate_node_data(
                             ),
                         )
         else:
-            # Standard metric - validate columns exist on parent nodes
-            all_available_columns = {
-                col.name
-                for upstream_node in non_metric_parents
-                for col in upstream_node.columns
-            }
+            # Standard metric - validate columns exist on parent nodes.
+            # When a compile_context with column_overrides is present (e.g. impact-preview
+            # dry-run), use the proposed columns for that upstream instead of the DB state.
+            all_available_columns: set[str] = set()
+            for upstream_node in non_metric_parents:
+                node_name = upstream_node.node.name if upstream_node.node else None
+                override_cols = (
+                    ctx.column_overrides.get(node_name) if node_name else None
+                )
+                cols = (
+                    override_cols
+                    if override_cols is not None
+                    else upstream_node.columns
+                )
+                all_available_columns.update(col.name for col in cols)
 
             metric_expression = query_ast.select.projection[0]
             referenced_columns = metric_expression.find_all(ast.Column)
