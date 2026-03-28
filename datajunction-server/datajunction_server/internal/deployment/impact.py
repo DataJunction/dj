@@ -433,9 +433,9 @@ async def analyze_deployment_impact(
                                 )
 
             # Detect metadata-only changes
-            if (node_spec.display_name or "") != (
-                existing_node.current.display_name or ""
-            ):
+            if node_spec.display_name is not None and (
+                node_spec.display_name or ""
+            ) != (existing_node.current.display_name or ""):
                 logger.info(
                     "display_name changed for %s: %r -> %r",
                     node_spec.rendered_name,
@@ -550,9 +550,9 @@ async def analyze_deployment_impact(
                     existing_col = existing_col_map.get(col_spec.name)
                     if existing_col is None:
                         continue
-                    if (col_spec.display_name or "") != (
-                        existing_col.display_name or ""
-                    ):
+                    if col_spec.display_name is not None and (
+                        col_spec.display_name or ""
+                    ) != (existing_col.display_name or ""):
                         logger.info(
                             "Column display_name changed for %s.%s: %r -> %r",
                             node_spec.rendered_name,
@@ -562,7 +562,9 @@ async def analyze_deployment_impact(
                         )
                         if "column_metadata" not in changed_fields:
                             changed_fields.append("column_metadata")
-                    if (col_spec.description or "") != (existing_col.description or ""):
+                    if col_spec.description is not None and (
+                        col_spec.description or ""
+                    ) != (existing_col.description or ""):
                         logger.info(
                             "Column description changed for %s.%s",
                             node_spec.rendered_name,

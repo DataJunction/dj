@@ -691,14 +691,14 @@ class TestImpactAnalysisInternalFunctions:
 
     def test_normalize_type_empty_string(self):
         """Test type normalization with empty/None input."""
-        from datajunction_server.internal.deployment.impact import _normalize_type
+        from datajunction_server.internal.impact import _normalize_type
 
         assert _normalize_type(None) == ""
         assert _normalize_type("") == ""
 
     def test_normalize_type_aliases(self):
         """Test type normalization with various aliases."""
-        from datajunction_server.internal.deployment.impact import _normalize_type
+        from datajunction_server.internal.impact import _normalize_type
 
         assert _normalize_type("BIGINT") == "bigint"
         assert _normalize_type("long") == "bigint"
@@ -874,7 +874,7 @@ class TestImpactAnalysisInternalFunctions:
     def test_analyze_downstream_impacts_skip_directly_changed(self):
         """Nodes being directly changed are excluded from downstream impacts."""
         import asyncio
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import patch
         from datajunction_server.internal.deployment.impact import (
             _analyze_downstream_impacts,
         )
@@ -911,10 +911,13 @@ class TestImpactAnalysisInternalFunctions:
                 caused_by=["test.source"],
                 impact_type="column",
             )
+
+            async def mock_compute_impact(*args, **kwargs):
+                yield mock_impacted
+
             with patch(
                 "datajunction_server.internal.deployment.impact.compute_impact",
-                new_callable=AsyncMock,
-                return_value=[mock_impacted],
+                mock_compute_impact,
             ):
                 result = await _analyze_downstream_impacts(
                     session=session,
@@ -928,7 +931,7 @@ class TestImpactAnalysisInternalFunctions:
 
     def test_analyze_downstream_impacts_marks_external(self):
         """Impacts outside the deployment namespace are marked is_external=True."""
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import patch
         from datajunction_server.internal.deployment.impact import (
             _analyze_downstream_impacts,
         )
@@ -960,10 +963,13 @@ class TestImpactAnalysisInternalFunctions:
                 caused_by=["my_ns.source"],
                 impact_type="column",
             )
+
+            async def mock_compute_impact(*args, **kwargs):
+                yield mock_impacted
+
             with patch(
                 "datajunction_server.internal.deployment.impact.compute_impact",
-                new_callable=AsyncMock,
-                return_value=[mock_impacted],
+                mock_compute_impact,
             ):
                 result = await _analyze_downstream_impacts(
                     session=session,
@@ -976,7 +982,7 @@ class TestImpactAnalysisInternalFunctions:
 
     def test_analyze_downstream_impacts_dim_link_is_may_affect(self):
         """dimension_link impact type maps to MAY_AFFECT."""
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import patch
         from datajunction_server.internal.deployment.impact import (
             _analyze_downstream_impacts,
         )
@@ -1008,10 +1014,13 @@ class TestImpactAnalysisInternalFunctions:
                 caused_by=["my_ns.source"],
                 impact_type="dimension_link",
             )
+
+            async def mock_compute_impact(*args, **kwargs):
+                yield mock_impacted
+
             with patch(
                 "datajunction_server.internal.deployment.impact.compute_impact",
-                new_callable=AsyncMock,
-                return_value=[mock_impacted],
+                mock_compute_impact,
             ):
                 result = await _analyze_downstream_impacts(
                     session=session,
@@ -2448,7 +2457,7 @@ class TestChangeDetectionCoverage:
         noop_changes = [
             c for c in impact.changes if c.operation == NodeChangeOperation.NOOP
         ]
-        assert len(noop_changes) == 0
+        assert len(noop_changes) >= 1
 
     # ------------------------------------------------------------------
     # Section 2i — Downstream propagation via HTTP

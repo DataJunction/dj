@@ -1,8 +1,8 @@
 """
-Impact preview — compute the blast radius of proposed node changes.
+Impact analysis — compute the blast radius of proposed node changes.
 
 Entry point:
-- ``compute_impact``: given a dict of {node_name: NodeChange}, BFS downstream and return
+- ``compute_impact``: given a dict of changed nodes, BFS downstream and return
   a topo-sorted list of ImpactedNode objects.
 """
 
@@ -495,8 +495,7 @@ def _normalize_type(type_str: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Explicit diff spec — temporary bridge for the single-node preview endpoint
-# until NodeChange is massaged into a proper NodeSpec.
+# Explicit diff spec — internal test/preview helper.
 # ---------------------------------------------------------------------------
 
 
@@ -504,8 +503,8 @@ def _normalize_type(type_str: str | None) -> str:
 class _ExplicitDiffSpec:
     """Captures an explicit user-supplied diff (columns_removed, new_query, etc.).
 
-    Used by the single-node impact-preview endpoint as a stand-in for a real
-    NodeSpec until we build the full NodeChange → NodeSpec conversion.
+    Used in tests and internal tooling as a lightweight stand-in for a full NodeSpec
+    when only a specific set of changes needs to be described.
     """
 
     node_type: NodeType
@@ -728,14 +727,14 @@ async def _compute_seed_prop(
 ) -> _PropagatedChange:
     """Compute the initial _PropagatedChange for a directly changed node.
 
-    Handles both the single-node preview path (_ExplicitDiffSpec) and the
-    deployment path (NodeSpec), populating columns_removed, columns_changed,
-    proposed_columns, and dim_links_removed on the returned change object.
+    Handles both the _ExplicitDiffSpec (explicit diff) and NodeSpec (deployment)
+    paths, populating columns_removed, columns_changed, proposed_columns,
+    and dim_links_removed on the returned change object.
     """
     prop = _PropagatedChange(caused_by=[node_name])
 
     if isinstance(proposed_spec, _ExplicitDiffSpec):
-        # Single-node preview: explicit diff supplied by the caller.
+        # Explicit diff supplied by the caller (tests / internal tooling).
         prop.dim_links_removed = proposed_spec.dim_links_removed
         if proposed_spec.new_query:
             proposed_cols, removed, cols_changed, _, _ = await _infer_column_diff(
@@ -1102,7 +1101,7 @@ async def compute_impact(
         - ``proposed_spec=None`` means the node is being deleted.
         - ``existing_node=None`` means the node is new (no downstream impact).
         - ``proposed_spec`` is either a real ``NodeSpec`` (deployment path) or an
-          ``_ExplicitDiffSpec`` (single-node preview path, temporary bridge).
+          ``_ExplicitDiffSpec`` (explicit diff / test path).
     """
     if not changed_nodes:
         return
