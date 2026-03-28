@@ -2,21 +2,29 @@
 Tests for deployment impact analysis API endpoint.
 """
 
+import asyncio
+
 import pytest
 from unittest import mock
 
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    CubeSpec,
+    DimensionJoinLinkSpec,
+    DimensionSpec,
     DeploymentSpec,
     MetricSpec,
+    PartitionSpec,
     SourceSpec,
     TransformSpec,
 )
 from datajunction_server.models.impact import (
     ColumnChangeType,
     DeploymentImpactResponse,
+    ImpactType,
     NodeChangeOperation,
 )
+from datajunction_server.models.partition import Granularity, PartitionType
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -1012,3 +1020,1565 @@ class TestImpactAnalysisInternalFunctions:
                 )
             assert len(result) == 1
             assert result[0].impact_type == ImpactType.MAY_AFFECT
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+
+async def _deploy_and_wait(client, spec: DeploymentSpec) -> None:
+    """Deploy a spec and block until the deployment succeeds or fails."""
+    response = await client.post(
+        "/deployments",
+        json=spec.model_dump(by_alias=True),
+    )
+    assert response.status_code == 200, response.text
+    deployment_id = response.json()["uuid"]
+    for _ in range(60):
+        status_response = await client.get(f"/deployments/{deployment_id}")
+        if status_response.json()["status"] in ("success", "failed"):
+            break
+        await asyncio.sleep(0.1)
+
+
+async def _impact(client, spec: DeploymentSpec) -> DeploymentImpactResponse:
+    """POST to /deployments/impact and return the parsed response."""
+    response = await client.post(
+        "/deployments/impact",
+        json=spec.model_dump(by_alias=True),
+    )
+    assert response.status_code == 200, response.text
+    return DeploymentImpactResponse(**response.json())
+
+
+# ---------------------------------------------------------------------------
+# TestChangeDetectionCoverage
+# ---------------------------------------------------------------------------
+
+
+class TestChangeDetectionCoverage:
+    """
+    Tests for the change-detection logic in analyze_deployment_impact.
+
+    Each test deploys an initial state to its own namespace and then calls
+    /deployments/impact with a modified spec, asserting that the right
+    changed_fields / column_changes / dim_link_changes appear.
+    """
+
+    # ------------------------------------------------------------------
+    # Section 2a — Query changes
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_query_changed(self, client_with_roads):
+        """'query' appears in changed_fields when a transform's SQL is modified."""
+        ns = "det_qry_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="val", type="float"),
+                    ],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id, val FROM ${prefix}src",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="val", type="float"),
+                    ],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id, val, 'v2' AS status FROM ${prefix}src",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update_changes = [
+            c for c in impact.changes if c.operation == NodeChangeOperation.UPDATE
+        ]
+        trm = next((c for c in update_changes if c.name.endswith(".trm")), None)
+        assert trm is not None, "Expected trm to be an UPDATE"
+        assert "query" in trm.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_query_invalid(self, client_with_roads):
+        """'query_invalid' appears in changed_fields when the new query doesn't parse."""
+        ns = "det_qry_inv"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id FROM ${prefix}src",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Reference a column that doesn't exist → validation failure
+        broken = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id, nonexistent_col FROM ${prefix}src",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, broken)
+
+        update_changes = [
+            c for c in impact.changes if c.operation == NodeChangeOperation.UPDATE
+        ]
+        trm = next((c for c in update_changes if c.name.endswith(".trm")), None)
+        assert trm is not None
+        assert "query_invalid" in trm.changed_fields
+        assert len(trm.validation_errors) > 0
+
+    # ------------------------------------------------------------------
+    # Section 2b — Source column changes
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_column_removed_source(self, client_with_roads):
+        """REMOVED appears in column_changes when a source column is dropped."""
+        ns = "det_col_rm"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="extra", type="string"),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        removed = [
+            cc
+            for cc in update.column_changes
+            if cc.change_type == ColumnChangeType.REMOVED
+        ]
+        assert any(cc.column == "extra" for cc in removed)
+
+    @pytest.mark.asyncio
+    async def test_detect_column_type_changed_source(self, client_with_roads):
+        """TYPE_CHANGED appears in column_changes when a column's type changes."""
+        ns = "det_col_tc"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="amount", type="int"),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="amount", type="bigint"),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        type_changes = [
+            cc
+            for cc in update.column_changes
+            if cc.change_type == ColumnChangeType.TYPE_CHANGED
+        ]
+        assert any(cc.column == "amount" for cc in type_changes)
+
+    @pytest.mark.asyncio
+    async def test_detect_column_added_source(self, client_with_roads):
+        """ADDED appears in column_changes when a new column is introduced."""
+        ns = "det_col_add"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="new_col", type="string"),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        added = [
+            cc
+            for cc in update.column_changes
+            if cc.change_type == ColumnChangeType.ADDED
+        ]
+        assert any(cc.column == "new_col" for cc in added)
+
+    @pytest.mark.asyncio
+    async def test_detect_partition_changed_source(self, client_with_roads):
+        """PARTITION_CHANGED appears when a column's partition spec changes."""
+        ns = "det_part_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(
+                            name="dt",
+                            type="timestamp",
+                            partition=PartitionSpec(type=PartitionType.TEMPORAL),
+                        ),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Change partition granularity
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(
+                            name="dt",
+                            type="timestamp",
+                            partition=PartitionSpec(
+                                type=PartitionType.TEMPORAL,
+                                granularity=Granularity.DAY,
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        partition_changes = [
+            cc
+            for cc in update.column_changes
+            if cc.change_type == ColumnChangeType.PARTITION_CHANGED
+        ]
+        assert any(cc.column == "dt" for cc in partition_changes)
+
+    # ------------------------------------------------------------------
+    # Section 2c — Metadata changes
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_display_name_changed(self, client_with_roads):
+        """'display_name' appears in changed_fields when node display name changes."""
+        ns = "det_dn_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    display_name="Original Name",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    display_name="Updated Name",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "display_name" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_description_changed(self, client_with_roads):
+        """'description' appears in changed_fields when node description changes."""
+        ns = "det_desc_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    description="Original description",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    description="Updated description",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "description" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_tags_changed(self, client_with_roads):
+        """'tags' appears in changed_fields when the tag set changes."""
+        ns = "det_tags_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    tags=["some_tag"],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "tags" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_owners_changed(self, client_with_roads):
+        """'owners' appears in changed_fields when the owner set changes."""
+        ns = "det_own_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    owners=["dj"],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "owners" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_custom_metadata_changed(self, client_with_roads):
+        """'custom_metadata' appears in changed_fields when it changes."""
+        ns = "det_cm_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    custom_metadata={"key": "old"},
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                    custom_metadata={"key": "new"},
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "custom_metadata" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_column_metadata_changed(self, client_with_roads):
+        """'column_metadata' appears when a column's display_name or description changes."""
+        ns = "det_colmeta_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int", display_name="ID"),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int", display_name="Identifier"),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "column_metadata" in update.changed_fields
+
+    # ------------------------------------------------------------------
+    # Section 2d — Source-specific fields
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_catalog_changed(self, client_with_roads):
+        """'catalog' appears in changed_fields when the catalog changes."""
+        ns = "det_cat_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="basic",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "catalog" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_schema_changed(self, client_with_roads):
+        """'schema' appears in changed_fields when the underlying schema changes."""
+        ns = "det_sch_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="old_schema",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="new_schema",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "schema" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_table_changed(self, client_with_roads):
+        """'table' appears in changed_fields when the underlying table changes."""
+        ns = "det_tbl_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="old_table",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="new_table",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "table" in update.changed_fields
+
+    # ------------------------------------------------------------------
+    # Section 2e — Metric-specific fields
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_metric_direction_changed(self, client_with_roads):
+        """'direction' appears in changed_fields when metric direction changes."""
+        ns = "det_mdir_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                    direction="higher_is_better",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                    direction="lower_is_better",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".cnt")), None)
+        assert update is not None
+        assert "direction" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_metric_significant_digits_changed(self, client_with_roads):
+        """'significant_digits' appears when the metric significant_digits changes."""
+        ns = "det_sd_chg"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                    significant_digits=2,
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                    significant_digits=4,
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".cnt")), None)
+        assert update is not None
+        assert "significant_digits" in update.changed_fields
+
+    # ------------------------------------------------------------------
+    # Section 2f — Cube-specific fields
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_cube_metrics_changed(self, client_with_roads):
+        """'metrics' appears in cube changed_fields when the metric set changes."""
+        ns = "det_cube_m"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt_a",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                MetricSpec(
+                    name="cnt_b",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                CubeSpec(
+                    name="cube",
+                    metrics=["${prefix}cnt_a"],
+                    dimensions=[],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Change cube to use cnt_b instead of cnt_a
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt_a",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                MetricSpec(
+                    name="cnt_b",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                CubeSpec(
+                    name="cube",
+                    metrics=["${prefix}cnt_b"],
+                    dimensions=[],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".cube")), None)
+        assert update is not None
+        assert "metrics" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_cube_filters_changed(self, client_with_roads):
+        """'filters' appears in cube changed_fields when the filter set changes."""
+        ns = "det_cube_f"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                CubeSpec(
+                    name="cube",
+                    metrics=["${prefix}cnt"],
+                    dimensions=[],
+                    filters=[],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                MetricSpec(
+                    name="cnt",
+                    query="SELECT count(id) FROM ${prefix}src",
+                ),
+                CubeSpec(
+                    name="cube",
+                    metrics=["${prefix}cnt"],
+                    dimensions=[],
+                    filters=["id > 0"],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".cube")), None)
+        assert update is not None
+        assert "filters" in update.changed_fields
+
+    # ------------------------------------------------------------------
+    # Section 2g — Dim link changes
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_dim_link_removed_explicit(self, client_with_roads):
+        """operation='removed' in dim_link_changes when a link is explicitly dropped."""
+        ns = "det_dlrm"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}dim",
+                            join_on="${prefix}facts.dim_id = ${prefix}dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Remove the dim link from facts
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    # No dimension_links
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".facts")), None)
+        assert update is not None
+        removed_links = [
+            dlc for dlc in update.dim_link_changes if dlc.operation == "removed"
+        ]
+        assert len(removed_links) > 0
+
+    @pytest.mark.asyncio
+    async def test_detect_dim_link_added(self, client_with_roads):
+        """operation='added' in dim_link_changes when a new link is introduced."""
+        ns = "det_dladd"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    # No links initially
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Add a dim link to facts
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}dim",
+                            join_on="${prefix}facts.dim_id = ${prefix}dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".facts")), None)
+        assert update is not None
+        added_links = [
+            dlc for dlc in update.dim_link_changes if dlc.operation == "added"
+        ]
+        assert len(added_links) > 0
+
+    @pytest.mark.asyncio
+    async def test_detect_dim_link_updated_join_on(self, client_with_roads):
+        """operation='updated' in dim_link_changes when join_on expression changes."""
+        ns = "det_dlupd"
+        dim_link = DimensionJoinLinkSpec(
+            dimension_node="${prefix}dim",
+            join_on="${prefix}facts.dim_id = ${prefix}dim.dim_id",
+        )
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                        ColumnSpec(name="alt_id", type="int"),
+                    ],
+                    dimension_links=[dim_link],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Change join_on expression
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                        ColumnSpec(name="alt_id", type="int"),
+                    ],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}dim",
+                            join_on="${prefix}facts.alt_id = ${prefix}dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".facts")), None)
+        assert update is not None
+        updated_links = [
+            dlc for dlc in update.dim_link_changes if dlc.operation == "updated"
+        ]
+        assert len(updated_links) > 0
+
+    @pytest.mark.asyncio
+    async def test_detect_dim_link_broken_by_column_removal(self, client_with_roads):
+        """operation='broken' when a column used in join_on is removed."""
+        ns = "det_dlbrk"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}dim",
+                            join_on="${prefix}facts.dim_id = ${prefix}dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Remove dim_id column that the link joins on → link is implicitly broken
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="t",
+                    table="orders",
+                    columns=[
+                        ColumnSpec(name="order_id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT dim_id FROM ${prefix}orders",
+                    primary_key=["dim_id"],
+                ),
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    # dim_id removed → breaks the join_on
+                    columns=[ColumnSpec(name="id", type="int")],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}dim",
+                            join_on="${prefix}facts.dim_id = ${prefix}dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".facts")), None)
+        assert update is not None
+        broken_links = [
+            dlc for dlc in update.dim_link_changes if dlc.operation == "broken"
+        ]
+        assert len(broken_links) > 0
+        assert any(len(dlc.broken_by_columns) > 0 for dlc in broken_links)
+
+    @pytest.mark.asyncio
+    async def test_detect_dim_link_invalid_nonexistent_target(self, client_with_roads):
+        """'dim_link_invalid' in changed_fields when the dimension target doesn't exist."""
+        ns = "det_dlinv"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Link to a nonexistent dimension
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="facts",
+                    catalog="default",
+                    schema_="t",
+                    table="facts",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="dim_id", type="int"),
+                    ],
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="totally.nonexistent.dim",
+                            join_on="${prefix}facts.dim_id = totally.nonexistent.dim.dim_id",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".facts")), None)
+        assert update is not None
+        assert "dim_link_invalid" in update.changed_fields
+        assert len(update.validation_errors) > 0
+
+    # ------------------------------------------------------------------
+    # Section 2h — Validation
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_detect_primary_key_invalid(self, client_with_roads):
+        """'primary_key_invalid' in changed_fields when dimension has no primary key."""
+        ns = "det_pk_inv"
+        # Deploy a valid dimension with primary key
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT id FROM ${prefix}src",
+                    primary_key=["id"],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Update the dimension removing primary_key → invalid
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                DimensionSpec(
+                    name="dim",
+                    query="SELECT id FROM ${prefix}src",
+                    primary_key=[],  # No primary key → invalid
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".dim")), None)
+        assert update is not None
+        assert "primary_key_invalid" in update.changed_fields
+
+    @pytest.mark.asyncio
+    async def test_detect_column_attribute_invalid(self, client_with_roads):
+        """'column_attribute_invalid' in changed_fields for unknown column attributes."""
+        ns = "det_ca_inv"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(
+                            name="id",
+                            type="int",
+                            attributes=["nonexistent_attribute_xyz"],
+                        ),
+                    ],
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        update = next((c for c in impact.changes if c.name.endswith(".src")), None)
+        assert update is not None
+        assert "column_attribute_invalid" in update.changed_fields
+        assert len(update.validation_errors) > 0
+
+    @pytest.mark.asyncio
+    async def test_detect_noop_when_nothing_changed(self, client_with_roads):
+        """NOOP operation and empty changed_fields when spec is identical to DB state."""
+        ns = "det_noop"
+        spec = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, spec)
+
+        # Impact with identical spec → NOOP
+        impact = await _impact(client_with_roads, spec)
+
+        noop_changes = [
+            c for c in impact.changes if c.operation == NodeChangeOperation.NOOP
+        ]
+        assert len(noop_changes) >= 1
+        for c in noop_changes:
+            assert c.changed_fields == []
+
+    # ------------------------------------------------------------------
+    # Section 2i — Downstream propagation via HTTP
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_downstream_will_invalidate_on_column_removal(
+        self,
+        client_with_roads,
+    ):
+        """WILL_INVALIDATE appears in downstream_impacts when a column is removed."""
+        ns = "det_ds_inv"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[
+                        ColumnSpec(name="id", type="int"),
+                        ColumnSpec(name="val", type="float"),
+                    ],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id, val FROM ${prefix}src",
+                ),
+                MetricSpec(
+                    name="total",
+                    query="SELECT sum(val) FROM ${prefix}trm",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Remove val → trm breaks → metric breaks
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id, val FROM ${prefix}src",  # val no longer in src
+                ),
+                MetricSpec(
+                    name="total",
+                    query="SELECT sum(val) FROM ${prefix}trm",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        will_invalidate = [
+            imp
+            for imp in impact.downstream_impacts
+            if imp.impact_type == ImpactType.WILL_INVALIDATE
+        ]
+        assert len(will_invalidate) > 0
+
+    @pytest.mark.asyncio
+    async def test_downstream_delete_propagates(self, client_with_roads):
+        """Deleting a source causes downstream nodes to be marked WILL_INVALIDATE."""
+        ns = "det_ds_del"
+        initial = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id FROM ${prefix}src",
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, initial)
+
+        # Omit src from spec → it gets deleted
+        modified = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                TransformSpec(
+                    name="trm",
+                    query="SELECT id FROM ${prefix}src",
+                ),
+            ],
+        )
+        impact = await _impact(client_with_roads, modified)
+
+        # src is deleted; trm depends on it → WILL_INVALIDATE
+        will_invalidate = [
+            imp
+            for imp in impact.downstream_impacts
+            if imp.impact_type == ImpactType.WILL_INVALIDATE
+        ]
+        assert len(will_invalidate) > 0
+
+    @pytest.mark.asyncio
+    async def test_no_downstream_for_noop(self, client_with_roads):
+        """A noop node (unchanged) produces no downstream_impacts for itself."""
+        ns = "det_ds_noop"
+        spec = DeploymentSpec(
+            namespace=ns,
+            nodes=[
+                SourceSpec(
+                    name="src",
+                    catalog="default",
+                    schema_="t",
+                    table="t",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        await _deploy_and_wait(client_with_roads, spec)
+
+        impact = await _impact(client_with_roads, spec)
+
+        # Noop → no downstream impacts
+        assert impact.downstream_impacts == []
