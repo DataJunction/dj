@@ -153,6 +153,10 @@ class CompileContext:
     session: AsyncSession
     exception: DJException
     dependencies_cache: dict[str, DJNodeRef] = field(default_factory=dict)
+    # Maps node name → proposed column list.  When set, Table.compile uses these
+    # columns instead of loading from DB — enabling dry-run/impact-preview validation
+    # against a proposed (not-yet-committed) upstream column state.
+    column_overrides: dict[str, list] = field(default_factory=dict)
 
 
 # typevar used for node methods that return self
@@ -1722,10 +1726,18 @@ class Table(TableExpression, Named):
                     # Cache successful lookups in context
                     ctx.dependencies_cache[table_name] = dj_node
                 self.set_dj_node(dj_node)
-            self._columns = [
-                Column(Name(col.name), _type=col.type, _table=self)
-                for col in self.dj_node.columns
-            ]
+            # Use proposed column overrides when available (impact preview / dryrun).
+            # Applied after dj_node is set so is_compiled() stays consistent.
+            if table_name in ctx.column_overrides:
+                self._columns = [
+                    Column(Name(col.name), _type=col.type, _table=self)
+                    for col in ctx.column_overrides[table_name]
+                ]
+            else:
+                self._columns = [
+                    Column(Name(col.name), _type=col.type, _table=self)
+                    for col in self.dj_node.columns
+                ]
         except DJErrorException as exc:
             # Don't cache failed lookups - the node might be created later
             # Only the pattern-based checks above should add to the cache
@@ -2595,9 +2607,10 @@ class Subscript(Expression):
             type_ = cast(MapType, self.expr.type)
             return type_.value.type
         if isinstance(self.expr.type, StructType):
-            nested_field = self.expr.type.fields_mapping.get(
-                self.index.value.replace("'", ""),
-            )
+            key = self.index.value.replace("'", "")
+            nested_field = self.expr.type.fields_mapping.get(key)
+            if nested_field is None:
+                raise DJParseException(f"Field '{key}' not found in '{self.expr}'")
             return nested_field.type
         return cast(ListType, self.expr.type).element.type
 

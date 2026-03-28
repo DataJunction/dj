@@ -3,6 +3,7 @@ Models for deployment impact analysis.
 """
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ class ColumnChangeType(str, Enum):
     ADDED = "added"
     REMOVED = "removed"
     TYPE_CHANGED = "type_changed"
+    PARTITION_CHANGED = "partition_changed"
 
 
 class ColumnChange(BaseModel):
@@ -35,19 +37,16 @@ class NodeChangeOperation(str, Enum):
     NOOP = "noop"
 
 
-class NodeChange(BaseModel):
-    """Represents a direct change to a node in the deployment"""
+class DimLinkChange(BaseModel):
+    """Represents a change to a dimension link"""
 
-    name: str
-    operation: NodeChangeOperation
-    node_type: NodeType
-    display_name: str | None = None
-    description: str | None = None
-    current_status: NodeStatus | None = None  # None if CREATE
-
-    # For UPDATEs: what changed
-    changed_fields: list[str] = Field(default_factory=list)
-    column_changes: list[ColumnChange] = Field(default_factory=list)
+    dim_name: str
+    operation: Literal["removed", "broken", "added", "updated"]
+    # "removed" = user explicitly deleted from YAML
+    # "broken"  = implicitly broken; join columns were removed
+    # "added"   = new link not previously in the DB
+    # "updated" = existing link with changed join_on/join_type/role/default_value
+    broken_by_columns: list[str] = Field(default_factory=list)  # only for "broken"
 
 
 class ImpactType(str, Enum):
@@ -58,18 +57,34 @@ class ImpactType(str, Enum):
     UNCHANGED = "unchanged"  # No predicted impact
 
 
-class DownstreamImpact(BaseModel):
-    """Predicted impact on a downstream node"""
+class NodeEffect(BaseModel):
+    """Unified model for both direct changes and downstream impacts."""
 
     name: str
     node_type: NodeType
-    current_status: NodeStatus
-    predicted_status: NodeStatus
-    impact_type: ImpactType
-    impact_reason: str  # Human-readable explanation
-    depth: int  # Hops from the changed node
-    caused_by: list[str] = Field(default_factory=list)  # Which changed nodes cause this
-    is_external: bool = False  # True if outside the deployment namespace
+    operation: NodeChangeOperation | None = None  # set for direct; None for downstream
+    display_name: str | None = None
+    description: str | None = None
+    current_status: NodeStatus | None = None  # None if CREATE
+
+    # Level 0 — user intent (direct nodes only)
+    changed_fields: list[str] = Field(default_factory=list)
+
+    # Level 1 — derived effects on this node (direct nodes only)
+    column_changes: list[ColumnChange] = Field(default_factory=list)
+    dim_link_changes: list[DimLinkChange] = Field(default_factory=list)
+    validation_errors: list[str] = Field(default_factory=list)
+
+    # Downstream context (downstream nodes only)
+    caused_by: list[str] = Field(default_factory=list)
+    impact_type: ImpactType | None = None
+    predicted_status: NodeStatus | None = None
+    impact_reason: str = ""
+    depth: int = 0
+    is_external: bool = False
+
+    # Internal only — not in API response
+    new_query: str | None = Field(default=None, exclude=True)
 
 
 class DeploymentImpactResponse(BaseModel):
@@ -78,7 +93,7 @@ class DeploymentImpactResponse(BaseModel):
     namespace: str
 
     # Direct changes in this deployment
-    changes: list[NodeChange] = Field(default_factory=list)
+    changes: list[NodeEffect] = Field(default_factory=list)
 
     # Summary counts for direct changes
     create_count: int = 0
@@ -87,7 +102,7 @@ class DeploymentImpactResponse(BaseModel):
     skip_count: int = 0
 
     # Downstream impact (second/third-order effects)
-    downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
+    downstream_impacts: list[NodeEffect] = Field(default_factory=list)
 
     # Impact summary counts
     will_invalidate_count: int = 0
