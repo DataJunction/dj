@@ -1541,3 +1541,87 @@ async def test_dimension_link_no_default_value_graphql(
     assert dimension_link["dimension"]["name"] == "default.users"
     assert dimension_link["joinType"] == "INNER"
     assert dimension_link["defaultValue"] is None
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_with_spark_hints(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Test that spark_hints is persisted on a dimension link, returned via GET,
+    and preserved when the node is updated (new revision created).
+    """
+    join_on = (
+        "default.events.user_id = default.users.user_id "
+        "AND default.events.event_start_date = default.users.snapshot_date"
+    )
+
+    # Create dimension link with spark_hints=broadcast
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": join_on,
+            "join_cardinality": "one_to_one",
+            "spark_hints": "broadcast",
+        },
+    )
+    assert response.status_code == 201
+
+    # Verify spark_hints is returned in GET response
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["spark_hints"] == "broadcast"
+    assert link["dimension"]["name"] == "default.users"
+
+    # Update the link (triggers a new node revision) and verify spark_hints is preserved
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": join_on,
+            "join_cardinality": "many_to_one",
+            "spark_hints": "broadcast",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["spark_hints"] == "broadcast"
+    assert link["join_cardinality"] == "many_to_one"
+
+    # Change spark_hints to a different strategy
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": join_on,
+            "join_cardinality": "many_to_one",
+            "spark_hints": "merge",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["spark_hints"] == "merge"
+
+    # Clear spark_hints (set to None)
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "left",
+            "join_on": join_on,
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert response.status_code == 201
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["spark_hints"] is None
