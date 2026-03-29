@@ -4572,3 +4572,258 @@ class TestDimReferencingDimViaAlias:
             """,
             normalize_aliases=True,
         )
+
+
+class TestSparkJoinHints:
+    """
+    Tests for Spark SQL join hints emitted via spark_hints on DimensionLink.
+
+    When spark_hints is set on a dimension link, the generated SELECT should
+    include a /*+ HINT(alias) */ comment immediately after SELECT.
+    """
+
+    @pytest.fixture
+    async def setup_spark_hint_nodes(self, client_with_build_v3):
+        """
+        Set up a minimal fact + dimension graph for spark hint tests.
+
+        Graph:
+          sh.total_orders (metric)
+            -> sh.orders (source/parent)
+            -[dim link, spark_hints=broadcast]-> sh.customer (dimension)
+            -[dim link, spark_hints=merge]-> sh.product (dimension)
+        """
+        # Source: orders
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "sh.orders",
+                "description": "Orders fact table",
+                "columns": [
+                    {"name": "order_id", "type": "int"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "product_id", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "sh",
+                "table": "orders",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Source: customers
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "sh.src_customer",
+                "description": "Customers source",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "country", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "sh",
+                "table": "customers",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Source: products
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "sh.src_product",
+                "description": "Products source",
+                "columns": [
+                    {"name": "product_id", "type": "int"},
+                    {"name": "category", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "sh",
+                "table": "products",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Dimension: customer
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "sh.customer",
+                "description": "Customer dimension",
+                "query": "SELECT customer_id, country FROM sh.src_customer",
+                "mode": "published",
+                "primary_key": ["customer_id"],
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Dimension: product
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "sh.product",
+                "description": "Product dimension",
+                "query": "SELECT product_id, category FROM sh.src_product",
+                "mode": "published",
+                "primary_key": ["product_id"],
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Metric
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "sh.total_orders",
+                "description": "Total orders",
+                "query": "SELECT COUNT(order_id) FROM sh.orders",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Dimension link: orders -> customer (broadcast hint)
+        resp = await client_with_build_v3.post(
+            "/nodes/sh.orders/link",
+            json={
+                "dimension_node": "sh.customer",
+                "join_type": "left",
+                "join_on": "sh.orders.customer_id = sh.customer.customer_id",
+                "spark_hints": "broadcast",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+        # Dimension link: orders -> product (merge hint)
+        resp = await client_with_build_v3.post(
+            "/nodes/sh.orders/link",
+            json={
+                "dimension_node": "sh.product",
+                "join_type": "left",
+                "join_on": "sh.orders.product_id = sh.product.product_id",
+                "spark_hints": "merge",
+            },
+        )
+        assert resp.status_code in (200, 201, 409)
+
+    @pytest.mark.asyncio
+    async def test_single_broadcast_hint(
+        self,
+        client_with_build_v3,
+        setup_spark_hint_nodes,
+    ):
+        """
+        When a dimension link has spark_hints=broadcast, the generated SQL should
+        include /*+ BROADCAST(alias) */ immediately after SELECT.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["sh.total_orders"],
+                "dimensions": ["sh.customer.country"],
+            },
+        )
+        assert response.status_code == 200
+        sql = response.json()["grain_groups"][0]["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            sh_src_customer AS (
+                SELECT customer_id, country FROM default.sh.customers
+            ),
+            sh_customer AS (
+                SELECT customer_id, country FROM sh_src_customer
+            ),
+            sh_orders AS (
+                SELECT order_id, customer_id FROM default.sh.orders
+            )
+            SELECT /*+ BROADCAST(t2) */
+                t2.country,
+                COUNT(t1.order_id) order_id_count_HASH
+            FROM sh_orders t1
+            LEFT OUTER JOIN sh_customer t2 ON t1.customer_id = t2.customer_id
+            GROUP BY t2.country
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_hints(self, client_with_build_v3, setup_spark_hint_nodes):
+        """
+        When two dimension links have different spark_hints, both hints should
+        appear in the /*+ ... */ comment.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["sh.total_orders"],
+                "dimensions": ["sh.customer.country", "sh.product.category"],
+            },
+        )
+        assert response.status_code == 200
+        sql = response.json()["grain_groups"][0]["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            sh_src_customer AS (
+                SELECT customer_id, country FROM default.sh.customers
+            ),
+            sh_src_product AS (
+                SELECT product_id, category FROM default.sh.products
+            ),
+            sh_customer AS (
+                SELECT customer_id, country FROM sh_src_customer
+            ),
+            sh_product AS (
+                SELECT product_id, category FROM sh_src_product
+            ),
+            sh_orders AS (
+                SELECT order_id, customer_id, product_id FROM default.sh.orders
+            )
+            SELECT /*+ BROADCAST(t2), MERGE(t3) */
+                t2.country,
+                t3.category,
+                COUNT(t1.order_id) order_id_count_HASH
+            FROM sh_orders t1
+            LEFT OUTER JOIN sh_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN sh_product t3 ON t1.product_id = t3.product_id
+            GROUP BY t2.country, t3.category
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_hints_when_not_configured(self, client_with_build_v3):
+        """
+        When no dimension links have spark_hints, the generated SQL should
+        not contain any hint comment.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200
+        sql = response.json()["grain_groups"][0]["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_order_details AS (
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            GROUP BY t1.status
+            """,
+            normalize_aliases=True,
+        )

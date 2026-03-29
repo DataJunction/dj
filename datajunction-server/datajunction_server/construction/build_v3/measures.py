@@ -612,6 +612,31 @@ def build_select_ast(
                 # For multi-hop, the next join's left is this dimension
                 current_left_alias = dim_aliases[dim_key]
 
+    # Collect Spark join hints from dimension links
+    spark_hints: list[ast.Hint] = []
+    for resolved_dim in resolved_dimensions:
+        if not resolved_dim.is_local and resolved_dim.join_path:
+            _accumulated_role_parts: list[str] = []
+            for link in resolved_dim.join_path.links:
+                link_role = link.role or ""
+                if link_role:
+                    _accumulated_role_parts.append(link_role)
+                _accumulated_role = (
+                    "->".join(_accumulated_role_parts)
+                    if _accumulated_role_parts
+                    else ""
+                )
+                _dim_key = (link.dimension.name, _accumulated_role)
+                if link.spark_hints and _dim_key in dim_aliases:
+                    hint_name = link.spark_hints.value.upper()
+                    dim_alias = dim_aliases[_dim_key]
+                    spark_hints.append(
+                        ast.Hint(
+                            name=ast.Name(hint_name),
+                            parameters=[ast.Column(name=ast.Name(dim_alias))],
+                        ),
+                    )
+
     # Add dimension columns to projection
     # Filter-only dimensions are excluded from projection but included in GROUP BY
     for resolved_dim in resolved_dimensions:
@@ -875,6 +900,7 @@ def build_select_ast(
         from_=from_clause,
         where=where_clause,
         group_by=effective_group_by,
+        hints=spark_hints if spark_hints else None,
     )
 
     # Build Query with CTEs
