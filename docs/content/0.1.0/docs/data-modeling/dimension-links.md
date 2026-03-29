@@ -318,6 +318,48 @@ The `default_value` option is only applicable when using `LEFT` or `RIGHT` join 
 that can produce NULL values from unmatched rows.
 {{< /alert >}}
 
+#### Spark Join Strategy Hints
+
+When running DJ-generated SQL on Apache Spark, you can optionally declare a join strategy hint on a dimension link
+using the `spark_hints` field. This tells Spark which join algorithm to use for that particular dimension join,
+without changing any query code.
+
+Supported strategies:
+
+| Value | Spark hint emitted | When to use |
+| ---- | ---- | ---- |
+| `broadcast` | `BROADCAST` | Dimension table is small enough to broadcast to all executors |
+| `merge` | `MERGE` | Both sides are large and have a sort order you want to preserve |
+| `shuffle_hash` | `SHUFFLE_HASH` | One side is significantly smaller after shuffling |
+| `shuffle_replicate_nl` | `SHUFFLE_REPLICATE_NL` | Cartesian-style joins where no join key is available |
+
+When set, DJ emits the hint inside a `/*+ ... */` comment immediately after `SELECT`:
+
+```sql
+-- spark_hints: broadcast on the user dimension link
+SELECT /*+ BROADCAST(t2) */
+    t1.event_secs,
+    t2.name AS user_name
+FROM events t1
+LEFT JOIN user t2 ON t1.user_id = t2.id
+```
+
+Multiple hints are combined into a single comment when several dimension links carry `spark_hints`:
+
+```sql
+SELECT /*+ BROADCAST(t2), MERGE(t3) */
+    t2.name AS user_name,
+    t3.name AS country_name
+FROM events t1
+LEFT JOIN user t2 ON t1.user_id = t2.id
+LEFT JOIN country t3 ON t1.country_id = t3.id
+```
+
+{{< alert icon="👉" >}}
+`spark_hints` is purely advisory — it is passed through to Spark as a planner hint and has no effect on
+non-Spark query engines. Omit it (or leave it `null`) when targeting Trino, DuckDB, or other engines.
+{{< /alert >}}
+
 ### Reference Link
 
 You can configure a dimension alias/reference between a particular column on a table/view-like node
