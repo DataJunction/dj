@@ -496,6 +496,7 @@ class DJClient:
         join_on: str,
         join_cardinality: Optional[str] = None,
         role: Optional[str] = None,
+        spark_hints: Optional[str] = None,
     ):
         """
         Helper function to link a complex dimension to the node.
@@ -506,6 +507,7 @@ class DJClient:
             "join_on": join_on,
             "join_cardinality": join_cardinality or "one_to_many",
             "role": role,
+            "spark_hints": spark_hints,
         }
         response = self._session.post(
             f"/nodes/{node_name}/link/",
