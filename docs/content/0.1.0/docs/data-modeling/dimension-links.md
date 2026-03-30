@@ -333,10 +333,10 @@ Supported strategies:
 | `shuffle_hash` | `SHUFFLE_HASH` | One side is significantly smaller after shuffling |
 | `shuffle_replicate_nl` | `SHUFFLE_REPLICATE_NL` | Cartesian-style joins where no join key is available |
 
-When set, DJ emits the hint inside a `/*+ ... */` comment immediately after `SELECT`:
+When set, DJ emits the hint immediately after `SELECT` using Spark's optimizer hint syntax.
+For a single broadcast hint on the `user` dimension link, the generated SQL looks like:
 
-```sql
--- spark_hints: broadcast on the user dimension link
+```text
 SELECT /*+ BROADCAST(t2) */
     t1.event_secs,
     t2.name AS user_name
@@ -344,9 +344,9 @@ FROM events t1
 LEFT JOIN user t2 ON t1.user_id = t2.id
 ```
 
-Multiple hints are combined into a single comment when several dimension links carry `spark_hints`:
+Multiple hints are combined into a single hint block when several dimension links carry `spark_hints`:
 
-```sql
+```text
 SELECT /*+ BROADCAST(t2), MERGE(t3) */
     t2.name AS user_name,
     t3.name AS country_name
