@@ -193,7 +193,7 @@ class NodeSpecBulkValidator:
                     DJError(
                         code=ErrorCode.INVALID_PARENT,
                         message=f"References invalid parent node(s) {', '.join(invalid_parents)}",
-                    )
+                    ),
                 )
             return NodeValidationResult(
                 spec=spec,
