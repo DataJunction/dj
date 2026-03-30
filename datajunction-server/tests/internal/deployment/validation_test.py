@@ -10,6 +10,7 @@ from unittest.mock import patch
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     ValidationContext,
+    _reparse_column_types,
 )
 from datajunction_server.models.deployment import ColumnSpec, TransformSpec, MetricSpec
 from datajunction_server.models.node import NodeType, NodeStatus
@@ -18,7 +19,7 @@ from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-from datajunction_server.sql.parsing.types import IntegerType, StringType
+from datajunction_server.sql.parsing.types import IntegerType, MapType, StringType
 from datajunction_server.errors import ErrorCode
 
 
@@ -390,3 +391,52 @@ class TestValidateQuery:
             e for e in result.errors if e.code == ErrorCode.INVALID_PARENT
         )
         assert invalid_parent_node.name in invalid_parent_err.message
+
+
+class TestReparseColumnTypes:
+    """Tests for _reparse_column_types helper (PR 2)."""
+
+    def _make_node(self, columns: list) -> Node:
+        """Build a minimal in-memory Node with a current revision."""
+        node = Node(name="test.node", type=NodeType.SOURCE)
+        revision = NodeRevision(
+            name=node.name,
+            type=node.type,
+            version="v1",
+            columns=columns,
+        )
+        node.current = revision
+        return node
+
+    def test_string_type_is_reparsed(self):
+        """Column with a string type like 'MAP<string,bigint>' is parsed to MapType."""
+        col = Column(name="tags", type="MAP<string, bigint>", order=0)
+        node = self._make_node([col])
+        _reparse_column_types({node.name: node})
+        assert isinstance(col.type, MapType)
+
+    def test_already_parsed_type_is_unchanged(self):
+        """Column already holding a parsed type object is left alone."""
+        col = Column(name="id", type=IntegerType(), order=0)
+        original_type = col.type
+        node = self._make_node([col])
+        _reparse_column_types({node.name: node})
+        assert col.type is original_type
+
+    def test_unparseable_string_is_left_unchanged(self):
+        """If parse_rule raises, the original type value is preserved."""
+        col = Column(name="weird", type="NOT_A_VALID_TYPE_$$$$", order=0)
+        node = self._make_node([col])
+        _reparse_column_types({node.name: node})
+        # Should not raise; type is still the original string
+        assert col.type == "NOT_A_VALID_TYPE_$$$$"
+
+    def test_node_without_current_is_skipped(self):
+        """Node with no current revision doesn't cause an error."""
+        node = Node(name="orphan", type=NodeType.SOURCE)
+        node.current = None
+        _reparse_column_types({node.name: node})  # Should not raise
+
+    def test_empty_dict_is_noop(self):
+        """Empty dependency_nodes dict is handled without error."""
+        _reparse_column_types({})  # Should not raise
