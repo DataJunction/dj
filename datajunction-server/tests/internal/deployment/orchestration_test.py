@@ -571,6 +571,9 @@ class TestOrchestrationFlow:
             ) as mock_validate_resources,
             patch.object(orchestrator, "_create_deployment_plan") as mock_create_plan,
             patch.object(orchestrator, "_execute_deployment_plan") as mock_execute_plan,
+            patch.object(orchestrator, "_compute_pre_deploy_diffs", return_value={}),
+            patch.object(orchestrator, "_compute_downstream_impact", return_value=[]),
+            patch.object(orchestrator, "_revalidate_downstream"),
         ):
             # Configure deployment plan
             mock_plan = Mock(spec=DeploymentPlan)
@@ -814,25 +817,28 @@ class TestCubeDeployment:
             ),
         ]
 
-        # Mock invalid node processing
-        orchestrator._process_invalid_node_deploy = Mock(
-            return_value=DeploymentResult(
-                name="invalid_cube",
-                deploy_type="node",
-                status="failed",
-                operation="create",
-                message="Invalid cube",
-            ),
+        # Mock _deploy_invalid_cube — returns (node, revision, result) with SUCCESS status
+        mock_node = Mock()
+        mock_revision = Mock()
+        mock_result = DeploymentResult(
+            name="invalid_cube",
+            deploy_type="node",
+            status="success",
+            operation="create",
+            message="Created cube (v1.0)\n[invalid] Invalid cube",
+        )
+        orchestrator._deploy_invalid_cube = AsyncMock(
+            return_value=(mock_node, mock_revision, mock_result),
         )
 
         nodes, revisions, results = await orchestrator._create_cubes_from_validation(
             invalid_results,
         )
 
-        assert len(nodes) == 0
-        assert len(revisions) == 0
+        assert len(nodes) == 1
+        assert len(revisions) == 1
         assert len(results) == 1
-        assert results[0].status == "failed"
+        assert results[0].status == "success"
 
     @pytest.mark.asyncio
     async def test_cube_column_partition_applied_from_spec(
@@ -1716,8 +1722,11 @@ async def test_check_external_deps_duplicate_source_forms(session, current_user:
     # when we encounter "source.ext.schema.tbl", so the append at line 1807 is skipped.
     node_graph = {"test.transform": ["source.ext.schema.tbl", "ext.schema.tbl"]}
 
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     assert auto_registered == []
+    assert missing == []
     assert len(orchestrator.errors) == 0
 
 
@@ -1824,9 +1833,88 @@ async def test_create_deployment_plan_all_auto_sources_already_exist(
     with patch.object(
         orchestrator,
         "check_external_deps",
-        side_effect=[(set(), [auto_source]), (set(), [])],
+        side_effect=[(set(), [auto_source], []), (set(), [], [])],
     ):
         plan = await orchestrator._create_deployment_plan()
 
     # The existing source was found in DB and added to existing_specs (lines 743-747)
     assert "ext_cat.s.t" in plan.existing_specs
+
+
+class TestPatchInvalidDeployedDiffs:
+    """Unit tests for _patch_invalid_deployed_diffs."""
+
+    def test_patches_invalid_result_in_diffs(self, orchestrator):
+        """Nodes deployed as INVALID get their proposed columns cleared to []."""
+        from datajunction_server.internal.impact import _ExplicitDiffSpec
+        from datajunction_server.models.node_type import NodeType
+
+        diff = _ExplicitDiffSpec(
+            node_type=NodeType.METRIC,
+            explicit_proposed_columns=[
+                object(),
+            ],  # non-empty → would be treated as valid
+        )
+        pre_deploy_diffs = {"my.metric": diff}
+
+        orchestrator.deployed_results = [
+            DeploymentResult(
+                name="my.metric",
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.INVALID,
+                operation=DeploymentResult.Operation.UPDATE,
+                message="failed",
+            ),
+        ]
+
+        orchestrator._patch_invalid_deployed_diffs(pre_deploy_diffs)
+
+        assert pre_deploy_diffs["my.metric"].explicit_proposed_columns == []
+
+    def test_skips_non_invalid_results(self, orchestrator):
+        """Nodes deployed as SUCCESS are not patched."""
+        from datajunction_server.internal.impact import _ExplicitDiffSpec
+        from datajunction_server.models.node_type import NodeType
+
+        original_cols = [object()]
+        diff = _ExplicitDiffSpec(
+            node_type=NodeType.TRANSFORM,
+            explicit_proposed_columns=original_cols,
+        )
+        pre_deploy_diffs = {"my.transform": diff}
+
+        orchestrator.deployed_results = [
+            DeploymentResult(
+                name="my.transform",
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.UPDATE,
+                message="ok",
+            ),
+        ]
+
+        orchestrator._patch_invalid_deployed_diffs(pre_deploy_diffs)
+
+        assert (
+            pre_deploy_diffs["my.transform"].explicit_proposed_columns is original_cols
+        )
+
+    def test_skips_invalid_result_not_in_diffs(self, orchestrator):
+        """An INVALID result whose name isn't in pre_deploy_diffs is ignored."""
+        from datajunction_server.internal.impact import _ExplicitDiffSpec
+
+        pre_deploy_diffs: dict[str, _ExplicitDiffSpec] = {}
+
+        orchestrator.deployed_results = [
+            DeploymentResult(
+                name="some.other.node",
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.INVALID,
+                operation=DeploymentResult.Operation.CREATE,
+                message="new node failed",
+            ),
+        ]
+
+        # Should not raise
+        orchestrator._patch_invalid_deployed_diffs(pre_deploy_diffs)
+        assert pre_deploy_diffs == {}

@@ -104,6 +104,8 @@ def _node_output_options():
                     selectinload(Node.current),
                 ),
             ),
+            selectinload(NodeRevision.required_dimensions),
+            selectinload(NodeRevision.metric_metadata),
         ),
         selectinload(Node.tags),
         selectinload(Node.owners),

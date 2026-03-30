@@ -379,32 +379,38 @@ async def test_check_external_dependencies(
     ]
     orchestrator = create_test_orchestrator(valid_nodes)
     node_graph = extract_node_graph(valid_nodes)
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     assert external_deps == set()
     assert auto_registered == []
+    assert missing == []
 
-    # One external dependency that doesn't exist yet
+    # One external dependency that doesn't exist yet — no longer raises, returns missing
     nodes = [
         node_spec for node_spec in basic_nodes if node_spec.name != "example.cube_node"
     ]
     orchestrator = create_test_orchestrator(nodes)
     node_graph = extract_node_graph(nodes)
-    with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
-        await orchestrator.check_external_deps(node_graph)
-    assert (
-        str(excinfo.value)
-        == "The following dependencies are not in the deployment and do not pre-exist in the system: catalog.dim.categories"
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
     )
+    assert missing == ["catalog.dim.categories"]
 
     # External dependency exists in the system
     async with external_source_node(session, current_user, catalog) as _:
         orchestrator = create_test_orchestrator(basic_nodes)
         node_graph = extract_node_graph(basic_nodes)
-        external_deps, auto_registered = await orchestrator.check_external_deps(
+        (
+            external_deps,
+            auto_registered,
+            missing,
+        ) = await orchestrator.check_external_deps(
             node_graph,
         )
         assert external_deps == {"catalog.dim.categories"}
         assert auto_registered == []
+        assert missing == []
 
 
 async def mock_save_history(event, session):
@@ -609,10 +615,13 @@ async def test_check_external_deps_dimension_attribute_reference(
     node_graph = extract_node_graph([metric_with_dim_attr])
 
     # Should not raise because catalog.dim.categories exists
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     # The dimension node should be in external deps (not the attribute)
     assert "catalog.dim.categories" in external_deps
     assert auto_registered == []
+    assert missing == []
 
 
 async def test_check_external_deps_namespace_prefix_filtering(
@@ -641,10 +650,13 @@ async def test_check_external_deps_namespace_prefix_filtering(
     # The node_graph will have deps like catalog.dim.categories.dateint and catalog.dim.categories
     # check_external_deps should handle this correctly - categories exists, so the attribute
     # reference should be filtered out
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     # catalog.dim.categories should be in external deps (the actual node)
     assert "catalog.dim.categories" in external_deps
     assert auto_registered == []
+    assert missing == []
 
 
 async def test_virtual_catalog_fallback_for_parentless_nodes(
@@ -1766,7 +1778,7 @@ async def test_auto_register_sources_disabled(session: AsyncSession):
         auto_register_sources=False,  # Explicitly disabled
         nodes=[
             TransformSpec(
-                name="test.my_transform",
+                name="my_transform",
                 query="SELECT id FROM testcatalog.myschema.mytable",
             ),
         ],
@@ -1783,12 +1795,12 @@ async def test_auto_register_sources_disabled(session: AsyncSession):
     await orchestrator._setup_deployment_resources()
     await orchestrator._validate_deployment_resources()
 
-    # With auto_register_sources=False, missing dependencies should cause an error
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        await orchestrator._create_deployment_plan()
-
-    # Verify error message mentions missing dependencies
-    assert "do not pre-exist in the system" in str(exc_info.value)
+    # With auto_register_sources=False, nodes with missing deps stay in to_deploy
+    # so they are deployed as INVALID (not pre-filtered) and downstream impact is tracked.
+    plan = await orchestrator._create_deployment_plan()
+    assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
+        "Node with missing dep should remain in to_deploy for natural validation"
+    )
 
 
 @pytest.mark.asyncio
@@ -1803,7 +1815,7 @@ async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
         auto_register_sources=True,
         nodes=[
             TransformSpec(
-                name="test.my_transform",
+                name="my_transform",
                 query="SELECT id FROM nonexistent.myschema.mytable",
             ),
         ],
@@ -1820,11 +1832,12 @@ async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
     await orchestrator._setup_deployment_resources()
     await orchestrator._validate_deployment_resources()
 
-    # Should raise DJInvalidDeploymentConfig with error about missing catalog
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        await orchestrator._create_deployment_plan()
-
-    assert "nonexistent.myschema.mytable" in str(exc_info.value)
+    # auto_register_sources=True but catalog doesn't exist → node stays in to_deploy
+    # so it is deployed as INVALID and its downstream impact is tracked.
+    plan = await orchestrator._create_deployment_plan()
+    assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
+        "Node with unregistrable dep should remain in to_deploy for natural validation"
+    )
 
 
 @pytest.mark.asyncio

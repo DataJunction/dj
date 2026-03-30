@@ -115,16 +115,33 @@ class DimensionLink(Base):
                 return value
         return JoinType.LEFT  # pragma: no cover
 
-    def join_sql_ast(self) -> "ast.Query":
+    @staticmethod
+    def parse_join_sql(
+        join_sql: str,
+        join_type: str,
+        node_name: str,
+        dimension_name: str,
+    ) -> "ast.Query":
         """
-        The join query AST for this dimension link
+        The join query AST for a given join SQL and join type.
         """
         from datajunction_server.sql.parsing.backends.antlr4 import parse
 
         return parse(
-            f"select 1 from {self.node_revision.name} "
-            f"{self.join_type} join {self.dimension.name} "
-            + (f"on {self.join_sql}" if self.join_sql else ""),
+            f"select 1 from {node_name} "
+            f"{join_type} join {dimension_name} "
+            + (f"on {join_sql}" if join_sql else ""),
+        )
+
+    def join_sql_ast(self) -> "ast.Query":
+        """
+        The join query AST for this dimension link
+        """
+        return DimensionLink.parse_join_sql(
+            self.join_sql,
+            self.join_type.name if self.join_type else JoinType.LEFT.name,
+            self.node_revision.name,
+            self.dimension.name,
         )
 
     def joins(self) -> List["ast.Join"]:
@@ -134,7 +151,13 @@ class DimensionLink(Base):
         join_sql = self.join_sql_ast()
         return join_sql.select.from_.relations[-1].extensions  # type: ignore
 
-    def foreign_key_mapping(self) -> Dict["ast.Column", "ast.Column"]:
+    @staticmethod
+    def build_foreign_key_mapping(
+        join_sql: str,
+        join_type: str,
+        node_name: str,
+        dimension_name: str,
+    ) -> Dict["ast.Column", "ast.Column"]:
         """
         If the dimension link was configured with an equality operation on the
         dimension's primary key columns to a set of foreign key columns, this method
@@ -144,7 +167,13 @@ class DimensionLink(Base):
         from datajunction_server.sql.parsing.backends.antlr4 import ast
 
         # Find equality comparions (i.e., fact.order_id = dim.order_id)
-        join_asts = self.joins()
+        join_sql_ast = DimensionLink.parse_join_sql(
+            join_sql,
+            join_type,
+            node_name,
+            dimension_name,
+        )
+        join_asts = join_sql_ast.select.from_.relations[-1].extensions  # type: ignore
         equality_comparisons = (
             [
                 expr
@@ -162,11 +191,25 @@ class DimensionLink(Base):
             ):  # pragma: no cover
                 node_left = comp.left.name.namespace.identifier()  # type: ignore
                 node_right = comp.right.name.namespace.identifier()  # type: ignore
-                if node_left == self.node_revision.name:  # pragma: no cover
+                if node_left == node_name:  # pragma: no cover
                     mapping[comp.right] = comp.left
-                if node_right == self.node_revision.name:  # pragma: no cover
+                if node_right == node_name:  # pragma: no cover
                     mapping[comp.left] = comp.right  # pragma: no cover
         return mapping
+
+    def foreign_key_mapping(self) -> Dict["ast.Column", "ast.Column"]:
+        """
+        If the dimension link was configured with an equality operation on the
+        dimension's primary key columns to a set of foreign key columns, this method
+        returns a mapping between the foreign keys on the node and the primary keys of
+        the dimension based on the join SQL.
+        """
+        return DimensionLink.build_foreign_key_mapping(
+            self.join_sql,
+            self.join_type.name if self.join_type else JoinType.LEFT.name,
+            self.node_revision.name,
+            self.dimension.name,
+        )
 
     @hybrid_property
     def foreign_keys(self) -> Dict[str, str | None]:

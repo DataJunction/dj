@@ -1143,8 +1143,8 @@ class TestImpactAnalysis:
 
         # Check output contains impact analysis elements
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
-        assert "Direct Changes" in captured.out
+        assert "Pushing to:" in captured.out
+        assert "Summary:" in captured.out
 
     def test_deploy_dryrun_json_format(
         self,
@@ -1196,8 +1196,8 @@ class TestImpactAnalysis:
 
         # Check output contains impact analysis elements
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
-        assert "Direct Changes" in captured.out
+        assert "Pushing to:" in captured.out
+        assert "Summary:" in captured.out
 
     def test_push_dryrun_json_format(
         self,
@@ -1256,7 +1256,8 @@ class TestImpactAnalysis:
 
         # Check output contains impact analysis (namespace is passed through)
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
+        assert "custom.namespace" in captured.out
+        assert "Summary:" in captured.out
 
     def test_display_impact_analysis_with_changes(self, capsys):
         """Test display_impact_analysis function with various changes."""
@@ -1312,11 +1313,10 @@ class TestImpactAnalysis:
 
         captured = capsys.readouterr()
         assert "test.namespace" in captured.out
-        assert "Create" in captured.out
-        assert "Update" in captured.out
-        assert "Skip" in captured.out
-        assert "May Affect" in captured.out
-        assert "Ready to deploy" in captured.out
+        assert "new_metric" in captured.out
+        assert "updated_transform" in captured.out
+        assert "may be affected" in captured.out
+        assert "Summary:" in captured.out
 
     def test_display_impact_analysis_with_warnings(self, capsys):
         """Test display_impact_analysis shows warnings."""
@@ -1367,11 +1367,10 @@ class TestImpactAnalysis:
         display_impact_analysis(impact, console=console)
 
         captured = capsys.readouterr()
-        assert "Column Changes" in captured.out
-        assert "Removed" in captured.out
-        assert "Will Invalidate" in captured.out
-        assert "Breaking change" in captured.out
-        assert "Review the warnings" in captured.out
+        assert "source_with_column_change" in captured.out
+        assert "column removed" in captured.out
+        assert "other.downstream" in captured.out
+        assert "downstream invalidated" in captured.out
 
     def test_display_impact_analysis_no_changes(self, capsys):
         """Test display_impact_analysis with empty deployment."""
@@ -1397,9 +1396,7 @@ class TestImpactAnalysis:
 
         captured = capsys.readouterr()
         assert "empty.namespace" in captured.out
-        assert "No downstream impact" in captured.out
-        assert "No warnings" in captured.out
-        assert "Ready to deploy" in captured.out
+        assert "All 0 nodes are up to date" in captured.out
 
     def test_display_impact_analysis_with_delete_count(self, capsys):
         """Test display_impact_analysis shows delete count in summary (covers line 92)."""
@@ -1479,10 +1476,7 @@ class TestImpactAnalysis:
         # Strip ANSI codes for assertion
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         clean_output = ansi_escape.sub("", captured.out)
-        assert "Column Changes" in clean_output
-        # "Type Changed" may be split across lines in the table, check for both parts
-        assert "Type" in clean_output
-        assert "Changed" in clean_output
+        assert "column type changed" in clean_output
         assert "user_id" in clean_output
         assert "INT" in clean_output
         assert "BIGINT" in clean_output
@@ -1527,8 +1521,7 @@ class TestImpactAnalysis:
         # Strip ANSI codes for assertion
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         clean_output = ansi_escape.sub("", captured.out)
-        assert "Column Changes" in clean_output
-        assert "Added" in clean_output
+        assert "column added" in clean_output
         assert "new_column" in clean_output
 
     def test_display_impact_analysis_with_downstream_but_no_impact_summary(
@@ -1581,12 +1574,11 @@ class TestImpactAnalysis:
         # Strip ANSI codes for assertion
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         clean_output = ansi_escape.sub("", captured.out)
-        # Should NOT show "No downstream impact" since there are downstream_impacts
-        # But should NOT show any summary items since counts are 0
-        assert "Downstream Impact" in clean_output
-        # The downstream summary line should not appear when both counts are 0
-        assert "will invalidate" not in clean_output.lower()
-        assert "may be affected" not in clean_output.lower()
+        # downstream node appears in the change tree
+        assert "other.downstream" in clean_output
+        # The summary line should not include downstream counts when both are 0
+        assert "downstream invalidated" not in clean_output.lower()
+        # No count in the summary (the tree still shows individual impact items)
 
     def test_dryrun_with_exception(self, capsys):
         """Test dryrun handles DJClientException properly (covers lines 276-286)."""

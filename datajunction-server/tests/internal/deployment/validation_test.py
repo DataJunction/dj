@@ -9,10 +9,17 @@ from unittest.mock import patch
 
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
+    NodeValidationResult,
     ValidationContext,
     _reparse_column_types,
 )
-from datajunction_server.models.deployment import ColumnSpec, TransformSpec, MetricSpec
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    DimensionJoinLinkSpec,
+    MetricSpec,
+    SourceSpec,
+    TransformSpec,
+)
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     NodeType,
@@ -1006,3 +1013,137 @@ class TestCrossFactDimensions:
 
         mock_get_dims.assert_not_called()
         assert validator._metric_dimensions == {}
+
+
+
+# ---------------------------------------------------------------------------
+# TestDimLinkValidation — Step B: _validate_dimension_link_specs
+# ---------------------------------------------------------------------------
+
+
+def _make_validator(session: AsyncSession) -> NodeSpecBulkValidator:
+    """Build a minimal NodeSpecBulkValidator for unit-testing _validate_dimension_link_specs."""
+    context = ValidationContext(
+        session=session,
+        node_graph={},
+        dependency_nodes={},
+        compile_context=ast.CompileContext(
+            session=session,
+            exception=ast.DJException(),
+            dependencies_cache={},
+        ),
+    )
+    return NodeSpecBulkValidator(context)
+
+
+def _make_source_result(
+    node_name: str,
+    col_names: list[str],
+    join_on: str,
+    dim_name: str,
+) -> NodeValidationResult:
+    """Build a NodeValidationResult for a source node with one dimension link."""
+    spec = SourceSpec(
+        name=node_name.split(".")[-1],
+        catalog="default",
+        schema_="s",
+        table="t",
+        columns=[ColumnSpec(name=c, type="int") for c in col_names],
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node=dim_name,
+                join_on=join_on,
+            ),
+        ],
+    )
+    spec.namespace = ".".join(node_name.split(".")[:-1]) or node_name
+    return NodeValidationResult(
+        spec=spec,
+        status=NodeStatus.VALID,
+        inferred_columns=[ColumnSpec(name=c, type="int") for c in col_names],
+        errors=[],
+        dependencies=[],
+    )
+
+
+class TestDimLinkValidation:
+    """Unit tests for NodeSpecBulkValidator._validate_dimension_link_specs (Step B)."""
+
+    def test_valid_dim_link_no_errors(self, session: AsyncSession):
+        """A well-formed join_on with known columns produces no errors."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.dim_id = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_invalid_join_on_sql_raises_error(self, session: AsyncSession):
+        """Unparseable join_on SQL produces an INVALID_SQL_QUERY error."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="NOT VALID SQL !!!",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(e.code == ErrorCode.INVALID_SQL_QUERY for e in result.errors)
+        assert any("test.dim" in e.message for e in result.errors)
+
+    def test_join_on_column_not_on_node_raises_error(self, session: AsyncSession):
+        """join_on referencing a nonexistent column on this node produces an INVALID_COLUMN error."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.nonexistent_fk = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_COLUMN and "nonexistent_fk" in e.message
+            for e in result.errors
+        )
+
+    def test_join_on_external_node_column_is_invalid(self, session: AsyncSession):
+        """join_on referencing an unknown table is flagged as INVALID_SQL_QUERY."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            # Column belongs to 'external.other' — neither node nor dim → invalid
+            join_on="external.other.some_col = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_SQL_QUERY and "external.other" in e.message
+            for e in result.errors
+        )
+
+    def test_non_linkable_spec_is_skipped(self, session: AsyncSession):
+        """MetricSpec (not LinkableNodeSpec) is silently skipped."""
+        validator = _make_validator(session)
+        metric_spec = MetricSpec(
+            name="test.cnt",
+            query="SELECT count(1) FROM test.facts",
+        )
+        metric_spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=metric_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []

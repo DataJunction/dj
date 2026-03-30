@@ -10,9 +10,8 @@ import time
 from typing import Any, Union
 
 import yaml
-from rich.console import Console, Group
+from rich.console import Console
 from rich.panel import Panel
-from rich.rule import Rule
 from rich.status import Status
 from rich.text import Text
 
@@ -21,6 +20,429 @@ from datajunction.exceptions import (
     DJClientException,
     DJDeploymentFailure,
 )
+
+
+NODE_TYPE_COLORS = {
+    "source": "green",
+    "transform": "blue",
+    "dimension": "yellow",
+    "metric": "red",
+    "cube": "magenta",
+}
+
+_OPERATION_STYLES: dict[str, tuple[str, str]] = {
+    "create": ("[green]⏺[/green] CREATE", "green"),
+    "update": ("[yellow]⏺[/yellow] UPDATE", "yellow"),
+    "delete": ("[red]⏺[/red] DELETE", "red"),
+}
+_COL_CHANGE_STYLES: dict[str, str] = {
+    "added": "[green]⏺[/green] column added",
+    "removed": "[red]⏺[/red] column removed",
+    "type_changed": "[yellow]⏺[/yellow] column type changed",
+    "partition_changed": "[yellow]⏺[/yellow] partition changed",
+}
+_IMPACT_ICONS: dict[str, str] = {
+    "will_invalidate": "[red]⊘[/red]",
+    "may_affect": "[yellow]▲[/yellow]",
+}
+_INVALID_FIELD_LABELS: dict[str, str] = {
+    "query_invalid": "query",
+    "dim_link_invalid": "dimension link",
+    "primary_key_invalid": "primary key",
+    "column_attribute_invalid": "column attributes",
+}
+
+
+def _short_name(name: str, namespace: str) -> str:
+    """Strip the namespace prefix from a node name for compact display."""
+    prefix = namespace + "."
+    return name[len(prefix) :] if name.startswith(prefix) else name
+
+
+def _node_type_display(node_type: str) -> str:
+    color = NODE_TYPE_COLORS.get(node_type, "white")
+    return f"[{color}]{node_type}[/{color}]"
+
+
+def _impact_annotation(imp: dict, namespace: str, current_parent: str = "") -> str:
+    """Dim annotation: cube 'via' list or multi-cause 'also via' list."""
+    caused_by = imp.get("caused_by", [])
+    if imp.get("node_type") == "cube":
+        via = [_short_name(c, namespace) for c in caused_by]
+        return f"  [dim](via: {', '.join(via)})[/dim]" if via else ""
+    others = [_short_name(c, namespace) for c in caused_by if c != current_parent]
+    return f"  [dim](also via: {', '.join(others)})[/dim]" if others else ""
+
+
+def _build_impacts_by_cause(downstream_impacts: list[dict]) -> dict[str, list[dict]]:
+    """Index downstream impacts by the node that caused them."""
+    index: dict[str, list[dict]] = {}
+    for imp in downstream_impacts:
+        for cause in imp.get("caused_by", []):
+            index.setdefault(cause, []).append(imp)
+    return index
+
+
+def _build_broken_by_col(dim_link_changes: list[dict]) -> dict[str, list[str]]:
+    """Map column name → dim link names broken by that column's change."""
+    broken: dict[str, list[str]] = {}
+    for dlc in dim_link_changes:
+        if dlc.get("operation") == "broken":
+            for col in dlc.get("broken_by_columns", []):
+                broken.setdefault(col, []).append(dlc.get("dim_name", ""))
+    return broken
+
+
+def _render_impact_item(
+    imp: dict,
+    branch_str: str,
+    cont_str: str,
+    con: Console,
+    namespace: str,
+    impacts_by_cause: dict[str, list[dict]],
+    rendered: set[str],
+    current_parent: str = "",
+) -> None:
+    """Render one downstream impact item and recurse into its children."""
+    icon = _IMPACT_ICONS.get(imp.get("impact_type", ""), "•")
+    iname = _short_name(imp.get("name", ""), namespace)
+    itype = _node_type_display(imp.get("node_type", "node"))
+    iverb = (
+        "invalidated"
+        if imp.get("impact_type") == "will_invalidate"
+        else "may be affected"
+    )
+    con.print(
+        f"{branch_str} {icon} {itype} {iverb}: [bold]{iname}[/bold]"
+        f"{_impact_annotation(imp, namespace, current_parent)}",
+    )
+    item_name = imp.get("name", "")
+    children = [
+        ch
+        for ch in impacts_by_cause.get(item_name, [])
+        if ch.get("name") not in rendered and ch.get("node_type") != "cube"
+    ]
+    rendered.update(ch["name"] for ch in children if ch.get("name"))
+    if children:
+        _render_impacts(
+            children,
+            cont_str + "  ",
+            con,
+            namespace,
+            impacts_by_cause,
+            rendered,
+            current_parent=item_name,
+        )
+
+
+def _render_impacts(
+    items: list[dict],
+    indent: str,
+    con: Console,
+    namespace: str,
+    impacts_by_cause: dict[str, list[dict]],
+    rendered: set[str],
+    current_parent: str = "",
+) -> None:
+    """Recursively render downstream impacts with tree indentation."""
+    for ii, imp in enumerate(items):
+        is_last = ii == len(items) - 1
+        b = indent + ("└" if is_last else "├")
+        c = indent + (" " if is_last else "│")
+        _render_impact_item(
+            imp,
+            b,
+            c,
+            con,
+            namespace,
+            impacts_by_cause,
+            rendered,
+            current_parent,
+        )
+
+
+def _print_change_header(console: Console, change: dict, namespace: str) -> None:
+    """Print the operation + node name + type + predicted status line."""
+    op = change.get("operation", "unknown")
+    op_display, _ = _OPERATION_STYLES.get(op, (op.upper(), "white"))
+    node_name = _short_name(change.get("name", ""), namespace)
+    node_type = change.get("node_type", "")
+    predicted_status = change.get("predicted_status")
+    if predicted_status == "invalid":
+        status_str = "  [red]→ invalid[/red]"
+    elif predicted_status == "valid":
+        status_str = "  [green]→ valid[/green]"
+    elif predicted_status:
+        status_str = f"  → {predicted_status}"
+    else:
+        status_str = ""
+    console.print(
+        f"  {op_display}  [bold]{node_name}[/bold]  {_node_type_display(node_type)}{status_str}",
+    )
+
+
+def _print_changed_fields(console: Console, change: dict) -> None:
+    """Print 'Changed: X' annotations with validation errors for each changed field."""
+    changed_fields = change.get("changed_fields", [])
+    column_changes = change.get("column_changes", [])
+    validation_errors = change.get("validation_errors", [])
+    for field in changed_fields:
+        if field in _INVALID_FIELD_LABELS:
+            console.print(f"    [dim]Changed: {_INVALID_FIELD_LABELS[field]}[/dim]")
+        elif field == "query":
+            note = "" if not column_changes else "  [dim](columns below)[/dim]"
+            console.print(f"    [dim]Changed: query[/dim]{note}")
+        else:
+            console.print(f"    [dim]Changed: {field}[/dim]")
+    for err in validation_errors:
+        truncated = err[:300] + "…" if len(err) > 300 else err
+        console.print(f"    [red dim]{truncated}[/red dim]")
+
+
+def _collect_transitive_cubes(
+    node_name: str,
+    impacts_by_cause: dict[str, list[dict]],
+) -> list[dict]:
+    """Collect all cube impacts transitively reachable from node_name, deduped by name."""
+    cubes: dict[str, dict] = {}
+    visited: set[str] = set()
+    queue = [node_name]
+    while queue:
+        current = queue.pop()
+        for imp in impacts_by_cause.get(current, []):
+            name = imp.get("name", "")
+            if name in visited:
+                continue
+            visited.add(name)
+            if imp.get("node_type") == "cube":
+                cubes[name] = imp
+            else:
+                queue.append(name)
+    return list(cubes.values())
+
+
+def _print_change_tree(
+    console: Console,
+    change: dict,
+    namespace: str,
+    impacts_by_cause: dict[str, list[dict]],
+) -> None:
+    """Print the tree of column changes, dim link changes, and downstream impacts."""
+    column_changes = change.get("column_changes", [])
+    dim_link_changes = change.get("dim_link_changes", [])
+    change_name = change.get("name", "")
+    node_downstream = impacts_by_cause.get(change_name, [])
+
+    explicit_removals = [d for d in dim_link_changes if d.get("operation") == "removed"]
+    dim_link_additions = [d for d in dim_link_changes if d.get("operation") == "added"]
+    dim_link_updates = [d for d in dim_link_changes if d.get("operation") == "updated"]
+    broken_by_col = _build_broken_by_col(dim_link_changes)
+    rendered: set[str] = set()
+
+    non_cube_downstream = [d for d in node_downstream if d.get("node_type") != "cube"]
+    cube_downstream = _collect_transitive_cubes(change_name, impacts_by_cause)
+
+    tree_items = (
+        list(column_changes)
+        + explicit_removals
+        + dim_link_additions
+        + dim_link_updates
+        + non_cube_downstream
+        + cube_downstream
+    )
+    for i, item in enumerate(tree_items):
+        is_last = i == len(tree_items) - 1
+        branch = "    └" if is_last else "    ├"
+        cont = "     " if is_last else "    │"
+
+        if item in column_changes:
+            ct = item.get("change_type", "")
+            col_name = item.get("column", "")
+            detail = (
+                f" [dim]{item.get('old_type')} → {item.get('new_type')}[/dim]"
+                if ct == "type_changed"
+                else ""
+            )
+            console.print(
+                f"{branch} {_COL_CHANGE_STYLES.get(ct, ct)}: [bold]{col_name}[/bold]{detail}",
+            )
+            for j, dim_name in enumerate(broken_by_col.get(col_name, [])):
+                nb = (
+                    f"{cont}  └"
+                    if j == len(broken_by_col[col_name]) - 1
+                    else f"{cont}  ├"
+                )
+                console.print(
+                    f"{nb} [yellow]▲ dim link broken:[/yellow] "
+                    f"{_short_name(dim_name, namespace)}  [dim](joined on {col_name})[/dim]",
+                )
+        elif item in explicit_removals:
+            dim_name = _short_name(item.get("dim_name", ""), namespace)
+            console.print(
+                f"{branch} [red]⏺[/red] dim link removed: {dim_name}  [dim][explicit][/dim]",
+            )
+        elif item in dim_link_additions:
+            dim_name = _short_name(item.get("dim_name", ""), namespace)
+            console.print(f"{branch} [green]⏺[/green] dim link added: {dim_name}")
+        elif item in dim_link_updates:
+            dim_name = _short_name(item.get("dim_name", ""), namespace)
+            console.print(f"{branch} [yellow]⏺[/yellow] dim link updated: {dim_name}")
+        else:  # downstream impact
+            item_name = item.get("name", "")
+            rendered.add(item_name)
+            _render_impact_item(
+                item,
+                branch,
+                cont,
+                console,
+                namespace,
+                impacts_by_cause,
+                rendered,
+                change_name,
+            )
+
+
+def _print_impact_summary(
+    console: Console,
+    impact: dict,
+    active_changes: list[dict],
+    downstream_impacts: list[dict],
+) -> None:
+    """Print the impact summary line, or an 'all up to date' panel if nothing to deploy."""
+    create_count = impact.get("create_count", 0)
+    update_count = impact.get("update_count", 0)
+    delete_count = impact.get("delete_count", 0)
+    skip_count = impact.get("skip_count", 0)
+    will_invalidate = impact.get("will_invalidate_count", 0)
+    may_affect = impact.get("may_affect_count", 0)
+
+    summary_parts = []
+    if create_count:
+        summary_parts.append(
+            f"[green]{create_count} create{'s' if create_count != 1 else ''}[/green]",
+        )
+    if update_count:
+        summary_parts.append(
+            f"[yellow]{update_count} update{'s' if update_count != 1 else ''}[/yellow]",
+        )
+    if delete_count:
+        summary_parts.append(
+            f"[red]{delete_count} delete{'s' if delete_count != 1 else ''}[/red]",
+        )
+    if skip_count:
+        summary_parts.append(f"[dim]{skip_count} skipped[/dim]")
+    if will_invalidate:
+        summary_parts.append(f"[red]{will_invalidate} downstream invalidated[/red]")
+    if may_affect:
+        summary_parts.append(
+            f"[yellow]{may_affect} downstream may be affected[/yellow]",
+        )
+
+    if not active_changes and not downstream_impacts:
+        console.print(
+            Panel(
+                f"[green]✓[/green] [bold]All {skip_count} nodes are up to date.[/bold]  Nothing to deploy.",
+                border_style="green",
+                expand=False,
+            ),
+        )
+    elif summary_parts:
+        console.print(f"[bold]Summary:[/bold] {', '.join(summary_parts)}")
+
+    console.print()
+
+
+def display_impact_analysis(
+    impact: dict,
+    console: Console | None = None,
+    server_url: str | None = None,
+    source: dict | None = None,
+) -> None:
+    """Display deployment impact analysis with rich formatting."""
+    if console is None:
+        console = Console()
+    namespace = impact.get("namespace", "unknown")
+
+    changes = impact.get("changes", [])
+    spec_nodes = [
+        {"node_type": c.get("node_type", "unknown")}
+        for c in changes
+        if c.get("operation") != "delete"
+    ]
+    _push_header(
+        console,
+        namespace=namespace,
+        server_url=server_url or "",
+        deployment_spec={"nodes": spec_nodes, "source": source or {}},
+    )
+
+    active_changes = [c for c in changes if c.get("operation") != "noop"]
+    downstream_impacts = impact.get("downstream_impacts", [])
+    impacts_by_cause = _build_impacts_by_cause(downstream_impacts)
+
+    for change in active_changes:
+        _print_change_header(console, change, namespace)
+        _print_changed_fields(console, change)
+        _print_change_tree(console, change, namespace, impacts_by_cause)
+        console.print()
+
+    _print_impact_summary(console, impact, active_changes, downstream_impacts)
+
+
+def _push_header(
+    console: Console,
+    namespace: str,
+    server_url: str,
+    deployment_spec: dict,
+) -> None:
+    """Print a summary panel at the start of every push."""
+    from datajunction import __version__
+
+    nodes = deployment_spec.get("nodes", [])
+    counts: dict[str, int] = {}
+    for node in nodes:
+        ntype = node.get("node_type", "unknown")
+        counts[ntype] = counts.get(ntype, 0) + 1
+
+    type_order = ["source", "transform", "dimension", "metric", "cube"]
+    node_type_colors = NODE_TYPE_COLORS
+    node_parts = Text()
+    for t in [*type_order, *[k for k in counts if k not in type_order]]:
+        c = counts.get(t)
+        if not c:
+            continue
+        if node_parts:
+            node_parts.append("  ")
+        node_parts.append(str(c), style="bold")
+        label = t if c == 1 else f"{t}s"
+        node_parts.append(f" {label}", style=node_type_colors.get(t, "white"))
+
+    source = deployment_spec.get("source", {})
+    branch = source.get("branch")
+    commit = source.get("commit_sha")
+
+    lines = Text()
+    lines.append("  Pushing to:  ", style="dim")
+    lines.append(namespace, style="bold blue")
+    lines.append("\n  Server:      ", style="dim")
+    lines.append(str(server_url), style="dim")
+    lines.append("\n  Nodes:       ", style="dim")
+    lines.append_text(node_parts)
+    if branch:
+        lines.append("\n  Branch:      ", style="dim")
+        lines.append(branch, style="bold")
+        if commit:
+            lines.append(f"  ({commit[:7]})", style="dim")
+
+    console.print(
+        Panel(
+            lines,
+            title=f"DataJunction v{__version__}",
+            title_align="left",
+            border_style="dim",
+        ),
+    )
+    console.print()
 
 
 class DeploymentService:
@@ -32,6 +454,49 @@ class DeploymentService:
     def __init__(self, client: DJBuilder, console: Console | None = None) -> None:
         self.client = client
         self.console = console or Console()
+
+    @staticmethod
+    def print_results(
+        uuid: str,
+        data: dict,
+        console: Console,
+        verbose: bool = False,
+    ) -> None:
+        """Print deployment results in a human-readable format."""
+        results = data.get("results", [])
+        noop_count = 0
+        skipped_count = 0
+        for result in results:
+            op = result.get("operation", "")
+            if op == "noop":
+                noop_count += 1
+                if not verbose:
+                    continue
+            if op in ("skip", "skipped"):
+                skipped_count += 1
+            name = result.get("name", "")
+            console.print(f"  {op}  {name}")
+
+        summary_parts = []
+        if skipped_count:
+            summary_parts.append(f"{skipped_count} skipped")
+        if noop_count:
+            summary_parts.append(f"{noop_count} noop")
+        if summary_parts:
+            console.print(f"({', '.join(summary_parts)})")
+        console.print(f"Deployment UUID: {uuid}")
+
+    @staticmethod
+    def _render_error_bullets(message: str) -> Text:
+        """Render a message string as bullet-pointed rich Text, splitting on semicolons."""
+        parts = [p.strip() for p in message.split(";")]
+        text = Text()
+        for i, part in enumerate(parts):
+            if i > 0:
+                text.append("\n")
+            text.append("• ")
+            text.append(part)
+        return text
 
     @staticmethod
     def clean_dict(d: dict) -> dict:
@@ -151,101 +616,6 @@ class DeploymentService:
             }
             yaml.safe_dump(project_spec, yaml_file, sort_keys=False)
 
-    @staticmethod
-    @staticmethod
-    def _render_error_bullets(message: str) -> Text:
-        """Render a semicolon-separated error message as indented bullet points."""
-        bullets = [m.strip() for m in message.split(";") if m.strip()]
-        body = Text()
-        for i, bullet in enumerate(bullets):
-            if i > 0:
-                body.append("\n")
-            body.append("  • ", style="bold red")
-            head, _, tail = bullet.partition(": ")
-            for j, part in enumerate(head.split("`")):
-                body.append(part, style="bold dark_green" if j % 2 == 1 else "")
-            if tail:
-                body.append("\n    ")
-                for j, part in enumerate(tail.split("`")):
-                    body.append(part, style="bold dark_green" if j % 2 == 1 else "")
-        return body
-
-    @staticmethod
-    def print_results(
-        deployment_uuid: str,
-        data: dict,
-        console: Console,
-        verbose: bool = False,
-    ) -> None:
-        """Render all deployment results inside a single panel."""
-        namespace = data.get("namespace", "")
-        overall_status = data.get("status", "")
-        border_color = "green" if overall_status == "success" else "red"
-
-        icon_map = {"success": "✓", "failed": "✗", "skipped": "–", "pending": "…"}
-        color_map = {
-            "success": "green",
-            "failed": "red",
-            "skipped": "grey50",
-            "pending": "yellow",
-        }
-
-        results = data.get("results", [])
-        counts: dict[str, int] = {}
-        for r in results:
-            counts[r.get("status", "")] = counts.get(r.get("status", ""), 0) + 1
-
-        rows = Text()
-        for result in results:
-            status = result.get("status", "")
-            color = color_map.get(status, "white")
-            icon = icon_map.get(status, " ")
-            if not verbose and result.get("operation") == "noop":
-                continue
-            if rows:
-                rows.append("\n")
-            rows.append(
-                f"  {icon}  ",
-                style=f"{'bold ' if status == 'failed' else ''}{color}",
-            )
-            rows.append(f"{result.get('operation', ''):<8}  ", style="dim")
-            rows.append(
-                result.get("name", ""),
-                style=f"{'bold ' if status == 'failed' else ''}{color}",
-            )
-            if status == "failed":
-                rows.append("\n")
-                rows.append_text(
-                    DeploymentService._render_error_bullets(result.get("message", "")),
-                )
-
-        summary_parts = []
-        if counts.get("success"):
-            summary_parts.append(
-                Text(f"✓ {counts['success']} succeeded", style="green"),
-            )
-        if counts.get("skipped"):
-            summary_parts.append(Text(f"– {counts['skipped']} skipped", style="grey50"))
-        if not verbose and counts.get("noop"):
-            summary_parts.append(Text(f"{counts['noop']} noop", style="dim"))
-        if counts.get("failed"):
-            summary_parts.append(Text(f"✗ {counts['failed']} failed", style="bold red"))
-
-        summary = Text("  ").join(summary_parts) if summary_parts else Text()
-
-        content = Group(rows, Rule(style="dim"), summary) if summary_parts else rows
-
-        console.print()
-        console.print(
-            Panel(
-                content,
-                title=f"[dim]{deployment_uuid}  ·  {namespace}[/dim]",
-                title_align="left",
-                border_style=border_color,
-                padding=(0, 1),
-            ),
-        )
-
     def push(
         self,
         source_path: str | Path,
@@ -258,28 +628,17 @@ class DeploymentService:
         Push a local project to a namespace.
         """
         console = console or self.console
-        console.print(f"[bold]Pushing project from:[/bold] {source_path}")
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
 
         base_namespace = deployment_spec.get("namespace") or ""
         branch = DeploymentService._detect_git_branch(cwd=source_path)
-        source = deployment_spec.get("source", {})
-        if source.get("repository"):
-            console.print(
-                f"[dim]  repo:    [bold]{source['repository']}[/bold]\n"
-                f"  branch:  [bold]{source.get('branch', 'unknown')}[/bold][/dim]",
-            )
         if namespace:
             deployment_spec["namespace"] = namespace
         elif branch and base_namespace:
             deployment_spec["namespace"] = DeploymentService._derive_namespace(
                 base_namespace,
                 branch,
-            )
-            console.print(
-                f"[dim]Detected branch [bold]{branch}[/bold] → "
-                f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
             )
 
         if branch:
@@ -302,9 +661,6 @@ class DeploymentService:
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
 
-        # console.print(f"[bold]Deployment initiated:[/bold] UUID {deployment_uuid}\n")
-
-        # Max wait time for deployment to finish
         timeout = time.time() + 300  # 5 minutes
 
         with Status("Deploying...", console=console):
@@ -315,20 +671,24 @@ class DeploymentService:
                 if time.time() > timeout:
                     raise DJClientException("Deployment timed out after 5 minutes")
 
-        DeploymentService.print_results(
-            deployment_uuid,
+        display_impact_analysis(
             deployment_data,
-            console,
-            verbose=verbose,
+            console=console,
+            server_url=self.client.uri,
+            source=DeploymentService._build_deployment_source(cwd=source_path),
         )
         if deployment_data.get("status") == "success":
             console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
         if deployment_data.get("status") == "failed":
-            results = deployment_data.get("results", [])
-            errors = [r for r in results if r.get("status") == "failed"]
+            changes = deployment_data.get("changes", [])
+            errors = [
+                c
+                for c in changes
+                if c.get("validation_errors") or c.get("predicted_status") == "invalid"
+            ]
             raise DJDeploymentFailure(
                 project_name=deployment_spec.get("namespace", source_path),
-                errors=errors if errors else results,
+                errors=errors,
             )
 
     def get_impact(
@@ -502,11 +862,13 @@ class DeploymentService:
             seen_names[node_name] = node
         nodes = list(seen_names.values())
 
-        deployment_spec = {
+        deployment_spec: dict[str, Any] = {
             "namespace": project_metadata.get("namespace", ""),  # fallback to empty
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
         }
+        if default_catalog := project_metadata.get("default_catalog"):
+            deployment_spec["default_catalog"] = default_catalog
 
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)
@@ -587,6 +949,21 @@ class DeploymentService:
         return f"{base_namespace}.{suffix}"
 
     @staticmethod
+    def _detect_git_commit_sha(cwd: str | Path | None = None) -> str | None:
+        """Returns the current HEAD commit SHA, or None."""
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%H"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            return result.stdout.strip() or None
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    @staticmethod
     def _detect_git_commit_author(
         cwd: str | Path | None = None,
     ) -> tuple[str | None, str | None]:
@@ -646,7 +1023,9 @@ class DeploymentService:
             branch = branch_for_source
             if branch:
                 source["branch"] = branch
-            commit = os.getenv("DJ_DEPLOY_COMMIT")
+            commit = os.getenv(
+                "DJ_DEPLOY_COMMIT",
+            ) or DeploymentService._detect_git_commit_sha(cwd=cwd)
             if commit:
                 source["commit_sha"] = commit
             # Commit author: prefer explicit env vars, fall back to git log

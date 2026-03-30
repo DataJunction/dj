@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, defer
 
 from datajunction_server.api.helpers import (
-    get_attribute_type,
     get_node_namespace,
     COLUMN_NAME_REGEX,
     map_dimensions_to_roles,
@@ -47,12 +46,21 @@ from datajunction_server.internal.deployment.validation import (
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
+from datajunction_server.internal.impact import (
+    compute_impact,
+    _ExplicitDiffSpec,
+    _ProposedColumn,
+    _build_proposed_columns,
+    _detect_source_column_changes,
+    ColumnChangeType,
+    _infer_column_diff,
+)
+from datajunction_server.models.impact_preview import ImpactedNode
 from datajunction_server.construction.build import validate_shared_dimensions
 from datajunction_server.internal.nodes import (
     hard_delete_node,
     validate_complex_dimension_link,
 )
-from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -89,6 +97,90 @@ from datajunction_server.utils import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _diff_column_metadata(
+    new_cols: "list | None",
+    old_cols: "list | None",
+) -> list[str]:
+    """Return human-readable notes for column metadata changes (attributes, display_name, etc.).
+
+    Ignores type differences since column types are inferred by DJ, not user-specified.
+    Returns an empty list when nothing changed.
+    """
+
+    new_map = {c.name: c for c in (new_cols or [])}
+    old_map = {c.name: c for c in (old_cols or [])}
+    notes: list[str] = []
+
+    added = sorted(set(new_map) - set(old_map))
+    removed = sorted(set(old_map) - set(new_map))
+    if added:
+        notes.append(f"Column added: {', '.join(added)}")
+    if removed:
+        notes.append(f"Column removed: {', '.join(removed)}")
+
+    for col_name in sorted(set(new_map) & set(old_map)):
+        new_col = new_map[col_name]
+        old_col = old_map[col_name]
+        col_notes: list[str] = []
+
+        new_attrs = set(new_col.attributes or []) - {"primary_key"}
+        old_attrs = set(old_col.attributes or []) - {"primary_key"}
+        if new_attrs != old_attrs:
+            added_a = sorted(new_attrs - old_attrs)
+            removed_a = sorted(old_attrs - new_attrs)
+            parts = []
+            if added_a:
+                parts.append(f"+{', '.join(added_a)}")
+            if removed_a:
+                parts.append(f"-{', '.join(removed_a)}")
+            col_notes.append("attributes " + " ".join(parts))
+
+        new_dn = new_col.display_name or ""
+        old_dn = old_col.display_name or ""
+        if new_dn != old_dn:
+            col_notes.append(f"display_name {old_dn!r} → {new_dn!r}")
+
+        new_desc = new_col.description or ""
+        old_desc = old_col.description or ""
+        if new_desc != old_desc:
+            col_notes.append("description changed")
+
+        if col_notes:
+            notes.append(f"Column '{col_name}': {'; '.join(col_notes)}")
+
+    return notes
+
+
+class _DryRunRollback(Exception):
+    """Sentinel exception that triggers a SAVEPOINT rollback in dry_run mode."""
+
+
+class _NodeIdProxy:
+    """Minimal stand-in for Node that carries the DB primary key, node type, and name.
+
+    Used in ``changed_nodes`` passed to ``compute_impact`` after a session
+    commit or savepoint rollback, when the actual ORM Node objects may be
+    expired or in an inconsistent state.  The BFS needs ``.id`` to traverse
+    ``NodeRelationship``, ``.type`` to check whether a changed node is a
+    DIMENSION (Stage 3 of the BFS), and ``.name`` for get_dimension_inbound_bfs.
+    """
+
+    __slots__ = ("id", "type", "name")
+
+    def __init__(self, node_id: int, node_type: "NodeType", name: str) -> None:
+        self.id = node_id
+        self.type = node_type
+        self.name = name
+
+
+@dataclass
+class DeploymentExecuteResult:
+    """Return value of DeploymentOrchestrator.execute()."""
+
+    results: list  # list[DeploymentResult]
+    downstream_impacts: list  # list[ImpactedNode]
 
 
 @dataclass
@@ -156,12 +248,14 @@ class DeploymentOrchestrator:
         deployment_id: str,
         session: AsyncSession,
         context: DeploymentContext,
+        dry_run: bool = False,
     ):
         # Deployment context
         self.deployment_spec = deployment_spec
         self.deployment_id = deployment_id
         self.session = session
         self.context = context
+        self.dry_run = dry_run
 
         # Deployment state tracking
         self.registry = ResourceRegistry()
@@ -185,9 +279,13 @@ class DeploymentOrchestrator:
                 return author
         return self.context.current_user.username
 
-    async def execute(self) -> list[DeploymentResult]:
+    async def execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
+
+        For dry_run=True the DB writes are rolled back; the returned result still
+        contains ``results`` (what would have changed) and ``downstream_impacts``
+        (what downstream nodes would be affected).
         """
         start_total = time.perf_counter()
         logger.info(
@@ -200,21 +298,237 @@ class DeploymentOrchestrator:
 
         deployment_plan = await self._create_deployment_plan()
         if deployment_plan.is_empty():
-            return await self._handle_no_changes()
+            no_change_results = await self._handle_no_changes()
+            return DeploymentExecuteResult(
+                results=no_change_results,
+                downstream_impacts=[],
+            )
+
+        # Snapshot pre-deploy state BEFORE execution while ORM objects are fresh.
+        # After session.commit() or savepoint rollback, Node objects may be expired
+        # or have stale in-memory state (their current_version FK gets updated during
+        # deployment, marking them dirty, which SQLAlchemy expires on rollback).
+        pre_deploy_nodes: dict[str, Node] = dict(self.registry.nodes)
+        pre_deploy_diffs = await self._compute_pre_deploy_diffs(
+            deployment_plan,
+            pre_deploy_nodes,
+        )
+        # Capture raw integer IDs and node types now — plain ints/enums are never
+        # expired by the session after commit/rollback.
+        pre_deploy_node_ids: dict[str, int] = {
+            name: node.id for name, node in pre_deploy_nodes.items()
+        }
+        pre_deploy_node_types: dict[str, NodeType] = {
+            name: node.type for name, node in pre_deploy_nodes.items()
+        }
 
         await self._execute_deployment_plan(deployment_plan)
+
+        # If a node was deployed as INVALID (its new query failed validation during
+        # the actual deployment), the pre-deploy diff may still show valid proposed
+        # columns (the lightweight pre-deploy inference can succeed while the full
+        # deployment validation fails).  Patch those diffs to empty proposed columns
+        # so the BFS treats the node as invalid and propagates unconditionally to
+        # downstream cubes and other dependents.
+        self._patch_invalid_deployed_diffs(pre_deploy_diffs)
+
+        # BFS impact analysis — works post-rollback (dry) or post-commit (wet)
+        downstream = await self._compute_downstream_impact(
+            deployment_plan,
+            pre_deploy_diffs,
+            pre_deploy_node_ids,
+            pre_deploy_node_types,
+        )
+
+        if not self.dry_run:
+            await self._revalidate_downstream(downstream)
+
         logger.info(
             "Completed deployment for %s [%s] in %.3fs",
             self.deployment_spec.namespace,
             self.deployment_id,
             time.perf_counter() - start_total,
         )
-        return self.deployed_results
+        return DeploymentExecuteResult(
+            results=self.deployed_results,
+            downstream_impacts=downstream,
+        )
+
+    async def _compute_pre_deploy_diffs(
+        self,
+        plan: DeploymentPlan,
+        pre_deploy_nodes: dict[str, Node],
+    ) -> dict[str, _ExplicitDiffSpec]:
+        """Pre-compute column and dim-link diffs for each updated node.
+
+        Must be called BEFORE ``_execute_deployment_plan`` so that ORM objects
+        are still fresh (not expired by a commit or savepoint rollback).
+        Returns a mapping of node_name → ``_ExplicitDiffSpec`` for every node
+        in ``plan.to_deploy`` that has an existing pre-deploy counterpart.
+        """
+        specs: dict[str, _ExplicitDiffSpec] = {}
+        for node_spec in plan.to_deploy:
+            name = node_spec.rendered_name
+            pre_node = pre_deploy_nodes.get(name)
+            if pre_node is None:
+                continue  # New node — no downstream impact to pre-compute
+
+            # Compute removed dimension links (old links minus new links)
+            dim_links_removed: set[str] = set()
+            if isinstance(node_spec, LinkableNodeSpec):
+                old_link_names = {
+                    link.dimension.name for link in pre_node.current.dimension_links
+                }
+                new_link_names = {
+                    link_spec.rendered_dimension_node
+                    for link_spec in (node_spec.dimension_links or [])
+                }
+                dim_links_removed = old_link_names - new_link_names
+
+            # Compute column diff
+            columns_removed: set[str] = set()
+            columns_changed: list[tuple[str, str, str]] = []
+            proposed_columns = None
+
+            if node_spec.node_type == NodeType.SOURCE:
+                col_changes = _detect_source_column_changes(pre_node, node_spec)
+                columns_removed = {
+                    cc.column
+                    for cc in col_changes
+                    if cc.change_type == ColumnChangeType.REMOVED
+                }
+                columns_changed = [
+                    (cc.column, cc.old_type or "", cc.new_type or "")
+                    for cc in col_changes
+                    if cc.change_type == ColumnChangeType.TYPE_CHANGED
+                ]
+                if columns_removed or columns_changed:
+                    proposed_columns = _build_proposed_columns(
+                        pre_node.current.columns,
+                        columns_removed,
+                        columns_changed,
+                    )
+            elif (
+                rendered_query := getattr(node_spec, "rendered_query", None)
+            ) and rendered_query != pre_node.current.query:
+                (
+                    proposed_columns,
+                    removed_list,
+                    cols_changed,
+                    _,
+                    _,
+                ) = await _infer_column_diff(self.session, pre_node, rendered_query)
+                columns_removed = set(removed_list)
+                columns_changed = cols_changed
+
+            # Check whether any dimension links join on removed columns (implicitly broken)
+            for link in pre_node.current.dimension_links:
+                if link.foreign_key_column_names & columns_removed:
+                    dim_links_removed.add(link.dimension.name)
+
+            if proposed_columns is None:
+                # No query change (e.g. metadata-only update): use current columns
+                # so the BFS sees the real column state and doesn't falsely
+                # invalidate downstream nodes.
+                proposed_columns = [
+                    _ProposedColumn(name=c.name, type=c.type)
+                    for c in pre_node.current.columns
+                ]
+            specs[name] = _ExplicitDiffSpec(
+                node_type=node_spec.node_type,
+                explicit_columns_removed=columns_removed,
+                explicit_columns_changed=columns_changed,
+                dim_links_removed=dim_links_removed,
+                explicit_proposed_columns=proposed_columns,
+            )
+        return specs
+
+    async def _compute_downstream_impact(
+        self,
+        plan: DeploymentPlan,
+        pre_deploy_diffs: dict[str, _ExplicitDiffSpec],
+        pre_deploy_node_ids: dict[str, int],
+        pre_deploy_node_types: dict[str, NodeType],
+    ) -> list[ImpactedNode]:
+        """
+        Run BFS over downstream nodes to compute impact of the deployment.
+
+        Uses pre-computed diffs and plain integer IDs/types (both captured before
+        session commit/rollback) so that no expired ORM attributes are accessed.
+        The BFS needs the node's DB primary key to traverse ``NodeRelationship``
+        and the node type to detect dimension-loses-columns impacts.
+
+        ``_NodeIdProxy`` provides exactly those without touching the ORM identity map.
+        """
+        changed_nodes: dict[
+            str,
+            tuple[_ExplicitDiffSpec | None, Node | None, set[str]],
+        ] = {}
+
+        for node_spec in plan.to_deploy:
+            name = node_spec.rendered_name
+            node_id = pre_deploy_node_ids.get(name)
+            if node_id is None:
+                continue  # New node — no pre-existing downstream impact
+            explicit_spec = pre_deploy_diffs.get(name)
+            if explicit_spec is None:
+                continue  # pragma: no cover
+            node_type = pre_deploy_node_types.get(name, node_spec.node_type)
+            changed_nodes[name] = (
+                explicit_spec,
+                cast(Node, _NodeIdProxy(node_id, node_type, name)),
+                set(),
+            )
+
+        for node_spec in plan.to_delete:
+            name = node_spec.rendered_name
+            node_id = pre_deploy_node_ids.get(name)
+            if node_id is not None:
+                node_type = pre_deploy_node_types.get(name, node_spec.node_type)
+                changed_nodes[name] = (
+                    None,
+                    cast(Node, _NodeIdProxy(node_id, node_type, name)),
+                    set(),
+                )
+
+        return [node async for node in compute_impact(self.session, changed_nodes)]
+
+    async def _revalidate_downstream(self, downstream: list[ImpactedNode]) -> None:
+        """Update DB status for downstream nodes that will be invalidated.
+
+        Called only on wet-runs after the deployment is committed.  Nodes whose
+        ``impact_type`` is ``"deleted_parent"`` or ``"column"`` are marked INVALID
+        so the live DB reflects the post-deployment node graph.
+        """
+        invalidated_names = [
+            node.name
+            for node in downstream
+            if node.impact_type in ("deleted_parent", "column")
+            and node.current_status != NodeStatus.INVALID
+        ]
+        if not invalidated_names:
+            return
+
+        nodes_to_update = await Node.get_by_names(
+            self.session,
+            invalidated_names,
+        )
+        for node in nodes_to_update:
+            node.current.status = NodeStatus.INVALID
+            self.session.add(node)
+
+        await self.session.commit()
+        logger.info(
+            "Marked %d downstream nodes as INVALID after deployment",
+            len(nodes_to_update),
+        )
 
     async def _update_deployment_status(self):
         """
-        Update deployment status with current results
+        Update deployment status with current results (skipped for dry runs).
         """
+        if self.dry_run:
+            return
         from datajunction_server.api.deployments import InProcessExecutor
 
         await InProcessExecutor.update_status(
@@ -632,18 +946,12 @@ class DeploymentOrchestrator:
 
     async def _setup_attributes(self) -> dict[str, AttributeType]:
         """
-        Validate and load all attributes defined in the deployment spec and used by nodes.
+        Load all attribute types from the database (built-in and custom).
         """
-        return {
-            attr_name.value: cast(
-                AttributeType,
-                await get_attribute_type(
-                    self.session,
-                    name=attr_name.value,
-                ),
-            )
-            for attr_name in ColumnAttributes
-        }
+        all_attributes = (
+            (await self.session.execute(select(AttributeType))).scalars().all()
+        )
+        return {attr.name: attr for attr in all_attributes}
 
     async def _setup_catalogs(self) -> dict[str, Catalog]:
         """
@@ -724,9 +1032,20 @@ class DeploymentOrchestrator:
             node_graph = extract_node_graph(
                 [node for node in to_deploy if not isinstance(node, CubeSpec)],
             )
-            external_deps, auto_registered_sources = await self.check_external_deps(
-                node_graph,
-            )
+            (
+                external_deps,
+                auto_registered_sources,
+                missing_nodes,
+            ) = await self.check_external_deps(node_graph)
+
+            # Mark nodes whose deps or dimension links are missing as INVALID
+            if missing_nodes:
+                to_deploy, invalid_from_missing = self._mark_missing_dep_nodes_invalid(
+                    to_deploy,
+                    node_graph,
+                    missing_nodes,
+                )
+                self.deployed_results.extend(invalid_from_missing)
 
             # If sources were auto-registered, check which ones don't exist yet
             if auto_registered_sources:
@@ -790,15 +1109,26 @@ class DeploymentOrchestrator:
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
 
-                # Re-check external deps (should be empty now, or raise error)
-                external_deps, more_auto_registered = await self.check_external_deps(
-                    node_graph,
-                )
+                # Re-check external deps (should be empty now)
+                (
+                    external_deps,
+                    more_auto_registered,
+                    second_missing,
+                ) = await self.check_external_deps(node_graph)
                 if more_auto_registered:  # pragma: no cover
                     # This shouldn't happen, but handle it gracefully
                     raise DJInvalidDeploymentConfig(
                         message="Unexpected second round of auto-registration needed",
                     )
+                if second_missing:  # pragma: no cover
+                    to_deploy, invalid_from_missing = (
+                        self._mark_missing_dep_nodes_invalid(
+                            to_deploy,
+                            node_graph,
+                            second_missing,
+                        )
+                    )
+                    self.deployed_results.extend(invalid_from_missing)
 
         return DeploymentPlan(
             to_deploy=to_deploy,
@@ -809,26 +1139,66 @@ class DeploymentOrchestrator:
             external_deps=external_deps,
         )
 
+    def _patch_invalid_deployed_diffs(
+        self,
+        pre_deploy_diffs: dict[str, _ExplicitDiffSpec],
+    ) -> None:
+        """Patch pre-deploy diffs for nodes that ended up INVALID after deployment.
+
+        The lightweight pre-deploy column inference (``_infer_column_diff``) can succeed
+        while the full deployment validation fails (e.g. a column type can't be inferred
+        with the actual DB state).  When that happens the diff shows non-empty proposed
+        columns, so the BFS doesn't treat the node as invalid and downstream cubes are
+        not flagged.
+
+        This method overwrites ``explicit_proposed_columns`` with ``[]`` for every node
+        that was recorded in ``self.deployed_results`` with ``Status.INVALID``, so the
+        BFS correctly sets ``is_invalid=True`` for those roots.
+        """
+        for result in self.deployed_results:
+            if (
+                result.status == DeploymentResult.Status.INVALID
+                and result.name in pre_deploy_diffs
+            ):
+                diff = pre_deploy_diffs[result.name]
+                diff.explicit_proposed_columns = []
+
     async def _execute_deployment_plan(self, plan: DeploymentPlan):
-        """Execute the actual deployment based on the plan"""
-        if plan.to_deploy:
-            deployed_results, deployed_nodes = await self._deploy_nodes(plan)
-            self.deployed_results.extend(deployed_results)
-            self.registry.add_nodes(deployed_nodes)
-            await self._update_deployment_status()
+        """Execute the actual deployment based on the plan.
 
-            deployed_links = await self._deploy_links(plan)
-            self.deployed_results.extend(deployed_links)
-            await self._update_deployment_status()
+        Uses a SAVEPOINT so that dry_run=True can roll back all DB writes.
+        The outer transaction is committed only for wet-runs.
+        """
+        try:
+            async with self.session.begin_nested():
+                if plan.to_deploy:
+                    deployed_results, deployed_nodes = await self._deploy_nodes(plan)
+                    self.deployed_results.extend(deployed_results)
+                    self.registry.add_nodes(deployed_nodes)
+                    await self._update_deployment_status()
 
-            deployed_cubes = await self._deploy_cubes(plan)
-            self.deployed_results.extend(deployed_cubes)
-            await self._update_deployment_status()
+                    deployed_links = await self._deploy_links(plan)
+                    self.deployed_results.extend(deployed_links)
+                    await self._update_deployment_status()
 
-        if plan.to_delete:
-            delete_results = await self._delete_nodes(plan.to_delete)
-            self.deployed_results.extend(delete_results)
-            await self._update_deployment_status()
+                    deployed_cubes = await self._deploy_cubes(plan)
+                    self.deployed_results.extend(deployed_cubes)
+                    await self._update_deployment_status()
+
+                if plan.to_delete:
+                    delete_results = await self._delete_nodes(plan.to_delete)
+                    self.deployed_results.extend(delete_results)
+                    await self._update_deployment_status()
+
+                if self.dry_run:
+                    raise _DryRunRollback()
+                # Wet-run: context manager releases the savepoint on clean exit
+        except _DryRunRollback:
+            # Savepoint rolled back; outer transaction is still clean
+            return
+
+        # Wet-run only: commit the outer transaction
+        await self.session.commit()
 
     async def _deploy_nodes(
         self,
@@ -916,7 +1286,7 @@ class DeploymentOrchestrator:
                     validation_results=validation_results,
                 )
                 deployed_links.append(link_result)
-        await self.session.commit()
+        await self.session.flush()
         logger.info("Finished deploying %d dimension links", len(deployed_links))
         return deployed_links
 
@@ -993,14 +1363,40 @@ class DeploymentOrchestrator:
                 link_spec.rendered_dimension_node,
             )
 
-        result = validation_results.get(
+        if node.current and node.current.status == NodeStatus.INVALID:
+            # Node is INVALID (no columns / bad SQL). Skip join-query validation and
+            # write the link aspirationally so it's already present once the node is fixed.
+            # Reference links can't be created without a real column to point at.
+            if link_spec.type == LinkType.JOIN:
+                result = await self._create_or_update_dimension_link(
+                    link_spec=link_spec,
+                    new_revision=node.current,
+                    dimension_node=dimension_node,
+                )
+                result.message += (
+                    f"\n[invalid] Node '{node.name}' is INVALID — "
+                    "link may not function until the node is fixed"
+                )
+                return result
+            return DeploymentResult(
+                name=link_name,
+                deploy_type=DeploymentResult.Type.LINK,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message=(
+                    f"Dimension link from {node.name} to {dimension_node.name} was not"
+                    f" created because {node.name} is INVALID and has no columns"
+                ),
+            )
+
+        validation_error = validation_results.get(
             (node.name, dimension_node.name, link_spec.role),
         )
-        if isinstance(result, Exception):
+        if isinstance(validation_error, Exception):
             logger.error(
                 "Dimension link validation failed for %s: %s",
                 link_name,
-                result,
+                validation_error,
             )
             return DeploymentResult(
                 name=link_name,
@@ -1009,7 +1405,7 @@ class DeploymentOrchestrator:
                 operation=DeploymentResult.Operation.CREATE,
                 message=(
                     f"Dimension link from {node.name} to"
-                    f" {dimension_node.name} is invalid: {result}"
+                    f" {dimension_node.name} is invalid: {validation_error}"
                 ),
             )
 
@@ -1139,10 +1535,10 @@ class DeploymentOrchestrator:
             validation_results,
         )
 
-        # Commit all cubes
+        # Flush all cubes (commit happens at the end of _execute_deployment_plan)
         self.session.add_all(nodes)
         self.session.add_all(revisions)
-        await self.session.commit()
+        await self.session.flush()
 
         # Refresh all deployed cube nodes
         all_nodes = await self.refresh_nodes(
@@ -1333,6 +1729,29 @@ class DeploymentOrchestrator:
             if metric_name in metric_nodes_map
         ]
 
+        # Check for INVALID metric nodes before accessing columns — INVALID nodes have
+        # no columns so columns[0] would IndexError.
+        invalid_metrics = [
+            m for m in cube_metric_nodes if m.current.status == NodeStatus.INVALID
+        ]
+        if invalid_metrics:
+            return NodeValidationResult(
+                spec=cube_spec,
+                status=NodeStatus.INVALID,
+                inferred_columns=[],
+                errors=[
+                    DJError(
+                        code=ErrorCode.INVALID_CUBE,
+                        message=(
+                            f"One or more metrics are INVALID for cube "
+                            f"{cube_spec.rendered_name}: "
+                            + ", ".join(m.name for m in invalid_metrics)
+                        ),
+                    ),
+                ],
+                dependencies=[],
+            )
+
         # Extract metric columns and catalogs
         metric_columns = [node.current.columns[0] for node in cube_metric_nodes]
         catalogs = [metric.current.catalog for metric in cube_metric_nodes]
@@ -1355,6 +1774,7 @@ class DeploymentOrchestrator:
             )
 
         # Validate that each requested dimension is reachable from every metric
+        dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
             try:
                 await validate_shared_dimensions(
@@ -1363,13 +1783,9 @@ class DeploymentOrchestrator:
                     cube_spec.rendered_dimensions,
                 )
             except DJInvalidInputException as exc:
-                return NodeValidationResult(
-                    spec=cube_spec,
-                    status=NodeStatus.INVALID,
-                    inferred_columns=[],
-                    errors=exc.errors,
-                    dependencies=[],
-                )
+                # Collect the error but continue to build dimension data so we can
+                # write the cube with its elements intact (just marked INVALID).
+                dim_compat_errors = exc.errors
 
         # Get dimensions for this cube from batch-loaded data
         cube_dimension_nodes = []
@@ -1394,24 +1810,29 @@ class DeploymentOrchestrator:
             if column_name_without_role in columns:  # pragma: no cover
                 cube_dimensions.append(columns[column_name_without_role])
 
+        invalid_dims = [
+            d for d in cube_dimension_nodes if d.current.status == NodeStatus.INVALID
+        ]
+        dim_errors = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_CUBE,
+                    message=(
+                        f"One or more dimensions are INVALID for cube "
+                        f"{cube_spec.rendered_name}: "
+                        + ", ".join(d.name for d in invalid_dims)
+                    ),
+                ),
+            ]
+            if invalid_dims
+            else []
+        )
+        all_errors = dim_compat_errors + dim_errors
         return NodeValidationResult(
             spec=cube_spec,
-            status=(  # Check if all dependencies are valid
-                NodeStatus.VALID
-                if (
-                    all(
-                        metric.current.status == NodeStatus.VALID
-                        for metric in cube_metric_nodes
-                    )
-                    and all(
-                        dim.current.status == NodeStatus.VALID
-                        for dim in cube_dimension_nodes
-                    )
-                )
-                else NodeStatus.INVALID
-            ),
+            status=NodeStatus.INVALID if all_errors else NodeStatus.VALID,
             inferred_columns=cube_spec.rendered_columns,
-            errors=[],
+            errors=all_errors,
             dependencies=[],
             _cube_validation_data=CubeValidationData(
                 metric_columns=metric_columns,
@@ -1431,8 +1852,17 @@ class DeploymentOrchestrator:
         deployment_results = []
 
         for result in validation_results:
-            if result.status == NodeStatus.INVALID:
-                deployment_results.append(self._process_invalid_node_deploy(result))
+            if result.status == NodeStatus.INVALID and not result._cube_validation_data:
+                # No validation data — can't write elements; use the empty-shell path.
+                (
+                    new_node,
+                    new_revision,
+                    deployment_result,
+                ) = await self._deploy_invalid_cube(result)
+                nodes.append(new_node)
+                revisions.append(new_revision)
+                deployment_results.append(deployment_result)
+                continue
             else:
                 cube_spec = cast(CubeSpec, result.spec)
                 existing = self.registry.nodes.get(cube_spec.rendered_name)
@@ -1447,7 +1877,7 @@ class DeploymentOrchestrator:
                     raise DJInvalidDeploymentConfig(  # pragma: no cover
                         f"Missing validation data for cube {cube_spec.rendered_name}",
                     )
-                changelog = await self._generate_changelog(result)
+                changelog, changed_fields = await self._generate_changelog(result)
                 if existing:
                     logger.info("Updating cube node %s", cube_spec.rendered_name)
                     new_node = existing
@@ -1471,6 +1901,7 @@ class DeploymentOrchestrator:
                                 cube_spec=cube_spec,
                                 validation_data=result._cube_validation_data,
                                 new_node=new_node,
+                                status=result.status,
                             )
                         )
                 else:
@@ -1513,6 +1944,7 @@ class DeploymentOrchestrator:
                                 cube_spec=cube_spec,
                                 validation_data=result._cube_validation_data,
                                 new_node=new_node,
+                                status=result.status,
                             )
                         )
 
@@ -1535,13 +1967,22 @@ class DeploymentOrchestrator:
                 )
 
                 # Create deployment result
+                invalid_note = (
+                    "\n[invalid] " + "; ".join(e.message for e in result.errors)
+                    if result.status == NodeStatus.INVALID
+                    else ""
+                )
                 deployment_result = DeploymentResult(
                     name=cube_spec.rendered_name,
                     deploy_type=DeploymentResult.Type.NODE,
-                    status=DeploymentResult.Status.SUCCESS,
+                    status=DeploymentResult.Status.INVALID
+                    if result.status == NodeStatus.INVALID
+                    else DeploymentResult.Status.SUCCESS,
                     operation=operation,
                     message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
-                    + ("\n".join([""] + changelog)),
+                    + ("\n".join([""] + changelog))
+                    + invalid_note,
+                    changed_fields=changed_fields,
                 )
 
                 deployment_results.append(deployment_result)
@@ -1555,6 +1996,7 @@ class DeploymentOrchestrator:
         cube_spec: CubeSpec,
         validation_data: CubeValidationData,
         new_node: Node,
+        status: NodeStatus = NodeStatus.VALID,
     ) -> NodeRevision:
         """Create cube node revision using pre-computed validation data"""
         # Build the "columns" for this node based on the cube elements
@@ -1622,7 +2064,7 @@ class DeploymentOrchestrator:
             parents=list(
                 set(validation_data.dimension_nodes + validation_data.metric_nodes),
             ),
-            status=NodeStatus.VALID,  # Already validated
+            status=status,
             catalog=validation_data.catalog,
             created_by_id=self.context.current_user.id,
             node=new_node,
@@ -1759,6 +2201,7 @@ class DeploymentOrchestrator:
                 session=self.session,
                 current_user=self.context.current_user,
                 save_history=add_history,
+                flush_only=True,
             )
             return DeploymentResult(
                 name=name,
@@ -1792,6 +2235,8 @@ class DeploymentOrchestrator:
             if not existing_spec:
                 to_create.append(node_spec)
             elif force or node_spec != existing_spec:
+                if existing_spec:
+                    self._log_spec_diff(node_spec, existing_spec)
                 to_update.append(node_spec)
             else:
                 to_skip.append(node_spec)
@@ -1813,28 +2258,192 @@ class DeploymentOrchestrator:
         )
         return to_create + to_update, to_skip, to_delete
 
+    def _log_spec_diff(self, new_spec: "NodeSpec", existing_spec: "NodeSpec") -> None:
+        """Log what differs between the incoming spec and the existing one."""
+        from datajunction_server.models.deployment import (
+            CubeSpec,
+            LinkableNodeSpec,
+        )
+
+        name = new_spec.rendered_name
+        reasons: list[str] = []
+
+        # Base NodeSpec fields
+        if new_spec.node_type != existing_spec.node_type:
+            reasons.append(
+                f"node_type: {existing_spec.node_type!r} -> {new_spec.node_type!r}",
+            )
+        if (
+            new_spec.display_name is not None
+            and new_spec.display_name != existing_spec.display_name
+        ):
+            reasons.append(
+                f"display_name: {existing_spec.display_name!r} -> {new_spec.display_name!r}",
+            )
+        if bool(new_spec.description) != bool(existing_spec.description) or (
+            new_spec.description and new_spec.description != existing_spec.description
+        ):
+            reasons.append(
+                f"description: {existing_spec.description!r} -> {new_spec.description!r}",
+            )
+        if set(new_spec.owners) != set(existing_spec.owners):
+            reasons.append(
+                f"owners: {sorted(existing_spec.owners)} -> {sorted(new_spec.owners)}",
+            )
+        if set(new_spec.tags) != set(existing_spec.tags):
+            reasons.append(
+                f"tags: {sorted(existing_spec.tags)} -> {sorted(new_spec.tags)}",
+            )
+        if new_spec.mode != existing_spec.mode:
+            reasons.append(f"mode: {existing_spec.mode!r} -> {new_spec.mode!r}")
+
+        # Query-bearing nodes
+        if hasattr(new_spec, "query_ast") and hasattr(existing_spec, "query_ast"):
+            try:
+                if not new_spec.rendered_spec().query_ast.compare(
+                    existing_spec.query_ast,
+                ):
+                    reasons.append("query changed")
+            except Exception:
+                reasons.append("query changed (comparison error)")
+
+        # Source-specific
+        if isinstance(new_spec, type(existing_spec)) and hasattr(new_spec, "catalog"):
+            if new_spec.catalog != getattr(existing_spec, "catalog", None):
+                reasons.append(
+                    f"catalog: {getattr(existing_spec, 'catalog', None)!r} -> {new_spec.catalog!r}",
+                )
+            if getattr(new_spec, "schema_", None) != getattr(
+                existing_spec,
+                "schema_",
+                None,
+            ):
+                reasons.append(
+                    f"schema: {getattr(existing_spec, 'schema_', None)!r} -> {getattr(new_spec, 'schema_', None)!r}",
+                )
+            if getattr(new_spec, "table", None) != getattr(
+                existing_spec,
+                "table",
+                None,
+            ):
+                reasons.append(
+                    f"table: {getattr(existing_spec, 'table', None)!r} -> {getattr(new_spec, 'table', None)!r}",
+                )
+
+        # Dimension links
+        if isinstance(new_spec, LinkableNodeSpec) and isinstance(
+            existing_spec,
+            LinkableNodeSpec,
+        ):
+            new_links = sorted(
+                new_spec.dimension_links or [],
+                key=lambda lnk: (lnk.rendered_dimension_node, lnk.role or ""),
+            )
+            old_links = sorted(
+                existing_spec.dimension_links or [],
+                key=lambda lnk: (lnk.rendered_dimension_node, lnk.role or ""),
+            )
+            if new_links != old_links:
+                old_names = [lnk.rendered_dimension_node for lnk in old_links]
+                new_names = [lnk.rendered_dimension_node for lnk in new_links]
+                reasons.append(f"dimension_links: {old_names} -> {new_names}")
+
+        # Cube-specific
+        if isinstance(new_spec, CubeSpec) and isinstance(existing_spec, CubeSpec):
+            new_metrics = set(new_spec.rendered_metrics)
+            old_metrics = set(existing_spec.rendered_metrics)
+            new_dims = set(new_spec.rendered_dimensions)
+            old_dims = set(existing_spec.rendered_dimensions)
+            if new_metrics != old_metrics:
+                reasons.append(
+                    f"metrics added={sorted(new_metrics - old_metrics)} removed={sorted(old_metrics - new_metrics)}",
+                )
+            if new_dims != old_dims:
+                reasons.append(
+                    f"dimensions added={sorted(new_dims - old_dims)} removed={sorted(old_dims - new_dims)}",
+                )
+
+        # custom_metadata
+        from datajunction_server.models.deployment import eq_or_fallback
+
+        if not eq_or_fallback(
+            new_spec.custom_metadata,
+            existing_spec.custom_metadata,
+            {},
+        ):
+            reasons.append(
+                f"custom_metadata: {existing_spec.custom_metadata!r} -> {new_spec.custom_metadata!r}",
+            )
+
+        # columns (for non-source nodes, compare without types)
+        if isinstance(new_spec, LinkableNodeSpec) and isinstance(
+            existing_spec,
+            LinkableNodeSpec,
+        ):
+            from datajunction_server.models.deployment import eq_columns
+
+            if not eq_columns(
+                new_spec.columns,
+                existing_spec.columns,
+                compare_types=(new_spec.node_type.value == "source"),
+            ):
+                new_cols = [
+                    (c.name, c.type, c.display_name, c.description, c.attributes)
+                    for c in (new_spec.columns or [])
+                ]
+                old_cols = [
+                    (c.name, c.type, c.display_name, c.description, c.attributes)
+                    for c in (existing_spec.columns or [])
+                ]
+                reasons.append(f"columns changed: old={old_cols} new={new_cols}")
+
+        if reasons:
+            logger.info("Node %s marked for update: %s", name, "; ".join(reasons))
+        else:
+            # Fall back to full model dump diff
+            new_dump = new_spec.rendered_spec().model_dump(mode="json")
+            old_dump = existing_spec.model_dump(mode="json")
+            differing_keys = [
+                k
+                for k in set(new_dump) | set(old_dump)
+                if new_dump.get(k) != old_dump.get(k)
+            ]
+            logger.info(
+                "Node %s marked for update (reason unclear). Differing keys in model_dump: %s",
+                name,
+                differing_keys,
+            )
+
     async def check_external_deps(
         self,
         node_graph: dict[str, list[str]],
-    ) -> tuple[set[str], list[SourceSpec]]:
+    ) -> tuple[set[str], list[SourceSpec], list[str]]:
         """
         Find any dependencies that are not in the deployment but are already in the system.
         If any dependencies are missing and auto_register_sources is enabled, attempt to
-        register them. Otherwise raise an error.
+        register them. Otherwise return the missing nodes so the caller can mark affected
+        nodes as INVALID rather than aborting the whole deployment.
 
         Returns:
-            Tuple of (external_deps, auto_registered_sources)
+            Tuple of (external_deps, auto_registered_sources, missing_nodes)
         """
         settings = get_settings()
         source_prefix = settings.source_node_namespace
         source_prefix_dot = f"{source_prefix}." if source_prefix else None
 
-        dimension_link_deps = [
+        # Dimension link targets are node names — track them separately so we can
+        # apply stricter existence checks (no parent-node fallback).
+        dim_link_dep_set: set[str] = {
             link.rendered_dimension_node
             for node in self.deployment_spec.nodes
             if isinstance(node, LinkableNodeSpec) and node.dimension_links
             for link in node.dimension_links
-        ]
+        }
+        logger.info(
+            "check_external_deps: %d dim link targets across all spec nodes: %s",
+            len(dim_link_dep_set),
+            sorted(dim_link_dep_set),
+        )
 
         # Helper to check if a dependency is in the deployment, accounting for the
         # configured source namespace prefix (e.g. "source.catalog.schema.table").
@@ -1846,12 +2455,23 @@ class DeploymentOrchestrator:
                 return normalized in node_graph
             return False
 
-        deps_not_in_deployment = {
+        sql_deps_not_in_deployment = {
             dep
             for deps in list(node_graph.values())
             for dep in deps
             if not is_in_deployment(dep)
-        }.union({dep for dep in dimension_link_deps if not is_in_deployment(dep)})
+        }
+        dim_link_deps_not_in_deployment = {
+            dep for dep in dim_link_dep_set if not is_in_deployment(dep)
+        }
+        logger.info(
+            "check_external_deps: dim link deps not in deployment: %s",
+            sorted(dim_link_deps_not_in_deployment),
+        )
+        deps_not_in_deployment = (
+            sql_deps_not_in_deployment | dim_link_deps_not_in_deployment
+        )
+
         if deps_not_in_deployment:
             logger.warning(
                 "The following dependencies are not defined in the deployment: %s. "
@@ -1871,8 +2491,16 @@ class DeploymentOrchestrator:
                 names_to_search,
             )
             found_dep_names = {node.name for node in external_node_deps}
+            logger.info(
+                "check_external_deps: DB lookup for %d names → found %d: %s",
+                len(names_to_search),
+                len(found_dep_names),
+                sorted(found_dep_names),
+            )
             missing_nodes = []
+            deployment_node_names = set(node_graph.keys())
             for dep in deps_not_in_deployment:
+                is_dim_link = dep in dim_link_dep_set
                 # Normalize by stripping the configured source namespace prefix if present
                 normalized_dep = dep
                 if source_prefix_dot and dep.startswith(source_prefix_dot):
@@ -1880,16 +2508,24 @@ class DeploymentOrchestrator:
 
                 # Check against both original and normalized names
                 if dep in found_dep_names or normalized_dep in found_dep_names:
+                    logger.info("check_external_deps: dep %r found in DB → OK", dep)
                     continue
-                # Check if this is a dimension.column reference (parent was found)
-                parent = normalized_dep.rsplit(SEPARATOR, 1)[0]
-                if SEPARATOR in parent and parent in found_dep_names:
-                    continue
+
+                # For SQL deps only: allow a `node.column` reference to pass if the
+                # parent node exists.  Dimension link targets are full node names, so
+                # this parent-node shortcut must NOT apply to them (it would mask typos).
+                if not is_dim_link:
+                    parent = normalized_dep.rsplit(SEPARATOR, 1)[0]
+                    if SEPARATOR in parent and parent in found_dep_names:
+                        logger.info(
+                            "check_external_deps: SQL dep %r cleared via parent %r",
+                            dep,
+                            parent,
+                        )
+                        continue
 
                 # Check if this is a namespace prefix (some found node starts with dep.)
                 # This happens when rsplit of a metric gives its namespace
-                # Check both: nodes already in DB (found_dep_names) AND nodes in current deployment (node_graph)
-                deployment_node_names = set(node_graph.keys())
                 if (
                     dep == self.deployment_spec.namespace
                     or normalized_dep == self.deployment_spec.namespace
@@ -1900,36 +2536,92 @@ class DeploymentOrchestrator:
                     )
                 ):
                     continue  # pragma: no cover
+                logger.warning(
+                    "check_external_deps: dep %r NOT found — is_dim_link=%s → will mark INVALID",
+                    dep,
+                    is_dim_link,
+                )
                 missing_nodes.append(dep)
 
             if missing_nodes:
                 # Try to auto-register missing sources
                 auto_registered = await self._auto_register_sources(missing_nodes)
 
-                # If we failed to auto-register (or it's disabled), raise an error
-                if self.errors or not auto_registered:
-                    if self.errors:
-                        raise DJInvalidDeploymentConfig(
-                            message="Failed to auto-register sources",
-                            errors=self.errors,
-                            warnings=self.warnings,
-                        )
+                if self.errors:
                     raise DJInvalidDeploymentConfig(
-                        message=(
-                            "The following dependencies are not in the deployment and do not"
-                            " pre-exist in the system: "
-                            + ", ".join(sorted(missing_nodes))
-                        ),
+                        message="Failed to auto-register sources",
+                        errors=self.errors,
+                        warnings=self.warnings,
                     )
 
-                # Successfully auto-registered, return them so caller can rebuild graph
-                return deps_not_in_deployment, auto_registered
+                if auto_registered:
+                    # Successfully auto-registered, return them so caller can rebuild graph
+                    return deps_not_in_deployment, auto_registered, []
+
+                # Could not auto-register — return missing nodes so the caller can mark
+                # affected nodes INVALID rather than aborting the whole deployment.
+                logger.warning(
+                    "The following dependencies are not in the deployment and do not"
+                    " pre-exist in the system: %s — affected nodes will be marked INVALID",
+                    missing_nodes,
+                )
+                return deps_not_in_deployment, [], missing_nodes
 
             logger.info(
                 "All %d external dependencies pre-exist in the system",
                 len(external_node_deps),
             )
-        return deps_not_in_deployment, []
+        return deps_not_in_deployment, [], []
+
+    def _mark_missing_dep_nodes_invalid(
+        self,
+        to_deploy: list,
+        node_graph: dict[str, list[str]],
+        missing_nodes: list[str],
+    ) -> tuple[list, list[DeploymentResult]]:
+        """Remove stale SKIPPED results for nodes with missing deps.
+
+        Nodes that reference a missing dep (SQL or dimension link) will fail
+        validation naturally in bulk_validate_node_data and be deployed to the DB
+        as INVALID.  Keeping them in to_deploy ensures they appear as BFS roots in
+        _compute_downstream_impact, so their downstream nodes are correctly shown as
+        impacted and marked INVALID on wet runs.
+
+        This method only clears any pre-added SKIPPED results so the actual
+        deployment result (CREATE/UPDATE + INVALID) doesn't appear twice.
+        """
+        missing_set = set(missing_nodes)
+        logger.info(
+            "_mark_missing_dep_nodes_invalid: missing_set=%s, checking %d spec nodes",
+            sorted(missing_set),
+            len(self.deployment_spec.nodes),
+        )
+        affected_names: set[str] = set()
+
+        for node_spec in self.deployment_spec.nodes:
+            name = node_spec.rendered_name
+            sql_deps = set(node_graph.get(name, []))
+            link_deps = {
+                link.rendered_dimension_node
+                for link in getattr(node_spec, "dimension_links", None) or []
+            }
+            blocking = (sql_deps | link_deps) & missing_set
+            if link_deps:
+                logger.info(
+                    "_mark_missing_dep_nodes_invalid: node %r link_deps=%s blocking=%s",
+                    name,
+                    sorted(link_deps),
+                    sorted(blocking),
+                )
+            if blocking:
+                affected_names.add(name)
+
+        # Remove stale SKIPPED results so the deployment result isn't duplicated.
+        self.deployed_results = [
+            r for r in self.deployed_results if r.name not in affected_names
+        ]
+
+        return to_deploy, []
 
     async def validate_dimension_links(self, plan: DeploymentPlan):
         """
@@ -1991,9 +2683,9 @@ class DeploymentOrchestrator:
         # Validate all node queries to determine columns, types, and dependencies
         validation_results = await bulk_validate_node_data(
             node_specs,
-            node_graph,
             self.session,
-            dependency_nodes,
+            node_graph=node_graph,
+            dependency_nodes=dependency_nodes,
         )
 
         # Process validation results and create nodes
@@ -2013,7 +2705,7 @@ class DeploymentOrchestrator:
             )
         self.session.add_all(nodes)
         self.session.add_all(revisions)
-        await self.session.commit()
+        await self.session.flush()
 
         # Refresh nodes for latest state
         all_nodes = await self.refresh_nodes(
@@ -2075,44 +2767,134 @@ class DeploymentOrchestrator:
         deployment_results = []
         for result in validation_results:
             if result.status == NodeStatus.INVALID:
-                deployment_results.append(self._process_invalid_node_deploy(result))
-            else:
-                (
-                    deployment_result,
-                    new_node,
-                    new_revision,
-                ) = await self._process_valid_node_deploy(
-                    result,
-                    dependency_nodes,
-                    node_graph,
+                logger.warning(
+                    "Deploying node %s with INVALID status: %s",
+                    result.spec.rendered_name,
+                    "; ".join(e.message for e in result.errors),
                 )
-                deployment_results.append(deployment_result)
-                nodes.append(new_node)
-                revisions.append(new_revision)
+            (
+                deployment_result,
+                new_node,
+                new_revision,
+            ) = await self._process_valid_node_deploy(
+                result,
+                dependency_nodes,
+                node_graph,
+            )
+            deployment_results.append(deployment_result)
+            nodes.append(new_node)
+            revisions.append(new_revision)
         return nodes, revisions, deployment_results
 
-    def _process_invalid_node_deploy(
+    def _fallback_catalog(self) -> Catalog | None:
+        """Return the deployment's configured default catalog, if any.
+
+        Used when catalog can't be derived from parent nodes (e.g., invalid nodes
+        whose parents are unresolvable). Callers should further fall back to the
+        virtual catalog when this returns None.
+        """
+        if self.deployment_spec.default_catalog:
+            return self.registry.catalogs.get(self.deployment_spec.default_catalog)
+        return None
+
+    def _infer_cube_catalog(
+        self,
+        cube_spec: "CubeSpec",
+        existing: Node | None,
+    ) -> Catalog | None:
+        """Infer the catalog for a cube from its metrics (same logic as valid cube deployment).
+
+        deployment_spec.default_catalog takes priority so an explicitly configured catalog
+        wins even when metric nodes were previously deployed with the wrong catalog.
+        Falls back to the first metric's catalog, then the existing node's catalog.
+        """
+        if fallback := self._fallback_catalog():
+            return fallback
+        for metric_name in cube_spec.rendered_metrics:
+            metric_node = self.registry.nodes.get(metric_name)
+            if metric_node and metric_node.current and metric_node.current.catalog:
+                return metric_node.current.catalog
+        if existing and existing.current and existing.current.catalog:
+            return existing.current.catalog
+        return None
+
+    async def _deploy_invalid_cube(
         self,
         result: NodeValidationResult,
-    ) -> DeploymentResult:
-        """Create deployment result for failed validation"""
-        logger.error(
-            f"Node {result.spec.rendered_name} failed: {result.errors}",
+    ) -> tuple[Node, NodeRevision, DeploymentResult]:
+        """Deploy a cube that failed validation, writing it as INVALID with no elements.
+
+        Ensures the namespace is fully populated even when cube metrics/dimensions
+        can't be resolved, so the deployment completes and is idempotent.
+        """
+        cube_spec = cast(CubeSpec, result.spec)
+        logger.warning(
+            "Deploying cube %s with INVALID status: %s",
+            cube_spec.rendered_name,
+            "; ".join(e.message for e in result.errors),
         )
-        existing = self.registry.nodes.get(result.spec.rendered_name)
+        existing = self.registry.nodes.get(cube_spec.rendered_name)
         operation = (
             DeploymentResult.Operation.UPDATE
             if existing
             else DeploymentResult.Operation.CREATE
         )
-
-        return DeploymentResult(
-            name=result.spec.rendered_name,
-            deploy_type=DeploymentResult.Type.NODE,
-            status=DeploymentResult.Status.FAILED,
-            operation=operation,
-            message="; ".join(error.message for error in result.errors),
+        new_node = self._create_or_update_node(cube_spec, existing)
+        namespace = get_namespace_from_name(cube_spec.rendered_name)
+        await get_node_namespace(session=self.session, namespace=namespace)
+        # Derive catalog from the cube's metrics (same source as valid cube deployment),
+        # falling back to the existing node's catalog, the deployment default catalog,
+        # then the virtual catalog.
+        catalog = self._infer_cube_catalog(
+            cube_spec,
+            existing,
+        ) or await Catalog.get_virtual_catalog(
+            self.session,
         )
+        new_revision = NodeRevision(
+            name=cube_spec.rendered_name,
+            display_name=cube_spec.display_name,
+            type=NodeType.CUBE,
+            description=cube_spec.description or "",
+            mode=cube_spec.mode,
+            version=new_node.current_version,
+            node=new_node,
+            status=NodeStatus.INVALID,
+            catalog=catalog,
+            columns=[],
+            created_by_id=self.context.current_user.id,
+            custom_metadata=cube_spec.custom_metadata,
+        )
+        self.session.add(new_node)
+        self.session.add(new_revision)
+        await self.session.flush()
+
+        activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
+        self.session.add(
+            History(
+                entity_type=EntityType.NODE,
+                entity_name=cube_spec.rendered_name,
+                node=cube_spec.rendered_name,
+                activity_type=activity_type,
+                details={
+                    "version": new_node.current_version,
+                    "deployment_id": self.deployment_id,
+                },
+                user=self._history_user,
+            ),
+        )
+        _, changed_fields = await self._generate_changelog(result)
+        error_note = "; ".join(e.message for e in result.errors)
+        deployment_result = DeploymentResult(
+            name=cube_spec.rendered_name,
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.INVALID,
+            operation=operation,
+            message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
+            + (f"\n[invalid] {error_note}" if error_note else "\n[invalid]"),
+            changed_fields=changed_fields,
+        )
+        return new_node, new_revision, deployment_result
 
     async def _process_valid_node_deploy(
         self,
@@ -2126,7 +2908,7 @@ class DeploymentOrchestrator:
             if existing
             else DeploymentResult.Operation.CREATE
         )
-        changelog = await self._generate_changelog(result)
+        changelog, changed_fields = await self._generate_changelog(result)
         new_node = self._create_or_update_node(result.spec, existing)
         new_revision = await self._create_node_revision(
             new_node,
@@ -2154,24 +2936,42 @@ class DeploymentOrchestrator:
             ),
         )
 
+        invalid_note = (
+            "\n[invalid] " + "; ".join(e.message for e in result.errors)
+            if result.status == NodeStatus.INVALID
+            else ""
+        )
         deployment_result = DeploymentResult(
             name=result.spec.rendered_name,
             deploy_type=DeploymentResult.Type.NODE,
-            status=DeploymentResult.Status.SUCCESS,
+            status=DeploymentResult.Status.INVALID
+            if result.status == NodeStatus.INVALID
+            else DeploymentResult.Status.SUCCESS,
             operation=operation,
             message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
-            + ("\n".join([""] + changelog)),
+            + ("\n".join([""] + changelog))
+            + invalid_note,
+            changed_fields=changed_fields,
         )
         return deployment_result, new_node, new_revision
 
-    async def _generate_changelog(self, result: NodeValidationResult) -> list[str]:
-        """Generate changelog entries for a node update"""
+    async def _generate_changelog(
+        self,
+        result: NodeValidationResult,
+    ) -> tuple[list[str], list[str]]:
+        """Generate changelog entries for a node update.
+
+        Returns (changelog_lines, changed_fields) where changelog_lines are
+        human-readable strings for the deployment message and changed_fields
+        are the raw field names (for structured display in the dry-run impact response).
+        """
         changelog: list[str] = []
+        changed_fields: list[str] = []
 
         # No changes if the node is new
         existing = self.registry.nodes.get(result.spec.rendered_name)
         if not existing:
-            return changelog
+            return changelog, changed_fields
 
         # Track changes to node columns
         old_revision = existing.current if existing else None
@@ -2190,10 +2990,54 @@ class DeploymentOrchestrator:
         # Track changes to other node fields
         existing_node_spec = await existing.to_spec(self.session)
         changed_fields = existing_node_spec.diff(result.spec) if existing else []
-        changelog.append(
-            ("└─ Updated " + ", ".join(changed_fields)),
-        ) if changed_fields else ""
-        return changelog
+
+        # Check if query changed (diff() ignores it, but we want to surface it)
+        if hasattr(existing_node_spec, "rendered_query") and hasattr(
+            result.spec,
+            "rendered_query",
+        ):
+            old_query = existing_node_spec.rendered_query
+            new_query = result.spec.rendered_spec().rendered_query
+            if old_query != new_query:
+                changed_fields = ["query"] + changed_fields
+
+        # Check if column metadata changed (diff() ignores columns)
+        from datajunction_server.models.deployment import LinkableNodeSpec as LNS
+
+        if isinstance(result.spec, LNS) and isinstance(existing_node_spec, LNS):
+            col_change_notes = _diff_column_metadata(
+                result.spec.rendered_spec().columns,
+                existing_node_spec.columns,
+            )
+            if col_change_notes:
+                changed_fields = changed_fields + ["columns"]
+                for note in col_change_notes:
+                    changelog.append(f"└─ {note}")
+
+        if changed_fields:
+            changelog.append("└─ Updated " + ", ".join(changed_fields))
+            rendered_spec = result.spec.rendered_spec()
+            for field in [f for f in changed_fields if f != "query"]:
+                old_val = getattr(existing_node_spec, field, None)
+                new_val = getattr(rendered_spec, field, None)
+                logger.info(
+                    "Node %s field %r changed: %r -> %r",
+                    result.spec.rendered_name,
+                    field,
+                    old_val,
+                    new_val,
+                )
+
+        # If the node has dimension links and is being updated (even if link specs
+        # didn't change), the links will be re-deployed — note this in the message.
+        if (
+            not changed_fields
+            and isinstance(result.spec, LinkableNodeSpec)
+            and result.spec.dimension_links
+        ):
+            changelog.append("└─ Updated dimension_links")
+
+        return changelog, changed_fields
 
     def _create_or_update_node(
         self,
@@ -2254,14 +3098,21 @@ class DeploymentOrchestrator:
             if parent in dependency_nodes
         ]
         if result.spec.node_type != NodeType.SOURCE:
-            if parents:
-                catalog = parents[0].current.catalog  # type: ignore
-            else:
-                # Fall back to virtual catalog for nodes with no parents
-                # (e.g., hardcoded dimensions)
-                catalog = await Catalog.get_virtual_catalog(  # pragma: no cover
+            parent_catalog = (
+                parents[0].current.catalog  # type: ignore
+                if parents and parents[0].current  # type: ignore
+                else None
+            )
+            # _fallback_catalog() (from deployment_spec.default_catalog) takes priority
+            # over parent_catalog so that an explicitly configured catalog wins even when
+            # parents were previously deployed with the wrong (e.g. virtual) catalog.
+            catalog = (
+                self._fallback_catalog()
+                or parent_catalog
+                or await Catalog.get_virtual_catalog(  # pragma: no cover
                     self.session,
                 )
+            )
         else:
             catalog = self.registry.catalogs.get(result.spec.catalog)
 
@@ -2310,13 +3161,44 @@ class DeploymentOrchestrator:
             NodeType.METRIC,
         ):
             new_revision.query = result.spec.rendered_query
+            # Merge user-specified column metadata (display_name, description, attributes)
+            # from the spec onto the inferred columns.  Inferred columns carry the type;
+            # spec columns carry user intent.
+            spec_col_map: dict[str, ColumnSpec] = {
+                c.name: c for c in (result.spec.columns or [])
+            }
+            merged_cols: list[ColumnSpec] = []
+            for idx, inferred in enumerate(result.inferred_columns):
+                spec_col = spec_col_map.get(inferred.name)
+                if spec_col:
+                    merged = inferred.model_copy(
+                        update={
+                            "display_name": spec_col.display_name
+                            if spec_col.display_name is not None
+                            else inferred.display_name,
+                            "description": spec_col.description
+                            if spec_col.description is not None
+                            else inferred.description,
+                            "attributes": spec_col.attributes
+                            if spec_col.attributes
+                            else inferred.attributes,
+                            "order": spec_col.order
+                            if spec_col.order is not None
+                            else (
+                                inferred.order if inferred.order is not None else idx
+                            ),
+                        },
+                    )
+                else:
+                    merged = inferred
+                merged_cols.append(merged)
             new_revision.columns = [
                 self._create_column_from_spec(
                     col,
                     pk_columns,
                     order=col.order if col.order is not None else idx,
                 )
-                for idx, col in enumerate(result.inferred_columns)
+                for idx, col in enumerate(merged_cols)
             ]
 
         if result.spec.node_type == NodeType.SOURCE:
@@ -2339,7 +3221,8 @@ class DeploymentOrchestrator:
 
         if result.spec.node_type == NodeType.METRIC:
             metric_spec = cast(MetricSpec, result.spec)
-            new_revision.columns[0].display_name = new_revision.display_name
+            if new_revision.columns:
+                new_revision.columns[0].display_name = new_revision.display_name
             if (
                 metric_spec.unit_enum
                 or metric_spec.direction

@@ -30,9 +30,18 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
 )
-from datajunction_server.models.impact import DeploymentImpactResponse
+from datajunction_server.models.impact import (
+    DeploymentImpactResponse,
+    ImpactType,
+    NodeChangeOperation,
+    NodeEffect,
+)
+from datajunction_server.models.node import NodeType
 from datajunction_server.internal.deployment.deployment import deploy
-from datajunction_server.internal.deployment.impact import analyze_deployment_impact
+from datajunction_server.internal.deployment.orchestrator import (
+    DeploymentExecuteResult,
+    DeploymentOrchestrator,
+)
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -169,6 +178,8 @@ class InProcessExecutor(DeploymentExecutor):
         deployment_uuid: str,
         status: DeploymentStatus,
         results: list[DeploymentResult] | None = None,
+        downstream_impacts: list[dict] | None = None,
+        impact_response: dict | None = None,
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
@@ -178,6 +189,10 @@ class InProcessExecutor(DeploymentExecutor):
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
+            if downstream_impacts is not None:
+                deployment.downstream_impacts = downstream_impacts
+            if impact_response is not None:
+                deployment.impact_response = impact_response
             await session.commit()
 
     async def _run_deployment(
@@ -190,12 +205,13 @@ class InProcessExecutor(DeploymentExecutor):
 
         try:
             async with session_context() as session:
-                results = await deploy(
+                execute_result = await deploy(
                     session=session,
                     deployment_id=deployment_id,
                     deployment=deployment_spec,
                     context=context,
                 )
+                results = execute_result.results
                 final_status = (
                     DeploymentStatus.SUCCESS
                     if all(
@@ -208,25 +224,34 @@ class InProcessExecutor(DeploymentExecutor):
                     )
                     else DeploymentStatus.FAILED
                 )
+                impact = _to_impact_response(execute_result, deployment_spec)
                 await InProcessExecutor.update_status(
                     deployment_id,
                     final_status,
                     results,
+                    downstream_impacts=[
+                        e.model_dump() for e in impact.downstream_impacts
+                    ],
+                    impact_response=impact.model_dump(),
                 )
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
+            error_result = DeploymentResult(
+                name=exc.__class__.__name__,
+                deploy_type=DeploymentResult.Type.GENERAL,
+                message=str(exc),
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.UNKNOWN,
+            )
+            error_impact = _to_impact_response(
+                DeploymentExecuteResult(results=[error_result], downstream_impacts=[]),
+                deployment_spec,
+            )
             await InProcessExecutor.update_status(
                 deployment_id,
                 DeploymentStatus.FAILED,
-                [
-                    DeploymentResult(
-                        name=exc.__class__.__name__,
-                        deploy_type=DeploymentResult.Type.GENERAL,
-                        message=str(exc),
-                        status=DeploymentResult.Status.FAILED,
-                        operation=DeploymentResult.Operation.UNKNOWN,
-                    ),
-                ],
+                [error_result],
+                impact_response=error_impact.model_dump(),
             )
 
 
@@ -236,7 +261,7 @@ executor = InProcessExecutor()
 @router.post(
     "/deployments",
     name="Creates a bulk deployment",
-    response_model=DeploymentInfo,
+    response_model=DeploymentImpactResponse,
 )
 async def create_deployment(
     deployment_spec: DeploymentSpec,
@@ -248,7 +273,7 @@ async def create_deployment(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     cache: Cache = Depends(get_cache),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> DeploymentInfo:
+) -> DeploymentImpactResponse:
     """
     This endpoint takes a deployment specification (namespace, nodes, tags), topologically
     sorts and validates the deployable objects, and deploys the nodes in parallel where
@@ -290,29 +315,37 @@ async def create_deployment(
         ),
     )
     deployment = await session.get(Deployment, deployment_id)
-    return DeploymentInfo(
+    # Deployment runs asynchronously; return a pending stub for the client to poll.
+    return DeploymentImpactResponse(
         uuid=deployment_id,
         namespace=deployment.namespace,
         status=deployment.status.value,
-        results=deployment.deployment_results,
     )
 
 
-@router.get("/deployments/{deployment_id}", response_model=DeploymentInfo)
+@router.get("/deployments/{deployment_id}", response_model=DeploymentImpactResponse)
 async def get_deployment_status(
     deployment_id: str,
     session: AsyncSession = Depends(get_session),
-) -> DeploymentInfo:
+) -> DeploymentImpactResponse:
     deployment = await session.get(Deployment, deployment_id)
     if not deployment:
         raise DJDoesNotExistException(
             message=f"Deployment {deployment_id} not found",
         )  # pragma: no cover
-    return DeploymentInfo(
+    if deployment.impact_response:
+        return DeploymentImpactResponse(
+            **{
+                **deployment.impact_response,
+                "uuid": deployment_id,
+                "status": deployment.status.value,
+            },
+        )
+    # Deployment still running (no impact_response stored yet)
+    return DeploymentImpactResponse(
         uuid=deployment_id,
         namespace=deployment.namespace,
         status=deployment.status.value,
-        results=deployment.deployment_results,
     )
 
 
@@ -356,6 +389,131 @@ async def list_deployments(  # pragma: no cover
     return results
 
 
+def _extract_errors(r: DeploymentResult) -> list[str]:
+    """Extract error text from a deployment result message, stripping deployment preamble."""
+    if r.status == DeploymentResult.Status.FAILED:
+        return [r.message] if r.message else []
+    if r.status == DeploymentResult.Status.INVALID:
+        if not r.message:
+            return []
+        # Message format after a wet-run validation failure:
+        #   "Created/Updated <type> (vX.Y)\n[invalid] <error>"
+        # Message format from _mark_missing_dep_nodes_invalid (pre-deploy check):
+        #   "The following dependencies are not in the deployment..."
+        for line in r.message.splitlines():
+            if line.startswith("[invalid]"):
+                return [line[len("[invalid]") :].strip()]
+        # No [invalid] prefix — the whole message is the error.
+        return [r.message]
+    return []
+
+
+def _to_impact_response(
+    result: DeploymentExecuteResult,
+    deployment_spec: DeploymentSpec,
+) -> DeploymentImpactResponse:
+    """Adapt a DeploymentExecuteResult into a DeploymentImpactResponse."""
+    _op_map = {
+        DeploymentResult.Operation.CREATE: NodeChangeOperation.CREATE,
+        DeploymentResult.Operation.UPDATE: NodeChangeOperation.UPDATE,
+        DeploymentResult.Operation.DELETE: NodeChangeOperation.DELETE,
+        DeploymentResult.Operation.NOOP: NodeChangeOperation.NOOP,
+        DeploymentResult.Operation.UNKNOWN: NodeChangeOperation.NOOP,
+    }
+    spec_type_map: dict[str, NodeType] = {
+        node_spec.rendered_name: node_spec.node_type
+        for node_spec in deployment_spec.nodes
+    }
+
+    # Collect failed link errors keyed by the parent node name
+    link_errors: dict[str, list[str]] = {}
+    for r in result.results:
+        if r.deploy_type == DeploymentResult.Type.LINK and r.status in (
+            DeploymentResult.Status.FAILED,
+        ):
+            parent_node = r.name.split(" -> ")[0] if " -> " in r.name else r.name
+            link_errors.setdefault(parent_node, []).append(r.message or "")
+
+    def _node_operation(r: DeploymentResult) -> NodeChangeOperation:
+        # INVALID nodes (e.g. broken dim link / missing dep) must surface in dry run.
+        # Map them to UPDATE so display_impact_analysis includes them in active_changes.
+        if r.status == DeploymentResult.Status.INVALID:
+            return NodeChangeOperation.UPDATE
+        return _op_map.get(r.operation, NodeChangeOperation.NOOP)
+
+    changes: list[NodeEffect] = [
+        NodeEffect(
+            name=r.name,
+            node_type=spec_type_map.get(r.name, NodeType.SOURCE),
+            operation=_node_operation(r),
+            predicted_status=(
+                "invalid"
+                if r.status == DeploymentResult.Status.INVALID
+                or link_errors.get(r.name)
+                else None
+            ),
+            changed_fields=r.changed_fields,
+            validation_errors=_extract_errors(r) + link_errors.get(r.name, []),
+        )
+        for r in result.results
+        if r.deploy_type == DeploymentResult.Type.NODE
+    ]
+
+    _impact_type_map = {
+        "column": ImpactType.WILL_INVALIDATE,
+        "deleted_parent": ImpactType.WILL_INVALIDATE,
+        "dimension_link": ImpactType.MAY_AFFECT,
+    }
+    downstream_effects: list[NodeEffect] = [
+        NodeEffect(
+            name=node.name,
+            node_type=node.node_type,
+            current_status=node.current_status,
+            predicted_status=node.projected_status,
+            impact_type=_impact_type_map.get(node.impact_type, ImpactType.MAY_AFFECT),
+            impact_reason=node.reason,
+            caused_by=node.caused_by,
+            depth=1,
+            is_external=not node.name.startswith(deployment_spec.namespace + "."),
+        )
+        for node in result.downstream_impacts
+    ]
+
+    # GENERAL-type FAILED results are top-level deployment errors (e.g. missing deps
+    # detected before any node is attempted).  Surface them as warnings.
+    warnings = [
+        r.message
+        for r in result.results
+        if r.deploy_type == DeploymentResult.Type.GENERAL
+        and r.status == DeploymentResult.Status.FAILED
+        and r.message
+    ]
+
+    create_count = sum(1 for c in changes if c.operation == NodeChangeOperation.CREATE)
+    update_count = sum(1 for c in changes if c.operation == NodeChangeOperation.UPDATE)
+    delete_count = sum(1 for c in changes if c.operation == NodeChangeOperation.DELETE)
+    skip_count = sum(1 for c in changes if c.operation == NodeChangeOperation.NOOP)
+    will_invalidate_count = sum(
+        1 for d in downstream_effects if d.impact_type == ImpactType.WILL_INVALIDATE
+    )
+    may_affect_count = sum(
+        1 for d in downstream_effects if d.impact_type == ImpactType.MAY_AFFECT
+    )
+
+    return DeploymentImpactResponse(
+        namespace=deployment_spec.namespace,
+        changes=changes,
+        create_count=create_count,
+        update_count=update_count,
+        delete_count=delete_count,
+        skip_count=skip_count,
+        downstream_impacts=downstream_effects,
+        will_invalidate_count=will_invalidate_count,
+        may_affect_count=may_affect_count,
+        warnings=warnings,
+    )
+
+
 @router.post(
     "/deployments/impact",
     name="Preview deployment impact",
@@ -365,18 +523,18 @@ async def preview_deployment_impact(
     deployment_spec: DeploymentSpec,
     *,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DeploymentImpactResponse:
     """
     Analyze the impact of a deployment WITHOUT actually deploying.
 
-    This endpoint takes a deployment specification and returns:
-    - Direct changes: What nodes will be created, updated, deleted, or skipped
-    - Downstream impacts: What existing nodes will be affected by these changes
-    - Warnings: Potential issues like breaking column changes or external impacts
+    Runs the same orchestrator code path as a real deployment but rolls back
+    all DB writes at the end via a SAVEPOINT.  Returns:
+    - Direct changes: What nodes would be created, updated, deleted, or skipped
+    - Downstream impacts: What existing nodes would be affected by these changes
 
-    Use this endpoint to preview changes before deploying, similar to a dry-run
-    but with more detailed impact analysis including second and third-order effects.
+    Use this endpoint to preview changes before deploying.
     """
     access_checker.add_request(
         access.ResourceRequest(
@@ -389,7 +547,12 @@ async def preview_deployment_impact(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    return await analyze_deployment_impact(
-        session=session,
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="dry-run",
         deployment_spec=deployment_spec,
+        session=session,
+        context=DeploymentContext(current_user=current_user),
+        dry_run=True,
     )
+    result = await orchestrator.execute()
+    return _to_impact_response(result, deployment_spec)
