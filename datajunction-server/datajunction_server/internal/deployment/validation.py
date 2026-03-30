@@ -9,8 +9,11 @@ from typing import Dict, List, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.api.helpers import _resolve_required_dimensions
 from datajunction_server.internal.validation import validate_metric_query
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import NodeStatus, NodeType
@@ -27,6 +30,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse, ast, parse_rule
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,10 @@ class NodeSpecBulkValidator:
 
     def __init__(self, context: ValidationContext):
         self.context = context
+        # Populated by _prefetch_required_dimension_nodes before per-node validation.
+        # Keys: node name; values: Node objects (union of dependency_nodes + any
+        # extra dimension nodes fetched from DB for required_dimensions resolution).
+        self._all_dim_nodes: Dict[str, Node] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
@@ -113,6 +121,11 @@ class NodeSpecBulkValidator:
 
         # Parse only specs that need it
         parsed_results = await self.parse_queries(specs_needing_parse)
+
+        # Pre-fetch dimension nodes for required_dimensions validation (PR 3).
+        # Must happen before the asyncio.gather so every validate_query_node call
+        # can read self._all_dim_nodes without issuing per-node DB queries.
+        await self._prefetch_required_dimension_nodes(specs_needing_parse)
 
         # Build results in original order
         results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
@@ -216,6 +229,11 @@ class NodeSpecBulkValidator:
                         message=f"References invalid parent node(s) {', '.join(invalid_parents)}",
                     ),
                 )
+
+            req_dim_error = self._check_required_dimensions(spec)
+            if req_dim_error is not None:
+                errors.append(req_dim_error)
+
             return NodeValidationResult(
                 spec=spec,
                 status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
@@ -269,6 +287,78 @@ class NodeSpecBulkValidator:
                 code=ErrorCode.INVALID_SQL_QUERY,
                 message=str(exc),
             )
+
+    async def _prefetch_required_dimension_nodes(
+        self,
+        specs: list[NodeSpec],
+    ) -> None:
+        """
+        Collect all dimension node names referenced via required_dimensions across the
+        batch, fetch any not already in dependency_nodes in a single DB query, and
+        store the combined map in self._all_dim_nodes.
+        """
+        req_dim_node_names: set[str] = set()
+        for spec in specs:
+            for req_dim in getattr(spec, "required_dimensions", None) or []:
+                if SEPARATOR in req_dim:
+                    dim_node_name = req_dim.rsplit(SEPARATOR, 1)[0]
+                    req_dim_node_names.add(dim_node_name)
+
+        self._all_dim_nodes = dict(self.context.dependency_nodes)
+
+        missing = req_dim_node_names - set(self._all_dim_nodes)
+        if missing:
+            result = await self.context.session.execute(
+                select(Node)
+                .filter(Node.name.in_(missing))
+                .options(
+                    selectinload(Node.current).options(
+                        selectinload(NodeRevision.columns),
+                    ),
+                ),
+            )
+            for node in result.scalars().all():
+                self._all_dim_nodes[node.name] = node
+
+    def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that every entry in required_dimensions resolves to a real column.
+
+        Delegates resolution to _resolve_required_dimensions (api/helpers.py).
+        The only bulk-validator-specific part is that self._all_dim_nodes was
+        pre-populated in a single batch query by _prefetch_required_dimension_nodes
+        rather than per-node.
+        """
+        required_dimensions = getattr(spec, "required_dimensions", None) or []
+        if not required_dimensions:
+            return None
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+
+        invalid, _ = _resolve_required_dimensions(
+            required_dimensions,
+            parent_columns,
+            self._all_dim_nodes,
+        )
+
+        if not invalid:
+            return None
+
+        return DJError(
+            code=ErrorCode.INVALID_COLUMN,
+            message=(
+                "Node definition contains references to columns as "
+                "required dimensions that are not on parent nodes."
+            ),
+            debug={"invalid_required_dimensions": list(invalid)},
+        )
 
     def _infer_columns(
         self,
