@@ -3118,6 +3118,70 @@ FROM ${prefix}default.hard_hats""",
     )
     assert orig_spec == spec_with_diff_namespace
 
+    @pytest.mark.asyncio
+    async def test_deploy_with_spark_hints(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Test that spark_hints on a DimensionJoinLinkSpec is persisted on the
+        deployed DimensionLink and survives a subsequent redeploy (revision copy).
+        """
+        namespace = "spark_hints_deploy"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT hard_hat_id, state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                    spark_hints="broadcast",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        # Verify spark_hints was persisted on the deployed dimension link
+        hard_hat = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
+        assert len(hard_hat.current.dimension_links) == 1
+        link = hard_hat.current.dimension_links[0]
+        assert link.spark_hints.value == "broadcast"
+
+        # Redeploy with a different spark_hints to verify the update path
+        dim_spec.dimension_links = [
+            DimensionJoinLinkSpec(
+                dimension_node="${prefix}default.us_state",
+                join_type="left",
+                join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                spark_hints="merge",
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        hard_hat = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
+        link = hard_hat.current.dimension_links[0]
+        assert link.spark_hints.value == "merge"
+
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="For debugging with full roads spec")

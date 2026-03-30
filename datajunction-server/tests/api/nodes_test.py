@@ -530,6 +530,7 @@ class TestNodeCRUD:
                 "join_type": "left",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
         ]
 
@@ -1914,6 +1915,7 @@ class TestNodeCRUD:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
             {
                 "dimension": {"name": "default.dispatcher"},
@@ -1926,6 +1928,7 @@ class TestNodeCRUD:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
         ]
 
@@ -6220,6 +6223,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
             {
                 "dimension": {"name": "default.hard_hat"},
@@ -6231,6 +6235,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
             {
                 "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6245,6 +6250,7 @@ class TestCopyNode:
                 "join_type": "left",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
             {
                 "dimension": {"name": "default.municipality_dim"},
@@ -6259,6 +6265,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "spark_hints": None,
             },
         ]
 
@@ -6287,6 +6294,7 @@ class TestCopyNode:
                     "join_type": "inner",
                     "role": None,
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.repair_order"},
@@ -6301,6 +6309,7 @@ class TestCopyNode:
                     "join_type": "inner",
                     "role": None,
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
             "default.repair_order_details": [
@@ -6317,6 +6326,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
             "default.repair_type": [
@@ -6333,6 +6343,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
             "default.repair_orders_fact": [
@@ -6349,6 +6360,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
@@ -6363,6 +6375,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6377,6 +6390,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
@@ -6391,6 +6405,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
             "default.hard_hat": [
@@ -6404,6 +6419,7 @@ class TestCopyNode:
                         "default.hard_hat_copy.state": "default.us_state.state_short",
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
             "default.repair_order": [
@@ -6420,6 +6436,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat"},
@@ -6434,6 +6451,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.hard_hat_to_delete"},
@@ -6448,6 +6466,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
                 {
                     "dimension": {"name": "default.municipality_dim"},
@@ -6462,6 +6481,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "spark_hints": None,
                 },
             ],
         }

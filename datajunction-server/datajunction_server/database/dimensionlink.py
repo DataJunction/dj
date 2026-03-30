@@ -9,7 +9,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
+from datajunction_server.models.dimensionlink import (
+    JoinCardinality,
+    JoinType,
+    SparkJoinStrategy,
+)
 from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
@@ -82,6 +86,12 @@ class DimensionLink(Base):
     # (e.g., "Unknown" for a dimension column that may not have a match)
     default_value: Mapped[Optional[str]] = mapped_column(default=None)
 
+    # Optional Spark join strategy hint (e.g., broadcast, merge)
+    spark_hints: Mapped[Optional[SparkJoinStrategy]] = mapped_column(
+        Enum(SparkJoinStrategy),
+        default=None,
+    )
+
     def to_spec(self):
         from datajunction_server.models.deployment import DimensionJoinLinkSpec
 
@@ -90,6 +100,7 @@ class DimensionLink(Base):
             dimension_node=self.dimension.name,
             join_on=self.join_sql,
             join_type=self.join_type if self.join_type else JoinType.LEFT,
+            spark_hints=self.spark_hints,
         )
 
     @classmethod

@@ -292,6 +292,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
         join_on: str,
         join_cardinality: Optional[str] = None,
         role: Optional[str] = None,
+        spark_hints: Optional[str] = None,
     ):
         """
         Links the dimension to this node via the specified join SQL.
@@ -303,6 +304,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
             join_on=join_on,
             join_cardinality=join_cardinality,
             role=role,
+            spark_hints=spark_hints,
         )
         self.refresh()
         return link_response
