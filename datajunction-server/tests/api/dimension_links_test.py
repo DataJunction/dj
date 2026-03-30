@@ -274,6 +274,7 @@ async def test_link_complex_dimension_without_role(
             },
             "role": None,
             "default_value": None,
+            "spark_hints": None,
         },
     ]
 
@@ -418,6 +419,7 @@ async def test_link_complex_dimension_with_role(
                 "default.events.user_id": "default.users.user_id",
             },
             "default_value": None,
+            "spark_hints": None,
         },
     ]
 
@@ -453,6 +455,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.user_id": "default.users.user_id",
                 },
                 "default_value": None,
+                "spark_hints": None,
             },
             {
                 "dimension": {"name": "default.users"},
@@ -469,6 +472,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.user_id": "default.users.user_id",
                 },
                 "default_value": None,
+                "spark_hints": None,
             },
         ],
         key=lambda x: x["role"],  # type: ignore

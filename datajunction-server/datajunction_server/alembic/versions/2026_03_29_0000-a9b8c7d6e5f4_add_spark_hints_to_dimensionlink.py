@@ -1,6 +1,6 @@
 """add spark_hints to dimensionlink
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a9b8c7d6e5f4
 Revises: f7a8b9c0d1e2
 Create Date: 2026-03-29 00:00:00.000000+00:00
 
@@ -10,13 +10,17 @@ Create Date: 2026-03-29 00:00:00.000000+00:00
 import sqlalchemy as sa
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "a9b8c7d6e5f4"
 down_revision = "f7a8b9c0d1e2"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
+    op.execute(
+        "CREATE TYPE sparkjoinstrategy AS ENUM "
+        "('broadcast', 'merge', 'shuffle_hash', 'shuffle_replicate_nl')",
+    )
     op.add_column(
         "dimensionlink",
         sa.Column(
@@ -27,6 +31,7 @@ def upgrade():
                 "shuffle_hash",
                 "shuffle_replicate_nl",
                 name="sparkjoinstrategy",
+                create_type=False,
             ),
             nullable=True,
         ),

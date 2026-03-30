@@ -4593,6 +4593,9 @@ class TestSparkJoinHints:
             -[dim link, spark_hints=broadcast]-> sh.customer (dimension)
             -[dim link, spark_hints=merge]-> sh.product (dimension)
         """
+        # Create namespace
+        await client_with_build_v3.post("/namespaces/sh/", json={})
+
         # Source: orders
         resp = await client_with_build_v3.post(
             "/nodes/source/",
@@ -4733,19 +4736,13 @@ class TestSparkJoinHints:
             sql,
             """
             WITH
-            sh_src_customer AS (
-                SELECT customer_id, country FROM default.sh.customers
-            ),
             sh_customer AS (
-                SELECT customer_id, country FROM sh_src_customer
-            ),
-            sh_orders AS (
-                SELECT order_id, customer_id FROM default.sh.orders
+                SELECT customer_id, country FROM default.sh.customers
             )
             SELECT /*+ BROADCAST(t2) */
                 t2.country,
                 COUNT(t1.order_id) order_id_count_HASH
-            FROM sh_orders t1
+            FROM default.sh.orders t1
             LEFT OUTER JOIN sh_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t2.country
             """,
@@ -4771,26 +4768,17 @@ class TestSparkJoinHints:
             sql,
             """
             WITH
-            sh_src_customer AS (
+            sh_customer AS (
                 SELECT customer_id, country FROM default.sh.customers
             ),
-            sh_src_product AS (
-                SELECT product_id, category FROM default.sh.products
-            ),
-            sh_customer AS (
-                SELECT customer_id, country FROM sh_src_customer
-            ),
             sh_product AS (
-                SELECT product_id, category FROM sh_src_product
-            ),
-            sh_orders AS (
-                SELECT order_id, customer_id, product_id FROM default.sh.orders
+                SELECT product_id, category FROM default.sh.products
             )
             SELECT /*+ BROADCAST(t2), MERGE(t3) */
                 t2.country,
                 t3.category,
                 COUNT(t1.order_id) order_id_count_HASH
-            FROM sh_orders t1
+            FROM default.sh.orders t1
             LEFT OUTER JOIN sh_customer t2 ON t1.customer_id = t2.customer_id
             LEFT OUTER JOIN sh_product t3 ON t1.product_id = t3.product_id
             GROUP BY t2.country, t3.category
