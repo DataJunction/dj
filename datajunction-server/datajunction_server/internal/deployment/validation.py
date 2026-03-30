@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import _resolve_required_dimensions
 from datajunction_server.internal.validation import validate_metric_query
+from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.deployment import (
@@ -99,6 +100,11 @@ class NodeSpecBulkValidator:
         # Keys: node name; values: Node objects (union of dependency_nodes + any
         # extra dimension nodes fetched from DB for required_dimensions resolution).
         self._all_dim_nodes: Dict[str, Node] = {}
+        # Populated by _prefetch_metric_dimensions before per-node validation.
+        # Keys: base metric node name; values: set of dimension attribute names
+        # available on that metric (via get_dimensions).  Only populated for
+        # metric nodes that appear as parents of a cross-fact derived metric.
+        self._metric_dimensions: Dict[str, set] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
@@ -126,6 +132,11 @@ class NodeSpecBulkValidator:
         # Must happen before the asyncio.gather so every validate_query_node call
         # can read self._all_dim_nodes without issuing per-node DB queries.
         await self._prefetch_required_dimension_nodes(specs_needing_parse)
+
+        # Pre-fetch dimension sets for cross-fact derived metric validation (PR 4).
+        # Deduplicated: one get_dimensions call per unique base metric regardless
+        # of how many derived metrics in the batch share those base metrics.
+        await self._prefetch_metric_dimensions(specs_needing_parse)
 
         # Build results in original order
         results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
@@ -233,6 +244,10 @@ class NodeSpecBulkValidator:
             req_dim_error = self._check_required_dimensions(spec)
             if req_dim_error is not None:
                 errors.append(req_dim_error)
+
+            cross_fact_error = self._check_cross_fact_dimensions(spec)
+            if cross_fact_error is not None:
+                errors.append(cross_fact_error)  # pragma: no cover
 
             return NodeValidationResult(
                 spec=spec,
@@ -358,6 +373,95 @@ class NodeSpecBulkValidator:
                 "required dimensions that are not on parent nodes."
             ),
             debug={"invalid_required_dimensions": list(invalid)},
+        )
+
+    async def _prefetch_metric_dimensions(
+        self,
+        specs: list[NodeSpec],
+    ) -> None:
+        """
+        For every cross-fact derived metric spec (one whose node_graph entry
+        contains >1 metric parent), call get_dimensions once per unique base
+        metric and store the result in self._metric_dimensions.
+
+        Deduplication: if 10 derived metrics all reference the same 2 base
+        metrics, we issue exactly 2 get_dimensions calls.
+
+        Metric parents that are not in dependency_nodes (e.g. being deployed
+        for the first time with no DB record yet) are silently skipped — the
+        check falls back to VALID for those specs.
+        """
+        base_metric_names: set[str] = set()
+        for spec in specs:
+            if spec.node_type != NodeType.METRIC:
+                continue
+            dep_names = self.context.node_graph.get(spec.rendered_name, [])
+            metric_parents = [
+                name
+                for name in dep_names
+                if name in self.context.dependency_nodes
+                and self.context.dependency_nodes[name].type == NodeType.METRIC
+            ]
+            if len(metric_parents) > 1:
+                base_metric_names.update(metric_parents)
+
+        for name in base_metric_names:
+            node = self.context.dependency_nodes[name]
+            dims = await get_dimensions(
+                self.context.session,
+                node,
+                with_attributes=True,
+            )
+            self._metric_dimensions[name] = {d.name for d in dims}
+
+    def _check_cross_fact_dimensions(self, spec: NodeSpec) -> DJError | None:
+        """
+        For cross-fact derived metrics (>1 metric parent), verify the base
+        metrics share at least one dimension.  Returns a DJError if not.
+
+        Mirrors the check in validate_node_data (internal/validation.py lines
+        169-207) but uses the pre-fetched self._metric_dimensions rather than
+        calling get_dimensions per node.
+        """
+        if spec.node_type != NodeType.METRIC:
+            return None
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        metric_parents = [
+            self.context.dependency_nodes[name]
+            for name in dep_names
+            if name in self.context.dependency_nodes
+            and self.context.dependency_nodes[name].type == NodeType.METRIC
+        ]
+        if len(metric_parents) <= 1:
+            return None
+
+        # Only check parents whose dimension sets were actually fetched.
+        # Parents absent from _metric_dimensions (no DB record yet) are skipped.
+        dim_sets = [
+            self._metric_dimensions[node.name]
+            for node in metric_parents
+            if node.name in self._metric_dimensions
+        ]
+        if len(dim_sets) < 2:
+            return None
+
+        shared = dim_sets[0]
+        for ds in dim_sets[1:]:
+            shared = shared & ds
+
+        if shared:
+            return None
+
+        metric_names = [m.name for m in metric_parents]
+        return DJError(
+            code=ErrorCode.INVALID_PARENT,
+            message=(
+                f"Cannot create derived metric from base metrics with no shared "
+                f"dimensions. The following metrics have no dimensions in common: "
+                f"{', '.join(metric_names)}. Cross-fact derived metrics require "
+                f"at least one shared dimension for joining."
+            ),
         )
 
     def _infer_columns(
