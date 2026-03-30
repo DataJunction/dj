@@ -13,7 +13,11 @@ from datajunction_server.internal.deployment.validation import (
     _reparse_column_types,
 )
 from datajunction_server.models.deployment import ColumnSpec, TransformSpec, MetricSpec
-from datajunction_server.models.node import NodeType, NodeStatus
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    NodeType,
+    NodeStatus,
+)
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.database.catalog import Catalog
@@ -704,3 +708,301 @@ class TestRequiredDimensions:
         assert set(validator._all_dim_nodes.keys()) == set(
             context.dependency_nodes.keys(),
         )
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by TestCrossFactDimensions
+# ---------------------------------------------------------------------------
+
+
+def _dim(name: str) -> DimensionAttributeOutput:
+    """Build a minimal DimensionAttributeOutput with the given name."""
+    return DimensionAttributeOutput(
+        name=name,
+        node_name=None,
+        node_display_name=None,
+        properties=None,
+        type=None,
+        path=[],
+    )
+
+
+def _make_metric_node(name: str) -> Node:
+    """Build an in-memory METRIC Node (no DB record needed)."""
+    node = Node(name=name, type=NodeType.METRIC)
+    revision = NodeRevision(name=name, type=NodeType.METRIC, version="v1")
+    node.current = revision
+    return node
+
+
+class TestCrossFactDimensions:
+    """Tests for cross-fact derived metric shared-dimension check (PR 4)."""
+
+    def _make_context(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        base_metric_a: Node,
+        base_metric_b: Node,
+    ) -> ValidationContext:
+        dep_nodes = {
+            parent_node.name: parent_node,
+            base_metric_a.name: base_metric_a,
+            base_metric_b.name: base_metric_b,
+        }
+        compile_context = ast.CompileContext(
+            session=session,
+            exception=ast.DJException(),
+            dependencies_cache=dep_nodes,
+        )
+        return ValidationContext(
+            session=session,
+            node_graph={
+                "test.derived": [base_metric_a.name, base_metric_b.name],
+            },
+            dependency_nodes=dep_nodes,
+            compile_context=compile_context,
+        )
+
+    # ------------------------------------------------------------------ unit tests (direct method calls)
+    # These tests call _check_cross_fact_dimensions directly to isolate the logic
+    # from extract_dependencies, which requires real DB-backed nodes.
+
+    def test_shared_dimension_is_valid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Cross-fact derived metric whose base metrics share a dimension → None."""
+        ma = _make_metric_node("test.metric_a")
+        mb = _make_metric_node("test.metric_b")
+        context = self._make_context(session, parent_node, ma, mb)
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._metric_dimensions = {
+            ma.name: {"date_id", "region"},
+            mb.name: {"date_id", "country"},
+        }
+
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    def test_no_shared_dimension_is_invalid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Cross-fact derived metric whose base metrics share no dimension → DJError."""
+        ma = _make_metric_node("test.metric_a")
+        mb = _make_metric_node("test.metric_b")
+        context = self._make_context(session, parent_node, ma, mb)
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._metric_dimensions = {
+            ma.name: {"date_id", "region"},
+            mb.name: {"country", "city"},
+        }
+
+        err = validator._check_cross_fact_dimensions(spec)
+        assert err is not None
+        assert err.code == ErrorCode.INVALID_PARENT
+        assert ma.name in err.message
+        assert mb.name in err.message
+
+    def test_single_metric_parent_skipped(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Derived metric with only one metric parent is not cross-fact — returns None."""
+        ma = _make_metric_node("test.metric_a")
+        dep_nodes = {parent_node.name: parent_node, ma.name: ma}
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.derived": [ma.name]},
+            dependency_nodes=dep_nodes,
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache=dep_nodes,
+            ),
+        )
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a * 2 FROM test.metric_a",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._metric_dimensions = {ma.name: {"date_id"}}
+
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    def test_missing_prefetch_entry_skips_check(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """If only one base metric has a prefetched entry (e.g. other is new), skip."""
+        ma = _make_metric_node("test.metric_a")
+        mb = _make_metric_node("test.metric_b")
+        context = self._make_context(session, parent_node, ma, mb)
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+        # Only metric_a was prefetched; metric_b has no DB record yet
+        validator._metric_dimensions = {ma.name: {"date_id"}}
+
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    def test_non_metric_spec_skipped(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Non-metric spec always returns None."""
+        context = ValidationContext(
+            session=session,
+            node_graph={},
+            dependency_nodes={},
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache={},
+            ),
+        )
+        spec = TransformSpec(
+            name="test.transform",
+            query="SELECT id FROM test.parent",
+        )
+        validator = NodeSpecBulkValidator(context)
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    # ------------------------------------------------------------------ prefetch tests
+
+    @pytest.mark.asyncio
+    async def test_prefetch_calls_get_dimensions_for_each_base_metric(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """_prefetch_metric_dimensions issues one get_dimensions call per unique base metric."""
+        ma = _make_metric_node("test.metric_a")
+        mb = _make_metric_node("test.metric_b")
+        context = self._make_context(session, parent_node, ma, mb)
+
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        # Use a dict-keyed side_effect to avoid order sensitivity (set iteration).
+        dim_map = {
+            ma.name: [_dim("date_id"), _dim("region")],
+            mb.name: [_dim("date_id"), _dim("country")],
+        }
+
+        async def fake_get_dimensions(session, node, **kwargs):
+            return dim_map[node.name]
+
+        with patch(
+            "datajunction_server.internal.deployment.validation.get_dimensions",
+            side_effect=fake_get_dimensions,
+        ) as mock_get_dims:
+            await validator._prefetch_metric_dimensions([spec])
+
+        assert mock_get_dims.call_count == 2
+        called_nodes = {call.args[1].name for call in mock_get_dims.call_args_list}
+        assert called_nodes == {ma.name, mb.name}
+        assert validator._metric_dimensions[ma.name] == {"date_id", "region"}
+        assert validator._metric_dimensions[mb.name] == {"date_id", "country"}
+
+    @pytest.mark.asyncio
+    async def test_prefetch_deduplicates_base_metrics(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Two derived metrics sharing the same base metrics → only 2 get_dimensions calls."""
+        ma = _make_metric_node("test.metric_a")
+        mb = _make_metric_node("test.metric_b")
+        dep_nodes = {
+            parent_node.name: parent_node,
+            ma.name: ma,
+            mb.name: mb,
+        }
+        context = ValidationContext(
+            session=session,
+            node_graph={
+                "test.derived1": [ma.name, mb.name],
+                "test.derived2": [ma.name, mb.name],
+            },
+            dependency_nodes=dep_nodes,
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache=dep_nodes,
+            ),
+        )
+        specs = [
+            MetricSpec(
+                name="test.derived1",
+                query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+            ),
+            MetricSpec(
+                name="test.derived2",
+                query="SELECT test_metric_a - test_metric_b FROM test.metric_a, test.metric_b",
+            ),
+        ]
+        validator = NodeSpecBulkValidator(context)
+
+        async def fake_get_dimensions(session, node, **kwargs):
+            return [_dim("date_id")]
+
+        with patch(
+            "datajunction_server.internal.deployment.validation.get_dimensions",
+            side_effect=fake_get_dimensions,
+        ) as mock_get_dims:
+            await validator._prefetch_metric_dimensions(specs)
+
+        # Despite 2 derived metrics, only 2 calls (one per unique base metric)
+        assert mock_get_dims.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_prefetch_skips_non_cross_fact_metrics(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Metrics with ≤1 metric parent don't trigger a prefetch."""
+        ma = _make_metric_node("test.metric_a")
+        dep_nodes = {parent_node.name: parent_node, ma.name: ma}
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.simple_derived": [ma.name]},
+            dependency_nodes=dep_nodes,
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache=dep_nodes,
+            ),
+        )
+        spec = MetricSpec(
+            name="test.simple_derived",
+            query="SELECT test_metric_a * 2 FROM test.metric_a",
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        with patch(
+            "datajunction_server.internal.deployment.validation.get_dimensions",
+        ) as mock_get_dims:
+            await validator._prefetch_metric_dimensions([spec])
+
+        mock_get_dims.assert_not_called()
+        assert validator._metric_dimensions == {}
