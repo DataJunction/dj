@@ -319,3 +319,74 @@ class TestValidateQuery:
         # Should use the spec's columns directly without re-inference
         assert result.inferred_columns == spec.columns
         assert result.errors == []
+
+    @pytest_asyncio.fixture
+    async def invalid_parent_node(
+        self,
+        session: AsyncSession,
+        user: User,
+        catalog: Catalog,
+    ) -> Node:
+        """Create a transform node whose current revision is INVALID"""
+        node = Node(
+            name="test.invalid_parent",
+            type=NodeType.TRANSFORM,
+            current_version="v1",
+            created_by_id=user.id,
+        )
+        node_revision = NodeRevision(
+            node=node,
+            name=node.name,
+            catalog_id=catalog.id,
+            type=node.type,
+            version="v1",
+            query="SELECT bad_col FROM nowhere",
+            status=NodeStatus.INVALID,
+            columns=[
+                Column(name="bad_col", type=IntegerType(), order=0),
+            ],
+            created_by_id=user.id,
+        )
+        node.current = node_revision
+        session.add(node_revision)
+        await session.commit()
+        return node
+
+    @pytest.mark.asyncio
+    async def test_invalid_parent_propagation(
+        self,
+        session: AsyncSession,
+        user: User,
+        catalog: Catalog,
+        invalid_parent_node: Node,
+    ):
+        """Transform whose parent is INVALID should itself be INVALID with INVALID_PARENT error"""
+        compile_context = ast.CompileContext(
+            session=session,
+            exception=ast.DJException(),
+            dependencies_cache={invalid_parent_node.name: invalid_parent_node},
+        )
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.child_transform": [invalid_parent_node.name]},
+            dependency_nodes={invalid_parent_node.name: invalid_parent_node},
+            compile_context=compile_context,
+        )
+        spec = TransformSpec(
+            name="test.child_transform",
+            query=f"SELECT bad_col FROM {invalid_parent_node.name}",
+            description="Child of invalid parent",
+            mode="published",
+        )
+
+        parsed_ast = parse(spec.query)
+        validator = NodeSpecBulkValidator(context)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.INVALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_PARENT in error_codes
+        invalid_parent_err = next(
+            e for e in result.errors if e.code == ErrorCode.INVALID_PARENT
+        )
+        assert invalid_parent_node.name in invalid_parent_err.message

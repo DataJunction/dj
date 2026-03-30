@@ -178,6 +178,23 @@ class NodeSpecBulkValidator:
                     ]
                     if err is not None
                 ] + type_inference_errors
+
+            dep_names = self.context.node_graph.get(spec.rendered_name, [])
+            invalid_parents = [
+                name
+                for name in dep_names
+                if name in self.context.dependency_nodes
+                and self.context.dependency_nodes[name].type != NodeType.SOURCE
+                and self.context.dependency_nodes[name].current.status
+                == NodeStatus.INVALID
+            ]
+            if invalid_parents:
+                errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_PARENT,
+                        message=f"References invalid parent node(s) {', '.join(invalid_parents)}",
+                    ),
+                )
             return NodeValidationResult(
                 spec=spec,
                 status=NodeStatus.VALID if not errors else NodeStatus.INVALID,
