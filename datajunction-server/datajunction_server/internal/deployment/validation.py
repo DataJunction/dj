@@ -25,9 +25,30 @@ from datajunction_server.errors import (
     ErrorCode,
     DJException,
 )
-from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse, ast, parse_rule
+from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 logger = logging.getLogger(__name__)
+
+
+def _reparse_column_types(dependency_nodes: Dict[str, Node]) -> None:
+    """
+    Re-parse column types for dependency nodes to ensure map/list/struct types are
+    fully parsed before type inference. Mutates column types in place.
+
+    Mirrors the logic in validate_node_data (internal/validation.py lines 114-130).
+    """
+    for node in dependency_nodes.values():
+        if node.current:
+            for col in node.current.columns:
+                if isinstance(col.type, str) or (
+                    type(col.type).__name__ == "ColumnType"
+                    and not isinstance(col.type, (MapType, ListType, StructType))
+                ):
+                    try:
+                        col.type = parse_rule(str(col.type), "dataType")
+                    except Exception:
+                        pass
 
 
 @dataclass
@@ -429,6 +450,7 @@ async def bulk_validate_node_data(
     path that skips SQL parsing and dependency extraction.
     """
     validate_start = time.perf_counter()
+    _reparse_column_types(dependency_nodes)
     context = ValidationContext(
         session=session,
         node_graph=node_graph,
