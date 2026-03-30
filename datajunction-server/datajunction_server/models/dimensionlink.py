@@ -19,6 +19,17 @@ class JoinCardinality(StrEnum):
     MANY_TO_MANY = "many_to_many"
 
 
+class SparkJoinStrategy(StrEnum):
+    """
+    Spark SQL join strategy hint
+    """
+
+    BROADCAST = "broadcast"
+    MERGE = "merge"
+    SHUFFLE_HASH = "shuffle_hash"
+    SHUFFLE_REPLICATE_NL = "shuffle_replicate_nl"
+
+
 class JoinType(StrEnum):
     """
     Join type
@@ -60,6 +71,7 @@ class JoinLinkInput(BaseModel):
     join_cardinality: Optional[JoinCardinality] = JoinCardinality.MANY_TO_ONE
     role: Optional[str] = None
     default_value: Optional[str] = None
+    spark_hints: Optional[SparkJoinStrategy] = None
 
 
 class LinkDimensionOutput(BaseModel):
@@ -74,5 +86,6 @@ class LinkDimensionOutput(BaseModel):
     role: Optional[str] = None
     foreign_keys: Dict[str, str | None]
     default_value: Optional[str] = None
+    spark_hints: Optional[SparkJoinStrategy] = None
 
     model_config = ConfigDict(from_attributes=True)

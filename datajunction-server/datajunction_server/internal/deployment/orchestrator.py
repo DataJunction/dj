@@ -1048,6 +1048,7 @@ class DeploymentOrchestrator:
                 join_on=join_link.rendered_join_on,
                 role=join_link.role,
                 default_value=join_link.default_value,
+                spark_hints=join_link.spark_hints,
             )
             (
                 dimension_link,
@@ -2296,6 +2297,7 @@ class DeploymentOrchestrator:
                         materialization_conf=link.materialization_conf,
                         role=link.role,
                         default_value=link.default_value,
+                        spark_hints=link.spark_hints,
                     ),
                 )
         pk_columns = (
@@ -2430,12 +2432,14 @@ class DeploymentOrchestrator:
                 and dimension_link.join_type == join_type
                 and dimension_link.join_cardinality == link_input.join_cardinality
                 and dimension_link.default_value == link_input.default_value
+                and dimension_link.spark_hints == link_input.spark_hints
             ):
                 return dimension_link, ActivityType.REFRESH
             dimension_link.join_sql = link_input.join_on
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
             dimension_link.default_value = link_input.default_value
+            dimension_link.spark_hints = link_input.spark_hints
         else:
             # If there is no existing link, create new dimension link object
             dimension_link = DimensionLink(
@@ -2446,6 +2450,7 @@ class DeploymentOrchestrator:
                 join_cardinality=link_input.join_cardinality,
                 role=link_input.role,
                 default_value=link_input.default_value,
+                spark_hints=link_input.spark_hints,
             )
             node_revision.dimension_links.append(dimension_link)  # type: ignore
         return dimension_link, activity_type
@@ -2479,6 +2484,7 @@ class DeploymentOrchestrator:
                     join_on=link.rendered_join_on,
                     role=link.role,
                     default_value=link.default_value,
+                    spark_hints=link.spark_hints,
                 ),
                 self.registry.nodes,
             )

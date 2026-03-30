@@ -7,11 +7,15 @@ from pydantic import (
     model_validator,
 )
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, Optional, Union
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.base import labelize
-from datajunction_server.models.dimensionlink import JoinType, LinkType
+from datajunction_server.models.dimensionlink import (
+    JoinType,
+    LinkType,
+    SparkJoinStrategy,
+)
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -119,6 +123,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     join_type: JoinType = JoinType.LEFT
     join_on: str | None = None
     default_value: str | None = None
+    spark_hints: Optional[SparkJoinStrategy] = None
 
     @property
     def rendered_dimension_node(self) -> str:
