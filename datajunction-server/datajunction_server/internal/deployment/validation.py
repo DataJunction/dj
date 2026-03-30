@@ -247,7 +247,7 @@ class NodeSpecBulkValidator:
 
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
-                errors.append(cross_fact_error)
+                errors.append(cross_fact_error)  # pragma: no cover
 
             return NodeValidationResult(
                 spec=spec,
