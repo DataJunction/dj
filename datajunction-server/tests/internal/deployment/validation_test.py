@@ -23,62 +23,64 @@ from datajunction_server.sql.parsing.types import IntegerType, MapType, StringTy
 from datajunction_server.errors import ErrorCode
 
 
+@pytest_asyncio.fixture
+async def user(session: AsyncSession) -> User:
+    """Create a test user"""
+    user = User(
+        username="testuser",
+        oauth_provider=OAuthProvider.BASIC,
+    )
+    session.add(user)
+    await session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def catalog(session: AsyncSession) -> Catalog:
+    """Create a test catalog"""
+    catalog = Catalog(
+        name="test_catalog",
+        engines=[],
+    )
+    session.add(catalog)
+    await session.commit()
+    return catalog
+
+
+@pytest_asyncio.fixture
+async def parent_node(
+    session: AsyncSession,
+    user: User,
+    catalog: Catalog,
+) -> Node:
+    """Create a parent source node for dependencies"""
+    node = Node(
+        name="test.parent",
+        type=NodeType.SOURCE,
+        current_version="v1",
+        created_by_id=user.id,
+    )
+    node_revision = NodeRevision(
+        node=node,
+        name=node.name,
+        catalog_id=catalog.id,
+        type=node.type,
+        version="v1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="name", type=StringType(), order=1),
+            Column(name="value", type=IntegerType(), order=2),
+        ],
+        created_by_id=user.id,
+    )
+    node.current = node_revision
+    session.add(node_revision)
+    await session.commit()
+    return node
+
+
 class TestValidateQuery:
     """Test validate_query_node exception handling with real database objects"""
-
-    @pytest_asyncio.fixture
-    async def user(self, session: AsyncSession) -> User:
-        """Create a test user"""
-        user = User(
-            username="testuser",
-            oauth_provider=OAuthProvider.BASIC,
-        )
-        session.add(user)
-        await session.commit()
-        return user
-
-    @pytest_asyncio.fixture
-    async def catalog(self, session: AsyncSession) -> Catalog:
-        """Create a test catalog"""
-        catalog = Catalog(
-            name="test_catalog",
-            engines=[],
-        )
-        session.add(catalog)
-        await session.commit()
-        return catalog
-
-    @pytest_asyncio.fixture
-    async def parent_node(
-        self,
-        session: AsyncSession,
-        user: User,
-        catalog: Catalog,
-    ) -> Node:
-        """Create a parent source node for dependencies"""
-        node = Node(
-            name="test.parent",
-            type=NodeType.SOURCE,
-            current_version="v1",
-            created_by_id=user.id,
-        )
-        node_revision = NodeRevision(
-            node=node,
-            name=node.name,
-            catalog_id=catalog.id,
-            type=node.type,
-            version="v1",
-            columns=[
-                Column(name="id", type=IntegerType(), order=0),
-                Column(name="name", type=StringType(), order=1),
-                Column(name="value", type=IntegerType(), order=2),
-            ],
-            created_by_id=user.id,
-        )
-        node.current = node_revision
-        session.add(node_revision)
-        await session.commit()
-        return node
 
     @pytest_asyncio.fixture
     async def validation_context(
@@ -440,3 +442,265 @@ class TestReparseColumnTypes:
     def test_empty_dict_is_noop(self):
         """Empty dependency_nodes dict is handled without error."""
         _reparse_column_types({})  # Should not raise
+
+
+class TestRequiredDimensions:
+    """Tests for required_dimensions validation (PR 3)."""
+
+    # ------------------------------------------------------------------ helpers
+
+    def _make_dim_node(
+        self,
+        name: str,
+        col_names: list[str],
+    ) -> Node:
+        node = Node(name=name, type=NodeType.DIMENSION)
+        revision = NodeRevision(
+            name=name,
+            type=NodeType.DIMENSION,
+            version="v1",
+            columns=[
+                Column(name=c, type=StringType(), order=i)
+                for i, c in enumerate(col_names)
+            ],
+        )
+        node.current = revision
+        return node
+
+    def _make_context(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ) -> ValidationContext:
+        dep_nodes = {parent_node.name: parent_node}
+        compile_context = ast.CompileContext(
+            session=session,
+            exception=ast.DJException(),
+            dependencies_cache=dep_nodes,
+        )
+        return ValidationContext(
+            session=session,
+            node_graph={"test.metric": [parent_node.name]},
+            dependency_nodes=dep_nodes,
+            compile_context=compile_context,
+        )
+
+    # ------------------------------------------------------------------ unit tests (no DB query needed)
+
+    @pytest.mark.asyncio
+    async def test_valid_full_path_in_dependency_nodes(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """required_dimensions full-path column found in dependency_nodes → VALID."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            required_dimensions=["test.dim.dateint"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        # Pre-populate as if _prefetch_required_dimension_nodes ran
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.VALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN not in error_codes
+
+    @pytest.mark.asyncio
+    async def test_invalid_column_not_found_on_dim_node(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """required_dimensions full-path column absent from dim node → INVALID."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            required_dimensions=["test.dim.nonexistent_col"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
+        assert err.debug is not None
+        assert "test.dim.nonexistent_col" in err.debug["invalid_required_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_dim_node_not_found(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """required_dimensions references a dim node that doesn't exist → INVALID."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            required_dimensions=["ghost.dim.col"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        # _all_dim_nodes has no entry for "ghost.dim"
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
+        assert err.debug is not None
+        assert "ghost.dim.col" in err.debug["invalid_required_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_valid_short_name_in_parent_columns(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """required_dimensions short name found in parent columns → VALID."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            # "value" is a column on parent_node (IntegerType)
+            required_dimensions=["value"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.VALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN not in error_codes
+
+    @pytest.mark.asyncio
+    async def test_invalid_short_name_not_in_parent_columns(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """required_dimensions short name absent from all parent columns → INVALID."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            required_dimensions=["no_such_col"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
+        assert err.debug is not None
+        assert "no_such_col" in err.debug["invalid_required_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_no_required_dimensions_is_noop(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Spec with no required_dimensions produces no INVALID_COLUMN error."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+
+        parsed_ast = parse(spec.rendered_query)
+        result = await validator.validate_query_node(spec, parsed_ast)
+
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN not in error_codes
+
+    # ------------------------------------------------------------------ DB-fetch path
+
+    @pytest_asyncio.fixture
+    async def dim_node_in_db(
+        self,
+        session: AsyncSession,
+        user: User,
+        catalog: Catalog,
+    ) -> Node:
+        """A dimension node that exists in the DB but is NOT in dependency_nodes."""
+        node = Node(
+            name="test.external_dim",
+            type=NodeType.DIMENSION,
+            current_version="v1",
+            created_by_id=user.id,
+        )
+        revision = NodeRevision(
+            node=node,
+            name=node.name,
+            catalog_id=catalog.id,
+            type=node.type,
+            version="v1",
+            columns=[Column(name="region", type=StringType(), order=0)],
+            created_by_id=user.id,
+        )
+        node.current = revision
+        session.add(revision)
+        await session.commit()
+        return node
+
+    @pytest.mark.asyncio
+    async def test_prefetch_fetches_dim_node_from_db(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """_prefetch_required_dimension_nodes fetches a node not in dependency_nodes."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            required_dimensions=["test.external_dim.region"],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert "test.external_dim" in validator._all_dim_nodes
+        fetched = validator._all_dim_nodes["test.external_dim"]
+        assert fetched.current is not None
+        col_names = {c.name for c in fetched.current.columns}
+        assert "region" in col_names
+
+    @pytest.mark.asyncio
+    async def test_prefetch_with_no_required_dimensions(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """_prefetch_required_dimension_nodes with specs lacking required_dimensions is a noop."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(*) FROM test.parent",
+        )
+        validator = NodeSpecBulkValidator(context)
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        # _all_dim_nodes is just a copy of dependency_nodes
+        assert set(validator._all_dim_nodes.keys()) == set(
+            context.dependency_nodes.keys(),
+        )
