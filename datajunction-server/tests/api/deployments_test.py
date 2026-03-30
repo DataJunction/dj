@@ -1195,23 +1195,18 @@ class TestDeployments:
                 nodes=[default_hard_hat],
             ),
         )
-        assert data == {
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "status": "failed",
-            "results": [
-                {
-                    "name": "DJInvalidDeploymentConfig",
-                    "deploy_type": "general",
-                    "status": "failed",
-                    "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.hard_hats, {namespace}.default.us_state",
-                    "operation": "unknown",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        assert data["status"] == "failed"
+        # The invalid node (hard_hat) should appear in changes with missing dep errors
+        changes = {c["name"]: c for c in data["changes"]}
+        hard_hat = changes[f"{namespace}.default.hard_hat"]
+        assert hard_hat["predicted_status"] == "invalid"
+        assert any(
+            f"{namespace}.default.hard_hats" in e
+            or f"{namespace}.default.us_state" in e
+            for e in hard_hat["validation_errors"]
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_failed_on_non_existent_link_deps(
@@ -1231,23 +1226,16 @@ class TestDeployments:
                 nodes=[default_hard_hats, default_hard_hat],
             ),
         )
-        assert data == {
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "status": "failed",
-            "results": [
-                {
-                    "name": "DJInvalidDeploymentConfig",
-                    "deploy_type": "general",
-                    "status": "failed",
-                    "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.us_state",
-                    "operation": "unknown",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        assert data["status"] == "failed"
+        # hard_hat has missing dep (us_state) so it appears in changes as invalid
+        changes = {c["name"]: c for c in data["changes"]}
+        hard_hat = changes[f"{namespace}.default.hard_hat"]
+        assert hard_hat["predicted_status"] == "invalid"
+        assert any(
+            f"{namespace}.default.us_state" in e for e in hard_hat["validation_errors"]
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_pk(
@@ -1287,53 +1275,24 @@ class TestDeployments:
                 ],
             ),
         )
-        assert data == {
-            "status": "failed",
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "results": [
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Some columns in the primary key ['hard_hat_id'] were not found in "
-                    "the list of available columns for the node "
-                    f"{namespace}.default.hard_hat.",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "failed",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": f"A node with name `{namespace}.default.hard_hat` does not exist.",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "status": "failed",
-                    "operation": "create",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        assert data["status"] == "failed"
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes[f"{namespace}.default.hard_hats"]["operation"] == "create"
+        assert changes[f"{namespace}.default.hard_hats"]["predicted_status"] is None
+        assert changes[f"{namespace}.default.us_states"]["operation"] == "create"
+        assert changes[f"{namespace}.default.hard_hat"]["operation"] == "update"
+        assert changes[f"{namespace}.default.hard_hat"]["predicted_status"] == "invalid"
+        assert len(changes[f"{namespace}.default.hard_hat"]["validation_errors"]) > 0
+        assert any(
+            "hard_hat_id" in e
+            for e in changes[f"{namespace}.default.hard_hat"]["validation_errors"]
+        )
+        assert changes[f"{namespace}.default.us_state"]["operation"] == "create"
+        assert changes[f"{namespace}.default.us_state"]["predicted_status"] is None
+        # Link results are excluded from changes
+        assert not any(" -> " in name for name in changes)
 
     @pytest.mark.asyncio
     async def test_deploy_with_dimension_link_removal(
@@ -1386,13 +1345,11 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
-            "deploy_type": "link",
-            "message": "",
-            "name": "link_removal.default.hard_hat -> link_removal.default.us_state",
-            "operation": "delete",
-            "status": "success",
-        }
+        # Link results are excluded from changes; verify all changes are node-type
+        assert all(" -> " not in c["name"] for c in data["changes"])
+        # Verify hard_hat was updated (dimension_links changed)
+        changes = {c["name"]: c for c in data["changes"]}
+        assert "link_removal.default.hard_hat" in changes
 
     @pytest.mark.asyncio
     async def test_deploy_with_dimension_link_update(
@@ -1451,13 +1408,8 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
-            "deploy_type": "link",
-            "message": "Join link successfully deployed",
-            "name": "link_update.default.hard_hat -> link_update.default.us_state",
-            "operation": "update",
-            "status": "success",
-        }
+        # Link results are excluded from changes; verify all changes are node-type
+        assert all(" -> " not in c["name"] for c in data["changes"])
 
     @pytest.mark.asyncio
     async def test_deploy_with_reference_dimension_link(
@@ -1495,13 +1447,8 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
-            "deploy_type": "link",
-            "message": "Reference link successfully deployed",
-            "name": "reference_link.default.hard_hat -> reference_link.default.us_state",
-            "operation": "create",
-            "status": "success",
-        }
+        # Link results are excluded from changes; verify all changes are node-type
+        assert all(" -> " not in c["name"] for c in data["changes"])
         dim_spec.dimension_links = [
             DimensionReferenceLinkSpec(
                 node_column="state",
@@ -1513,9 +1460,16 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        assert (
-            "Dimension attribute 'random' not found in dimension"
-            in data["results"][-1]["message"]
+        # The link failure error is propagated into the parent node's validation_errors
+        changes = {c["name"]: c for c in data["changes"]}
+        hard_hat_errors = changes.get("reference_link.default.hard_hat", {}).get(
+            "validation_errors",
+            [],
+        )
+        all_warnings = data.get("warnings", [])
+        assert any(
+            "Dimension attribute 'random' not found in dimension" in e
+            for e in hard_hat_errors + all_warnings
         )
 
     @pytest.mark.asyncio
@@ -1565,7 +1519,8 @@ class TestDeployments:
             ),
         )
         assert data["status"] == "success"
-        assert len(data["results"]) == 5
+        # 4 nodes in changes (link results excluded)
+        assert len(data["changes"]) == 4
 
         node = await Node.get_by_name(session, f"{namespace}.default.hard_hat")
         assert [col.name for col in node.current.primary_key()] == ["hard_hat_id"]
@@ -1577,7 +1532,7 @@ class TestDeployments:
                 nodes=nodes_list,
             ),
         )
-        assert all(res["status"] == "skipped" for res in data["results"])
+        assert all(res["operation"] == "noop" for res in data["changes"])
 
         dim_spec.query = """
         SELECT
@@ -1593,32 +1548,14 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert len(data["results"]) == 5
-        assert len([res for res in data["results"] if res["status"] == "skipped"]) == 4
-        update_hard_hat = next(
-            res
-            for res in data["results"]
-            if res["name"] == "node_update.default.hard_hat"
-        )
-        assert update_hard_hat == {
-            "deploy_type": "node",
-            "name": f"{namespace}.default.hard_hat",
-            "status": "success",
-            "operation": "update",
-            "message": "Updated dimension (v2.0)\n└─ Updated dimension_links",
-        }
-        update_us_state = next(
-            res
-            for res in data["results"]
-            if res["name"] == "node_update.default.us_state"
-        )
-        assert update_us_state == {
-            "deploy_type": "node",
-            "message": "Node node_update.default.us_state is unchanged.",
-            "name": "node_update.default.us_state",
-            "operation": "noop",
-            "status": "skipped",
-        }
+        assert len(data["changes"]) == 4
+        assert len([c for c in data["changes"] if c["operation"] == "noop"]) == 3
+        changes = {c["name"]: c for c in data["changes"]}
+        update_hard_hat = changes[f"{namespace}.default.hard_hat"]
+        assert update_hard_hat["operation"] == "update"
+        assert update_hard_hat["predicted_status"] is None
+        update_us_state = changes[f"{namespace}.default.us_state"]
+        assert update_us_state["operation"] == "noop"
 
     @pytest.mark.asyncio
     async def test_deploy_metric_with_update(
@@ -1656,19 +1593,14 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        metric_result = next(
-            res
-            for res in data["results"]
-            if res["name"] == "metric_update.default.avg_length_of_employment"
+        changes = {c["name"]: c for c in data["changes"]}
+        metric_result = changes["metric_update.default.avg_length_of_employment"]
+        assert metric_result["operation"] == "update"
+        assert metric_result["predicted_status"] == "invalid"
+        assert any(
+            "invalid query, should have an aggregate expression" in e
+            for e in metric_result["validation_errors"]
         )
-        assert metric_result == {
-            "deploy_type": "node",
-            "message": "Metric metric_update.default.avg_length_of_employment has an invalid "
-            "query, should have an aggregate expression",
-            "name": "metric_update.default.avg_length_of_employment",
-            "operation": "update",
-            "status": "failed",
-        }
 
         # Fix query - metric should deploy successfully
         default_avg_length_of_employment.query = """
@@ -1679,18 +1611,10 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        metric_result = next(
-            res
-            for res in data["results"]
-            if res["name"] == "metric_update.default.avg_length_of_employment"
-        )
-        assert metric_result == {
-            "deploy_type": "node",
-            "message": "Updated metric (v2.0)\n└─ Updated display_name",
-            "name": "metric_update.default.avg_length_of_employment",
-            "operation": "update",
-            "status": "success",
-        }
+        changes = {c["name"]: c for c in data["changes"]}
+        metric_result = changes["metric_update.default.avg_length_of_employment"]
+        assert metric_result["operation"] == "update"
+        assert metric_result["predicted_status"] is None
 
     @pytest.mark.asyncio
     async def test_deploy_cube_with_update(
@@ -1743,13 +1667,11 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        assert data["results"][-1] == {
-            "deploy_type": "node",
-            "message": mock.ANY,
-            "name": "cube_update.default.repairs_cube",
-            "operation": "update",
-            "status": "failed",
-        }
+        changes = {c["name"]: c for c in data["changes"]}
+        cube_result = changes["cube_update.default.repairs_cube"]
+        assert cube_result["operation"] == "update"
+        assert cube_result["predicted_status"] == "invalid"
+        assert "dimensions" in cube_result["changed_fields"]
 
         # Update cube to add an existing dimension - should deploy successfully
         cube.dimensions = [
@@ -1761,13 +1683,11 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "success"
-        assert data["results"][-1] == {
-            "deploy_type": "node",
-            "message": "Updated cube (v2.0)\n└─ Updated metrics, dimensions",
-            "name": "cube_update.default.repairs_cube",
-            "operation": "update",
-            "status": "success",
-        }
+        changes = {c["name"]: c for c in data["changes"]}
+        cube_result = changes["cube_update.default.repairs_cube"]
+        assert cube_result["operation"] == "update"
+        assert cube_result["predicted_status"] is None
+        assert set(cube_result["changed_fields"]) == {"metrics", "dimensions"}
 
     @pytest.mark.asyncio
     async def test_deploy_cube_fails_with_unreachable_dimension(
@@ -1828,8 +1748,13 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        failed_result = next(r for r in data["results"] if r["status"] == "failed")
-        assert "is not available on every metric" in failed_result["message"]
+        failed_result = next(
+            c for c in data["changes"] if c["predicted_status"] == "invalid"
+        )
+        assert any(
+            "is not available on every metric" in e
+            for e in failed_result["validation_errors"]
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_links(
@@ -1875,57 +1800,22 @@ class TestDeployments:
                 ],
             ),
         )
-        assert data == {
-            "status": "failed",
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "results": [
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Dimension link from bad_node_spec_links.default.hard_hat to "
-                    "bad_node_spec_links.default.us_state is invalid: Join query "
-                    "bad_node_spec_links.default.hard_hat.state = "
-                    "bad_node_spec_links.default.us_state.state_short is not valid\n"
-                    "The following error happened:\n"
-                    f"- Column `{namespace}.default.hard_hat.state` does not exist on "
-                    "any valid table. (error code: 206)",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "status": "failed",
-                    "operation": "create",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        assert data["status"] == "failed"
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes[f"{namespace}.default.hard_hats"]["operation"] == "create"
+        assert changes[f"{namespace}.default.us_states"]["operation"] == "create"
+        assert changes[f"{namespace}.default.hard_hat"]["operation"] == "update"
+        assert changes[f"{namespace}.default.hard_hat"]["predicted_status"] == "invalid"
+        assert any(
+            "state" in e
+            for e in changes[f"{namespace}.default.hard_hat"]["validation_errors"]
+        )
+        assert changes[f"{namespace}.default.us_state"]["operation"] == "create"
+        assert changes[f"{namespace}.default.us_state"]["predicted_status"] is None
+        # Link results are excluded from changes
+        assert not any(" -> " in name for name in changes)
 
     @pytest.mark.asyncio
     async def test_deploy_succeeds_with_existing_deps(
@@ -1950,56 +1840,21 @@ class TestDeployments:
             ],
         )
         data = await deploy_and_wait(client, mini_setup)
-        assert data == {
-            "status": "success",
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "results": [
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-            ],
-            "created_at": mock.ANY,
-            "created_by": mock.ANY,
-            "source": mock.ANY,
-        }
+        assert data["status"] == "success"
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes[f"{namespace}.default.hard_hats"]["operation"] == "create"
+        assert changes[f"{namespace}.default.us_states"]["operation"] == "create"
+        assert changes[f"{namespace}.default.hard_hat"]["operation"] == "create"
+        assert changes[f"{namespace}.default.us_state"]["operation"] == "create"
+        # Link results are excluded from changes
+        assert not any(" -> " in name for name in changes)
+        assert data["create_count"] == 4
 
         # Re-deploying the same setup should be a noop
         data = await deploy_and_wait(client, mini_setup)
-        assert all(res["status"] == "skipped" for res in data["results"])
-        assert all(res["operation"] == "noop" for res in data["results"])
+        assert all(c["operation"] == "noop" for c in data["changes"])
 
     @pytest.mark.asyncio
     async def test_deploy_node_delete(
@@ -2023,13 +1878,9 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=[]),
         )
-        assert data["results"][-1] == {
-            "deploy_type": "node",
-            "message": "Node node_update.default.hard_hats has been removed.",
-            "name": "node_update.default.hard_hats",
-            "operation": "delete",
-            "status": "success",
-        }
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes["node_update.default.hard_hats"]["operation"] == "delete"
+        assert changes["node_update.default.hard_hats"]["predicted_status"] is None
 
     @pytest.mark.asyncio
     async def test_deploy_tags(
@@ -2065,13 +1916,10 @@ class TestDeployments:
                 nodes=[default_us_states, default_us_state],
             ),
         )
-        assert data["results"][-1] == {
-            "deploy_type": "node",
-            "message": "Updated dimension (v2.0)\n└─ Updated tags",
-            "name": "node_update.default.us_state",
-            "operation": "update",
-            "status": "success",
-        }
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes["node_update.default.us_state"]["operation"] == "update"
+        assert changes["node_update.default.us_state"]["predicted_status"] is None
+        assert "tags" in changes["node_update.default.us_state"]["changed_fields"]
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
         assert [tag.name for tag in node.tags] == ["tag1"]
 
@@ -2112,22 +1960,10 @@ class TestDeployments:
             ),
         )
         assert data["status"] == "success"
-        assert data["results"] == [
-            {
-                "deploy_type": "node",
-                "message": "Node node_update.default.us_states is unchanged.",
-                "name": "node_update.default.us_states",
-                "operation": "noop",
-                "status": "skipped",
-            },
-            {
-                "deploy_type": "node",
-                "message": "Updated dimension (v2.0)\n└─ Set properties for 1 columns",
-                "name": "node_update.default.us_state",
-                "operation": "update",
-                "status": "success",
-            },
-        ]
+        changes = {c["name"]: c for c in data["changes"]}
+        assert changes["node_update.default.us_states"]["operation"] == "noop"
+        assert changes["node_update.default.us_state"]["operation"] == "update"
+        assert changes["node_update.default.us_state"]["predicted_status"] is None
 
     @pytest.mark.asyncio
     async def test_roads_deployment(self, client, roads_nodes):
@@ -2136,324 +1972,52 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=roads_nodes),
         )
-        assert data == {
-            "status": "success",
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "results": [
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.contractors",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.municipality",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.repair_order_details",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.repair_orders",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.repair_type",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_region",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.dispatchers",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.municipality_municipality_type",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.municipality_type",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created transform (v1.0)",
-                    "name": f"{namespace}.default.national_level_agg",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created transform (v1.0)",
-                    "name": f"{namespace}.default.regional_level_agg",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created transform (v1.0)",
-                    "name": f"{namespace}.default.repair_orders_fact",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.avg_length_of_employment",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.avg_repair_order_discounts",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.avg_repair_price",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.avg_time_to_dispatch",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.contractor",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.discounted_orders_rate",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.dispatcher",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hat_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.municipality_dim",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.num_repair_orders",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.regional_repair_efficiency",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.repair_order",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.repair_orders_view",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.total_repair_cost",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created metric (v1.0)",
-                    "name": f"{namespace}.default.total_repair_order_discounts",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_orders -> base.default.repair_order",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_orders -> base.default.dispatcher",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_order_details -> base.default.repair_order",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_type -> base.default.contractor",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.contractors -> base.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_order -> base.default.dispatcher",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_order -> base.default.municipality_dim",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_order -> base.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.hard_hat -> base.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_orders_fact -> base.default.municipality_dim",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_orders_fact -> base.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed",
-                    "name": f"{namespace}.default.repair_orders_fact -> base.default.dispatcher",
-                    "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created cube (v1.0)",
-                    "name": f"{namespace}.default.repairs_cube",
-                    "status": "success",
-                    "operation": "create",
-                },
-            ],
-            "created_at": mock.ANY,
-            "created_by": mock.ANY,
-            "source": mock.ANY,
-        }
+        assert data["status"] == "success"
+        assert data["uuid"] is not None
+        assert data["namespace"] == namespace
+        changes = {c["name"]: c for c in data["changes"]}
+        # All node results should be create operations with no errors
+        assert all(c["operation"] == "create" for c in data["changes"])
+        assert all(c["predicted_status"] is None for c in data["changes"])
+        # Link results are excluded from changes
+        assert not any(" -> " in name for name in changes)
+        # Verify all roads nodes appear in changes
+        expected_node_names = [
+            f"{namespace}.default.contractors",
+            f"{namespace}.default.hard_hats",
+            f"{namespace}.default.municipality",
+            f"{namespace}.default.repair_order_details",
+            f"{namespace}.default.repair_orders",
+            f"{namespace}.default.repair_type",
+            f"{namespace}.default.us_region",
+            f"{namespace}.default.us_states",
+            f"{namespace}.default.dispatchers",
+            f"{namespace}.default.hard_hat",
+            f"{namespace}.default.municipality_municipality_type",
+            f"{namespace}.default.municipality_type",
+            f"{namespace}.default.national_level_agg",
+            f"{namespace}.default.regional_level_agg",
+            f"{namespace}.default.repair_orders_fact",
+            f"{namespace}.default.avg_length_of_employment",
+            f"{namespace}.default.avg_repair_order_discounts",
+            f"{namespace}.default.avg_repair_price",
+            f"{namespace}.default.avg_time_to_dispatch",
+            f"{namespace}.default.contractor",
+            f"{namespace}.default.discounted_orders_rate",
+            f"{namespace}.default.dispatcher",
+            f"{namespace}.default.hard_hat_state",
+            f"{namespace}.default.municipality_dim",
+            f"{namespace}.default.num_repair_orders",
+            f"{namespace}.default.regional_repair_efficiency",
+            f"{namespace}.default.repair_order",
+            f"{namespace}.default.repair_orders_view",
+            f"{namespace}.default.total_repair_cost",
+            f"{namespace}.default.total_repair_order_discounts",
+            f"{namespace}.default.us_state",
+            f"{namespace}.default.repairs_cube",
+        ]
+        for name in expected_node_names:
+            assert name in changes, f"Expected {name} in changes"
 
         response = await client.get("/nodes?prefix=base")
         data = response.json()
@@ -2463,8 +2027,7 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace="base", nodes=roads_nodes),
         )
-        assert all(res["status"] == "skipped" for res in data["results"])
-        assert all(res["operation"] == "noop" for res in data["results"])
+        assert all(c["operation"] == "noop" for c in data["changes"])
 
     @pytest.mark.asyncio
     async def test_deploy_nested_namespace_not_treated_as_missing_dependency(
@@ -2559,22 +2122,28 @@ class TestDeployments:
         # dependency" — that intermediate namespace prefix must NOT be flagged
         # as a missing node (regression test for Issue #1775).
         assert data2["namespace"] == "analytics"
-        node_results = [r for r in data2["results"] if r["deploy_type"] == "node"]
-        assert len(node_results) == 2
+        assert len(data2["changes"]) == 2
 
+        changes = {c["name"]: c for c in data2["changes"]}
         metric_result = next(
-            r for r in node_results if "metric.user_count_by_type" in r["name"]
+            c for name, c in changes.items() if "metric.user_count_by_type" in name
         )
-        assert metric_result["status"] == "success"
+        assert metric_result["predicted_status"] is None
+        assert metric_result["operation"] == "create"
 
-        cube_result = next(r for r in node_results if "cube.user_analysis" in r["name"])
-        assert cube_result["status"] == "failed"
+        cube_result = next(
+            c for name, c in changes.items() if "cube.user_analysis" in name
+        )
+        assert cube_result["predicted_status"] == "invalid"
         # The failure is about dimension reachability, not a missing namespace prefix
-        assert "is not available on every metric" in cube_result["message"]
+        assert any(
+            "is not available on every metric" in e
+            for e in cube_result["validation_errors"]
+        )
+        # Ensure no "missing" error references the intermediate namespace prefix
+        all_error_texts = cube_result["validation_errors"] + data2.get("warnings", [])
         assert not any(
-            "external.dimension" in r.get("message", "")
-            and "missing" in r.get("message", "")
-            for r in data2["results"]
+            "external.dimension" in e and "missing" in e for e in all_error_texts
         )
 
 
@@ -4164,4 +3733,80 @@ class TestDeploymentRevalidation:
         ).all()
         assert len(restored_rows) == 1, (
             "_create_node_revision should have written correct parent relationships"
+        )
+
+    @pytest.mark.asyncio
+    async def test_downstream_nodes_in_other_namespace_are_invalidated(
+        self,
+        client,
+        session,
+    ):
+        """
+        After a wet-run deployment that removes a source column, downstream
+        transform nodes in a DIFFERENT namespace (not in the re-deployment spec
+        and therefore not deleted by the orchestrator) should be marked INVALID
+        in the database (_revalidate_downstream non-early-exit path).
+        """
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+        from datajunction_server.models.node import NodeStatus
+
+        ns_src = "revalidate_src_ns"
+        ns_transform = "revalidate_transform_ns"
+
+        # Step 1: deploy source to ns_src
+        source = SourceSpec(
+            name="base_source",
+            catalog="default",
+            schema="test",
+            table="base",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="value", type="float"),
+            ],
+        )
+        src_spec = DeploymentSpec(namespace=ns_src, nodes=[source])
+        data = await deploy_and_wait(client, src_spec)
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Step 2: deploy transform to ns_transform that references the source
+        transform = TransformSpec(
+            name="derived",
+            query=f"SELECT id, value FROM {ns_src}.base_source",
+        )
+        transform_spec = DeploymentSpec(namespace=ns_transform, nodes=[transform])
+        data = await deploy_and_wait(client, transform_spec)
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Confirm transform is valid
+        transform_name = f"{ns_transform}.derived"
+        transform_node = (
+            await session.execute(
+                select(Node)
+                .where(Node.name == transform_name)
+                .options(joinedload(Node.current)),
+            )
+        ).scalar_one()
+        assert transform_node.current.status == NodeStatus.VALID
+
+        # Step 3: re-deploy ns_src with 'value' column removed.
+        # The transform in ns_transform is NOT in this spec and will NOT be deleted.
+        updated_source = SourceSpec(
+            name="base_source",
+            catalog="default",
+            schema="test",
+            table="base",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                # 'value' column deliberately removed
+            ],
+        )
+        updated_spec = DeploymentSpec(namespace=ns_src, nodes=[updated_source])
+        data = await deploy_and_wait(client, updated_spec)
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        # Step 4: verify the transform (in different namespace) is now INVALID
+        await session.refresh(transform_node, ["current"])
+        assert transform_node.current.status == NodeStatus.INVALID, (
+            "_revalidate_downstream should have marked the transform INVALID"
         )

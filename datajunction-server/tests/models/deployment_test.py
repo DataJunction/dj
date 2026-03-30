@@ -151,6 +151,7 @@ def test_deployment_spec():
         "source": None,
         "auto_register_sources": True,
         "force": False,
+        "default_catalog": None,
     }
 
 
@@ -267,6 +268,25 @@ def test_eq_columns_failures():
         ),
     ]
     assert not eq_columns(None, b)
+
+
+def test_eq_columns_source_column_removal():
+    """Column removal in an explicit list (source node, compare_types=True) is detected."""
+    col_id = ColumnSpec(name="id", type="int")
+    col_val = ColumnSpec(name="important_col", type="string")
+
+    # Removing a column: a has fewer columns than b → not equal
+    assert not eq_columns([col_id], [col_id, col_val], compare_types=True)
+
+    # Adding a column: a has more columns than b → not equal
+    assert not eq_columns([col_id, col_val], [col_id], compare_types=True)
+
+    # Unspecified (None/[]) is still considered equal (don't compare)
+    assert eq_columns(None, [col_id, col_val], compare_types=True)
+    assert eq_columns([], [col_id, col_val], compare_types=True)
+
+    # For non-source (compare_types=False), missing columns are NOT flagged
+    assert eq_columns([col_id], [col_id, col_val], compare_types=False)
 
 
 def test_dimension_join_link_spec_with_default_value():

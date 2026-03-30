@@ -393,13 +393,10 @@ async def test_self_join_validation_in_deployment(
 
     # Verify deployment succeeded
     assert status_data["status"] == "success", f"Deployment failed: {status_data}"
-    assert "results" in status_data
-    results = status_data["results"]
-
-    # Find the dimension link result
-    link_results = [r for r in results if r["deploy_type"] == "link"]
-    assert len(link_results) == 1, f"Expected 1 link result, got {len(link_results)}"
-    assert link_results[0]["status"] == "success"
+    assert "changes" in status_data
+    assert len(status_data["changes"]) == 2, (
+        f"Expected 2 changes, got {len(status_data['changes'])}"
+    )
 
     # Verify the dimension node
     response = await client_with_service_setup.get("/nodes/test_selfjoin.employee_dim")

@@ -25,6 +25,23 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 
+def update_ast_column_types(node: ast.Node) -> None:
+    """Recursively update AST Column._type from parsed database column types.
+
+    Call this after re-parsing parent column types (via parse_rule) so that
+    type inference on the query AST sees the properly-typed objects rather than
+    raw ColumnType strings.
+    """
+    if isinstance(node, ast.Column) and node._table and hasattr(node._table, "dj_node"):
+        dj_node = node._table.dj_node  # type: ignore[attr-defined]
+        for db_col in dj_node.columns:
+            if db_col.name == node.name.name:
+                node._type = db_col.type
+                break
+    for child in node.children:
+        update_ast_column_types(child)
+
+
 @dataclass
 class NodeValidator:
     """
@@ -59,21 +76,28 @@ class NodeValidator:
 
 @timed(
     "dj.node_validation.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data(
     data: Union[NodeRevisionBase, NodeRevision],
     session: AsyncSession,
+    compile_context: ast.CompileContext | None = None,
 ) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
     It will build the lists of issues (including errors) and return them all
     for the caller to decide what to do.
+
+    Pass ``compile_context`` to inject a pre-built context (e.g. with
+    ``column_overrides`` set for impact-preview dry-runs).
     """
     node_validator = NodeValidator()
 
-    # Create context without bulk loading for new nodes
-    ctx = ast.CompileContext(session=session, exception=DJException())
+    # Use provided context or create a fresh one (empty cache → DB lookups for all deps)
+    ctx = compile_context or ast.CompileContext(
+        session=session,
+        exception=DJException(),
+    )
 
     if isinstance(data, NodeRevision):
         validated_node = data
@@ -128,26 +152,9 @@ async def validate_node_data(
                     # If parsing fails, leave the original type
                     pass
 
-    # Update AST Column nodes with the newly parsed types
+    # Update AST Column nodes with the newly parsed types.
     # During extract_dependencies/compilation, AST Columns were created with _type from
     # database columns. Now that we've parsed the types, update the AST Column cache.
-    def update_ast_column_types(node):
-        """Recursively update AST Column _type from parsed database columns"""
-        if (
-            isinstance(node, ast.Column)
-            and node._table
-            and hasattr(node._table, "dj_node")
-        ):
-            # Find the corresponding database column
-            for db_col in node._table.dj_node.columns:
-                if db_col.name == node.name.name:
-                    # Update the cached type
-                    node._type = db_col.type
-                    break
-        # Recursively update child nodes
-        for child in node.children:
-            update_ast_column_types(child)
-
     update_ast_column_types(query_ast)
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
@@ -206,12 +213,21 @@ async def validate_node_data(
                             ),
                         )
         else:
-            # Standard metric - validate columns exist on parent nodes
-            all_available_columns = {
-                col.name
-                for upstream_node in non_metric_parents
-                for col in upstream_node.columns
-            }
+            # Standard metric - validate columns exist on parent nodes.
+            # When a compile_context with column_overrides is present (e.g. impact-preview
+            # dry-run), use the proposed columns for that upstream instead of the DB state.
+            all_available_columns: set[str] = set()
+            for upstream_node in non_metric_parents:
+                node_name = upstream_node.node.name if upstream_node.node else None
+                override_cols = (
+                    ctx.column_overrides.get(node_name) if node_name else None
+                )
+                cols = (
+                    override_cols
+                    if override_cols is not None
+                    else upstream_node.columns
+                )
+                all_available_columns.update(col.name for col in cols)
 
             metric_expression = query_ast.select.projection[0]
             referenced_columns = metric_expression.find_all(ast.Column)

@@ -360,20 +360,18 @@ def test_push_raises_on_failed_deployment(monkeypatch, tmp_path):
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
     (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
-    failed_results = [
-        {
-            "deploy_type": "node",
-            "name": "foo.bar",
-            "operation": "create",
-            "status": "failed",
-            "message": "Column `x` does not exist",
-        },
-    ]
     client = MagicMock()
     client.deploy.return_value = {
         "uuid": "456",
         "status": "failed",
-        "results": failed_results,
+        "changes": [
+            {
+                "name": "foo.bar",
+                "operation": "create",
+                "predicted_status": "invalid",
+                "validation_errors": ["Column `x` does not exist"],
+            },
+        ],
         "namespace": "foo",
     }
 
@@ -401,17 +399,16 @@ def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
         "namespace": "ns",
     }
     client.check_deployment.side_effect = [
-        {"uuid": "789", "status": "pending", "results": [], "namespace": "ns"},
+        {"uuid": "789", "status": "pending", "changes": [], "namespace": "ns"},
         {
             "uuid": "789",
             "status": "failed",
-            "results": [
+            "changes": [
                 {
-                    "deploy_type": "general",
-                    "name": "DJInvalidDeploymentConfig",
-                    "operation": "unknown",
-                    "status": "failed",
-                    "message": "Missing dependencies: source.foo",
+                    "name": "ns.node",
+                    "operation": "create",
+                    "predicted_status": "invalid",
+                    "validation_errors": ["Missing dependencies: source.foo"],
                 },
             ],
             "namespace": "ns",
@@ -424,7 +421,10 @@ def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
     with pytest.raises(DJDeploymentFailure) as exc_info:
         svc.push(tmp_path)
 
-    assert exc_info.value.errors[0]["message"] == "Missing dependencies: source.foo"
+    assert (
+        exc_info.value.errors[0]["validation_errors"][0]
+        == "Missing dependencies: source.foo"
+    )
     assert client.check_deployment.call_count == 2
 
 
