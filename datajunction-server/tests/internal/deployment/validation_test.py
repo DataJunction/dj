@@ -1128,6 +1128,42 @@ class TestDimLinkValidation:
             for e in result.errors
         )
 
+    def test_join_on_no_criteria_skips_column_check(self, session: AsyncSession):
+        """When parse_join_sql returns a tree where the first join has criteria=None,
+        the column-reference block is skipped — covers the 225->187 false branch.
+
+        Note: build_foreign_key_mapping also calls parse_join_sql internally, so the
+        mock must return a tree that is valid for both call sites.  A join with
+        criteria=None satisfies both: build_foreign_key_mapping's ternary skips the
+        equality scan (returns {}), and line 225 short-circuits on falsy criteria.
+        """
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.dim_id = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+
+        # Build a fake tree whose single join extension has criteria=None
+        # (e.g. a USING-style or cross-join where there is no ON expression).
+        mock_join = MagicMock()
+        mock_join.criteria = None
+        mock_relation = MagicMock()
+        mock_relation.extensions = [mock_join]
+        fake_tree = MagicMock()
+        fake_tree.select.from_.relations.__getitem__.return_value = mock_relation
+
+        with patch(
+            "datajunction_server.internal.deployment.validation.DimensionLink.parse_join_sql",
+            return_value=fake_tree,
+        ):
+            validator._validate_dimension_link_specs([result])
+
+        # No errors: criteria=None makes line 225 falsy → column check skipped
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
     def test_non_linkable_spec_is_skipped(self, session: AsyncSession):
         """MetricSpec (not LinkableNodeSpec) is silently skipped."""
         validator = _make_validator(session)

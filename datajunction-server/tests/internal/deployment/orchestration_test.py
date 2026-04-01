@@ -40,6 +40,7 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     CubeSpec,
     DeploymentResult,
+    DimensionJoinLinkSpec,
 )
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
@@ -1918,3 +1919,96 @@ class TestPatchInvalidDeployedDiffs:
         # Should not raise
         orchestrator._patch_invalid_deployed_diffs(pre_deploy_diffs)
         assert pre_deploy_diffs == {}
+
+
+class TestGenerateChangelog:
+    """Unit tests for DeploymentOrchestrator._generate_changelog."""
+
+    @pytest.mark.asyncio
+    async def test_no_changed_fields_with_dimension_links(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """When an existing node has the same spec but non-empty dimension_links,
+        _generate_changelog covers all three false branches:
+          3012->3017  (col_change_notes is empty)
+          3017->3033  (changed_fields is empty)
+          3038        (dimension_links non-empty → appends 'Updated dimension_links')
+        """
+        dim_link = DimensionJoinLinkSpec(dimension_node="default.some_dim")
+        transform_spec = TransformSpec(
+            name="test_node",
+            namespace="default",
+            query="SELECT id FROM default.source_table",
+            dimension_links=[dim_link],
+        )
+        # existing_spec is identical — diff() will return []
+        existing_spec = TransformSpec(
+            name="test_node",
+            namespace="default",
+            query="SELECT id FROM default.source_table",
+            dimension_links=[dim_link],
+        )
+
+        # Mock the existing Node object
+        mock_existing = MagicMock()
+        mock_existing.current.columns = []
+        mock_existing.to_spec = AsyncMock(return_value=existing_spec)
+
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="changelog-test",
+            session=session,
+            context=mock_deployment_context,
+            dry_run=True,
+        )
+        orchestrator.registry.nodes["default.test_node"] = mock_existing
+
+        result = NodeValidationResult(
+            spec=transform_spec,
+            status=None,
+            inferred_columns=[],
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields = await orchestrator._generate_changelog(result)
+
+        assert changed_fields == []
+        assert changelog == ["└─ Updated dimension_links"]
+
+
+@pytest.mark.asyncio
+async def test_execute_deployment_plan_wet_run_commits(
+    session,
+    current_user: User,
+):
+    """When dry_run=False and the plan is empty (nothing to deploy/delete),
+    _execute_deployment_plan exits the SAVEPOINT cleanly and commits the
+    outer transaction (line 1201 — the wet-run commit path).
+    """
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    context.save_history = AsyncMock()
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="wet-run-test",
+        session=session,
+        context=context,
+        dry_run=False,  # Wet-run mode — line 1193 branch is False
+    )
+
+    plan = DeploymentPlan(
+        to_deploy=[],
+        to_skip=[],
+        to_delete=[],
+        existing_specs={},
+        node_graph={},
+        external_deps=set(),
+    )
+
+    # Should succeed without raising — the SAVEPOINT is committed and then
+    # session.commit() at line 1201 runs (wet-run path).
+    await orchestrator._execute_deployment_plan(plan)

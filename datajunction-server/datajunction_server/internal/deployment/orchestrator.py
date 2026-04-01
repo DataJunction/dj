@@ -2235,7 +2235,7 @@ class DeploymentOrchestrator:
             if not existing_spec:
                 to_create.append(node_spec)
             elif force or node_spec != existing_spec:
-                if existing_spec:
+                if existing_spec:  # pragma: no branch
                     self._log_spec_diff(node_spec, existing_spec)
                 to_update.append(node_spec)
             else:
@@ -2298,7 +2298,10 @@ class DeploymentOrchestrator:
             reasons.append(f"mode: {existing_spec.mode!r} -> {new_spec.mode!r}")
 
         # Query-bearing nodes
-        if hasattr(new_spec, "query_ast") and hasattr(existing_spec, "query_ast"):
+        if hasattr(new_spec, "query_ast") and hasattr(
+            existing_spec,
+            "query_ast",
+        ):  # pragma: no branch
             try:
                 if not new_spec.rendered_spec().query_ast.compare(
                     existing_spec.query_ast,
@@ -2992,7 +2995,10 @@ class DeploymentOrchestrator:
         changed_fields = existing_node_spec.diff(result.spec) if existing else []
 
         # Check if query changed (diff() ignores it, but we want to surface it)
-        if hasattr(existing_node_spec, "rendered_query") and hasattr(
+        if hasattr(
+            existing_node_spec,
+            "rendered_query",
+        ) and hasattr(  # pragma: no branch
             result.spec,
             "rendered_query",
         ):

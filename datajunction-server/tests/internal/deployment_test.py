@@ -2066,6 +2066,18 @@ class TestDiffColumnMetadata:
         notes = _diff_column_metadata(new_cols, old_cols)
         assert any("description changed" in n for n in notes)
 
+    def test_column_attribute_removed_only(self):
+        """Removing an attribute (no additions) covers the 134->136 false branch."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int")]  # no attributes
+        old_cols = [ColumnSpec(name="id", type="int", attributes=["not_null"])]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("-not_null" in n for n in notes)
+
     def test_no_changes_returns_empty(self):
         """No changes returns an empty list (no notes appended)."""
         from datajunction_server.internal.deployment.orchestrator import (

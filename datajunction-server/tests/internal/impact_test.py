@@ -25,8 +25,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.database.node import (
+    CubeRelationship,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.internal.impact import (
     _BFSState,
     _ExplicitDiffSpec,
@@ -2413,6 +2419,83 @@ class TestComputeSeedPropDeploymentPath:
         # Empty proposed_columns → is_invalid should be True (line 722)
         assert prop.is_invalid is True
 
+    @pytest.mark.asyncio
+    async def test_deployment_path_source_node_with_column_removed(
+        self,
+        session: AsyncSession,
+    ):
+        """SOURCE NodeSpec with a removed column exercises line 702 (_build_proposed_columns)."""
+        from datajunction_server.internal.impact import _compute_seed_prop
+        from datajunction_server.models.deployment import SourceSpec, ColumnSpec
+
+        repair_orders = await Node.get_by_name(
+            session,
+            "default.repair_orders",
+            options=list(_node_output_options()),
+        )
+        assert repair_orders is not None
+
+        # Build a SourceSpec with one column removed (hard_hat_id dropped)
+        existing_cols = repair_orders.current.columns
+        reduced_cols = [
+            ColumnSpec(name=c.name, type=str(c.type))
+            for c in existing_cols
+            if c.name != "hard_hat_id"
+        ]
+        source_spec = SourceSpec(
+            name="repair_orders",
+            namespace="default",
+            catalog="default",
+            schema_="roads",
+            table="repair_orders",
+            columns=reduced_cols,
+        )
+
+        prop = await _compute_seed_prop(
+            session,
+            "default.repair_orders",
+            repair_orders,
+            source_spec,
+            set(),
+        )
+        # Column removed → proposed_columns must be set (line 702 executed)
+        assert prop.proposed_columns is not None
+        assert "hard_hat_id" in prop.columns_removed
+
+    @pytest.mark.asyncio
+    async def test_deployment_path_transform_same_query(
+        self,
+        session: AsyncSession,
+    ):
+        """Transform NodeSpec with identical query exercises the 707->721 false branch."""
+        from datajunction_server.internal.impact import _compute_seed_prop
+        from datajunction_server.models.deployment import TransformSpec
+
+        repair_orders_fact = await Node.get_by_name(
+            session,
+            "default.repair_orders_fact",
+            options=list(_node_output_options()),
+        )
+        assert repair_orders_fact is not None
+
+        # Use the exact same query as the existing node (no change)
+        same_query = repair_orders_fact.current.query
+        transform_spec = TransformSpec(
+            name="repair_orders_fact",
+            namespace="default",
+            query=same_query,
+        )
+
+        prop = await _compute_seed_prop(
+            session,
+            "default.repair_orders_fact",
+            repair_orders_fact,
+            transform_spec,
+            set(),
+        )
+        # No query change → proposed_columns stays None
+        assert prop.proposed_columns is None
+
 
 # ---------------------------------------------------------------------------
 # Section 1t — _check_immediate_metric_cube_impacts and _check_cube_dim_link_impacts
@@ -2489,6 +2572,21 @@ class TestDimLinkCubeImpactHelpers:
         )
         await session.flush()
 
+        # Add a cube_element from hard_hat so the loop body (lines 211-226) executes
+        hard_hat = await Node.get_by_name(
+            session,
+            "default.hard_hat",
+            options=[
+                selectinload(Node.current).options(selectinload(NodeRevision.columns)),
+            ],
+        )
+        assert hard_hat is not None and hard_hat.current.columns
+        hard_hat_col = hard_hat.current.columns[0]
+        session.add(
+            CubeRelationship(cube_id=cube_rev.id, cube_element_id=hard_hat_col.id),
+        )
+        await session.flush()
+
         impacted: dict = {}
         node_cache: dict = {}
 
@@ -2501,16 +2599,21 @@ class TestDimLinkCubeImpactHelpers:
             impacted=impacted,
             node_cache=node_cache,
         )
-        # Whether or not the cube is flagged depends on cube_elements setup;
-        # what matters is the function ran without error (exercising lines 200-226).
-        assert isinstance(impacted, dict)
+        # Cube is flagged because its cube_element is from default.hard_hat
+        assert "default.test_dim_link_cube_q1" in impacted
 
     @pytest.mark.asyncio
     async def test_dim_link_removal_impacts_downstream_cubes(
         self,
         session: AsyncSession,
+        default_user,
     ):
-        """_check_cube_dim_link_impacts traverses downstream cubes (lines 252-269)."""
+        """_check_cube_dim_link_impacts traverses downstream cubes (lines 252-269).
+
+        Setup: create a cube downstream of repair_orders_fact with a cube_element
+        from default.hard_hat so the loop body (lines 254-269) executes and the
+        cube is flagged.
+        """
         from datajunction_server.internal.impact import _check_cube_dim_link_impacts
 
         repair_orders_fact = await Node.get_by_name(
@@ -2519,6 +2622,54 @@ class TestDimLinkCubeImpactHelpers:
             options=list(_node_output_options()),
         )
         assert repair_orders_fact is not None
+
+        # Create a cube downstream of repair_orders_fact
+        cube_version = "v1.0"
+        cube_node = Node(
+            name="default.test_downstream_cube_q2",
+            type=NodeType.CUBE,
+            namespace="default",
+            current_version=cube_version,
+            created_by_id=default_user.id,
+        )
+        session.add(cube_node)
+        await session.flush()
+
+        cube_rev = NodeRevision(
+            name="default.test_downstream_cube_q2",
+            type=NodeType.CUBE,
+            node_id=cube_node.id,
+            version=cube_version,
+            created_by_id=default_user.id,
+            status=NodeStatus.VALID,
+            query=None,
+        )
+        session.add(cube_rev)
+        await session.flush()
+
+        # Wire cube as a direct child of repair_orders_fact
+        session.add(
+            NodeRelationship(
+                parent_id=repair_orders_fact.id,
+                child_id=cube_rev.id,
+            ),
+        )
+        await session.flush()
+
+        # Add a cube_element from hard_hat so the loop body (lines 254-269) executes
+        hard_hat = await Node.get_by_name(
+            session,
+            "default.hard_hat",
+            options=[
+                selectinload(Node.current).options(selectinload(NodeRevision.columns)),
+            ],
+        )
+        assert hard_hat is not None and hard_hat.current.columns
+        hard_hat_col = hard_hat.current.columns[0]
+        session.add(
+            CubeRelationship(cube_id=cube_rev.id, cube_element_id=hard_hat_col.id),
+        )
+        await session.flush()
 
         impacted: dict = {}
         node_cache: dict = {}
@@ -2531,5 +2682,5 @@ class TestDimLinkCubeImpactHelpers:
             impacted=impacted,
             node_cache=node_cache,
         )
-        # The function ran — downstream cubes (if any) were checked.
-        assert isinstance(impacted, dict)
+        # Cube is flagged because its cube_element is from default.hard_hat
+        assert "default.test_downstream_cube_q2" in impacted
