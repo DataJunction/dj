@@ -802,11 +802,11 @@ class TestGetGitInfoForNamespace:
         assert result["is_default_branch"] is True
 
     @pytest.mark.asyncio
-    async def test_is_default_branch_true_when_no_default_branch(
+    async def test_is_default_branch_false_when_no_default_branch(
         self,
         session: AsyncSession,
     ):
-        """git_branch set but default_branch is None → defaults to True."""
+        """git_branch set but default_branch is None → is_default_branch is False (unknown)."""
         session.add(
             NodeNamespace(
                 namespace="proj",
@@ -826,7 +826,7 @@ class TestGetGitInfoForNamespace:
         result = await get_git_info_for_namespace(session, "proj.feature_x")
 
         assert result is not None
-        assert result["is_default_branch"] is True
+        assert result["is_default_branch"] is False
 
     # ------------------------------------------------------------------
     # parent_namespace

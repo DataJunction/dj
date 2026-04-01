@@ -36,6 +36,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.namespaces import (
     create_namespace,
+    get_git_info_for_namespace,
     get_nodes_in_namespace,
     get_nodes_in_namespace_detailed,
     get_project_config,
@@ -264,6 +265,14 @@ async def deactivate_a_namespace(
             message=f"Namespace `{namespace}` is already deactivated.",
         )
 
+    git_info = await get_git_info_for_namespace(session, namespace)
+    if git_info and git_info.get("is_default_branch") and git_info.get("repo"):
+        raise DJInvalidInputException(
+            message=f"Cannot delete namespace `{namespace}`: it is the default branch "
+            f"of a git-backed namespace ({git_info['repo']}). "
+            "Only non-default branch namespaces can be deleted.",
+        )
+
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
     node_list = await NodeNamespace.list_nodes(session, namespace)
     node_names = [node.name for node in node_list]
@@ -421,6 +430,14 @@ async def hard_delete_node_namespace(
     """
     access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    git_info = await get_git_info_for_namespace(session, namespace)
+    if git_info and git_info.get("is_default_branch") and git_info.get("repo"):
+        raise DJInvalidInputException(
+            message=f"Cannot delete namespace `{namespace}`: it is the default branch "
+            f"of a git-backed namespace ({git_info['repo']}). "
+            "Only non-default branch namespaces can be deleted.",
+        )
 
     impacts = await hard_delete_namespace(
         session=session,

@@ -2557,3 +2557,113 @@ async def test_list_namespace_branches_excludes_deactivated(
     namespaces = [b["namespace"] for b in response.json()]
     assert active_ns in namespaces
     assert deact_ns not in namespaces
+
+
+@pytest.mark.asyncio
+async def test_deactivate_git_default_branch_namespace_blocked(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    Deleting (soft or hard) a git-backed namespace whose git_branch matches
+    its default_branch must be rejected, regardless of cascade setting.
+    """
+    root = "protected.root.deact"
+    branch_ns = "protected.root.deact.main"
+
+    # Set up a git-root namespace with a default branch
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/protected-repo", "default_branch": "main"},
+    )
+
+    # Create the default branch namespace
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "main"},
+    )
+
+    # Soft delete should be blocked
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/",
+    )
+    assert response.status_code == 422
+    assert "default branch" in response.json()["message"]
+    assert "corp/protected-repo" in response.json()["message"]
+
+    # Soft delete with cascade should also be blocked
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/?cascade=true",
+    )
+    assert response.status_code == 422
+    assert "default branch" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_git_default_branch_namespace_blocked(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    Hard deleting a git-backed namespace whose git_branch matches its
+    default_branch must be rejected.
+    """
+    root = "protected.root.hard"
+    branch_ns = "protected.root.hard.main"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/protected-hard-repo", "default_branch": "main"},
+    )
+
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "main"},
+    )
+
+    # Hard delete should be blocked
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/hard/",
+    )
+    assert response.status_code == 422
+    assert "default branch" in response.json()["message"]
+    assert "corp/protected-hard-repo" in response.json()["message"]
+
+    # Hard delete with cascade should also be blocked
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/hard/?cascade=true",
+    )
+    assert response.status_code == 422
+    assert "default branch" in response.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_delete_non_default_git_branch_namespace_allowed(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    Deleting a non-default branch namespace should still work normally.
+    """
+    root = "protected.root.feature"
+    branch_ns = "protected.root.feature.my_feature"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/feature-repo", "default_branch": "main"},
+    )
+
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "my-feature"},
+    )
+
+    # Soft delete of a non-default branch should succeed (no nodes → deactivates cleanly)
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/",
+    )
+    assert response.status_code == 200
+    assert "deactivated" in response.json()["message"]

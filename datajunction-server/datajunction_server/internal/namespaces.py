@@ -292,7 +292,8 @@ def resolve_git_info_from_map(
         "default_branch": default_branch,
         "path": config_ns.git_path,
         "is_default_branch": (
-            branch == default_branch if branch and default_branch else True
+            branch is None  # root namespace — no branch means it IS the default
+            or (default_branch is not None and branch == default_branch)
         ),
         "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
         "git_only": config_ns.git_only,
