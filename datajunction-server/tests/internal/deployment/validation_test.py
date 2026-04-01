@@ -1015,7 +1015,6 @@ class TestCrossFactDimensions:
         assert validator._metric_dimensions == {}
 
 
-
 # ---------------------------------------------------------------------------
 # TestDimLinkValidation — Step B: _validate_dimension_link_specs
 # ---------------------------------------------------------------------------
