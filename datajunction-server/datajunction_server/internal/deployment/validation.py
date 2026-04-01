@@ -328,7 +328,6 @@ class NodeSpecBulkValidator:
                     ]
                     if err is not None
                 ] + type_inference_errors
-                print("parsed", spec.rendered_name, "and got", errors)
 
             dep_names = self.context.node_graph.get(spec.rendered_name, [])
             invalid_parents = [
