@@ -759,10 +759,44 @@ class TestDetectGitBranch:
         )
         assert DeploymentService._detect_git_branch() is None
 
-    def test_returns_none_for_detached_head(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "remote_output,expected",
+        [
+            ("  origin/my-feature\n", "my-feature"),
+            ("  upstream/my-feature\n", "my-feature"),
+            ("  fork/my-feature\n", "my-feature"),
+        ],
+    )
+    def test_detached_head_falls_back_to_remote_ref(
+        self,
+        monkeypatch,
+        remote_output,
+        expected,
+    ):
+        calls = iter(
+            [
+                mock.MagicMock(stdout="HEAD\n"),  # git rev-parse --abbrev-ref HEAD
+                mock.MagicMock(stdout=remote_output),  # git branch -r --points-at HEAD
+            ],
+        )
         monkeypatch.setattr(
             "datajunction.deployment.subprocess.run",
-            lambda *a, **kw: mock.MagicMock(stdout="HEAD\n"),
+            lambda *a, **kw: next(calls),
+        )
+        assert DeploymentService._detect_git_branch() == expected
+
+    def test_detached_head_returns_none_when_no_remote_ref(self, monkeypatch):
+        calls = iter(
+            [
+                mock.MagicMock(stdout="HEAD\n"),  # git rev-parse --abbrev-ref HEAD
+                mock.MagicMock(
+                    stdout="",
+                ),  # git branch -r --points-at HEAD — no results
+            ],
+        )
+        monkeypatch.setattr(
+            "datajunction.deployment.subprocess.run",
+            lambda *a, **kw: next(calls),
         )
         assert DeploymentService._detect_git_branch() is None
 

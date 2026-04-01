@@ -520,6 +520,9 @@ class DeploymentService:
         """
         Returns the current git branch name, or None if not in a git repo or
         git is not available.
+
+        In detached HEAD state (common in CI), falls back to recovering the
+        branch from remote tracking refs (refs/remotes/origin/<branch>).
         """
         try:
             result = subprocess.run(
@@ -530,7 +533,24 @@ class DeploymentService:
                 cwd=cwd,
             )
             branch = result.stdout.strip()
-            return branch if branch and branch != "HEAD" else None
+            if branch and branch != "HEAD":
+                return branch
+            # Detached HEAD (common in CI) — find remote branches whose tip is
+            # exactly this commit.
+            result2 = subprocess.run(
+                ["git", "branch", "-r", "--points-at", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=cwd,
+            )
+            for line in result2.stdout.splitlines():
+                ref = line.strip()
+                if "/" in ref:  # pragma: no branch
+                    _, branch = ref.split("/", 1)
+                    if branch != "HEAD":  # pragma: no branch
+                        return branch
+            return None
         except (subprocess.CalledProcessError, FileNotFoundError):
             return None
 
