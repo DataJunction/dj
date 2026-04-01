@@ -5,7 +5,7 @@ Tests for validate_query_node exception handling with real objects
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
@@ -1146,3 +1146,42 @@ class TestDimLinkValidation:
         validator._validate_dimension_link_specs([result])
         assert result.status == NodeStatus.VALID
         assert result.errors == []
+
+
+class TestDimLinkJoinColumnWithoutNamespace:
+    """Tests for join_on columns without a table namespace (line 230 coverage)."""
+
+    def test_join_on_col_without_namespace_is_skipped(self, session: AsyncSession):
+        """A column in join_on without a table-qualified reference (no namespace) is skipped
+        without raising an error (line 230 - the continue branch)."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            # 'unqualified_col' has no namespace (no table prefix) — should be skipped
+            join_on="test.facts.dim_id = test.dim.dim_id AND unqualified_col = 1",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        # The unqualified column should be skipped without causing an error
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+
+class TestCreateColumnSpecTypeError:
+    """Tests for _create_column_spec raising TypeError when type cannot be inferred (line 626)."""
+
+    def test_create_column_spec_raises_when_type_unresolvable(
+        self,
+        session: AsyncSession,
+    ):
+        """_create_column_spec raises TypeError when no existing_spec.type and AST column
+        has no resolvable type (line 626 - the raise TypeError branch)."""
+        validator = _make_validator(session)
+
+        # Create a mock AST column with no resolvable type
+        ast_col = MagicMock(spec=ast.Column)
+        ast_col.type = None
+
+        with pytest.raises(TypeError, match="Cannot resolve type"):
+            validator._create_column_spec("my_col", ast_col, existing_spec=None)

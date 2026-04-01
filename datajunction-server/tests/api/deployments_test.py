@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
     DimensionReferenceLinkSpec,
@@ -3810,3 +3811,137 @@ class TestDeploymentRevalidation:
         assert transform_node.current.status == NodeStatus.INVALID, (
             "_revalidate_downstream should have marked the transform INVALID"
         )
+
+
+class TestExtractErrors:
+    """Unit tests for _extract_errors helper."""
+
+    def test_failed_status_with_message(self):
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.GENERAL,
+            status=DeploymentResult.Status.FAILED,
+            operation=DeploymentResult.Operation.UNKNOWN,
+            message="Something went wrong",
+        )
+        assert _extract_errors(r) == ["Something went wrong"]
+
+    def test_failed_status_no_message(self):
+        """FAILED result with empty message returns empty list (line 395)."""
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.GENERAL,
+            status=DeploymentResult.Status.FAILED,
+            operation=DeploymentResult.Operation.UNKNOWN,
+            message="",
+        )
+        assert _extract_errors(r) == []
+
+    def test_invalid_status_no_message(self):
+        """INVALID result with empty message returns empty list (line 398)."""
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.INVALID,
+            operation=DeploymentResult.Operation.CREATE,
+            message="",
+        )
+        assert _extract_errors(r) == []
+
+    def test_invalid_status_with_invalid_prefix(self):
+        """INVALID result with [invalid] prefix extracts the stripped message."""
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.INVALID,
+            operation=DeploymentResult.Operation.CREATE,
+            message="Created node (v1.0)\n[invalid] Some validation error",
+        )
+        assert _extract_errors(r) == ["Some validation error"]
+
+    def test_invalid_status_no_invalid_prefix_returns_whole_message(self):
+        """INVALID result with no [invalid] prefix returns whole message (line 407)."""
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.INVALID,
+            operation=DeploymentResult.Operation.CREATE,
+            message="The following dependencies are not in the deployment: foo, bar",
+        )
+        assert _extract_errors(r) == [
+            "The following dependencies are not in the deployment: foo, bar",
+        ]
+
+    def test_success_status_returns_empty(self):
+        """SUCCESS result returns empty list."""
+        from datajunction_server.api.deployments import _extract_errors
+
+        r = DeploymentResult(
+            name="test",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
+            message="Node created",
+        )
+        assert _extract_errors(r) == []
+
+
+@pytest.mark.asyncio
+async def test_execute_deployment_task_exception_handler(session):
+    """Exception during deployment updates status to FAILED (lines 237-255)."""
+    from datajunction_server.api.deployments import InProcessExecutor
+
+    deployment_spec = DeploymentSpec(
+        namespace="test",
+        source=LocalDeploymentSource(hostname="test"),
+    )
+
+    # Track calls to update_status
+    update_calls = []
+
+    async def fake_update_status(deployment_uuid, status, results=None, **kwargs):
+        update_calls.append((status, results, kwargs))
+
+    @asynccontextmanager
+    async def mock_session_context():
+        yield session
+
+    with (
+        patch(
+            "datajunction_server.api.deployments.session_context",
+            mock_session_context,
+        ),
+        patch(
+            "datajunction_server.api.deployments.deploy",
+            new=AsyncMock(side_effect=RuntimeError("Unexpected DB error")),
+        ),
+        patch.object(
+            InProcessExecutor,
+            "update_status",
+            new=AsyncMock(side_effect=fake_update_status),
+        ),
+    ):
+        executor_instance = InProcessExecutor()
+        context = MagicMock()
+        context.current_user = MagicMock()
+
+        await executor_instance._run_deployment(
+            deployment_id="test-deployment-id",
+            deployment_spec=deployment_spec,
+            context=context,
+        )
+
+    # Should have called update_status with FAILED
+    assert len(update_calls) >= 1
+    statuses = [call[0] for call in update_calls]
+    assert DeploymentStatus.FAILED in statuses

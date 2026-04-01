@@ -372,3 +372,64 @@ def test_deployment_spec_force_can_be_set_true():
     spec = DeploymentSpec(namespace="test", nodes=[], force=True)
     assert spec.force is True
     assert spec.model_dump()["force"] is True
+
+
+def test_cube_spec_eq_non_cube_spec():
+    """CubeSpec.__eq__ returns False when compared to a non-CubeSpec."""
+    from datajunction_server.models.deployment import CubeSpec
+
+    cube = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["test.metric"],
+        dimensions=[],
+    )
+    assert cube.__eq__(object()) is False
+    assert cube.__eq__("not a cube spec") is False
+
+
+def test_cube_spec_eq_different_rendered_name():
+    """CubeSpec.__eq__ returns False when super().__eq__ fails (different rendered names)."""
+    from datajunction_server.models.deployment import CubeSpec
+
+    cube1 = CubeSpec(
+        namespace="test",
+        name="cube_a",
+        metrics=["test.metric"],
+        dimensions=[],
+    )
+    cube2 = CubeSpec(
+        namespace="test",
+        name="cube_b",
+        metrics=["test.metric"],
+        dimensions=[],
+    )
+    assert cube1.__eq__(cube2) is False
+
+
+def test_deployment_results_property_getter():
+    """Deployment.deployment_results deserializes results list into DeploymentResult objects."""
+    from datajunction_server.database.deployment import Deployment
+    from datajunction_server.models.deployment import (
+        DeploymentResult,
+        DeploymentSpec,
+        DeploymentStatus,
+    )
+
+    deployment = Deployment(
+        spec=DeploymentSpec(namespace="test").model_dump(),
+        status=DeploymentStatus.SUCCESS,
+        results=[
+            {
+                "name": "test_node",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created",
+            },
+        ],
+    )
+    results = deployment.deployment_results
+    assert len(results) == 1
+    assert results[0].name == "test_node"
+    assert results[0].status == DeploymentResult.Status.SUCCESS
