@@ -18,8 +18,14 @@ depends_on = None
 
 def upgrade():
     op.execute(
-        "CREATE TYPE sparkjoinstrategy AS ENUM "
-        "('broadcast', 'merge', 'shuffle_hash', 'shuffle_replicate_nl')",
+        """
+        DO $$ BEGIN
+            CREATE TYPE sparkjoinstrategy AS ENUM
+                ('broadcast', 'merge', 'shuffle_hash', 'shuffle_replicate_nl');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        """,
     )
     op.add_column(
         "dimensionlink",
