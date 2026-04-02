@@ -8,7 +8,10 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from datajunction_server.internal.namespaces import (
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
+    node_spec_to_yaml,
 )
+from datajunction_server.models.deployment import MetricSpec, TransformSpec
+from datajunction_server.models.node_type import NodeType
 
 
 class TestMergeListWithKey:
@@ -301,3 +304,123 @@ dimensions:
         # Should only include items that are in new data, in original order
         assert result["metrics"] == ["metric_a", "metric_c"]
         assert result["dimensions"] == ["dim_x"]
+
+
+class TestNodeSpecToYaml:
+    """Tests for node_spec_to_yaml formatting and determinism"""
+
+    def test_owners_are_sorted(self):
+        """owners list is sorted alphabetically regardless of input order"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            owners=["zara@netflix.com", "alice@netflix.com", "bob@netflix.com"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.revenue",
+            "node_type: metric",
+            "owners: [alice@netflix.com, bob@netflix.com, zara@netflix.com]",
+            "mode: published",
+            "query: SELECT SUM(rev) FROM ns.transforms.t",
+        ]
+
+    def test_tags_are_sorted(self):
+        """tags list is sorted alphabetically regardless of input order"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            tags=["ratio_metric", "core", "finance"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.revenue",
+            "node_type: metric",
+            "tags: [core, finance, ratio_metric]",
+            "mode: published",
+            "query: SELECT SUM(rev) FROM ns.transforms.t",
+        ]
+
+    def test_column_attributes_are_sorted(self):
+        """column attributes are sorted alphabetically regardless of input order"""
+        spec = TransformSpec(
+            name="ns.transforms.t",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT id FROM ns.source.s",
+            columns=[
+                {
+                    "name": "id",
+                    "display_name": "ID",
+                    "attributes": ["dimension", "primary_key"],
+                },
+            ],
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.transforms.t",
+            "node_type: transform",
+            "mode: published",
+            "columns:",
+            "  - name: id",
+            "    display_name: ID",
+            "    attributes: [dimension, primary_key]",
+            "query: SELECT id FROM ns.source.s",
+        ]
+
+    def test_output_is_deterministic(self):
+        """calling node_spec_to_yaml twice with the same spec gives identical output"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            owners=["zara@netflix.com", "alice@netflix.com"],
+            tags=["ratio_metric", "core"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec) == node_spec_to_yaml(spec)
+
+    def test_no_yaml_document_start_marker(self):
+        """output does not start with --- (explicit_start=False)"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.revenue",
+            "node_type: metric",
+            "mode: published",
+            "query: SELECT SUM(rev) FROM ns.transforms.t",
+        ]
+
+    def test_multiline_query_uses_literal_block_style(self):
+        """multiline queries are serialized with |- literal block style"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(rev)\nFROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.revenue",
+            "node_type: metric",
+            "mode: published",
+            "query: |-",
+            "  SELECT SUM(rev)",
+            "  FROM ns.transforms.t",
+        ]
+
+    def test_short_lists_use_inline_style(self):
+        """short lists (owners, tags) use inline [a, b] style after yamlfix"""
+        spec = MetricSpec(
+            name="ns.metrics.revenue",
+            node_type=NodeType.METRIC,
+            owners=["alice@netflix.com"],
+            tags=["core"],
+            query="SELECT SUM(rev) FROM ns.transforms.t",
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.revenue",
+            "node_type: metric",
+            "owners: [alice@netflix.com]",
+            "tags: [core]",
+            "mode: published",
+            "query: SELECT SUM(rev) FROM ns.transforms.t",
+        ]

@@ -18,6 +18,8 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.comments import Comment
+from yamlfix import fix_code
+from yamlfix.model import YamlfixConfig
 
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.models.deployment import (
@@ -1450,6 +1452,16 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         # If columns is explicitly None, remove it
         del data["columns"]
 
+    # Sort list fields for deterministic output
+    if "owners" in data and isinstance(data["owners"], list):  # pragma: no branch
+        data["owners"] = sorted(data["owners"])
+    if "tags" in data and isinstance(data["tags"], list):  # pragma: no branch
+        data["tags"] = sorted(data["tags"])
+    if "columns" in data and isinstance(data["columns"], list):
+        for col in data["columns"]:
+            if "attributes" in col and isinstance(col["attributes"], list):
+                col["attributes"] = sorted(col["attributes"])
+
     # Remove empty lists/dicts for cleaner YAML
     data = {k: v for k, v in data.items() if v or v == 0 or v is False}
 
@@ -1529,7 +1541,13 @@ def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
     # Export to YAML
     stream = StringIO()
     yaml_handler.dump(yaml_dict, stream)
-    return stream.getvalue()
+    raw = stream.getvalue()
+
+    # Apply yamlfix for consistent formatting (matches repo pre-commit hooks)
+    yamlfix_config = YamlfixConfig()
+    yamlfix_config.explicit_start = False
+    yamlfix_config.line_length = 120
+    return fix_code(raw, yamlfix_config)
 
 
 # Git configuration validation helpers
