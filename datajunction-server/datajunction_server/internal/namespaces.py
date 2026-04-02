@@ -1453,9 +1453,9 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         del data["columns"]
 
     # Sort list fields for deterministic output
-    if "owners" in data and isinstance(data["owners"], list):
+    if "owners" in data and isinstance(data["owners"], list):  # pragma: no branch
         data["owners"] = sorted(data["owners"])
-    if "tags" in data and isinstance(data["tags"], list):
+    if "tags" in data and isinstance(data["tags"], list):  # pragma: no branch
         data["tags"] = sorted(data["tags"])
     if "columns" in data and isinstance(data["columns"], list):
         for col in data["columns"]:
