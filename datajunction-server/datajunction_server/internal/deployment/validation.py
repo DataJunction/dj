@@ -14,11 +14,16 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import _resolve_required_dimensions
-from datajunction_server.internal.validation import validate_metric_query
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.internal.validation import (
+    update_ast_column_types,
+    validate_metric_query,
+)
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.deployment import (
+    DimensionJoinLinkSpec,
     LinkableNodeSpec,
     NodeSpec,
     ColumnSpec,
@@ -154,7 +159,101 @@ class NodeSpecBulkValidator:
         for idx, spec in specs_skip_validation:
             results[idx] = self._validate_without_parsing(spec)
 
+        # Validate dimension link join_on expressions for all results.
+        self._validate_dimension_link_specs(results)
+
         return results
+
+    def _validate_dimension_link_specs(
+        self,
+        results: List["NodeValidationResult"],
+    ) -> None:
+        """Validate dimension links for all node results."""
+        for result in results:
+            spec = result.spec
+            if not isinstance(spec, LinkableNodeSpec) or not spec.dimension_links:
+                continue
+
+            inferred_col_names = {col.name for col in result.inferred_columns}
+            node_name = spec.rendered_name
+
+            for link in spec.dimension_links:
+                if isinstance(link, DimensionJoinLinkSpec) and link.rendered_join_on:
+                    self._validate_join_link(
+                        result,
+                        link,
+                        node_name,
+                        inferred_col_names,
+                    )
+
+    def _validate_join_link(
+        self,
+        result: "NodeValidationResult",
+        link: DimensionJoinLinkSpec,
+        node_name: str,
+        inferred_col_names: set,
+    ) -> None:
+        """
+        Validate join_on SQL and column references for a single DimensionJoinLinkSpec.
+
+        - Parse the join clause; malformed SQL adds an INVALID_SQL_QUERY error.
+        - Verify all column references belong to either the node or the dimension.
+        - Verify node-side columns exist in the node's inferred columns.
+          Dimension-side columns are skipped (not loaded at validation time).
+        """
+        dim_name = link.rendered_dimension_node
+        assert link.rendered_join_on  # guarded by caller
+
+        try:
+            tree = DimensionLink.parse_join_sql(
+                link.rendered_join_on,
+                link.join_type,
+                node_name,
+                dim_name,
+            )
+        except Exception as exc:
+            result.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=f"Invalid join_on SQL for dimension link '{dim_name}': {exc}",
+                ),
+            )
+            result.status = NodeStatus.INVALID
+            return
+
+        joins = tree.select.from_.relations[-1].extensions  # type: ignore[union-attr]
+        if not (joins and joins[0].criteria and joins[0].criteria.on):
+            return
+
+        valid_tables = {node_name, dim_name}
+        for col in joins[0].criteria.on.find_all(ast.Column):
+            if not col.name.namespace:  # type: ignore[union-attr]
+                continue
+            node_ref = col.name.namespace.identifier()  # type: ignore[union-attr]
+            col_name = col.name.name  # type: ignore[union-attr]
+            if node_ref not in valid_tables:
+                result.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_SQL_QUERY,
+                        message=(
+                            f"join_on for dimension link '{dim_name}' references"
+                            f" unknown node '{node_ref}' — expected"
+                            f" '{node_name}' or '{dim_name}'"
+                        ),
+                    ),
+                )
+                result.status = NodeStatus.INVALID
+            elif node_ref == node_name and col_name not in inferred_col_names:
+                result.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=(
+                            f"Column '{col_name}' referenced in join_on"
+                            f" for '{dim_name}' not found on node '{node_name}'"
+                        ),
+                    ),
+                )
+                result.status = NodeStatus.INVALID
 
     def _validate_without_parsing(self, spec: NodeSpec) -> NodeValidationResult:
         """
@@ -201,6 +300,7 @@ class NodeSpecBulkValidator:
             await parsed_ast.bake_ctes().extract_dependencies(
                 self.context.compile_context,
             )
+            update_ast_column_types(parsed_ast)
             parsed_ast.select.add_aliases_to_unnamed_columns()
 
             # If _skip_validation is set (e.g., copying from validated source),
@@ -516,7 +616,12 @@ class NodeSpecBulkValidator:
         if existing_spec and existing_spec.type:
             column_type = existing_spec.type
         else:
-            column_type = str(ast_column.type)
+            inferred = ast_column.type
+            if inferred is None:
+                raise TypeError(
+                    f"Cannot resolve type of column `{column_name}` in node",
+                )
+            column_type = str(inferred)
 
         if existing_spec:
             return ColumnSpec(
@@ -633,16 +738,33 @@ class NodeSpecBulkValidator:
 
 async def bulk_validate_node_data(
     node_specs: List[NodeSpec],
-    node_graph: Dict[str, List[str]],
     session: AsyncSession,
-    dependency_nodes: Dict[str, Node],
+    node_graph: Dict[str, List[str]] | None = None,
+    dependency_nodes: Dict[str, Node] | None = None,
+    column_overrides: Dict[str, list] | None = None,
 ) -> List[NodeValidationResult]:
     """
     Bulk validate node specifications.
 
     For specs with pre-typed columns (from copying valid nodes), uses a fast
     path that skips SQL parsing and dependency extraction.
+
+    Args:
+        node_specs: Specs to validate.
+        session: Async DB session.
+        node_graph: Optional mapping of node name → list of dependency names.
+            Defaults to an empty graph when not provided (e.g. single-spec hot paths).
+        dependency_nodes: Optional pre-loaded dependency Node objects.
+            Defaults to empty dict; the validator will call extract_dependencies
+            which will load missing nodes from the DB automatically.
+        column_overrides: Optional mapping of upstream node name → proposed column list.
+            Passed to CompileContext so that downstream nodes validate against proposed
+            (not-yet-committed) upstream column state.
     """
+    if node_graph is None:
+        node_graph = {}
+    if dependency_nodes is None:
+        dependency_nodes = {}
     validate_start = time.perf_counter()
     _reparse_column_types(dependency_nodes)
     context = ValidationContext(
@@ -653,6 +775,7 @@ async def bulk_validate_node_data(
             session=session,
             exception=DJException(),
             dependencies_cache=dependency_nodes,
+            column_overrides=column_overrides or {},
         ),
     )
     validator = NodeSpecBulkValidator(context)

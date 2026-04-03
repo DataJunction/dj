@@ -118,7 +118,7 @@ class DimensionLink(Base):
     @staticmethod
     def parse_join_sql(
         join_sql: str,
-        join_type: str,
+        join_type: JoinType,
         node_name: str,
         dimension_name: str,
     ) -> "ast.Query":
@@ -129,7 +129,7 @@ class DimensionLink(Base):
 
         return parse(
             f"select 1 from {node_name} "
-            f"{join_type} join {dimension_name} "
+            f"{join_type.name} join {dimension_name} "
             + (f"on {join_sql}" if join_sql else ""),
         )
 
@@ -139,7 +139,7 @@ class DimensionLink(Base):
         """
         return DimensionLink.parse_join_sql(
             self.join_sql,
-            self.join_type.name if self.join_type else JoinType.LEFT.name,
+            self.join_type or JoinType.LEFT,
             self.node_revision.name,
             self.dimension.name,
         )
@@ -154,7 +154,7 @@ class DimensionLink(Base):
     @staticmethod
     def build_foreign_key_mapping(
         join_sql: str,
-        join_type: str,
+        join_type: JoinType,
         node_name: str,
         dimension_name: str,
     ) -> Dict["ast.Column", "ast.Column"]:
@@ -206,7 +206,7 @@ class DimensionLink(Base):
         """
         return DimensionLink.build_foreign_key_mapping(
             self.join_sql,
-            self.join_type.name if self.join_type else JoinType.LEFT.name,
+            self.join_type or JoinType.LEFT,
             self.node_revision.name,
             self.dimension.name,
         )
