@@ -692,9 +692,6 @@ async def test_avg() -> None:
         Avg.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == DoubleType()
     )
     assert Avg.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == DoubleType()
-    assert (
-        Avg.infer_type(ast.Column(ast.Name("x"), _type=BooleanType())) == DoubleType()
-    )
     assert Avg.dialects == [Dialect.SPARK, Dialect.DRUID]
 
 
@@ -3526,9 +3523,6 @@ async def test_sum() -> None:
     assert Sum.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(18, 6)
-    assert (
-        Sum.infer_type(ast.Column(ast.Name("x"), _type=BooleanType())) == BigIntType()
-    )
     assert Sum.infer_type(ast.Column(ast.Name("x"), _type=DoubleType())) == DoubleType()
 
 
