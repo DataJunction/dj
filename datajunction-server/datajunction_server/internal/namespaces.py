@@ -6,6 +6,7 @@ from collections import defaultdict
 import logging
 import os
 import re
+import textwrap
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -1095,6 +1096,10 @@ async def get_node_specs_for_export(
                 )
                 for dim in node_spec.dimensions
             ]
+            if cube_spec.filters:
+                cube_spec.filters = [
+                    inject_prefixes(f, namespace) for f in cube_spec.filters
+                ]
             # Apply the same parameterization logic to cube column names
             # Columns may reference metrics/dimensions from within or outside the deployment
             if cube_spec.columns:  # pragma: no branch
@@ -1471,8 +1476,9 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         from ruamel.yaml.scalarstring import LiteralScalarString
 
         cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
-        # Strip any trailing newlines to ensure proper YAML parsing
-        cleaned_query = cleaned_query.rstrip("\n")
+        # Strip leading/trailing newlines and dedent to remove common leading whitespace
+        # (prevents ruamel.yaml from emitting |4- instead of |-)
+        cleaned_query = textwrap.dedent(cleaned_query.strip("\n"))
         # Only use literal block style if it's actually multiline
         if "\n" in cleaned_query:
             data["query"] = LiteralScalarString(cleaned_query)
