@@ -954,13 +954,6 @@ def infer_type(
 
 @Avg.register  # type: ignore
 def infer_type(
-    arg: ct.BooleanType,
-) -> ct.DoubleType:
-    return ct.DoubleType()
-
-
-@Avg.register  # type: ignore
-def infer_type(
     arg: ct.NumberType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
