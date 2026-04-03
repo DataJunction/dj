@@ -172,12 +172,12 @@ const mockCubeData = {
   },
 };
 
-const renderPage = (initialEntries = ['/query-planner']) => {
+const renderPage = (initialEntries = ['/planner']) => {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <Routes>
         <Route
-          path="/query-planner"
+          path="/planner"
           element={
             <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
               <QueryPlannerPage />
@@ -384,7 +384,7 @@ describe('QueryPlannerPage', () => {
       mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
 
       renderPage([
-        '/query-planner?metrics=default.num_repair_orders,default.avg_repair_price',
+        '/planner?metrics=default.num_repair_orders,default.avg_repair_price',
       ]);
 
       await waitFor(() => {
@@ -395,7 +395,7 @@ describe('QueryPlannerPage', () => {
     it('initializes from URL with cube parameter', async () => {
       mockDjClient.cubeForPlanner.mockResolvedValue(mockCubeData);
 
-      renderPage(['/query-planner?cube=default.test_cube']);
+      renderPage(['/planner?cube=default.test_cube']);
 
       await waitFor(() => {
         expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith(
@@ -1489,7 +1489,7 @@ describe('QueryPlannerPage', () => {
       // cubeForPlanner returns data without cube_node_metrics array
       mockDjClient.cubeForPlanner.mockResolvedValue({ name: 'bad.cube' });
 
-      renderPage(['/query-planner?cube=bad.cube']);
+      renderPage(['/planner?cube=bad.cube']);
 
       await waitFor(() => {
         expect(mockDjClient.cubeForPlanner).toHaveBeenCalledWith('bad.cube');
@@ -1502,7 +1502,7 @@ describe('QueryPlannerPage', () => {
     it('handles cubeForPlanner throwing during URL init', async () => {
       mockDjClient.cubeForPlanner.mockRejectedValue(new Error('Network error'));
 
-      renderPage(['/query-planner?cube=bad.cube']);
+      renderPage(['/planner?cube=bad.cube']);
 
       await waitFor(() => {
         expect(mockDjClient.cubeForPlanner).toHaveBeenCalled();

@@ -611,7 +611,7 @@ export default function NodePreAggregationsTab({ node }) {
         </div>
         <p className="preagg-no-data-text">
           Pre-aggregations are created when you use the{' '}
-          <a href="/query-planner">Query Planner</a> to plan materializations
+          <a href="/planner">Explorer</a> to plan materializations
           for metrics derived from this node.
         </p>
       </div>
