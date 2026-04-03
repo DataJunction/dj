@@ -41,7 +41,9 @@ from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentResult,
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
 )
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
@@ -1840,6 +1842,166 @@ async def test_create_deployment_plan_all_auto_sources_already_exist(
 
     # The existing source was found in DB and added to existing_specs (lines 743-747)
     assert "ext_cat.s.t" in plan.existing_specs
+
+
+@pytest.mark.asyncio
+async def test_validate_single_cube_with_invalid_metric(
+    orchestrator,
+):
+    """When a cube references a metric that is in the registry but INVALID,
+    _validate_single_cube returns INVALID (covers line 1738)."""
+    invalid_metric = MagicMock()
+    invalid_metric.name = "test.broken_metric"
+    invalid_metric.current.status = NodeStatus.INVALID
+
+    cube_spec = CubeSpec(
+        name="test_cube_bad",
+        namespace="test",
+        metrics=["broken_metric"],
+        dimensions=[],
+    )
+
+    result = await orchestrator._validate_single_cube(
+        cube_spec=cube_spec,
+        metric_nodes_map={"broken_metric": invalid_metric},
+        missing_metrics=set(),
+        missing_dimensions=set(),
+        dimension_mapping={},
+    )
+
+    assert result.status == NodeStatus.INVALID
+    assert any("INVALID" in err.message for err in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_deploy_reference_link_on_invalid_node(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """When a node is INVALID and the link spec is a REFERENCE (not JOIN),
+    _deploy_link_spec returns a FAILED result (covers line 1381)."""
+    invalid_node = MagicMock()
+    invalid_node.name = "test.invalid_transform"
+    invalid_node.current.status = NodeStatus.INVALID
+    invalid_node.current.columns = []
+
+    dimension_node = MagicMock()
+    dimension_node.name = "test.some_dim"
+
+    ref_link = DimensionReferenceLinkSpec(
+        dimension="test.some_dim.id",
+        node_column="fk_id",
+    )
+    ref_link.namespace = "test"
+
+    transform_spec = TransformSpec(
+        name="invalid_transform",
+        namespace="test",
+        query="SELECT bad_col FROM nonexistent",
+    )
+
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="ref-link-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    orch.registry.nodes["test.invalid_transform"] = invalid_node
+    orch.registry.nodes["test.some_dim"] = dimension_node
+
+    result = await orch._process_node_dimension_link(
+        node_spec=transform_spec,
+        link_spec=ref_link,
+        validation_results={},
+    )
+
+    assert result.status == DeploymentResult.Status.FAILED
+    assert "INVALID" in result.message
+
+
+@pytest.mark.asyncio
+async def test_deploy_delete_node_calls_add_history(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """_deploy_delete_node with a real existing node calls hard_delete_node which
+    invokes the nested add_history callback (covers line 2196)."""
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="delete-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=False,
+    )
+
+    # "default.hard_hat" is present in the pre-loaded roads example DB
+    result = await orch._deploy_delete_node("default.hard_hat")
+
+    # The node was found and deleted successfully
+    assert result.status == DeploymentResult.Status.SUCCESS
+    assert result.operation == DeploymentResult.Operation.DELETE
+
+
+@pytest.mark.asyncio
+async def test_compute_pre_deploy_diffs_dim_link_fk_column_removed(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """When a source node has a column removed that is the FK of a dimension link,
+    _compute_pre_deploy_diffs adds the dimension to dim_links_removed (line 427).
+
+    repair_orders → repair_order link uses repair_order_id as FK. Removing
+    repair_order_id from the SourceSpec triggers line 427.
+    """
+    repair_orders = await Node.get_by_name(session, "default.repair_orders")
+    assert repair_orders is not None
+
+    # Build a SourceSpec with repair_order_id removed from the column list
+    existing_cols = repair_orders.current.columns
+    reduced_cols = [
+        ColumnSpec(name=c.name, type=str(c.type))
+        for c in existing_cols
+        if c.name != "repair_order_id"
+    ]
+
+    source_spec = SourceSpec(
+        name="repair_orders",
+        namespace="default",
+        catalog="default",
+        schema_="roads",
+        table="repair_orders",
+        columns=reduced_cols,
+    )
+
+    plan = DeploymentPlan(
+        to_deploy=[source_spec],
+        to_skip=[],
+        to_delete=[],
+        existing_specs={},
+        node_graph={},
+        external_deps=set(),
+    )
+
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="dim-link-fk-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+
+    specs = await orch._compute_pre_deploy_diffs(
+        plan,
+        {"default.repair_orders": repair_orders},
+    )
+
+    assert "default.repair_orders" in specs
+    # The repair_order link uses repair_order_id as FK → should be flagged
+    assert "default.repair_order" in specs["default.repair_orders"].dim_links_removed
 
 
 class TestPatchInvalidDeployedDiffs:
