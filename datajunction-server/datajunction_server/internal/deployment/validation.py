@@ -741,6 +741,7 @@ async def bulk_validate_node_data(
     node_graph: Dict[str, List[str]],
     session: AsyncSession,
     dependency_nodes: Dict[str, Node],
+    column_overrides: Dict[str, list] | None = None,
 ) -> List[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -758,6 +759,7 @@ async def bulk_validate_node_data(
             session=session,
             exception=DJException(),
             dependencies_cache=dependency_nodes,
+            column_overrides=column_overrides or {},
         ),
     )
     validator = NodeSpecBulkValidator(context)
