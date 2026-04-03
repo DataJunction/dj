@@ -320,7 +320,10 @@ class TestNodeSpecToYaml:
         assert node_spec_to_yaml(spec).splitlines() == [
             "name: ns.metrics.revenue",
             "node_type: metric",
-            "owners: [alice@netflix.com, bob@netflix.com, zara@netflix.com]",
+            "owners:",
+            "  - alice@netflix.com",
+            "  - bob@netflix.com",
+            "  - zara@netflix.com",
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
@@ -336,7 +339,10 @@ class TestNodeSpecToYaml:
         assert node_spec_to_yaml(spec).splitlines() == [
             "name: ns.metrics.revenue",
             "node_type: metric",
-            "tags: [core, finance, ratio_metric]",
+            "tags:",
+            "  - core",
+            "  - finance",
+            "  - ratio_metric",
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
@@ -362,7 +368,9 @@ class TestNodeSpecToYaml:
             "columns:",
             "  - name: id",
             "    display_name: ID",
-            "    attributes: [dimension, primary_key]",
+            "    attributes:",
+            "      - dimension",
+            "      - primary_key",
             "query: SELECT id FROM ns.source.s",
         ]
 
@@ -419,8 +427,10 @@ class TestNodeSpecToYaml:
         assert node_spec_to_yaml(spec).splitlines() == [
             "name: ns.metrics.revenue",
             "node_type: metric",
-            "owners: [alice@netflix.com]",
-            "tags: [core]",
+            "owners:",
+            "  - alice@netflix.com",
+            "tags:",
+            "  - core",
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]

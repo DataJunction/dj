@@ -19,7 +19,7 @@ from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.comments import Comment
 from yamlfix import fix_code
-from yamlfix.model import YamlfixConfig
+from yamlfix.model import YamlfixConfig, YamlNodeStyle
 
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.models.deployment import (
@@ -1547,6 +1547,7 @@ def node_spec_to_yaml(node_spec, existing_yaml: str | None = None) -> str:
     yamlfix_config = YamlfixConfig()
     yamlfix_config.explicit_start = False
     yamlfix_config.line_length = 120
+    yamlfix_config.sequence_style = YamlNodeStyle.BLOCK_STYLE
     return fix_code(raw, yamlfix_config)
 
 
