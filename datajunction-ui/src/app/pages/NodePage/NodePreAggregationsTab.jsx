@@ -610,9 +610,8 @@ export default function NodePreAggregationsTab({ node }) {
           No pre-aggregations found for this node.
         </div>
         <p className="preagg-no-data-text">
-          Pre-aggregations are created when you use the{' '}
-          <a href="/planner">Explorer</a> to plan materializations
-          for metrics derived from this node.
+          Visit <a href="/planner">Explorer</a> to plan materializations for
+          metrics derived from this node.
         </p>
       </div>
     );
