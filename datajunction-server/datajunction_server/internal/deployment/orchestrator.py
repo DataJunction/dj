@@ -882,8 +882,18 @@ class DeploymentOrchestrator:
         }
         self.registry.add_nodes(dimensions_map)
 
+        # Nodes that failed validation should not have their links deployed.
+        failed_node_names = {
+            result.name
+            for result in self.deployed_results
+            if result.deploy_type == DeploymentResult.Type.NODE
+            and result.status == DeploymentResult.Status.FAILED
+        }
+
         for node_spec in plan.to_deploy:
             if not isinstance(node_spec, LinkableNodeSpec):
+                continue
+            if node_spec.rendered_name in failed_node_names:
                 continue
             existing_node_spec = cast(
                 LinkableNodeSpec,
