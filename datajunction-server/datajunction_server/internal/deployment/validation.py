@@ -24,6 +24,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     LinkableNodeSpec,
     NodeSpec,
     ColumnSpec,
@@ -110,6 +111,10 @@ class NodeSpecBulkValidator:
         # available on that metric (via get_dimensions).  Only populated for
         # metric nodes that appear as parents of a cross-fact derived metric.
         self._metric_dimensions: Dict[str, set] = {}
+        # Populated by _prefetch_dimension_link_nodes before per-node validation.
+        # Keys: dimension node name; values: Node objects (union of dependency_nodes
+        # + any dimension nodes referenced in dimension_links fetched from DB).
+        self._dim_link_nodes: Dict[str, Node] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
@@ -142,6 +147,11 @@ class NodeSpecBulkValidator:
         # Deduplicated: one get_dimensions call per unique base metric regardless
         # of how many derived metrics in the batch share those base metrics.
         await self._prefetch_metric_dimensions(specs_needing_parse)
+
+        # Pre-fetch dimension nodes referenced in dimension_links so that
+        # _validate_dimension_link_specs can check dim node type and dim-side
+        # column existence without per-link DB queries.
+        await self._prefetch_dimension_link_nodes(specs_needing_parse)
 
         # Build results in original order
         results: List[NodeValidationResult] = [None] * len(node_specs)  # type: ignore
@@ -178,8 +188,16 @@ class NodeSpecBulkValidator:
             node_name = spec.rendered_name
 
             for link in spec.dimension_links:
-                if isinstance(link, DimensionJoinLinkSpec) and link.rendered_join_on:
-                    self._validate_join_link(
+                if isinstance(link, DimensionJoinLinkSpec):
+                    if link.rendered_join_on:
+                        self._validate_join_link(
+                            result,
+                            link,
+                            node_name,
+                            inferred_col_names,
+                        )
+                elif isinstance(link, DimensionReferenceLinkSpec):
+                    self._validate_reference_link(
                         result,
                         link,
                         node_name,
@@ -194,15 +212,48 @@ class NodeSpecBulkValidator:
         inferred_col_names: set,
     ) -> None:
         """
-        Validate join_on SQL and column references for a single DimensionJoinLinkSpec.
+        Validate a single DimensionJoinLinkSpec.
 
-        - Parse the join clause; malformed SQL adds an INVALID_SQL_QUERY error.
-        - Verify all column references belong to either the node or the dimension.
-        - Verify node-side columns exist in the node's inferred columns.
-          Dimension-side columns are skipped (not loaded at validation time).
+        Checks (in order):
+        - Dim node exists and is type DIMENSION (if not in _dim_link_nodes, skip dim-side
+          checks gracefully — the dim node may be newly deployed in the same batch).
+        - Self-join requires a role.
+        - join_on SQL parses without error.
+        - Column table references in the ON clause belong to either the node or the dim.
+        - Node-side columns exist in the node's inferred columns.
+        - Dim-side columns exist on the dim node (if loaded).
         """
         dim_name = link.rendered_dimension_node
         assert link.rendered_join_on  # guarded by caller
+
+        dim_node = self._dim_link_nodes.get(dim_name)
+
+        if dim_node is not None and dim_node.type != NodeType.DIMENSION:
+            result.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        f"Cannot link dimension to node '{node_name}': '{dim_name}' is"
+                        f" not a dimension node (type: {dim_node.type})."
+                    ),
+                ),
+            )
+            result.status = NodeStatus.INVALID
+            return
+
+        if node_name == dim_name and not link.role:
+            result.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        f"Self-join dimension links require a role to distinguish the"
+                        f" relationship. Please specify a role for the link from"
+                        f" {node_name} to itself."
+                    ),
+                ),
+            )
+            result.status = NodeStatus.INVALID
+            return
 
         try:
             tree = DimensionLink.parse_join_sql(
@@ -224,6 +275,12 @@ class NodeSpecBulkValidator:
         joins = tree.select.from_.relations[-1].extensions  # type: ignore[union-attr]
         if not (joins and joins[0].criteria and joins[0].criteria.on):
             return
+
+        dim_col_names = (
+            {col.name for col in dim_node.current.columns}
+            if dim_node is not None and dim_node.current
+            else None
+        )
 
         valid_tables = {node_name, dim_name}
         for col in joins[0].criteria.on.find_all(ast.Column):
@@ -254,6 +311,82 @@ class NodeSpecBulkValidator:
                     ),
                 )
                 result.status = NodeStatus.INVALID
+            elif (
+                node_ref == dim_name
+                and dim_col_names is not None
+                and col_name not in dim_col_names
+            ):
+                result.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=(
+                            f"Column '{col_name}' referenced in join_on"
+                            f" for '{dim_name}' not found on dimension node '{dim_name}'"
+                        ),
+                    ),
+                )
+                result.status = NodeStatus.INVALID
+
+    def _validate_reference_link(
+        self,
+        result: "NodeValidationResult",
+        link: DimensionReferenceLinkSpec,
+        node_name: str,
+        inferred_col_names: set,
+    ) -> None:
+        """
+        Validate a single DimensionReferenceLinkSpec.
+
+        Checks (if the dim node is loaded):
+        - Dim node is type DIMENSION.
+        - link.dimension_attribute exists on the dim node's columns.
+        - link.node_column exists on the origin node's inferred columns.
+
+        If the dim node is not in _dim_link_nodes (newly deployed in same batch),
+        dim-side checks are skipped gracefully.
+        """
+        dim_name = link.rendered_dimension_node
+        dim_node = self._dim_link_nodes.get(dim_name)
+
+        if dim_node is not None:
+            if dim_node.type != NodeType.DIMENSION:
+                result.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_SQL_QUERY,
+                        message=(
+                            f"Cannot link dimension to node '{node_name}': '{dim_name}' is"
+                            f" not a dimension node (type: {dim_node.type})."
+                        ),
+                    ),
+                )
+                result.status = NodeStatus.INVALID
+                return
+
+            if dim_node.current:
+                dim_col_names = {col.name for col in dim_node.current.columns}
+                if link.dimension_attribute not in dim_col_names:
+                    result.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_COLUMN,
+                            message=(
+                                f"Dimension attribute '{link.dimension_attribute}' not found in"
+                                f" dimension node '{dim_name}' for link in node '{node_name}'."
+                            ),
+                        ),
+                    )
+                    result.status = NodeStatus.INVALID
+
+        if link.node_column not in inferred_col_names:
+            result.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Node column '{link.node_column}' referenced in reference link to"
+                        f" '{dim_name}' not found on node '{node_name}'"
+                    ),
+                ),
+            )
+            result.status = NodeStatus.INVALID
 
     def _validate_without_parsing(self, spec: NodeSpec) -> NodeValidationResult:
         """
@@ -434,6 +567,41 @@ class NodeSpecBulkValidator:
             )
             for node in result.scalars().all():
                 self._all_dim_nodes[node.name] = node
+
+    async def _prefetch_dimension_link_nodes(
+        self,
+        specs: list[NodeSpec],
+    ) -> None:
+        """
+        Collect all dimension node names referenced via dimension_links across the
+        batch, fetch any not already in dependency_nodes in a single DB query, and
+        store the combined map in self._dim_link_nodes.
+
+        Mirrors _prefetch_required_dimension_nodes but for dimension link targets.
+        Nodes not found in the DB (newly deployed in the same batch) are simply
+        absent from _dim_link_nodes; callers skip dim-side checks for those.
+        """
+        dim_link_node_names: set[str] = set()
+        for spec in specs:
+            if isinstance(spec, LinkableNodeSpec) and spec.dimension_links:
+                for link in spec.dimension_links:
+                    dim_link_node_names.add(link.rendered_dimension_node)
+
+        self._dim_link_nodes = dict(self.context.dependency_nodes)
+
+        missing = dim_link_node_names - set(self._dim_link_nodes)
+        if missing:
+            result = await self.context.session.execute(
+                select(Node)
+                .filter(Node.name.in_(missing))
+                .options(
+                    selectinload(Node.current).options(
+                        selectinload(NodeRevision.columns),
+                    ),
+                ),
+            )
+            for node in result.scalars().all():
+                self._dim_link_nodes[node.name] = node
 
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """

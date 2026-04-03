@@ -1,10 +1,9 @@
-import asyncio
 import logging
 import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Coroutine, cast
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,7 +49,6 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.construction.build import validate_shared_dimensions
 from datajunction_server.internal.nodes import (
     hard_delete_node,
-    validate_complex_dimension_link,
 )
 from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.base import labelize
@@ -884,8 +882,6 @@ class DeploymentOrchestrator:
         }
         self.registry.add_nodes(dimensions_map)
 
-        validation_results = await self.validate_dimension_links(plan)
-
         for node_spec in plan.to_deploy:
             if not isinstance(node_spec, LinkableNodeSpec):
                 continue
@@ -913,7 +909,6 @@ class DeploymentOrchestrator:
                 link_result = await self._process_node_dimension_link(
                     node_spec=node_spec,
                     link_spec=link_spec,
-                    validation_results=validation_results,
                 )
                 deployed_links.append(link_result)
         await self.session.commit()
@@ -976,7 +971,6 @@ class DeploymentOrchestrator:
         self,
         node_spec: NodeSpec,
         link_spec: DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
-        validation_results: dict[tuple[str, str, str | None], Exception | None],
     ) -> DeploymentResult:
         link_name = f"{node_spec.rendered_name} -> {link_spec.rendered_dimension_node}"
         node = self.registry.nodes.get(node_spec.rendered_name)
@@ -991,26 +985,6 @@ class DeploymentOrchestrator:
             return self._create_missing_node_link_result(  # pragma: no cover
                 link_name,
                 link_spec.rendered_dimension_node,
-            )
-
-        result = validation_results.get(
-            (node.name, dimension_node.name, link_spec.role),
-        )
-        if isinstance(result, Exception):
-            logger.error(
-                "Dimension link validation failed for %s: %s",
-                link_name,
-                result,
-            )
-            return DeploymentResult(
-                name=link_name,
-                deploy_type=DeploymentResult.Type.LINK,
-                status=DeploymentResult.Status.FAILED,
-                operation=DeploymentResult.Operation.CREATE,
-                message=(
-                    f"Dimension link from {node.name} to"
-                    f" {dimension_node.name} is invalid: {result}"
-                ),
             )
 
         return await self._create_or_update_dimension_link(
@@ -1931,47 +1905,6 @@ class DeploymentOrchestrator:
             )
         return deps_not_in_deployment, []
 
-    async def validate_dimension_links(self, plan: DeploymentPlan):
-        """
-        Validate all dimension links for nodes in the deployment plan.
-        Returns:
-            - Dictionary mapping (node_name, dimension_node_name, role) -> join result
-        """
-        start_validation = time.perf_counter()
-        validation_data = []
-        validation_tasks: list[Coroutine] = []
-        logger.info("Validating %d dimension links", len(validation_tasks))
-
-        for node_spec in plan.to_deploy:
-            if hasattr(node_spec, "dimension_links") and node_spec.dimension_links:
-                for link in node_spec.dimension_links:
-                    validation_data.append(
-                        {
-                            "node_name": node_spec.rendered_name,
-                            "dimension_node_name": link.rendered_dimension_node,
-                            "role": link.role,
-                        },
-                    )
-                    validation_tasks.append(
-                        self.validate_dimension_link(node_spec.rendered_name, link),
-                    )
-
-        results = await asyncio.gather(*validation_tasks, return_exceptions=True)
-        link_mapping = {
-            (
-                validation_data[idx]["node_name"],
-                validation_data[idx]["dimension_node_name"],
-                validation_data[idx]["role"],
-            ): result
-            for idx, result in enumerate(results)
-        }
-        logger.info(
-            "Finished validating %d dimension links in %.3fs",
-            len(link_mapping),
-            time.perf_counter() - start_validation,
-        )
-        return link_mapping
-
     async def bulk_deploy_nodes_in_level(
         self,
         node_specs: list[NodeSpec],
@@ -2455,46 +2388,6 @@ class DeploymentOrchestrator:
             node_revision.dimension_links.append(dimension_link)  # type: ignore
         return dimension_link, activity_type
 
-    async def validate_dimension_link(
-        self,
-        node_name: str,
-        link: DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
-    ):
-        """Validate a single dimension link specification"""
-        dimension_node_name = link.rendered_dimension_node
-        if node_name not in self.registry.nodes:
-            raise DJInvalidInputException(
-                message=f"Node {node_name} does not exist for linking.",
-            )
-        if dimension_node_name not in self.registry.nodes:
-            raise DJInvalidInputException(  # pragma: no cover
-                message=(
-                    f"Dimension node {dimension_node_name} does not"
-                    f" exist for linking to {node_name}"
-                ),
-            )
-        if link.type == LinkType.JOIN:
-            await validate_complex_dimension_link(
-                self.session,
-                self.registry.nodes.get(node_name),  # type: ignore
-                self.registry.nodes.get(dimension_node_name),  # type: ignore
-                JoinLinkInput(
-                    dimension_node=dimension_node_name,
-                    join_type=link.join_type,
-                    join_on=link.rendered_join_on,
-                    role=link.role,
-                    default_value=link.default_value,
-                    spark_hints=link.spark_hints,
-                ),
-                self.registry.nodes,
-            )
-        elif link.type == LinkType.REFERENCE:  # pragma: no cover
-            await validate_reference_dimension_link(
-                link,
-                self.registry.nodes.get(node_name),  # type: ignore
-                self.registry.nodes.get(dimension_node_name),  # type: ignore
-            )
-
 
 def tag_needs_update(existing_tag: Tag, tag_spec: TagSpec) -> bool:
     """Check if tag actually needs updating"""
@@ -2504,26 +2397,6 @@ def tag_needs_update(existing_tag: Tag, tag_spec: TagSpec) -> bool:
         or existing_tag.display_name
         != (tag_spec.display_name or labelize(tag_spec.name))
     )
-
-
-async def validate_reference_dimension_link(
-    link: DimensionReferenceLinkSpec,
-    node: Node,
-    dim_node: Node,
-) -> None:
-    """
-    Placeholder for validating reference dimension links
-    """
-    if not any(
-        col.name == link.dimension_attribute for col in dim_node.current.columns
-    ):
-        raise DJInvalidInputException(
-            message=(
-                f"Dimension attribute '{link.dimension_attribute}' not found in"
-                f" dimension node '{link.rendered_dimension_node}' for link in node"
-                f" '{node.name}'."
-            ),
-        )
 
 
 def column_changed(desired_col: ColumnSpec, col: Column | None) -> bool:

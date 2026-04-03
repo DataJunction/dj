@@ -16,6 +16,7 @@ from datajunction_server.internal.deployment.validation import (
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     MetricSpec,
     SourceSpec,
     TransformSpec,
@@ -1155,6 +1156,57 @@ class TestDimLinkValidation:
             validator._validate_dimension_link_specs([result])
 
         # No errors: criteria=None makes line 225 falsy → column check skipped
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_join_link_with_no_join_on_is_skipped(self, session: AsyncSession):
+        """A DimensionJoinLinkSpec with no join_on is silently skipped."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="id", type="int")],
+            dimension_links=[DimensionJoinLinkSpec(dimension_node="test.dim")],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_reference_link_is_skipped(self, session: AsyncSession):
+        """A DimensionReferenceLinkSpec is silently skipped (no join_on to validate)."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="dim_id", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.dim.id",
+                    node_column="dim_id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="dim_id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
         assert result.status == NodeStatus.VALID
         assert result.errors == []
 
