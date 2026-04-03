@@ -738,33 +738,16 @@ class NodeSpecBulkValidator:
 
 async def bulk_validate_node_data(
     node_specs: List[NodeSpec],
+    node_graph: Dict[str, List[str]],
     session: AsyncSession,
-    node_graph: Dict[str, List[str]] | None = None,
-    dependency_nodes: Dict[str, Node] | None = None,
-    column_overrides: Dict[str, list] | None = None,
+    dependency_nodes: Dict[str, Node],
 ) -> List[NodeValidationResult]:
     """
     Bulk validate node specifications.
 
     For specs with pre-typed columns (from copying valid nodes), uses a fast
     path that skips SQL parsing and dependency extraction.
-
-    Args:
-        node_specs: Specs to validate.
-        session: Async DB session.
-        node_graph: Optional mapping of node name → list of dependency names.
-            Defaults to an empty graph when not provided (e.g. single-spec hot paths).
-        dependency_nodes: Optional pre-loaded dependency Node objects.
-            Defaults to empty dict; the validator will call extract_dependencies
-            which will load missing nodes from the DB automatically.
-        column_overrides: Optional mapping of upstream node name → proposed column list.
-            Passed to CompileContext so that downstream nodes validate against proposed
-            (not-yet-committed) upstream column state.
     """
-    if node_graph is None:
-        node_graph = {}
-    if dependency_nodes is None:
-        dependency_nodes = {}
     validate_start = time.perf_counter()
     _reparse_column_types(dependency_nodes)
     context = ValidationContext(
@@ -775,7 +758,6 @@ async def bulk_validate_node_data(
             session=session,
             exception=DJException(),
             dependencies_cache=dependency_nodes,
-            column_overrides=column_overrides or {},
         ),
     )
     validator = NodeSpecBulkValidator(context)
