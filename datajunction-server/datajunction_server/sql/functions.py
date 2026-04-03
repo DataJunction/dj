@@ -4330,13 +4330,6 @@ class Sum(Function):
 
 @Sum.register  # type: ignore
 def infer_type(
-    arg: ct.BooleanType,
-) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-@Sum.register  # type: ignore
-def infer_type(
     arg: ct.IntegerBase,
 ) -> ct.BigIntType:
     return ct.BigIntType()
