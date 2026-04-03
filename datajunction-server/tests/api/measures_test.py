@@ -209,7 +209,9 @@ async def test_edit_measure(
         },
     )
     assert response.status_code in (200, 201)
-    assert response.json() == {
+    result = response.json()
+    result["columns"] = sorted(result["columns"], key=lambda c: c["name"])
+    assert result == {
         "additive": "non-additive",
         "columns": [
             {
