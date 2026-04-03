@@ -1310,7 +1310,10 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Some columns in the primary key ['hard_hat_id'] were not found in "
                     "the list of available columns for the node "
-                    f"{namespace}.default.hard_hat.",
+                    f"{namespace}.default.hard_hat.; "
+                    f"Column 'state' referenced in join_on for "
+                    f"'{namespace}.default.us_state' not found on node "
+                    f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "failed",
                     "operation": "create",

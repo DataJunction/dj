@@ -112,9 +112,14 @@ class NodeSpecBulkValidator:
         # metric nodes that appear as parents of a cross-fact derived metric.
         self._metric_dimensions: Dict[str, set] = {}
         # Populated by _prefetch_dimension_link_nodes before per-node validation.
-        # Keys: dimension node name; values: Node objects (union of dependency_nodes
-        # + any dimension nodes referenced in dimension_links fetched from DB).
+        # Keys: dimension node name; values: Node objects for nodes referenced as
+        # dimension link targets. Only includes nodes that are actually referenced,
+        # not all dependency_nodes.
         self._dim_link_nodes: Dict[str, Node] = {}
+        # Pre-computed column name sets for dimension link target nodes.
+        # Computed during _prefetch_dimension_link_nodes (async context) so that
+        # the sync _validate_*_link methods never trigger ORM lazy loads.
+        self._dim_link_col_names: Dict[str, set] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> List[NodeValidationResult]:
         """
@@ -276,11 +281,7 @@ class NodeSpecBulkValidator:
         if not (joins and joins[0].criteria and joins[0].criteria.on):
             return
 
-        dim_col_names = (
-            {col.name for col in dim_node.current.columns}
-            if dim_node is not None and dim_node.current
-            else None
-        )
+        dim_col_names = self._dim_link_col_names.get(dim_name)
 
         valid_tables = {node_name, dim_name}
         for col in joins[0].criteria.on.find_all(ast.Column):
@@ -362,8 +363,8 @@ class NodeSpecBulkValidator:
                 result.status = NodeStatus.INVALID
                 return
 
-            if dim_node.current:
-                dim_col_names = {col.name for col in dim_node.current.columns}
+            dim_col_names = self._dim_link_col_names.get(dim_name)
+            if dim_col_names is not None:
                 if link.dimension_attribute not in dim_col_names:
                     result.errors.append(
                         DJError(
@@ -575,9 +576,13 @@ class NodeSpecBulkValidator:
         """
         Collect all dimension node names referenced via dimension_links across the
         batch, fetch any not already in dependency_nodes in a single DB query, and
-        store the combined map in self._dim_link_nodes.
+        store the results in self._dim_link_nodes and self._dim_link_col_names.
 
-        Mirrors _prefetch_required_dimension_nodes but for dimension link targets.
+        Only stores nodes that are actually referenced as dimension link targets
+        (not all dependency_nodes).  Column name sets are pre-computed here in the
+        async context so that the sync _validate_*_link methods never trigger ORM
+        lazy loads.
+
         Nodes not found in the DB (newly deployed in the same batch) are simply
         absent from _dim_link_nodes; callers skip dim-side checks for those.
         """
@@ -587,7 +592,13 @@ class NodeSpecBulkValidator:
                 for link in spec.dimension_links:
                     dim_link_node_names.add(link.rendered_dimension_node)
 
-        self._dim_link_nodes = dict(self.context.dependency_nodes)
+        if not dim_link_node_names:
+            return
+
+        # Start with any already-loaded dependency nodes that are dim link targets.
+        for name in dim_link_node_names:
+            if name in self.context.dependency_nodes:
+                self._dim_link_nodes[name] = self.context.dependency_nodes[name]
 
         missing = dim_link_node_names - set(self._dim_link_nodes)
         if missing:
@@ -602,6 +613,15 @@ class NodeSpecBulkValidator:
             )
             for node in result.scalars().all():
                 self._dim_link_nodes[node.name] = node
+
+        # Pre-compute column name sets while we are still in async context so
+        # that _validate_join_link / _validate_reference_link (sync) never need
+        # to touch ORM relationships directly.
+        for name, node in self._dim_link_nodes.items():
+            if node.current:
+                self._dim_link_col_names[name] = {
+                    col.name for col in node.current.columns
+                }
 
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """
