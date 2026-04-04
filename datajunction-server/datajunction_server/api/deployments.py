@@ -190,12 +190,13 @@ class InProcessExecutor(DeploymentExecutor):
 
         try:
             async with session_context() as session:
-                results = await deploy(
+                execute_result = await deploy(
                     session=session,
                     deployment_id=deployment_id,
                     deployment=deployment_spec,
                     context=context,
                 )
+                results = execute_result.results
                 final_status = (
                     DeploymentStatus.SUCCESS
                     if all(

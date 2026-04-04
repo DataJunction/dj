@@ -38,6 +38,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.database.node import Node
 from datajunction_server.models.node import (
+    NodeMode,
     NodeType,
 )
 import pytest
@@ -379,32 +380,38 @@ async def test_check_external_dependencies(
     ]
     orchestrator = create_test_orchestrator(valid_nodes)
     node_graph = extract_node_graph(valid_nodes)
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     assert external_deps == set()
     assert auto_registered == []
+    assert missing == []
 
-    # One external dependency that doesn't exist yet
+    # One external dependency that doesn't exist yet — no longer raises, returns missing
     nodes = [
         node_spec for node_spec in basic_nodes if node_spec.name != "example.cube_node"
     ]
     orchestrator = create_test_orchestrator(nodes)
     node_graph = extract_node_graph(nodes)
-    with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
-        await orchestrator.check_external_deps(node_graph)
-    assert (
-        str(excinfo.value)
-        == "The following dependencies are not in the deployment and do not pre-exist in the system: catalog.dim.categories"
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
     )
+    assert missing == ["catalog.dim.categories"]
 
     # External dependency exists in the system
     async with external_source_node(session, current_user, catalog) as _:
         orchestrator = create_test_orchestrator(basic_nodes)
         node_graph = extract_node_graph(basic_nodes)
-        external_deps, auto_registered = await orchestrator.check_external_deps(
+        (
+            external_deps,
+            auto_registered,
+            missing,
+        ) = await orchestrator.check_external_deps(
             node_graph,
         )
         assert external_deps == {"catalog.dim.categories"}
         assert auto_registered == []
+        assert missing == []
 
 
 async def mock_save_history(event, session):
@@ -609,10 +616,13 @@ async def test_check_external_deps_dimension_attribute_reference(
     node_graph = extract_node_graph([metric_with_dim_attr])
 
     # Should not raise because catalog.dim.categories exists
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     # The dimension node should be in external deps (not the attribute)
     assert "catalog.dim.categories" in external_deps
     assert auto_registered == []
+    assert missing == []
 
 
 async def test_check_external_deps_namespace_prefix_filtering(
@@ -641,10 +651,13 @@ async def test_check_external_deps_namespace_prefix_filtering(
     # The node_graph will have deps like catalog.dim.categories.dateint and catalog.dim.categories
     # check_external_deps should handle this correctly - categories exists, so the attribute
     # reference should be filtered out
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     # catalog.dim.categories should be in external deps (the actual node)
     assert "catalog.dim.categories" in external_deps
     assert auto_registered == []
+    assert missing == []
 
 
 async def test_virtual_catalog_fallback_for_parentless_nodes(
@@ -1766,7 +1779,7 @@ async def test_auto_register_sources_disabled(session: AsyncSession):
         auto_register_sources=False,  # Explicitly disabled
         nodes=[
             TransformSpec(
-                name="test.my_transform",
+                name="my_transform",
                 query="SELECT id FROM testcatalog.myschema.mytable",
             ),
         ],
@@ -1783,12 +1796,12 @@ async def test_auto_register_sources_disabled(session: AsyncSession):
     await orchestrator._setup_deployment_resources()
     await orchestrator._validate_deployment_resources()
 
-    # With auto_register_sources=False, missing dependencies should cause an error
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        await orchestrator._create_deployment_plan()
-
-    # Verify error message mentions missing dependencies
-    assert "do not pre-exist in the system" in str(exc_info.value)
+    # With auto_register_sources=False, nodes with missing deps stay in to_deploy
+    # so they are deployed as INVALID (not pre-filtered) and downstream impact is tracked.
+    plan = await orchestrator._create_deployment_plan()
+    assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
+        "Node with missing dep should remain in to_deploy for natural validation"
+    )
 
 
 @pytest.mark.asyncio
@@ -1803,7 +1816,7 @@ async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
         auto_register_sources=True,
         nodes=[
             TransformSpec(
-                name="test.my_transform",
+                name="my_transform",
                 query="SELECT id FROM nonexistent.myschema.mytable",
             ),
         ],
@@ -1820,11 +1833,12 @@ async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
     await orchestrator._setup_deployment_resources()
     await orchestrator._validate_deployment_resources()
 
-    # Should raise DJInvalidDeploymentConfig with error about missing catalog
-    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
-        await orchestrator._create_deployment_plan()
-
-    assert "nonexistent.myschema.mytable" in str(exc_info.value)
+    # auto_register_sources=True but catalog doesn't exist → node stays in to_deploy
+    # so it is deployed as INVALID and its downstream impact is tracked.
+    plan = await orchestrator._create_deployment_plan()
+    assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
+        "Node with unregistrable dep should remain in to_deploy for natural validation"
+    )
 
 
 @pytest.mark.asyncio
@@ -1982,3 +1996,459 @@ async def test_auto_register_sources_no_duplication(session: AsyncSession):
 
     # Query service should only be called once (no duplication)
     assert mock_query_service.get_columns_for_tables_batch.call_count == 1
+
+
+class TestDiffColumnMetadata:
+    """Unit tests for _diff_column_metadata in orchestrator.py."""
+
+    def test_column_added(self):
+        """A new column in new_cols that is absent from old_cols is detected (line 119)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [
+            ColumnSpec(name="id", type="int"),
+            ColumnSpec(name="new_col", type="string"),
+        ]
+        old_cols = [ColumnSpec(name="id", type="int")]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("Column added: new_col" in n for n in notes)
+
+    def test_column_attribute_change(self):
+        """Attribute change on a shared column is detected (lines 131-138)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int", attributes=["unique"])]
+        old_cols = [ColumnSpec(name="id", type="int", attributes=["not_null"])]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("attributes" in n for n in notes)
+
+    def test_column_attribute_added_only(self):
+        """Adding an attribute (no removals) is detected (lines 134-135)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [
+            ColumnSpec(name="id", type="int", attributes=["unique", "not_null"]),
+        ]
+        old_cols = [ColumnSpec(name="id", type="int", attributes=["not_null"])]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("+unique" in n for n in notes)
+
+    def test_column_display_name_change(self):
+        """A display_name change on a shared column is detected (line 142->143)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int", display_name="New Name")]
+        old_cols = [ColumnSpec(name="id", type="int", display_name="Old Name")]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("display_name" in n for n in notes)
+
+    def test_column_description_change(self):
+        """A description change on a shared column is detected (line 150->151)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int", description="New desc")]
+        old_cols = [ColumnSpec(name="id", type="int", description="Old desc")]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("description changed" in n for n in notes)
+
+    def test_column_attribute_removed_only(self):
+        """Removing an attribute (no additions) covers the 134->136 false branch."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int")]  # no attributes
+        old_cols = [ColumnSpec(name="id", type="int", attributes=["not_null"])]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert any("-not_null" in n for n in notes)
+
+    def test_no_changes_returns_empty(self):
+        """No changes returns an empty list (no notes appended)."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [ColumnSpec(name="id", type="int")]
+        old_cols = [ColumnSpec(name="id", type="int")]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        assert notes == []
+
+    def test_multiple_changes_in_same_column(self):
+        """Both display_name and description changes in the same column are captured."""
+        from datajunction_server.internal.deployment.orchestrator import (
+            _diff_column_metadata,
+        )
+        from datajunction_server.models.deployment import ColumnSpec
+
+        new_cols = [
+            ColumnSpec(
+                name="id",
+                type="int",
+                display_name="New",
+                description="New desc",
+            ),
+        ]
+        old_cols = [
+            ColumnSpec(
+                name="id",
+                type="int",
+                display_name="Old",
+                description="Old desc",
+            ),
+        ]
+        notes = _diff_column_metadata(new_cols, old_cols)
+        combined = " ".join(notes)
+        assert "display_name" in combined
+        assert "description changed" in combined
+
+
+class TestLogSpecDiff:
+    """Unit tests for DeploymentOrchestrator._log_spec_diff."""
+
+    def _make_orchestrator(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            DeploymentOrchestrator,
+        )
+        from datajunction_server.internal.deployment.utils import DeploymentContext
+
+        user = MagicMock()
+        user.username = "test"
+        context = DeploymentContext(current_user=user)
+        spec = DeploymentSpec(namespace="test")
+        return DeploymentOrchestrator(
+            deployment_spec=spec,
+            deployment_id="test-id",
+            session=MagicMock(),
+            context=context,
+        )
+
+    def test_node_type_change(self):
+        """node_type difference is logged (line 2273)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 1 AS x")
+        old_spec = MetricSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT count(1) AS cnt",
+        )
+        # Should not raise
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_display_name_change(self):
+        """display_name difference is logged (line 2280)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            display_name="New Name",
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            display_name="Old Name",
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_description_change(self):
+        """description difference is logged (line 2286)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            description="New desc",
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            description=None,
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_owners_change(self):
+        """owners difference is logged (line 2290)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            owners=["alice"],
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            owners=["bob"],
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_tags_change(self):
+        """tags difference is logged (line 2294)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            tags=["new_tag"],
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            tags=[],
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_mode_change(self):
+        """mode difference is logged (line 2298)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            mode=NodeMode.DRAFT,
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            mode=NodeMode.PUBLISHED,
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_query_change(self):
+        """query difference is logged (line 2301->2306)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 2 AS x")
+        old_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 1 AS x")
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_source_catalog_change(self):
+        """Source catalog difference is logged (line 2313)."""
+        orch = self._make_orchestrator()
+        new_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="new_cat",
+            schema_="s",
+            table="t",
+        )
+        old_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="old_cat",
+            schema_="s",
+            table="t",
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_source_schema_change(self):
+        """Source schema difference is logged (line 2321)."""
+        orch = self._make_orchestrator()
+        new_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="cat",
+            schema_="new_schema",
+            table="t",
+        )
+        old_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="cat",
+            schema_="old_schema",
+            table="t",
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_source_table_change(self):
+        """Source table difference is logged (line 2329)."""
+        orch = self._make_orchestrator()
+        new_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="cat",
+            schema_="s",
+            table="new_table",
+        )
+        old_spec = SourceSpec(
+            namespace="test",
+            name="my_source",
+            catalog="cat",
+            schema_="s",
+            table="old_table",
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_cube_metrics_change(self):
+        """Cube metrics difference is logged (lines 2357-2360)."""
+        orch = self._make_orchestrator()
+        new_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m1", "test.m2"],
+            dimensions=[],
+        )
+        old_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m1"],
+            dimensions=[],
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_cube_dimensions_change(self):
+        """Cube dimensions difference is logged (lines 2361-2364)."""
+        orch = self._make_orchestrator()
+        new_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m1"],
+            dimensions=["test.d2"],
+        )
+        old_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m1"],
+            dimensions=["test.d1"],
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+    def test_custom_metadata_change(self):
+        """custom_metadata difference is logged (line 2374)."""
+        orch = self._make_orchestrator()
+        new_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            custom_metadata={"key": "new"},
+        )
+        old_spec = TransformSpec(
+            namespace="test",
+            name="node_a",
+            query="SELECT 1 AS x",
+            custom_metadata={"key": "old"},
+        )
+        orch._log_spec_diff(new_spec, old_spec)
+
+
+class TestFallbackCatalogAndInferCubeCatalog:
+    """Unit tests for _fallback_catalog and _infer_cube_catalog."""
+
+    def _make_orchestrator(self, spec):
+        from datajunction_server.internal.deployment.orchestrator import (
+            DeploymentOrchestrator,
+        )
+        from datajunction_server.internal.deployment.utils import DeploymentContext
+
+        user = MagicMock()
+        user.username = "test"
+        context = DeploymentContext(current_user=user)
+        return DeploymentOrchestrator(
+            deployment_spec=spec,
+            deployment_id="test-id",
+            session=MagicMock(),
+            context=context,
+        )
+
+    def test_fallback_catalog_with_default_catalog(self):
+        """_fallback_catalog returns catalog from registry when default_catalog is set (line 2797)."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test", default_catalog="my_catalog")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["my_catalog"] = mock_catalog
+        result = orch._fallback_catalog()
+        assert result == mock_catalog
+
+    def test_fallback_catalog_no_default_catalog(self):
+        """_fallback_catalog returns None when no default_catalog is configured."""
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        result = orch._fallback_catalog()
+        assert result is None
+
+    def test_infer_cube_catalog_uses_fallback(self):
+        """_infer_cube_catalog uses _fallback_catalog when default_catalog is set (line 2812)."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test", default_catalog="my_catalog")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["my_catalog"] = mock_catalog
+        cube_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m"],
+            dimensions=[],
+        )
+        result = orch._infer_cube_catalog(cube_spec, None)
+        assert result == mock_catalog
+
+    def test_infer_cube_catalog_uses_metric_catalog(self):
+        """_infer_cube_catalog uses a metric's catalog when no fallback (lines 2815-2816)."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        mock_metric = MagicMock()
+        mock_metric.current.catalog = mock_catalog
+        orch.registry.nodes["test.m"] = mock_metric
+        cube_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m"],
+            dimensions=[],
+        )
+        result = orch._infer_cube_catalog(cube_spec, None)
+        assert result == mock_catalog
+
+    def test_infer_cube_catalog_uses_existing_node_catalog(self):
+        """_infer_cube_catalog uses existing node's catalog when metric has no catalog (lines 2817-2818)."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        # Metric node exists but has no catalog
+        mock_metric = MagicMock()
+        mock_metric.current.catalog = None
+        orch.registry.nodes["test.m"] = mock_metric
+        existing = MagicMock()
+        existing.current.catalog = mock_catalog
+        cube_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m"],
+            dimensions=[],
+        )
+        result = orch._infer_cube_catalog(cube_spec, existing)
+        assert result == mock_catalog
+
+    def test_infer_cube_catalog_returns_none_when_all_fail(self):
+        """_infer_cube_catalog returns None when no catalog can be inferred (line 2819)."""
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        orch.registry.nodes["test.m"] = None
+        cube_spec = CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["test.m"],
+            dimensions=[],
+        )
+        result = orch._infer_cube_catalog(cube_spec, None)
+        assert result is None
