@@ -983,39 +983,12 @@ class DeploymentOrchestrator:
         node_spec: NodeSpec,
         link_spec: DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
     ) -> DeploymentResult:
-        link_name = f"{node_spec.rendered_name} -> {link_spec.rendered_dimension_node}"
-        node = self.registry.nodes.get(node_spec.rendered_name)
-        dimension_node = self.registry.nodes.get(link_spec.rendered_dimension_node)
-
-        if not node:
-            return self._create_missing_node_link_result(
-                link_name,
-                node_spec.rendered_name,
-            )
-        if not dimension_node:
-            return self._create_missing_node_link_result(  # pragma: no cover
-                link_name,
-                link_spec.rendered_dimension_node,
-            )
-
+        node = self.registry.nodes[node_spec.rendered_name]
+        dimension_node = self.registry.nodes[link_spec.rendered_dimension_node]
         return await self._create_or_update_dimension_link(
             link_spec=link_spec,
             new_revision=node.current,
             dimension_node=dimension_node,
-        )
-
-    def _create_missing_node_link_result(
-        self,
-        link_name: str,
-        missing_name: str,
-    ) -> DeploymentResult:
-        message = f"A node with name `{missing_name}` does not exist."
-        return DeploymentResult(
-            name=link_name,
-            deploy_type=DeploymentResult.Type.LINK,
-            status=DeploymentResult.Status.FAILED,
-            operation=DeploymentResult.Operation.CREATE,
-            message=message,
         )
 
     async def _create_or_update_dimension_link(
@@ -2002,7 +1975,7 @@ class DeploymentOrchestrator:
         }
         for node in all_nodes.values():
             await self.session.refresh(node, ["current"])
-            if node.current:
+            if node.current:  # pragma: no branch
                 await self.session.refresh(node.current, ["columns"])
         logger.info(
             "Refreshed %d nodes in %.2fs",

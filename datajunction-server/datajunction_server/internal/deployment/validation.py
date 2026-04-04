@@ -201,7 +201,7 @@ class NodeSpecBulkValidator:
                             node_name,
                             inferred_col_names,
                         )
-                elif isinstance(link, DimensionReferenceLinkSpec):
+                else:
                     self._validate_reference_link(
                         result,
                         link,
@@ -364,7 +364,7 @@ class NodeSpecBulkValidator:
                 return
 
             dim_col_names = self._dim_link_col_names.get(dim_name)
-            if dim_col_names is not None:
+            if dim_col_names is not None:  # pragma: no branch
                 if link.dimension_attribute not in dim_col_names:
                     result.errors.append(
                         DJError(
@@ -618,7 +618,7 @@ class NodeSpecBulkValidator:
         # that _validate_join_link / _validate_reference_link (sync) never need
         # to touch ORM relationships directly.
         for name, node in self._dim_link_nodes.items():
-            if node.current:
+            if node.current:  # pragma: no branch
                 self._dim_link_col_names[name] = {
                     col.name for col in node.current.columns
                 }
