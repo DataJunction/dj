@@ -3457,6 +3457,7 @@ class TestCopyNodesToNamespace:
                     "name": "copy_test.feature_copy.source_table",
                     "operation": "create",
                     "status": "success",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -3464,6 +3465,7 @@ class TestCopyNodesToNamespace:
                     "name": "copy_test.feature_copy.transform_node",
                     "operation": "create",
                     "status": "success",
+                    "changed_fields": [],
                 },
             ]
 

@@ -1,8 +1,10 @@
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
+from datajunction_server.internal.deployment.orchestrator import (
+    DeploymentExecuteResult,
+    DeploymentOrchestrator,
+)
 from datajunction_server.models.deployment import (
-    DeploymentResult,
     DeploymentSpec,
 )
 from datajunction_server.internal.deployment.utils import DeploymentContext
@@ -17,7 +19,7 @@ async def deploy(
     deployment_id: str,
     deployment: DeploymentSpec,
     context: DeploymentContext,
-) -> list[DeploymentResult]:
+) -> DeploymentExecuteResult:
     """
     Deploy to a namespace based on the given deployment specification.
     """
