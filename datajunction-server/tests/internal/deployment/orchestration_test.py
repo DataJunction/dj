@@ -2145,7 +2145,7 @@ async def test_process_node_dimension_link_validation_exception(
 
     validation_error = ValueError("Join path is broken")
     validation_results: dict[tuple[str, str, str | None], Exception | None] = {
-        ("test.my_dim", "test.some_dim", None): validation_error
+        ("test.my_dim", "test.some_dim", None): validation_error,
     }
 
     result = await orchestrator._process_node_dimension_link(
