@@ -30,9 +30,8 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
 )
-from datajunction_server.models.impact import DeploymentImpactResponse
 from datajunction_server.internal.deployment.deployment import deploy
-from datajunction_server.internal.deployment.impact import analyze_deployment_impact
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -169,6 +168,7 @@ class InProcessExecutor(DeploymentExecutor):
         deployment_uuid: str,
         status: DeploymentStatus,
         results: list[DeploymentResult] | None = None,
+        downstream_impacts: list | None = None,
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
@@ -178,6 +178,10 @@ class InProcessExecutor(DeploymentExecutor):
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
+            if downstream_impacts is not None:
+                deployment.downstream_impacts = [
+                    d.model_dump() for d in downstream_impacts
+                ]
             await session.commit()
 
     async def _run_deployment(
@@ -213,6 +217,7 @@ class InProcessExecutor(DeploymentExecutor):
                     deployment_id,
                     final_status,
                     results,
+                    downstream_impacts=execute_result.downstream_impacts,
                 )
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
@@ -296,6 +301,7 @@ async def create_deployment(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
 
@@ -314,6 +320,7 @@ async def get_deployment_status(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
 
@@ -360,24 +367,29 @@ async def list_deployments(  # pragma: no cover
 @router.post(
     "/deployments/impact",
     name="Preview deployment impact",
-    response_model=DeploymentImpactResponse,
+    response_model=DeploymentInfo,
 )
 async def preview_deployment_impact(
     deployment_spec: DeploymentSpec,
+    request: Request,
+    background_tasks: BackgroundTasks,
     *,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    cache: Cache = Depends(get_cache),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> DeploymentImpactResponse:
+) -> DeploymentInfo:
     """
     Analyze the impact of a deployment WITHOUT actually deploying.
 
-    This endpoint takes a deployment specification and returns:
-    - Direct changes: What nodes will be created, updated, deleted, or skipped
-    - Downstream impacts: What existing nodes will be affected by these changes
-    - Warnings: Potential issues like breaking column changes or external impacts
+    Runs a full dry-run through the deployment orchestrator: nodes are validated
+    and deployed into a database SAVEPOINT, downstream impact is computed via BFS,
+    then the SAVEPOINT is rolled back so no changes are persisted.
 
-    Use this endpoint to preview changes before deploying, similar to a dry-run
-    but with more detailed impact analysis including second and third-order effects.
+    Returns the same ``DeploymentInfo`` shape as ``POST /deployments``, with
+    ``results`` showing what would change and ``downstream_impacts`` showing
+    which downstream nodes would be affected.
     """
     access_checker.add_request(
         access.ResourceRequest(
@@ -390,7 +402,24 @@ async def preview_deployment_impact(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    return await analyze_deployment_impact(
-        session=session,
+    orchestrator = DeploymentOrchestrator(
+        deployment_id="dry_run",
         deployment_spec=deployment_spec,
+        session=session,
+        context=DeploymentContext(
+            current_user=current_user,
+            request=request,
+            query_service_client=query_service_client,
+            background_tasks=background_tasks,
+            cache=cache,
+        ),
+        dry_run=True,
+    )
+    execute_result = await orchestrator.execute()
+    return DeploymentInfo(
+        uuid="dry_run",
+        namespace=deployment_spec.namespace,
+        status=DeploymentStatus.SUCCESS,
+        results=execute_result.results,
+        downstream_impacts=execute_result.downstream_impacts,
     )

@@ -16,6 +16,7 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
     SparkJoinStrategy,
 )
+from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -769,7 +770,7 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
-    downstream_impacts: list[dict] = Field(default_factory=list)
+    downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime
     created_by: str | None = None  # Username
     source: GitDeploymentSource | LocalDeploymentSource | None = None
