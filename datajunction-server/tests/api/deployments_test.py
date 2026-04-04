@@ -1310,7 +1310,10 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Some columns in the primary key ['hard_hat_id'] were not found in "
                     "the list of available columns for the node "
-                    f"{namespace}.default.hard_hat.",
+                    f"{namespace}.default.hard_hat.; "
+                    f"Column 'state' referenced in join_on for "
+                    f"'{namespace}.default.us_state' not found on node "
+                    f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "failed",
                     "operation": "create",
@@ -1320,13 +1323,6 @@ class TestDeployments:
                     "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": f"A node with name `{namespace}.default.hard_hat` does not exist.",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "status": "failed",
                     "operation": "create",
                 },
             ],
@@ -1896,9 +1892,11 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
+                    "message": f"Column 'state' referenced in join_on for "
+                    f"'{namespace}.default.us_state' not found on node "
+                    f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
-                    "status": "success",
+                    "status": "failed",
                     "operation": "create",
                 },
                 {
@@ -1906,19 +1904,6 @@ class TestDeployments:
                     "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
-                    "operation": "create",
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Dimension link from bad_node_spec_links.default.hard_hat to "
-                    "bad_node_spec_links.default.us_state is invalid: Join query "
-                    "bad_node_spec_links.default.hard_hat.state = "
-                    "bad_node_spec_links.default.us_state.state_short is not valid\n"
-                    "The following error happened:\n"
-                    f"- Column `{namespace}.default.hard_hat.state` does not exist on "
-                    "any valid table. (error code: 206)",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "status": "failed",
                     "operation": "create",
                 },
             ],

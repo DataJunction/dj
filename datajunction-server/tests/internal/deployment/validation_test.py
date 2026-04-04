@@ -5,14 +5,22 @@ Tests for validate_query_node exception handling with real objects
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
+    NodeValidationResult,
     ValidationContext,
     _reparse_column_types,
 )
-from datajunction_server.models.deployment import ColumnSpec, TransformSpec, MetricSpec
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
+    MetricSpec,
+    SourceSpec,
+    TransformSpec,
+)
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     NodeType,
@@ -1006,3 +1014,717 @@ class TestCrossFactDimensions:
 
         mock_get_dims.assert_not_called()
         assert validator._metric_dimensions == {}
+
+
+# ---------------------------------------------------------------------------
+# TestDimLinkValidation — Step B: _validate_dimension_link_specs
+# ---------------------------------------------------------------------------
+
+
+def _make_validator(session: AsyncSession) -> NodeSpecBulkValidator:
+    """Build a minimal NodeSpecBulkValidator for unit-testing _validate_dimension_link_specs."""
+    context = ValidationContext(
+        session=session,
+        node_graph={},
+        dependency_nodes={},
+        compile_context=ast.CompileContext(
+            session=session,
+            exception=ast.DJException(),
+            dependencies_cache={},
+        ),
+    )
+    return NodeSpecBulkValidator(context)
+
+
+def _make_source_result(
+    node_name: str,
+    col_names: list[str],
+    join_on: str,
+    dim_name: str,
+) -> NodeValidationResult:
+    """Build a NodeValidationResult for a source node with one dimension link."""
+    spec = SourceSpec(
+        name=node_name.split(".")[-1],
+        catalog="default",
+        schema_="s",
+        table="t",
+        columns=[ColumnSpec(name=c, type="int") for c in col_names],
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node=dim_name,
+                join_on=join_on,
+            ),
+        ],
+    )
+    spec.namespace = ".".join(node_name.split(".")[:-1]) or node_name
+    return NodeValidationResult(
+        spec=spec,
+        status=NodeStatus.VALID,
+        inferred_columns=[ColumnSpec(name=c, type="int") for c in col_names],
+        errors=[],
+        dependencies=[],
+    )
+
+
+class TestDimLinkValidation:
+    """Unit tests for NodeSpecBulkValidator._validate_dimension_link_specs (Step B)."""
+
+    def test_valid_dim_link_no_errors(self, session: AsyncSession):
+        """A well-formed join_on with known columns produces no errors."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.dim_id = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_invalid_join_on_sql_raises_error(self, session: AsyncSession):
+        """Unparseable join_on SQL produces an INVALID_SQL_QUERY error."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="NOT VALID SQL !!!",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(e.code == ErrorCode.INVALID_SQL_QUERY for e in result.errors)
+        assert any("test.dim" in e.message for e in result.errors)
+
+    def test_join_on_column_not_on_node_raises_error(self, session: AsyncSession):
+        """join_on referencing a nonexistent column on this node produces an INVALID_COLUMN error."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.nonexistent_fk = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_COLUMN and "nonexistent_fk" in e.message
+            for e in result.errors
+        )
+
+    def test_join_on_external_node_column_is_invalid(self, session: AsyncSession):
+        """join_on referencing an unknown table is flagged as INVALID_SQL_QUERY."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            # Column belongs to 'external.other' — neither node nor dim → invalid
+            join_on="external.other.some_col = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_SQL_QUERY and "external.other" in e.message
+            for e in result.errors
+        )
+
+    def test_join_on_no_criteria_skips_column_check(self, session: AsyncSession):
+        """When parse_join_sql returns a tree where the first join has criteria=None,
+        the column-reference block is skipped (e.g. a USING-style or cross-join).
+        """
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            join_on="test.facts.dim_id = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+
+        # Build a fake tree whose single join extension has criteria=None.
+        mock_join = MagicMock()
+        mock_join.criteria = None
+        mock_relation = MagicMock()
+        mock_relation.extensions = [mock_join]
+        fake_tree = MagicMock()
+        fake_tree.select.from_.relations.__getitem__.return_value = mock_relation
+
+        with patch(
+            "datajunction_server.internal.deployment.validation.DimensionLink.parse_join_sql",
+            return_value=fake_tree,
+        ):
+            validator._validate_dimension_link_specs([result])
+
+        # No errors: criteria=None makes line 225 falsy → column check skipped
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_join_link_with_no_join_on_is_skipped(self, session: AsyncSession):
+        """A DimensionJoinLinkSpec with no join_on is silently skipped."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="id", type="int")],
+            dimension_links=[DimensionJoinLinkSpec(dimension_node="test.dim")],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_reference_link_is_skipped(self, session: AsyncSession):
+        """A DimensionReferenceLinkSpec is silently skipped (no join_on to validate)."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="dim_id", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.dim.id",
+                    node_column="dim_id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="dim_id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_non_linkable_spec_is_skipped(self, session: AsyncSession):
+        """MetricSpec (not LinkableNodeSpec) is silently skipped."""
+        validator = _make_validator(session)
+        metric_spec = MetricSpec(
+            name="test.cnt",
+            query="SELECT count(1) FROM test.facts",
+        )
+        metric_spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=metric_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+
+class TestDimLinkJoinColumnWithoutNamespace:
+    """Tests for join_on columns without a table namespace (line 230 coverage)."""
+
+    def test_join_on_col_without_namespace_is_skipped(self, session: AsyncSession):
+        """A column in join_on without a table-qualified reference (no namespace) is skipped
+        without raising an error (line 230 - the continue branch)."""
+        validator = _make_validator(session)
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id", "dim_id"],
+            # 'unqualified_col' has no namespace (no table prefix) — should be skipped
+            join_on="test.facts.dim_id = test.dim.dim_id AND unqualified_col = 1",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        # The unqualified column should be skipped without causing an error
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+
+# ---------------------------------------------------------------------------
+# TestDimLinkValidationExtended — dim node type, self-join, dim-side columns,
+# reference links, and _prefetch_dimension_link_nodes
+# ---------------------------------------------------------------------------
+
+
+def _make_dim_node_for_link(
+    name: str,
+    col_names: list[str],
+    node_type=NodeType.DIMENSION,
+) -> Node:
+    """Build an in-memory Node to use as a dimension link target."""
+    node = Node(name=name, type=node_type)
+    revision = NodeRevision(
+        name=name,
+        type=node_type,
+        version="v1",
+        columns=[
+            Column(name=c, type=StringType(), order=i) for i, c in enumerate(col_names)
+        ],
+    )
+    node.current = revision
+    return node
+
+
+class TestDimLinkValidationExtended:
+    """Tests for the dim-node-aware checks added to _validate_join_link and
+    _validate_reference_link."""
+
+    # ------------------------------------------------------------------ join link
+
+    def test_dim_node_wrong_type_is_invalid(self, session: AsyncSession):
+        """Dim node that is not DIMENSION type produces an INVALID_SQL_QUERY error."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link(
+            "test.not_a_dim",
+            ["id"],
+            node_type=NodeType.TRANSFORM,
+        )
+        validator._dim_link_nodes = {"test.not_a_dim": dim_node}
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id"],
+            join_on="test.facts.id = test.not_a_dim.id",
+            dim_name="test.not_a_dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_SQL_QUERY
+            and "not a dimension node" in e.message
+            for e in result.errors
+        )
+
+    def test_dim_node_not_found_skips_dim_side_checks(self, session: AsyncSession):
+        """If the dim node is not in _dim_link_nodes (newly deployed), skip dim-side checks."""
+        validator = _make_validator(session)
+        # _dim_link_nodes is empty — dim node not yet in DB
+        validator._dim_link_nodes = {}
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["id"],
+            join_on="test.facts.id = test.new_dim.id",
+            dim_name="test.new_dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        # Syntax is valid and node-side column exists — should pass
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_self_join_without_role_is_invalid(self, session: AsyncSession):
+        """Self-join (node_name == dim_name) without a role produces an INVALID_SQL_QUERY error."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.self_dim", ["id", "manager_id"])
+        validator._dim_link_nodes = {"test.self_dim": dim_node}
+        spec = SourceSpec(
+            name="self_dim",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="manager_id", type="int"),
+            ],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.self_dim",
+                    join_on="test.self_dim.manager_id = test.self_dim.id",
+                    # no role — should fail
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="manager_id", type="int"),
+            ],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_SQL_QUERY and "role" in e.message
+            for e in result.errors
+        )
+
+    def test_dim_side_column_not_found_is_invalid(self, session: AsyncSession):
+        """Column on dim side of join_on that doesn't exist on dim node → INVALID_COLUMN."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.dim", ["real_id"])
+        validator._dim_link_nodes = {"test.dim": dim_node}
+        validator._dim_link_col_names = {"test.dim": {"real_id"}}
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["fk"],
+            join_on="test.facts.fk = test.dim.nonexistent_pk",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_COLUMN and "nonexistent_pk" in e.message
+            for e in result.errors
+        )
+
+    def test_dim_side_column_valid_with_loaded_dim_node(self, session: AsyncSession):
+        """When dim node is loaded, a valid dim-side column produces no errors."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.dim", ["dim_id"])
+        validator._dim_link_nodes = {"test.dim": dim_node}
+        validator._dim_link_col_names = {"test.dim": {"dim_id"}}
+        result = _make_source_result(
+            node_name="test.facts",
+            col_names=["fk"],
+            join_on="test.facts.fk = test.dim.dim_id",
+            dim_name="test.dim",
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    # ------------------------------------------------------------------ reference link
+
+    def test_reference_link_valid(self, session: AsyncSession):
+        """A valid reference link (dim attribute and node column both exist) passes."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.dim", ["region"])
+        validator._dim_link_nodes = {"test.dim": dim_node}
+        validator._dim_link_col_names = {"test.dim": {"region"}}
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="region_id", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.dim.region",
+                    node_column="region_id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="region_id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    def test_reference_link_attribute_not_on_dim_is_invalid(
+        self,
+        session: AsyncSession,
+    ):
+        """Reference link pointing to a column that doesn't exist on the dim → INVALID_COLUMN."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.dim", ["real_col"])
+        validator._dim_link_nodes = {"test.dim": dim_node}
+        validator._dim_link_col_names = {"test.dim": {"real_col"}}
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="fk", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.dim.missing_col",
+                    node_column="fk",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="fk", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_COLUMN and "missing_col" in e.message
+            for e in result.errors
+        )
+
+    def test_reference_link_node_column_not_found_is_invalid(
+        self,
+        session: AsyncSession,
+    ):
+        """Reference link node_column that doesn't exist on the node → INVALID_COLUMN."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link("test.dim", ["region"])
+        validator._dim_link_nodes = {"test.dim": dim_node}
+        validator._dim_link_col_names = {"test.dim": {"region"}}
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="real_col", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.dim.region",
+                    node_column="nonexistent",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="real_col", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_COLUMN and "nonexistent" in e.message
+            for e in result.errors
+        )
+
+    def test_reference_link_dim_wrong_type_is_invalid(self, session: AsyncSession):
+        """Reference link whose dim node is not type DIMENSION → INVALID_SQL_QUERY."""
+        validator = _make_validator(session)
+        dim_node = _make_dim_node_for_link(
+            "test.not_dim",
+            ["col"],
+            node_type=NodeType.TRANSFORM,
+        )
+        validator._dim_link_nodes = {"test.not_dim": dim_node}
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="fk", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.not_dim.col",
+                    node_column="fk",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="fk", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert any(
+            e.code == ErrorCode.INVALID_SQL_QUERY
+            and "not a dimension node" in e.message
+            for e in result.errors
+        )
+
+    def test_reference_link_dim_not_found_skips_dim_side_checks(
+        self,
+        session: AsyncSession,
+    ):
+        """Reference link whose dim node is not in _dim_link_nodes skips dim-side checks."""
+        validator = _make_validator(session)
+        validator._dim_link_nodes = {}
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="fk", type="int")],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    dimension="test.new_dim.col",
+                    node_column="fk",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="fk", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    # ------------------------------------------------------------------ prefetch
+
+    @pytest.mark.asyncio
+    async def test_prefetch_dimension_link_nodes_fetches_from_db(
+        self,
+        session: AsyncSession,
+        user: User,
+        catalog: Catalog,
+    ):
+        """_prefetch_dimension_link_nodes fetches a dim node not in dependency_nodes."""
+        # Create a real dimension node in DB
+        dim_node = Node(
+            name="test.linked_dim",
+            type=NodeType.DIMENSION,
+            current_version="v1",
+            created_by_id=user.id,
+        )
+        revision = NodeRevision(
+            node=dim_node,
+            name=dim_node.name,
+            catalog_id=catalog.id,
+            type=dim_node.type,
+            version="v1",
+            columns=[Column(name="dim_col", type=StringType(), order=0)],
+            created_by_id=user.id,
+        )
+        dim_node.current = revision
+        session.add(revision)
+        await session.commit()
+
+        context = ValidationContext(
+            session=session,
+            node_graph={},
+            dependency_nodes={},
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache={},
+            ),
+        )
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="fk", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.linked_dim",
+                    join_on="test.facts.fk = test.linked_dim.dim_col",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_dimension_link_nodes([spec])
+
+        assert "test.linked_dim" in validator._dim_link_nodes
+        fetched = validator._dim_link_nodes["test.linked_dim"]
+        assert fetched.current is not None
+        assert any(c.name == "dim_col" for c in fetched.current.columns)
+        assert "dim_col" in validator._dim_link_col_names.get("test.linked_dim", set())
+
+    @pytest.mark.asyncio
+    async def test_prefetch_dimension_link_nodes_no_links_is_noop(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """_prefetch_dimension_link_nodes with specs having no dimension_links is a noop."""
+        context = ValidationContext(
+            session=session,
+            node_graph={},
+            dependency_nodes={parent_node.name: parent_node},
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache={parent_node.name: parent_node},
+            ),
+        )
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+        spec.namespace = "test"
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_dimension_link_nodes([spec])
+
+        # No dimension links → early return, _dim_link_nodes stays empty
+        assert validator._dim_link_nodes == {}
+        assert validator._dim_link_col_names == {}
+
+    @pytest.mark.asyncio
+    async def test_prefetch_dimension_link_nodes_already_in_dep_nodes(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Dim node already in dependency_nodes is not re-fetched from DB."""
+        dim_node = _make_dim_node_for_link("test.existing_dim", ["id"])
+        context = ValidationContext(
+            session=session,
+            node_graph={},
+            dependency_nodes={dim_node.name: dim_node},
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache={dim_node.name: dim_node},
+            ),
+        )
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="fk", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.existing_dim",
+                    join_on="test.facts.fk = test.existing_dim.id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_dimension_link_nodes([spec])
+
+        # Should use the pre-existing node object (same identity)
+        assert validator._dim_link_nodes["test.existing_dim"] is dim_node
+        # Column names should be pre-computed for the dim link target
+        assert "id" in validator._dim_link_col_names.get("test.existing_dim", set())
+
+
+class TestCreateColumnSpecTypeError:
+    """Tests for _create_column_spec raising TypeError when type cannot be inferred (line 626)."""
+
+    def test_create_column_spec_raises_when_type_unresolvable(
+        self,
+        session: AsyncSession,
+    ):
+        """_create_column_spec raises TypeError when no existing_spec.type and AST column
+        has no resolvable type (line 626 - the raise TypeError branch)."""
+        validator = _make_validator(session)
+
+        # Create a mock AST column with no resolvable type
+        ast_col = MagicMock(spec=ast.Column)
+        ast_col.type = None
+
+        with pytest.raises(TypeError, match="Cannot resolve type"):
+            validator._create_column_spec("my_col", ast_col, existing_spec=None)

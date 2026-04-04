@@ -25,6 +25,23 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 
+def update_ast_column_types(node: ast.Node) -> None:
+    """Recursively update AST Column._type from parsed database column types.
+
+    Call this after re-parsing parent column types (via parse_rule) so that
+    type inference on the query AST sees the properly-typed objects rather than
+    raw ColumnType strings.
+    """
+    if isinstance(node, ast.Column) and node._table and hasattr(node._table, "dj_node"):
+        dj_node = node._table.dj_node  # type: ignore[attr-defined]
+        for db_col in dj_node.columns:
+            if db_col.name == node.name.name:
+                node._type = db_col.type
+                break
+    for child in node.children:
+        update_ast_column_types(child)
+
+
 @dataclass
 class NodeValidator:
     """
@@ -128,26 +145,7 @@ async def validate_node_data(
                     # If parsing fails, leave the original type
                     pass
 
-    # Update AST Column nodes with the newly parsed types
-    # During extract_dependencies/compilation, AST Columns were created with _type from
-    # database columns. Now that we've parsed the types, update the AST Column cache.
-    def update_ast_column_types(node):
-        """Recursively update AST Column _type from parsed database columns"""
-        if (
-            isinstance(node, ast.Column)
-            and node._table
-            and hasattr(node._table, "dj_node")
-        ):
-            # Find the corresponding database column
-            for db_col in node._table.dj_node.columns:
-                if db_col.name == node.name.name:
-                    # Update the cached type
-                    node._type = db_col.type
-                    break
-        # Recursively update child nodes
-        for child in node.children:
-            update_ast_column_types(child)
-
+    # Update AST Column nodes with the newly parsed types.
     update_ast_column_types(query_ast)
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
