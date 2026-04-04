@@ -907,6 +907,33 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
     ]
 
 
+@pytest.mark.asyncio
+async def test_export_cube_filters_get_prefix_injected(client_with_roads: AsyncClient):
+    """Cube filters referencing namespace nodes get ${prefix} injection in the export."""
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "name": "default.filtered_cube",
+            "display_name": "Filtered Cube",
+            "description": "A cube with filters to test prefix injection",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.hard_hat.city"],
+            "filters": ["default.hard_hat.city = 'San Francisco'"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201)
+
+    response = await client_with_roads.get("/namespaces/default/export/spec")
+    assert response.status_code in (200, 201)
+    data = response.json()
+
+    node_defs = {node["name"]: node for node in data["nodes"]}
+    assert "${prefix}filtered_cube" in node_defs
+    cube_def = node_defs["${prefix}filtered_cube"]
+    assert cube_def["filters"] == ["${prefix}hard_hat.city = 'San Francisco'"]
+
+
 class DbtOnlyAuthorizationService(AuthorizationService):
     """
     Authorization service that only approves namespaces containing 'dbt'.
