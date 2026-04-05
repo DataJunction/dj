@@ -138,7 +138,7 @@ def test_pull_raises_if_target_not_empty(tmp_path):
         svc.pull("ns", tmp_path)
 
 
-def test_print_results_success(capsys):
+def test_print_results_success():
     out = io.StringIO()
     print_results(
         "abc-123",
@@ -156,12 +156,16 @@ def test_print_results_success(capsys):
                 ],
             },
         ),
-        Console(file=out),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "some.random.node" in rendered
-    assert "create" in rendered
-    assert "abc-123" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ abc-123  ·  some.namespace ─────────────────────────────────────────────────╮\n"
+        "│   ✓  create    some.random.node                                              │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_hides_noops_by_default():
@@ -178,11 +182,16 @@ def test_print_results_hides_noops_by_default():
                 ],
             },
         ),
-        Console(file=out),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "ns.node_a" in rendered
-    assert "ns.node_b" not in rendered  # noop hidden when verbose=False
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-1  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.node_a                                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 2 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_shows_noops_when_verbose():
@@ -199,11 +208,18 @@ def test_print_results_shows_noops_when_verbose():
                 ],
             },
         ),
-        Console(file=out),
+        Console(file=out, no_color=True, width=80),
         verbose=True,
     )
-    rendered = out.getvalue()
-    assert "ns.node_b" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-1  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.node_a                                                     │\n"
+        "│   ✓  noop      ns.node_b                                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 2 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_summary_includes_skipped_and_noop_counts():
@@ -221,12 +237,18 @@ def test_print_results_summary_includes_skipped_and_noop_counts():
                 ],
             },
         ),
-        Console(file=out),
+        Console(file=out, no_color=True, width=80),
         verbose=False,
     )
-    rendered = out.getvalue()
-    assert "skipped" in rendered
-    assert "noop" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-2  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.a                                                          │\n"
+        "│   –  skip      ns.b                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  – 1 skipped  1 noop                                           │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_render_error_bullets_single():
@@ -296,12 +318,18 @@ def test_print_results_invalid_status_shown_as_error():
                 ],
             },
         ),
-        Console(file=out, no_color=True),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "✗" in rendered
-    assert "invalid" in rendered
-    assert "succeeded" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-err  ·  ns ────────────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.bad_node                                                   │\n"
+        "│      • join_on references unknown node                                       │\n"
+        "│   ✓  create    ns.good_node                                                  │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid                                                   │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_unified_summary_combines_direct_and_downstream():
@@ -331,12 +359,21 @@ def test_print_results_unified_summary_combines_direct_and_downstream():
                 ],
             },
         ),
-        Console(file=out, no_color=True),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "2 invalid" in rendered
-    assert "1 direct" in rendered
-    assert "1 downstream" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-combined  ·  ns ───────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.a                                                          │\n"
+        "│      • some error                                                            │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   └ ✗ metric b  → invalid                                                    │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 2 invalid  (1 direct, 1 downstream)                                        │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_downstream_only_invalid_no_breakdown():
@@ -361,12 +398,20 @@ def test_print_results_downstream_only_invalid_no_breakdown():
                 ],
             },
         ),
-        Console(file=out, no_color=True),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "1 invalid" in rendered
-    assert "downstream" in rendered
-    assert "direct" not in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-downstream-only  ·  ns ────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   └ ✗ metric b  → invalid                                                    │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_dimension_links_grouped_under_parent():
@@ -395,17 +440,20 @@ def test_print_results_dimension_links_grouped_under_parent():
                 ],
             },
         ),
-        Console(file=out, no_color=True),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    # Parent node appears
-    assert "ns.my_transform" in rendered
-    # Dim link short name appears with arrow prefix
-    assert "→ ns.dim_date" in rendered
-    # "dimension links" section header appears
-    assert "dimension links" in rendered
-    # The raw "parent -> child" string should not appear as a top-level row
-    assert "ns.my_transform -> ns.dim_date" not in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-dimlink  ·  ns ────────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.my_transform  [dimension_links]                            │\n"
+        "│      • join_on error                                                         │\n"
+        "│      dimension links                                                         │\n"
+        "│      └─ ✗  create    → ns.dim_date                                           │\n"
+        "│         • node does not exist                                                │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 2 invalid                                                                  │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_reconstruct_deployment_spec(tmp_path):
