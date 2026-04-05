@@ -29,8 +29,8 @@ from datajunction.models import DeploymentInfo, DeploymentResult, DownstreamImpa
 # Canonical definitions live in datajunction_server/models/deployment.py.
 
 
-class TerminalColor(str, Enum):
-    """ANSI-safe terminal colors for rich output."""
+class TerminalColor:
+    """ANSI-safe terminal color names for rich output."""
 
     RED = "red"
     GREEN = "green"
@@ -40,8 +40,8 @@ class TerminalColor(str, Enum):
     BRIGHT_BLACK = "bright_black"  # dark grey, replaces non-standard grey50/dark_green
 
 
-class TextStyle(str, Enum):
-    """Rich text style attributes."""
+class TextStyle:
+    """Rich text style attribute names."""
 
     BOLD = "bold"
     DIM = "dim"
@@ -391,9 +391,9 @@ class DeploymentService:
                 for j, part in enumerate(line.split("`")):
                     body.append(
                         part,
-                        style=f"{TextStyle.BOLD} {TerminalColor.GREEN}"
+                        style=f"{TextStyle.BOLD} {TerminalColor.BRIGHT_BLACK}"
                         if j % 2 == 1
-                        else "",
+                        else color,
                     )
 
         body = Text()
