@@ -233,6 +233,163 @@ def test_render_error_bullets_multiple_semicolons():
     assert plain.count("•") == 3
 
 
+def test_render_error_bullets_multiline_indents_continuation():
+    """Embedded newlines in a bullet are indented so they align under the bullet text."""
+    text = DeploymentService._render_error_bullets(
+        "First line\nSecond line\nThird line",
+    )
+    plain = text.plain
+    assert plain.count("•") == 1
+    assert "First line" in plain
+    assert "Second line" in plain
+    assert "Third line" in plain
+
+
+def test_strip_summary_lines_removes_update_headers():
+    from datajunction.deployment import _strip_summary_lines
+
+    msg = "Updated transform (v2.0)\n└─ Updated query, dimension_links\n[invalid] join_on error"
+    result = _strip_summary_lines(msg)
+    assert "Updated transform" not in result
+    assert "└─" not in result
+    assert "[invalid] join_on error" in result
+
+
+def test_strip_summary_lines_preserves_non_summary_content():
+    from datajunction.deployment import _strip_summary_lines
+
+    msg = "Column `x` does not exist; Invalid type"
+    assert _strip_summary_lines(msg) == msg
+
+
+def test_print_results_invalid_status_shown_as_error():
+    """Results with status='invalid' show ✗ and are counted in the summary."""
+    out = io.StringIO()
+    DeploymentService.print_results(
+        "uuid-err",
+        {
+            "namespace": "ns",
+            "status": "success",
+            "results": [
+                {
+                    "name": "ns.bad_node",
+                    "operation": "update",
+                    "status": "invalid",
+                    "message": "join_on references unknown node",
+                },
+                {"name": "ns.good_node", "operation": "create", "status": "success"},
+            ],
+        },
+        Console(file=out, no_color=True),
+    )
+    rendered = out.getvalue()
+    assert "✗" in rendered
+    assert "invalid" in rendered
+    assert "succeeded" in rendered
+
+
+def test_print_results_unified_summary_combines_direct_and_downstream():
+    """Summary shows total invalid count with (N direct, N downstream) breakdown."""
+    out = io.StringIO()
+    data = {
+        "namespace": "ns",
+        "status": "success",
+        "results": [
+            {
+                "name": "ns.a",
+                "operation": "update",
+                "status": "invalid",
+                "message": "some error",
+            },
+        ],
+    }
+    downstream = [
+        {
+            "name": "ns.b",
+            "node_type": "metric",
+            "predicted_status": "invalid",
+            "caused_by": ["ns.a"],
+        },
+    ]
+    DeploymentService.print_results(
+        "uuid-combined",
+        data,
+        Console(file=out, no_color=True),
+        downstream_impacts=downstream,
+    )
+    rendered = out.getvalue()
+    assert "2 invalid" in rendered
+    assert "1 direct" in rendered
+    assert "1 downstream" in rendered
+
+
+def test_print_results_downstream_only_invalid_no_breakdown():
+    """When only downstream nodes are invalid (no direct errors), no breakdown parenthetical."""
+    out = io.StringIO()
+    data = {
+        "namespace": "ns",
+        "status": "success",
+        "results": [
+            {"name": "ns.a", "operation": "update", "status": "success"},
+        ],
+    }
+    downstream = [
+        {
+            "name": "ns.b",
+            "node_type": "metric",
+            "predicted_status": "invalid",
+            "caused_by": ["ns.a"],
+        },
+    ]
+    DeploymentService.print_results(
+        "uuid-downstream-only",
+        data,
+        Console(file=out, no_color=True),
+        downstream_impacts=downstream,
+    )
+    rendered = out.getvalue()
+    assert "1 invalid" in rendered
+    assert "downstream" in rendered
+    assert "direct" not in rendered
+
+
+def test_print_results_dimension_links_grouped_under_parent():
+    """Dimension link results (name contains ' -> ') nest under their parent node row."""
+    out = io.StringIO()
+    DeploymentService.print_results(
+        "uuid-dimlink",
+        {
+            "namespace": "ns",
+            "status": "failed",
+            "results": [
+                {
+                    "name": "ns.my_transform",
+                    "operation": "update",
+                    "status": "invalid",
+                    "message": "join_on error",
+                    "changed_fields": ["dimension_links"],
+                },
+                {
+                    "name": "ns.my_transform -> ns.dim_date",
+                    "operation": "create",
+                    "status": "failed",
+                    "message": "node does not exist",
+                },
+            ],
+        },
+        Console(file=out, no_color=True),
+    )
+    rendered = out.getvalue()
+    # Parent node appears
+    assert "ns.my_transform" in rendered
+    # Dim link short name appears with arrow prefix
+    assert "→ ns.dim_date" in rendered
+    # "dimension links" section header appears
+    assert "dimension links" in rendered
+    # The raw "parent -> child" string should not appear as a top-level row
+    assert "ns.my_transform -> ns.dim_date" not in rendered
+
+
 def test_reconstruct_deployment_spec(tmp_path):
     # set up a fake exported project
     (tmp_path / "dj.yaml").write_text(
@@ -689,16 +846,18 @@ class TestGetImpact:
         # Create mock client
         mock_client = MagicMock()
         mock_client.get_deployment_impact.return_value = {
+            "uuid": "dry_run",
             "namespace": "test.ns",
-            "changes": [],
-            "create_count": 0,
-            "update_count": 0,
-            "delete_count": 0,
-            "skip_count": 1,
+            "status": "success",
+            "results": [
+                {
+                    "name": "test.ns.my_node",
+                    "operation": "noop",
+                    "status": "success",
+                    "message": "",
+                },
+            ],
             "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
         }
 
         svc = DeploymentService(mock_client)
@@ -712,7 +871,7 @@ class TestGetImpact:
 
         # Verify the result is returned
         assert result["namespace"] == "test.ns"
-        assert result["skip_count"] == 1
+        assert result["uuid"] == "dry_run"
 
     def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
         """get_impact should respect namespace override."""

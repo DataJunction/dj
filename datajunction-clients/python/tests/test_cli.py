@@ -1141,10 +1141,9 @@ class TestImpactAnalysis:
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
-        # Check output contains impact analysis elements
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
-        assert "Direct Changes" in captured.out
+        # Panel title includes "dry_run" and namespace
+        assert "dry_run" in captured.out
 
     def test_deploy_dryrun_json_format(
         self,
@@ -1171,8 +1170,7 @@ class TestImpactAnalysis:
 
         impact_data = json_module.loads(captured.out)
         assert "namespace" in impact_data
-        assert "changes" in impact_data
-        assert "create_count" in impact_data
+        assert "results" in impact_data
 
     def test_push_dryrun_shows_impact(
         self,
@@ -1194,10 +1192,8 @@ class TestImpactAnalysis:
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
-        # Check output contains impact analysis elements
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
-        assert "Direct Changes" in captured.out
+        assert "dry_run" in captured.out
 
     def test_push_dryrun_json_format(
         self,
@@ -1224,8 +1220,7 @@ class TestImpactAnalysis:
 
         impact_data = json_module.loads(captured.out)
         assert "namespace" in impact_data
-        assert "changes" in impact_data
-        assert "create_count" in impact_data
+        assert "results" in impact_data
 
     def test_push_dryrun_with_namespace(
         self,
@@ -1254,339 +1249,59 @@ class TestImpactAnalysis:
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
-        # Check output contains impact analysis (namespace is passed through)
         captured = capsys.readouterr()
-        assert "Impact Analysis" in captured.out
+        assert "dry_run" in captured.out
 
-    def test_display_impact_analysis_with_changes(self, capsys):
-        """Test display_impact_analysis function with various changes."""
-        from datajunction.cli import display_impact_analysis
+    def test_dryrun_shows_downstream_impacts_in_panel(self, capsys):
+        """Downstream impacts appear inside the results panel when predicted_status is invalid."""
+        import io
+        from datajunction.deployment import DeploymentService
         from rich.console import Console
 
-        console = Console(force_terminal=True, no_color=True)
+        out = io.StringIO()
+        console = Console(file=out, no_color=True, width=100)
 
-        impact = {
+        data = {
             "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.new_metric",
-                    "operation": "create",
-                    "node_type": "metric",
-                    "changed_fields": [],
-                },
+            "status": "success",
+            "results": [
                 {
                     "name": "test.namespace.updated_transform",
                     "operation": "update",
-                    "node_type": "transform",
-                    "changed_fields": ["query", "description"],
-                },
-                {
-                    "name": "test.namespace.unchanged_source",
-                    "operation": "noop",
-                    "node_type": "source",
-                    "changed_fields": [],
+                    "status": "success",
+                    "message": "",
                 },
             ],
-            "create_count": 1,
-            "update_count": 1,
-            "delete_count": 0,
-            "skip_count": 1,
             "downstream_impacts": [
                 {
-                    "name": "other.namespace.downstream_node",
+                    "name": "test.namespace.downstream_node",
                     "node_type": "metric",
                     "current_status": "valid",
-                    "predicted_status": "valid",
-                    "impact_type": "may_affect",
-                    "impact_reason": "Depends on test.namespace.updated_transform",
+                    "predicted_status": "invalid",
+                    "impact_type": "will_invalidate",
+                    "impact_reason": "Depends on updated_transform",
                     "depth": 1,
                     "caused_by": ["test.namespace.updated_transform"],
                 },
             ],
-            "will_invalidate_count": 0,
-            "may_affect_count": 1,
-            "warnings": [],
         }
 
-        display_impact_analysis(impact, console=console)
+        DeploymentService.print_results(
+            "dry_run",
+            data,
+            console,
+            downstream_impacts=data["downstream_impacts"],
+        )
 
-        captured = capsys.readouterr()
-        assert "test.namespace" in captured.out
-        assert "Create" in captured.out
-        assert "Update" in captured.out
-        assert "Skip" in captured.out
-        assert "May Affect" in captured.out
-        assert "Ready to deploy" in captured.out
-
-    def test_display_impact_analysis_with_warnings(self, capsys):
-        """Test display_impact_analysis shows warnings."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-
-        console = Console(force_terminal=True, no_color=True)
-
-        impact = {
-            "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.source_with_column_change",
-                    "operation": "update",
-                    "node_type": "source",
-                    "changed_fields": ["columns"],
-                    "column_changes": [
-                        {
-                            "column": "old_col",
-                            "change_type": "removed",
-                        },
-                    ],
-                },
-            ],
-            "create_count": 0,
-            "update_count": 1,
-            "delete_count": 0,
-            "skip_count": 0,
-            "downstream_impacts": [
-                {
-                    "name": "other.downstream",
-                    "node_type": "transform",
-                    "current_status": "valid",
-                    "predicted_status": "invalid",
-                    "impact_type": "will_invalidate",
-                    "impact_reason": "Uses removed column 'old_col'",
-                    "depth": 1,
-                    "caused_by": ["test.namespace.source_with_column_change"],
-                },
-            ],
-            "will_invalidate_count": 1,
-            "may_affect_count": 0,
-            "warnings": [
-                "Breaking change: Column 'old_col' removed from test.namespace.source_with_column_change",
-            ],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        assert "Column Changes" in captured.out
-        assert "Removed" in captured.out
-        assert "Will Invalidate" in captured.out
-        assert "Breaking change" in captured.out
-        assert "Review the warnings" in captured.out
-
-    def test_display_impact_analysis_no_changes(self, capsys):
-        """Test display_impact_analysis with empty deployment."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-
-        console = Console(force_terminal=True, no_color=True)
-
-        impact = {
-            "namespace": "empty.namespace",
-            "changes": [],
-            "create_count": 0,
-            "update_count": 0,
-            "delete_count": 0,
-            "skip_count": 0,
-            "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        assert "empty.namespace" in captured.out
-        assert "No downstream impact" in captured.out
-        assert "No warnings" in captured.out
-        assert "Ready to deploy" in captured.out
-
-    def test_display_impact_analysis_with_delete_count(self, capsys):
-        """Test display_impact_analysis shows delete count in summary (covers line 92)."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-        import re
-
-        console = Console(force_terminal=True, no_color=True)
-
-        impact = {
-            "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.deleted_node",
-                    "operation": "delete",
-                    "node_type": "transform",
-                    "changed_fields": [],
-                },
-            ],
-            "create_count": 0,
-            "update_count": 0,
-            "delete_count": 1,
-            "skip_count": 0,
-            "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        # Strip ANSI codes for assertion
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_output = ansi_escape.sub("", captured.out)
-        assert "1 delete" in clean_output
-
-    def test_display_impact_analysis_with_type_changed_column(self, capsys):
-        """Test display_impact_analysis shows type_changed column details (covers line 138)."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-        import re
-
-        console = Console(force_terminal=True, no_color=True)
-
-        impact = {
-            "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.source_node",
-                    "operation": "update",
-                    "node_type": "source",
-                    "changed_fields": ["columns"],
-                    "column_changes": [
-                        {
-                            "column": "user_id",
-                            "change_type": "type_changed",
-                            "old_type": "INT",
-                            "new_type": "BIGINT",
-                        },
-                    ],
-                },
-            ],
-            "create_count": 0,
-            "update_count": 1,
-            "delete_count": 0,
-            "skip_count": 0,
-            "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        # Strip ANSI codes for assertion
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_output = ansi_escape.sub("", captured.out)
-        assert "Column Changes" in clean_output
-        # "Type Changed" may be split across lines in the table, check for both parts
-        assert "Type" in clean_output
-        assert "Changed" in clean_output
-        assert "user_id" in clean_output
-        assert "INT" in clean_output
-        assert "BIGINT" in clean_output
-
-    def test_display_impact_analysis_with_added_column(self, capsys):
-        """Test display_impact_analysis shows added column details (covers line 142)."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-        import re
-
-        console = Console(force_terminal=True, no_color=True)
-
-        impact = {
-            "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.source_node",
-                    "operation": "update",
-                    "node_type": "source",
-                    "changed_fields": ["columns"],
-                    "column_changes": [
-                        {
-                            "column": "new_column",
-                            "change_type": "added",
-                        },
-                    ],
-                },
-            ],
-            "create_count": 0,
-            "update_count": 1,
-            "delete_count": 0,
-            "skip_count": 0,
-            "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        # Strip ANSI codes for assertion
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_output = ansi_escape.sub("", captured.out)
-        assert "Column Changes" in clean_output
-        assert "Added" in clean_output
-        assert "new_column" in clean_output
-
-    def test_display_impact_analysis_with_downstream_but_no_impact_summary(
-        self,
-        capsys,
-    ):
-        """Test when downstream_impacts exists but no will_invalidate or may_affect (covers line 197->207)."""
-        from datajunction.cli import display_impact_analysis
-        from rich.console import Console
-        import re
-
-        console = Console(force_terminal=True, no_color=True)
-
-        # This tests the case where downstream_impacts is non-empty but
-        # will_invalidate_count and may_affect_count are both 0
-        impact = {
-            "namespace": "test.namespace",
-            "changes": [
-                {
-                    "name": "test.namespace.node",
-                    "operation": "update",
-                    "node_type": "transform",
-                    "changed_fields": ["description"],
-                },
-            ],
-            "create_count": 0,
-            "update_count": 1,
-            "delete_count": 0,
-            "skip_count": 0,
-            "downstream_impacts": [
-                {
-                    "name": "other.downstream",
-                    "node_type": "metric",
-                    "current_status": "valid",
-                    "predicted_status": "valid",
-                    "impact_type": "no_impact",
-                    "impact_reason": "No functional change",
-                    "depth": 1,
-                    "caused_by": ["test.namespace.node"],
-                },
-            ],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
-        }
-
-        display_impact_analysis(impact, console=console)
-
-        captured = capsys.readouterr()
-        # Strip ANSI codes for assertion
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_output = ansi_escape.sub("", captured.out)
-        # Should NOT show "No downstream impact" since there are downstream_impacts
-        # But should NOT show any summary items since counts are 0
-        assert "Downstream Impact" in clean_output
-        # The downstream summary line should not appear when both counts are 0
-        assert "will invalidate" not in clean_output.lower()
-        assert "may be affected" not in clean_output.lower()
+        rendered = out.getvalue()
+        # Everything is in one panel
+        assert "dry_run" in rendered
+        assert "updated_transform" in rendered
+        assert "Downstream Impacts" in rendered
+        assert "downstream_node" in rendered
+        # Summary shows downstream count
+        assert "downstream" in rendered
+        assert "invalid" in rendered
 
     def test_dryrun_with_exception(self, capsys):
         """Test dryrun handles DJClientException properly (covers lines 276-286)."""
