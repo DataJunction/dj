@@ -110,24 +110,34 @@ def _short_name(name: str, namespace: str) -> str:
 
 
 def _impact_annotation(
-    imp: DownstreamImpact,
+    impact: DownstreamImpact,
     namespace: str,
     current_parent: str = "",
 ) -> str:
-    if imp.node_type == "cube":
-        via = [_short_name(c, namespace) for c in imp.caused_by]
-        return f"  [dim](via: {', '.join(via)})[/dim]" if via else ""
-    others = [_short_name(c, namespace) for c in imp.caused_by if c != current_parent]
-    return f"  [dim](also via: {', '.join(others)})[/dim]" if others else ""
+    if impact.node_type == "cube":
+        via = [_short_name(c, namespace) for c in impact.caused_by]
+        return (
+            f"  [{TextStyle.DIM}](via: {', '.join(via)})[/{TextStyle.DIM}]"
+            if via
+            else ""
+        )
+    others = [
+        _short_name(c, namespace) for c in impact.caused_by if c != current_parent
+    ]
+    return (
+        f"  [{TextStyle.DIM}](also via: {', '.join(others)})[/{TextStyle.DIM}]"
+        if others
+        else ""
+    )
 
 
 def _build_impacts_by_cause(
     impacts: list[DownstreamImpact],
 ) -> dict[str, list[DownstreamImpact]]:
     index: dict[str, list[DownstreamImpact]] = {}
-    for imp in impacts:
-        for cause in imp.caused_by:
-            index.setdefault(cause, []).append(imp)
+    for impact in impacts:
+        for cause in impact.caused_by:
+            index.setdefault(cause, []).append(impact)
     return index
 
 
@@ -140,14 +150,14 @@ def _collect_transitive_cubes(
     queue = [node_name]
     while queue:
         current = queue.pop()
-        for imp in impacts_by_cause.get(current, []):
-            if imp.name in visited:
+        for impact in impacts_by_cause.get(current, []):
+            if impact.name in visited:
                 continue
-            visited.add(imp.name)
-            if imp.node_type == "cube":
-                cubes[imp.name] = imp
+            visited.add(impact.name)
+            if impact.node_type == "cube":
+                cubes[impact.name] = impact
             else:
-                queue.append(imp.name)
+                queue.append(impact.name)
     return list(cubes.values())
 
 
@@ -167,7 +177,10 @@ def _collect_impact_lines(
         name = _short_name(impact.name, namespace)
         annotation = _impact_annotation(impact, namespace, current_parent)
         lines.append(
-            f"{branch} [red]⊘[/red] [dim]{impact.node_type}[/dim] [bold red]{name}[/bold red][dim]  → invalid[/dim]{annotation}",
+            f"{branch} [{TerminalColor.RED}]✗[/{TerminalColor.RED}]"
+            f" [{TextStyle.DIM}]{impact.node_type}[/{TextStyle.DIM}]"
+            f" [{TextStyle.BOLD} {TerminalColor.RED}]{name}[/{TextStyle.BOLD} {TerminalColor.RED}]"
+            f"[{TextStyle.DIM}]  → invalid[/{TextStyle.DIM}]{annotation}",
         )
         children = [
             child
@@ -223,7 +236,10 @@ def _build_downstream_text(
         items = non_cube + cubes
         if not items:
             continue
-        lines.append(f"  [dim]from[/dim] [bold]{_short_name(root, namespace)}[/bold]")
+        lines.append(
+            f"  [{TextStyle.DIM}]from[/{TextStyle.DIM}]"
+            f" [{TextStyle.BOLD}]{_short_name(root, namespace)}[/{TextStyle.BOLD}]",
+        )
         rendered.update(impact.name for impact in items)
         lines.extend(
             _collect_impact_lines(
@@ -391,7 +407,7 @@ class DeploymentService:
                 for j, part in enumerate(line.split("`")):
                     body.append(
                         part,
-                        style=f"{TextStyle.BOLD} {TerminalColor.BRIGHT_BLACK}"
+                        style=f"{TextStyle.BOLD} {TerminalColor.RED}"
                         if j % 2 == 1
                         else color,
                     )
