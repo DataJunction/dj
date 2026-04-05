@@ -1,5 +1,6 @@
 """Rendering helpers for deployment results and downstream impacts."""
 
+import importlib.metadata
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
@@ -388,6 +389,50 @@ def _build_summary(
             t.append("  (downstream)", style=f"{TextStyle.DIM} {TerminalColor.RED}")
         parts.append(t)
     return parts
+
+
+def print_deployment_header(
+    mode: str,
+    namespace: str,
+    console: Console,
+    repo: str | None = None,
+    branch: str | None = None,
+) -> None:
+    """
+    Render a slim key-value header above the deployment results panel.
+
+    Example output:
+        ──────────────────────────── push ──
+          namespace  ads.moon
+          repo       https://git.example.com/org/repo.git
+          branch     main
+          client     datajunction 0.3.1
+        ────────────────────────────────────
+    """
+    try:
+        client_version = importlib.metadata.version("datajunction")
+    except importlib.metadata.PackageNotFoundError:
+        client_version = None
+
+    rows: list[tuple[str, str]] = [("namespace", namespace)]
+    if repo:
+        rows.append(("repo", repo))
+    if branch:
+        rows.append(("branch", branch))
+    if client_version:
+        rows.append(("client", f"datajunction {client_version}"))
+
+    key_width = max(len(k) for k, _ in rows)
+    console.print()
+    console.print(
+        Rule(title=f"[{TextStyle.DIM}]{mode}[/{TextStyle.DIM}]", style=TextStyle.DIM),
+    )
+    for key, value in rows:
+        line = Text()
+        line.append(f"  {key:<{key_width}}  ", style=TextStyle.DIM)
+        line.append(value, style=TextStyle.DIM)
+        console.print(line)
+    console.print(Rule(style=TextStyle.DIM))
 
 
 def print_results(

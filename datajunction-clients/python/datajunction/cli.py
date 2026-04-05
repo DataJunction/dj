@@ -1146,8 +1146,7 @@ class DJCLI:
                 return
             try:
                 self.push(args.directory, verbose=args.verbose, force=args.force)
-            except DJDeploymentFailure as exc:
-                logger.error("Deployment failed: %s", exc)
+            except DJDeploymentFailure:
                 raise SystemExit(1)
         elif args.command == "push":
             # Handle dry run first
@@ -1176,8 +1175,7 @@ class DJCLI:
                     verbose=args.verbose,
                     force=args.force,
                 )
-            except DJDeploymentFailure as exc:
-                logger.error("Deployment failed: %s", exc)
+            except DJDeploymentFailure:
                 raise SystemExit(1)
         elif args.command == "generate-codeowners":
             count = DeploymentService.build_codeowners(

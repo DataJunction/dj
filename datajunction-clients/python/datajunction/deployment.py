@@ -20,7 +20,7 @@ from datajunction.exceptions import (
     DJDeploymentFailure,
 )
 from datajunction.models import DeploymentInfo
-from datajunction.rendering import print_results
+from datajunction.rendering import print_deployment_header, print_results
 
 
 # TODO: replace with generated models from OpenAPI spec once client codegen is set up.
@@ -186,18 +186,12 @@ class DeploymentService:
         Push a local project to a namespace.
         """
         console = console or self.console
-        console.print(f"[bold]Pushing project from:[/bold] {source_path}")
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
 
         base_namespace = deployment_spec.get("namespace") or ""
         branch = DeploymentService._detect_git_branch(cwd=source_path)
         source = deployment_spec.get("source", {})
-        if source.get("repository"):
-            console.print(
-                f"[dim]  repo:    [bold]{source['repository']}[/bold]\n"
-                f"  branch:  [bold]{source.get('branch', 'unknown')}[/bold][/dim]",
-            )
         if namespace:
             deployment_spec["namespace"] = namespace
         elif branch and base_namespace:
@@ -205,10 +199,14 @@ class DeploymentService:
                 base_namespace,
                 branch,
             )
-            console.print(
-                f"[dim]Detected branch [bold]{branch}[/bold] → "
-                f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
-            )
+
+        print_deployment_header(
+            mode="push",
+            namespace=deployment_spec["namespace"],
+            console=console,
+            repo=source.get("repository"),
+            branch=source.get("branch") or branch,
+        )
 
         if branch:
             # Only set parent_namespace when we derived it from dj.yaml (not when
@@ -275,7 +273,18 @@ class DeploymentService:
         console = console or self.console
         deployment_spec = self._reconstruct_deployment_spec(source_path)
         deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
-        data = self.client.get_deployment_impact(deployment_spec)
+        source = deployment_spec.get("source", {})
+        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        if display:
+            print_deployment_header(
+                mode="dry run",
+                namespace=deployment_spec["namespace"],
+                console=console,
+                repo=source.get("repository"),
+                branch=source.get("branch") or branch,
+            )
+        with Status("Analyzing impact...", console=console):
+            data = self.client.get_deployment_impact(deployment_spec)
         deployment = DeploymentInfo.from_dict(data)
         if display:
             print_results(
