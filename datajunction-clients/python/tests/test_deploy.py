@@ -7,6 +7,11 @@ from unittest.mock import MagicMock
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import DeploymentInfo
+from datajunction.rendering import (
+    _render_error_bullets,
+    _strip_summary_lines,
+    print_results,
+)
 import yaml
 from rich.console import Console
 
@@ -135,7 +140,7 @@ def test_pull_raises_if_target_not_empty(tmp_path):
 
 def test_print_results_success(capsys):
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "abc-123",
         DeploymentInfo.from_dict(
             {
@@ -161,7 +166,7 @@ def test_print_results_success(capsys):
 
 def test_print_results_hides_noops_by_default():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-1",
         DeploymentInfo.from_dict(
             {
@@ -182,7 +187,7 @@ def test_print_results_hides_noops_by_default():
 
 def test_print_results_shows_noops_when_verbose():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-1",
         DeploymentInfo.from_dict(
             {
@@ -203,7 +208,7 @@ def test_print_results_shows_noops_when_verbose():
 
 def test_print_results_summary_includes_skipped_and_noop_counts():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-2",
         DeploymentInfo.from_dict(
             {
@@ -225,13 +230,13 @@ def test_print_results_summary_includes_skipped_and_noop_counts():
 
 
 def test_render_error_bullets_single():
-    text = DeploymentService._render_error_bullets("Column `x` does not exist")
+    text = _render_error_bullets("Column `x` does not exist")
     assert "Column" in text.plain
     assert "x" in text.plain
 
 
 def test_render_error_bullets_multiple_semicolons():
-    text = DeploymentService._render_error_bullets(
+    text = _render_error_bullets(
         "Missing `a`; Invalid type for `b`; Unknown column `c`",
     )
     plain = text.plain
@@ -244,7 +249,7 @@ def test_render_error_bullets_multiple_semicolons():
 
 def test_render_error_bullets_multiline_indents_continuation():
     """Embedded newlines in a bullet are indented so they align under the bullet text."""
-    text = DeploymentService._render_error_bullets(
+    text = _render_error_bullets(
         "First line\nSecond line\nThird line",
     )
     plain = text.plain
@@ -255,8 +260,6 @@ def test_render_error_bullets_multiline_indents_continuation():
 
 
 def test_strip_summary_lines_removes_update_headers():
-    from datajunction.deployment import _strip_summary_lines
-
     msg = "Updated transform (v2.0)\n└─ Updated query, dimension_links\n[invalid] join_on error"
     result = _strip_summary_lines(msg)
     assert "Updated transform" not in result
@@ -265,8 +268,6 @@ def test_strip_summary_lines_removes_update_headers():
 
 
 def test_strip_summary_lines_preserves_non_summary_content():
-    from datajunction.deployment import _strip_summary_lines
-
     msg = "Column `x` does not exist; Invalid type"
     assert _strip_summary_lines(msg) == msg
 
@@ -274,7 +275,7 @@ def test_strip_summary_lines_preserves_non_summary_content():
 def test_print_results_invalid_status_shown_as_error():
     """Results with status='invalid' show ✗ and are counted in the summary."""
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-err",
         DeploymentInfo.from_dict(
             {
@@ -306,7 +307,7 @@ def test_print_results_invalid_status_shown_as_error():
 def test_print_results_unified_summary_combines_direct_and_downstream():
     """Summary shows total invalid count with (N direct, N downstream) breakdown."""
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-combined",
         DeploymentInfo.from_dict(
             {
@@ -341,7 +342,7 @@ def test_print_results_unified_summary_combines_direct_and_downstream():
 def test_print_results_downstream_only_invalid_no_breakdown():
     """When only downstream nodes are invalid (no direct errors), no breakdown parenthetical."""
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-downstream-only",
         DeploymentInfo.from_dict(
             {
@@ -371,7 +372,7 @@ def test_print_results_downstream_only_invalid_no_breakdown():
 def test_print_results_dimension_links_grouped_under_parent():
     """Dimension link results (name contains ' -> ') nest under their parent node row."""
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-dimlink",
         DeploymentInfo.from_dict(
             {

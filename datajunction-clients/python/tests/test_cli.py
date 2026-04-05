@@ -1255,7 +1255,6 @@ class TestImpactAnalysis:
     def test_dryrun_shows_downstream_impacts_in_panel(self, capsys):
         """Downstream impacts appear inside the results panel when predicted_status is invalid."""
         import io
-        from datajunction.deployment import DeploymentService
         from rich.console import Console
 
         out = io.StringIO()
@@ -1287,12 +1286,9 @@ class TestImpactAnalysis:
         }
 
         from datajunction.models import DeploymentInfo
+        from datajunction.rendering import print_results
 
-        DeploymentService.print_results(
-            "dry_run",
-            DeploymentInfo.from_dict(data),
-            console,
-        )
+        print_results("dry_run", DeploymentInfo.from_dict(data), console)
 
         rendered = out.getvalue()
         # Everything is in one panel
