@@ -41,7 +41,7 @@ class Deployment(Base):
     )
     spec: Mapped[dict] = mapped_column(JSON, default={})
     results: Mapped[dict] = mapped_column(JSON, default={})
-    downstream_impacts: Mapped[list] = mapped_column(JSON, default=list)
+    downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship("User", lazy="selectin")
