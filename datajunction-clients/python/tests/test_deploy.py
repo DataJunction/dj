@@ -1,15 +1,17 @@
+import importlib.metadata
 import io
 from pathlib import Path
 import time
 from unittest import mock
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
 from datajunction.models import DeploymentInfo
 from datajunction.rendering import (
     _render_error_bullets,
     _strip_summary_lines,
+    print_deployment_header,
     print_results,
 )
 import yaml
@@ -453,6 +455,211 @@ def test_print_results_dimension_links_grouped_under_parent():
         "│ ──────────────────────────────────────────────────────────────────────────── │\n"
         "│ ✗ 2 invalid                                                                  │\n"
         "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_dim_link_child_shows_changed_fields():
+    """Dim link child with changed_fields displays the field list (line 165)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-dl-cf",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.parent", "operation": "update", "status": "success"},
+                    {
+                        "name": "ns.parent -> ns.dim",
+                        "operation": "update",
+                        "status": "noop",
+                        "changed_fields": ["query"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+        verbose=True,
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-dl-cf  ·  ns ──────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.parent                                                     │\n"
+        "│      dimension links                                                         │\n"
+        "│      └─ ·  update    → ns.dim  [query]                                       │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_error_message_fully_stripped():
+    """When _strip_summary_lines removes all content, no bullet block is rendered (line 195->198)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-stripped",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "failed",
+                "results": [
+                    {
+                        "name": "ns.node",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "Updated transform (v2.0)\n└─ Updated query, dimension_links",
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-stripped  ·  ns ───────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.node                                                       │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 1 invalid                                                                  │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_downstream_tree_with_cube_and_recursion():
+    """
+    Covers:
+      - lines 210-211: cube annotation in _impact_annotation (via: a, b)
+      - line 247: cycle detection in _collect_transitive_cubes
+      - line 250: cube collected in _collect_transitive_cubes
+      - line 284: recursive _collect_impact_lines (b → c)
+      - line 330: root ns.b has empty items after ns.a rendered everything
+    """
+    out = io.StringIO()
+    print_results(
+        "uuid-tree",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "transform",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                    {
+                        "name": "ns.c",
+                        "node_type": "transform",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.b"],
+                    },
+                    {
+                        "name": "ns.cube1",
+                        "node_type": "cube",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a", "ns.b"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-tree  ·  ns ───────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   ├ ✗ transform b  → invalid                                                 │\n"
+        "│   │  └ ✗ transform c  → invalid                                              │\n"
+        "│   └ ✗ cube cube1  → invalid  (via: a, b)                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 3 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_downstream_impact_with_no_caused_by_hides_tree():
+    """Invalidated downstream node with empty caused_by produces no tree section (line 348)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-nocause",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": [],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-nocause  ·  ns ────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_deployment_header_with_client_version():
+    """Header includes client version row when package metadata is available (lines 414-415)."""
+    out = io.StringIO()
+    with patch("importlib.metadata.version", return_value="1.2.3"):
+        print_deployment_header(
+            "push",
+            "ads.moon",
+            Console(file=out, no_color=True, width=80),
+            repo="https://git.example.com/org/repo.git",
+            branch="main",
+        )
+    assert out.getvalue() == (
+        "\n"
+        "───────────────────────────────────── push ─────────────────────────────────────\n"
+        "  namespace  ads.moon\n"
+        "  repo       https://git.example.com/org/repo.git\n"
+        "  branch     main\n"
+        "  client     datajunction 1.2.3\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+    )
+
+
+def test_print_deployment_header_without_client_version():
+    """Header omits client row when package metadata is unavailable (line 422->425)."""
+    out = io.StringIO()
+    with patch(
+        "importlib.metadata.version",
+        side_effect=importlib.metadata.PackageNotFoundError,
+    ):
+        print_deployment_header(
+            "dry run",
+            "ads.moon",
+            Console(file=out, no_color=True, width=80),
+            repo="https://git.example.com/org/repo.git",
+            branch="main",
+        )
+    assert out.getvalue() == (
+        "\n"
+        "─────────────────────────────────── dry run ────────────────────────────────────\n"
+        "  namespace  ads.moon\n"
+        "  repo       https://git.example.com/org/repo.git\n"
+        "  branch     main\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
     )
 
 

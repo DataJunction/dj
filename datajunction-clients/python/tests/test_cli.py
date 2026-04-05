@@ -1363,33 +1363,17 @@ class TestImpactAnalysis:
         assert "ERROR" in captured.out
         assert "Simple string error" in captured.out
 
-    def test_deploy_without_dryrun(
-        self,
-        builder_client,
-        change_to_project_dir,
-    ):
-        """Test deploy command without --dryrun flag (covers line 814)."""
-        change_to_project_dir("./")
+    def test_deploy_without_dryrun(self, tmp_path):
+        """Test deploy command without --dryrun flag calls push (not dryrun)."""
+        from datajunction.cli import DJCLI
 
-        # deploy command without --dryrun should call push
-        test_args = ["dj", "deploy", "./deploy0"]
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(sys, "argv", ["dj", "deploy", str(tmp_path)]):
+                cli.run()
 
-        with patch(
-            "datajunction.deployment.DeploymentService._detect_git_branch",
-            return_value=None,
-        ):
-            with patch.dict(
-                os.environ,
-                {"DJ_USER": "datajunction", "DJ_PWD": "datajunction"},
-                clear=False,
-            ):
-                with patch.object(sys, "argv", test_args):
-                    main(builder_client=builder_client)
-
-        # Verify nodes were deployed (push was called)
-        results = builder_client.list_nodes(namespace="deps.deploy0")
-        # deploy0 has 6 nodes, they should be deployed
-        assert len(results) >= 6
+        mock_push.assert_called_once()
 
     def test_push_force_flag_passed_to_service(self, tmp_path):
         """--force on `dj push` must propagate force=True to DeploymentService.push."""
