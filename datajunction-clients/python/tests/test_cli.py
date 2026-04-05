@@ -1286,11 +1286,12 @@ class TestImpactAnalysis:
             ],
         }
 
+        from datajunction.models import DeploymentInfo
+
         DeploymentService.print_results(
             "dry_run",
-            data,
+            DeploymentInfo.from_dict(data),
             console,
-            downstream_impacts=data["downstream_impacts"],
         )
 
         rendered = out.getvalue()

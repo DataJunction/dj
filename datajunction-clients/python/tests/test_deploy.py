@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
+from datajunction.models import DeploymentInfo
 import yaml
 from rich.console import Console
 
@@ -136,18 +137,20 @@ def test_print_results_success(capsys):
     out = io.StringIO()
     DeploymentService.print_results(
         "abc-123",
-        {
-            "namespace": "some.namespace",
-            "status": "success",
-            "results": [
-                {
-                    "name": "some.random.node",
-                    "operation": "create",
-                    "status": "success",
-                    "message": "ok",
-                },
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "some.namespace",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "some.random.node",
+                        "operation": "create",
+                        "status": "success",
+                        "message": "ok",
+                    },
+                ],
+            },
+        ),
         Console(file=out),
     )
     rendered = out.getvalue()
@@ -160,14 +163,16 @@ def test_print_results_hides_noops_by_default():
     out = io.StringIO()
     DeploymentService.print_results(
         "uuid-1",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.node_a", "operation": "create", "status": "success"},
-                {"name": "ns.node_b", "operation": "noop", "status": "success"},
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.node_a", "operation": "create", "status": "success"},
+                    {"name": "ns.node_b", "operation": "noop", "status": "success"},
+                ],
+            },
+        ),
         Console(file=out),
     )
     rendered = out.getvalue()
@@ -179,14 +184,16 @@ def test_print_results_shows_noops_when_verbose():
     out = io.StringIO()
     DeploymentService.print_results(
         "uuid-1",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.node_a", "operation": "create", "status": "success"},
-                {"name": "ns.node_b", "operation": "noop", "status": "success"},
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.node_a", "operation": "create", "status": "success"},
+                    {"name": "ns.node_b", "operation": "noop", "status": "success"},
+                ],
+            },
+        ),
         Console(file=out),
         verbose=True,
     )
@@ -198,15 +205,17 @@ def test_print_results_summary_includes_skipped_and_noop_counts():
     out = io.StringIO()
     DeploymentService.print_results(
         "uuid-2",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.a", "operation": "create", "status": "success"},
-                {"name": "ns.b", "operation": "skip", "status": "skipped"},
-                {"name": "ns.c", "operation": "noop", "status": "noop"},
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "create", "status": "success"},
+                    {"name": "ns.b", "operation": "skip", "status": "skipped"},
+                    {"name": "ns.c", "operation": "noop", "status": "noop"},
+                ],
+            },
+        ),
         Console(file=out),
         verbose=False,
     )
@@ -267,19 +276,25 @@ def test_print_results_invalid_status_shown_as_error():
     out = io.StringIO()
     DeploymentService.print_results(
         "uuid-err",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {
-                    "name": "ns.bad_node",
-                    "operation": "update",
-                    "status": "invalid",
-                    "message": "join_on references unknown node",
-                },
-                {"name": "ns.good_node", "operation": "create", "status": "success"},
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "ns.bad_node",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "join_on references unknown node",
+                    },
+                    {
+                        "name": "ns.good_node",
+                        "operation": "create",
+                        "status": "success",
+                    },
+                ],
+            },
+        ),
         Console(file=out, no_color=True),
     )
     rendered = out.getvalue()
@@ -291,31 +306,31 @@ def test_print_results_invalid_status_shown_as_error():
 def test_print_results_unified_summary_combines_direct_and_downstream():
     """Summary shows total invalid count with (N direct, N downstream) breakdown."""
     out = io.StringIO()
-    data = {
-        "namespace": "ns",
-        "status": "success",
-        "results": [
-            {
-                "name": "ns.a",
-                "operation": "update",
-                "status": "invalid",
-                "message": "some error",
-            },
-        ],
-    }
-    downstream = [
-        {
-            "name": "ns.b",
-            "node_type": "metric",
-            "predicted_status": "invalid",
-            "caused_by": ["ns.a"],
-        },
-    ]
     DeploymentService.print_results(
         "uuid-combined",
-        data,
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "ns.a",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "some error",
+                    },
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                ],
+            },
+        ),
         Console(file=out, no_color=True),
-        downstream_impacts=downstream,
     )
     rendered = out.getvalue()
     assert "2 invalid" in rendered
@@ -326,26 +341,26 @@ def test_print_results_unified_summary_combines_direct_and_downstream():
 def test_print_results_downstream_only_invalid_no_breakdown():
     """When only downstream nodes are invalid (no direct errors), no breakdown parenthetical."""
     out = io.StringIO()
-    data = {
-        "namespace": "ns",
-        "status": "success",
-        "results": [
-            {"name": "ns.a", "operation": "update", "status": "success"},
-        ],
-    }
-    downstream = [
-        {
-            "name": "ns.b",
-            "node_type": "metric",
-            "predicted_status": "invalid",
-            "caused_by": ["ns.a"],
-        },
-    ]
     DeploymentService.print_results(
         "uuid-downstream-only",
-        data,
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                ],
+            },
+        ),
         Console(file=out, no_color=True),
-        downstream_impacts=downstream,
     )
     rendered = out.getvalue()
     assert "1 invalid" in rendered
@@ -358,25 +373,27 @@ def test_print_results_dimension_links_grouped_under_parent():
     out = io.StringIO()
     DeploymentService.print_results(
         "uuid-dimlink",
-        {
-            "namespace": "ns",
-            "status": "failed",
-            "results": [
-                {
-                    "name": "ns.my_transform",
-                    "operation": "update",
-                    "status": "invalid",
-                    "message": "join_on error",
-                    "changed_fields": ["dimension_links"],
-                },
-                {
-                    "name": "ns.my_transform -> ns.dim_date",
-                    "operation": "create",
-                    "status": "failed",
-                    "message": "node does not exist",
-                },
-            ],
-        },
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "failed",
+                "results": [
+                    {
+                        "name": "ns.my_transform",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "join_on error",
+                        "changed_fields": ["dimension_links"],
+                    },
+                    {
+                        "name": "ns.my_transform -> ns.dim_date",
+                        "operation": "create",
+                        "status": "failed",
+                        "message": "node does not exist",
+                    },
+                ],
+            },
+        ),
         Console(file=out, no_color=True),
     )
     rendered = out.getvalue()
