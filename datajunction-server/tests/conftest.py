@@ -290,7 +290,10 @@ def settings_no_qs(
     )
 
     from datajunction_server.models.dialect import register_dialect_plugin
-    from datajunction_server.transpilation import SQLTranspilationPlugin, SQLGlotTranspilationPlugin
+    from datajunction_server.transpilation import (
+        SQLTranspilationPlugin,
+        SQLGlotTranspilationPlugin,
+    )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
