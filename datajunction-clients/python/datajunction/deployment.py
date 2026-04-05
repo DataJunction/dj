@@ -5,6 +5,7 @@ import socket
 import subprocess
 import urllib.parse
 import urllib.request
+from enum import Enum
 from pathlib import Path
 import time
 from typing import Any, Union
@@ -21,6 +22,48 @@ from datajunction.exceptions import (
     DJClientException,
     DJDeploymentFailure,
 )
+
+
+# TODO: replace with generated models from OpenAPI spec once client codegen is set up.
+# Canonical definitions live in datajunction_server/models/deployment.py.
+
+
+class DeploymentStatus(str, Enum):
+    """Overall deployment status. Mirrors server DeploymentStatus."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ResultStatus(str, Enum):
+    """Per-result node status. Mirrors server DeploymentResult.Status."""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    INVALID = "invalid"
+    SKIPPED = "skipped"
+    NOOP = "noop"
+
+
+_RESULT_ICONS: dict[str, str] = {
+    ResultStatus.SUCCESS: "✓",
+    ResultStatus.FAILED: "✗",
+    ResultStatus.INVALID: "✗",
+    ResultStatus.SKIPPED: "–",
+    ResultStatus.NOOP: "·",
+}
+
+_RESULT_COLORS: dict[str, str] = {
+    ResultStatus.SUCCESS: "green",
+    ResultStatus.FAILED: "red",
+    ResultStatus.INVALID: "red",
+    ResultStatus.SKIPPED: "grey50",
+    ResultStatus.NOOP: "dim",
+}
+
+_ERROR_STATUSES = frozenset({ResultStatus.FAILED, ResultStatus.INVALID})
 
 
 def _strip_summary_lines(message: str) -> str:
@@ -313,7 +356,6 @@ class DeploymentService:
             yaml.safe_dump(project_spec, yaml_file, sort_keys=False)
 
     @staticmethod
-    @staticmethod
     def _render_error_bullets(
         message: str,
         color: str = "red",
@@ -345,72 +387,97 @@ class DeploymentService:
         return body
 
     @staticmethod
-    def print_results(
-        deployment_uuid: str,
-        data: dict,
-        console: Console,
-        verbose: bool = False,
-        downstream_impacts: list[dict] | None = None,
-    ) -> None:
-        """Render deployment results (and optional downstream impacts) in a single panel."""
-        namespace = data.get("namespace", "")
-        overall_status = data.get("status", "")
-
-        icon_map = {
-            "success": "✓",
-            "failed": "✗",
-            "invalid": "✗",
-            "skipped": "–",
-            "pending": "…",
-        }
-        color_map = {
-            "success": "green",
-            "failed": "red",
-            "invalid": "red",
-            "skipped": "grey50",
-            "pending": "yellow",
-        }
-
-        results = data.get("results", [])
+    def _count_by_status(results: list[dict]) -> dict[str, int]:
+        """Count results grouped by status."""
         counts: dict[str, int] = {}
         for r in results:
-            counts[r.get("status", "")] = counts.get(r.get("status", ""), 0) + 1
+            status = r.get("status", "")
+            counts[status] = counts.get(status, 0) + 1
+        return counts
 
-        error_count = counts.get("failed", 0) + counts.get("invalid", 0)
-        border_color = (
-            "red" if overall_status == "failed" or error_count > 0 else "green"
-        )
+    @staticmethod
+    def _group_dim_links(
+        results: list[dict],
+    ) -> tuple[list[dict], dict[str, list[dict]]]:
+        """Split results into regular nodes and dimension link children.
 
-        # Group dimension link results (name contains " -> ") under their parent node
+        Dimension link results have names of the form 'parent_node -> dim_node'.
+        They are grouped by parent so they can be rendered nested under their parent row.
+        """
+        regular: list[dict] = []
         dim_link_children: dict[str, list[dict]] = {}
-        regular_results: list[dict] = []
         for r in results:
             name = r.get("name", "")
             if " -> " in name:
                 parent = name.split(" -> ")[0]
                 dim_link_children.setdefault(parent, []).append(r)
             else:
-                regular_results.append(r)
+                regular.append(r)
+        return regular, dim_link_children
 
+    @staticmethod
+    def _render_dim_link_children(
+        rows: Text,
+        node_name: str,
+        dim_link_children: dict[str, list[dict]],
+        verbose: bool,
+    ) -> None:
+        """Append dimension link child rows nested under their parent node."""
+        visible = [
+            c
+            for c in dim_link_children.get(node_name, [])
+            if verbose or c.get("operation") != "noop"
+        ]
+        if not visible:
+            return
+        rows.append("\n     ", style="")
+        rows.append("dimension links", style="dim italic")
+        for ci, child in enumerate(visible):
+            is_last = ci == len(visible) - 1
+            connector = "└" if is_last else "├"
+            cstatus = child.get("status", "")
+            ccolor = _RESULT_COLORS.get(cstatus, "white")
+            cicon = _RESULT_ICONS.get(cstatus, " ")
+            child_is_error = cstatus in _ERROR_STATUSES
+            dim_name = child.get("name", "").split(" -> ", 1)[-1]
+            weight = "bold " if child_is_error else ""
+            rows.append(f"\n     {connector}─ ")
+            rows.append(f"{cicon}  ", style=f"{weight}{ccolor}")
+            rows.append(f"{child.get('operation', ''):<8}  ", style="dim")
+            rows.append(f"→ {dim_name}", style=f"{weight}{ccolor}")
+            child_changed = child.get("changed_fields") or []
+            if child_changed:
+                rows.append(f"  [{', '.join(child_changed)}]", style="dim")
+            if child_is_error and child.get("message"):
+                rows.append("\n")
+                rows.append_text(
+                    DeploymentService._render_error_bullets(
+                        child.get("message", ""),
+                        indent="        ",
+                    ),
+                )
+
+    @staticmethod
+    def _render_result_rows(
+        regular_results: list[dict],
+        dim_link_children: dict[str, list[dict]],
+        verbose: bool,
+    ) -> Text:
+        """Build the Text block showing each result row and its dim link children."""
         rows = Text()
         for result in regular_results:
             status = result.get("status", "")
-            color = color_map.get(status, "white")
-            icon = icon_map.get(status, " ")
+            color = _RESULT_COLORS.get(status, "white")
+            icon = _RESULT_ICONS.get(status, " ")
             if not verbose and result.get("operation") == "noop":
                 continue
             if rows:
                 rows.append("\n")
-            is_error = status in ("failed", "invalid")
-            rows.append(
-                f"  {icon}  ",
-                style=f"{'bold ' if is_error else ''}{color}",
-            )
+            is_error = status in _ERROR_STATUSES
+            weight = "bold " if is_error else ""
+            rows.append(f"  {icon}  ", style=f"{weight}{color}")
             rows.append(f"{result.get('operation', ''):<8}  ", style="dim")
-            rows.append(
-                result.get("name", ""),
-                style=f"{'bold ' if is_error else ''}{color}",
-            )
+            rows.append(result.get("name", ""), style=f"{weight}{color}")
             changed = result.get("changed_fields") or []
             if changed:
                 rows.append(f"  [{', '.join(changed)}]", style="dim")
@@ -419,61 +486,38 @@ class DeploymentService:
                 if error_msg:
                     rows.append("\n")
                     rows.append_text(DeploymentService._render_error_bullets(error_msg))
+            DeploymentService._render_dim_link_children(
+                rows,
+                result.get("name", ""),
+                dim_link_children,
+                verbose,
+            )
+        return rows
 
-            # Render dimension link children nested under this node
-            node_name = result.get("name", "")
-            visible_children = [
-                c
-                for c in dim_link_children.get(node_name, [])
-                if verbose or c.get("operation") != "noop"
-            ]
-            if visible_children:
-                rows.append("\n     ", style="")
-                rows.append("dimension links", style="dim italic")
-            for ci, child in enumerate(visible_children):
-                is_last_child = ci == len(visible_children) - 1
-                connector = "└" if is_last_child else "├"
-                cstatus = child.get("status", "")
-                ccolor = color_map.get(cstatus, "white")
-                cicon = icon_map.get(cstatus, " ")
-                child_is_error = cstatus in ("failed", "invalid")
-                dim_name = child.get("name", "").split(" -> ", 1)[-1]
-                rows.append(f"\n     {connector}─ ")
-                rows.append(
-                    f"{cicon}  ",
-                    style=f"{'bold ' if child_is_error else ''}{ccolor}",
-                )
-                rows.append(f"{child.get('operation', ''):<8}  ", style="dim")
-                rows.append(
-                    f"→ {dim_name}",
-                    style=f"{'bold ' if child_is_error else ''}{ccolor}",
-                )
-                child_changed = child.get("changed_fields") or []
-                if child_changed:
-                    rows.append(f"  [{', '.join(child_changed)}]", style="dim")
-                if child_is_error and child.get("message"):
-                    rows.append("\n")
-                    rows.append_text(
-                        DeploymentService._render_error_bullets(
-                            child.get("message", ""),
-                            indent="        ",
-                        ),
-                    )
-
+    @staticmethod
+    def _build_summary(
+        counts: dict[str, int],
+        error_count: int,
+        downstream_impacts: list[dict] | None,
+        verbose: bool,
+    ) -> list[Text]:
+        """Build the summary line segments shown at the bottom of the panel."""
         invalidated_downstream = [
             d
             for d in (downstream_impacts or [])
-            if d.get("predicted_status") == "invalid"
+            if d.get("predicted_status") == ResultStatus.INVALID
         ]
-        summary_parts = []
-        if counts.get("success"):
-            summary_parts.append(
-                Text(f"✓ {counts['success']} succeeded", style="green"),
+        parts: list[Text] = []
+        if counts.get(ResultStatus.SUCCESS):
+            parts.append(
+                Text(f"✓ {counts[ResultStatus.SUCCESS]} succeeded", style="green"),
             )
-        if counts.get("skipped"):
-            summary_parts.append(Text(f"– {counts['skipped']} skipped", style="grey50"))
-        if not verbose and counts.get("noop"):
-            summary_parts.append(Text(f"{counts['noop']} noop", style="dim"))
+        if counts.get(ResultStatus.SKIPPED):
+            parts.append(
+                Text(f"– {counts[ResultStatus.SKIPPED]} skipped", style="grey50"),
+            )
+        if not verbose and counts.get(ResultStatus.NOOP):
+            parts.append(Text(f"{counts[ResultStatus.NOOP]} noop", style="dim"))
         downstream_count = len(invalidated_downstream)
         total_invalid = error_count + downstream_count
         if total_invalid:
@@ -485,10 +529,46 @@ class DeploymentService:
                 )
             elif downstream_count:
                 t.append("  (downstream)", style="dim red")
-            summary_parts.append(t)
+            parts.append(t)
+        return parts
 
+    @staticmethod
+    def print_results(
+        deployment_uuid: str,
+        data: dict,
+        console: Console,
+        verbose: bool = False,
+        downstream_impacts: list[dict] | None = None,
+    ) -> None:
+        """Render deployment results (and optional downstream impacts) in a single panel."""
+        namespace = data.get("namespace", "")
+        overall_status = data.get("status", "")
+        results = data.get("results", [])
+
+        counts = DeploymentService._count_by_status(results)
+        error_count = counts.get(ResultStatus.FAILED, 0) + counts.get(
+            ResultStatus.INVALID,
+            0,
+        )
+        border_color = (
+            "red"
+            if overall_status == DeploymentStatus.FAILED or error_count > 0
+            else "green"
+        )
+
+        regular, dim_link_children = DeploymentService._group_dim_links(results)
+        rows = DeploymentService._render_result_rows(
+            regular,
+            dim_link_children,
+            verbose,
+        )
+        summary_parts = DeploymentService._build_summary(
+            counts,
+            error_count,
+            downstream_impacts,
+            verbose,
+        )
         summary = Text("  ").join(summary_parts) if summary_parts else Text()
-
         impacts_text = _build_downstream_text(downstream_impacts or [], namespace)
 
         panel_parts: list = [rows]
