@@ -16,6 +16,7 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
     SparkJoinStrategy,
 )
+from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.node import (
     MetricDirection,
     MetricUnit,
@@ -283,13 +284,27 @@ class NodeSpec(BaseModel):
             and eq_or_fallback(self.custom_metadata, other.custom_metadata, {})
         )
 
+    def rendered_spec(self) -> "NodeSpec":
+        """
+        Return a copy of this spec with all ${prefix} placeholders resolved.
+        Needed for accurate diffs against existing specs that store fully-qualified names.
+        """
+        import json
+
+        raw = self.model_dump(mode="json")
+        prefix = f"{self.namespace}{SEPARATOR}" if self.namespace else ""
+        rendered_json = json.dumps(raw).replace("${prefix}", prefix)
+        return self.__class__.model_validate_json(rendered_json)
+
     def diff(self, other: "NodeSpec") -> list[str]:
         """
         Return a list of fields that differ between this and another NodeSpec.
+        Renders ${prefix} placeholders in `other` before comparing so that
+        specs with unresolved prefixes don't produce false positives.
         """
         return diff(
             self,
-            other,
+            other.rendered_spec(),
             ignore_fields=["name", "namespace", "query", "columns"],
         )
 
@@ -489,14 +504,27 @@ class CubeSpec(NodeSpec):
         return rendered
 
     def __eq__(self, other: Any) -> bool:
-        return (
-            super().__eq__(other)
-            and eq_columns(self.rendered_columns, other.rendered_columns)
-            or self.rendered_columns == []
-            and set(self.rendered_metrics) == set(other.rendered_metrics)
+        if not isinstance(other, CubeSpec):
+            return False
+        if not super().__eq__(other):
+            return False
+        if not (
+            set(self.rendered_metrics) == set(other.rendered_metrics)
             and set(self.rendered_dimensions) == set(other.rendered_dimensions)
             and (self.rendered_filters or []) == (other.rendered_filters or [])
-        )
+        ):
+            return False
+        # Compare only partition config for user-specified columns.
+        # Cube element columns (types, order, attributes) are auto-derived and ignored.
+        incoming_partitions = {
+            col.name: col.partition for col in self.rendered_columns if col.partition
+        }
+        existing_partitions = {
+            col.name: col.partition
+            for col in (other.rendered_columns or [])
+            if col.partition
+        }
+        return incoming_partitions == existing_partitions
 
 
 NodeUnion = Annotated[
@@ -511,6 +539,13 @@ NodeUnion = Annotated[
 ]
 
 
+def _norm(v: Any) -> Any:
+    """Normalize falsy string/None to None so that '' and None compare equal."""
+    if isinstance(v, str):
+        return v or None
+    return v
+
+
 def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> list[str]:
     """
     Compare two Pydantic models and return a list of fields that have changed.
@@ -523,7 +558,7 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
         and hasattr(two, field)
         and (
             (
-                isinstance(getattr(one, field), (list, dict))
+                isinstance(getattr(one, field) or getattr(two, field), (list, dict))
                 and {
                     tuple(sorted(item.model_dump().items()))
                     if isinstance(item, BaseModel)
@@ -538,8 +573,8 @@ def diff(one: BaseModel, two: BaseModel, ignore_fields: list[str] = None) -> lis
                 }
             )
             or (
-                not isinstance(getattr(one, field), (list, dict))
-                and getattr(one, field) != getattr(two, field)
+                not isinstance(getattr(one, field) or getattr(two, field), (list, dict))
+                and _norm(getattr(one, field)) != _norm(getattr(two, field))
             )
         )
     ]
@@ -653,6 +688,14 @@ class DeploymentSpec(BaseModel):
             "will be looked up in the specified catalog and auto-created as source nodes."
         ),
     )
+    default_catalog: str | None = Field(
+        default=None,
+        description=(
+            "Default catalog name to use for non-source nodes when the catalog cannot be "
+            "inferred from parent nodes (e.g., for invalid nodes with unresolvable parents). "
+            "Falls back to the virtual catalog if not set."
+        ),
+    )
 
     @model_validator(mode="after")
     def set_namespaces(self):
@@ -695,6 +738,7 @@ class DeploymentResult(BaseModel):
         SUCCESS = "success"
         FAILED = "failed"
         SKIPPED = "skipped"
+        INVALID = "invalid"  # deployed but node status is INVALID
 
     class Operation(str, Enum):
         CREATE = "create"
@@ -714,6 +758,7 @@ class DeploymentResult(BaseModel):
     status: Status
     operation: Operation
     message: str = ""
+    changed_fields: list[str] = Field(default_factory=list)
 
 
 class DeploymentInfo(BaseModel):
@@ -725,6 +770,7 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime
     created_by: str | None = None  # Username
     source: GitDeploymentSource | LocalDeploymentSource | None = None
@@ -751,6 +797,11 @@ def eq_columns(
     """
     a_map = {col.name: col for col in a or []}
     b_map = {col.name: col for col in b or []}
+    # For source nodes (compare_types=True), column additions and removals from
+    # an explicit column list are changes. Only applies when both sides are non-empty
+    # (None/[] means "unspecified — don't compare").
+    if compare_types and a and b and set(a_map.keys()) != set(b_map.keys()):
+        return False
     a_cols, b_cols = [], []
     for col_name in set(a_map.keys()).union(set(b_map.keys())):
         a_col = a_map.get(col_name).model_copy() if a_map.get(col_name) else None  # type: ignore

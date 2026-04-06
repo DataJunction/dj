@@ -5,22 +5,45 @@ import socket
 import subprocess
 import urllib.parse
 import urllib.request
+from enum import Enum
 from pathlib import Path
 import time
 from typing import Any, Union
 
 import yaml
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.rule import Rule
+from rich.console import Console
 from rich.status import Status
-from rich.text import Text
 
 from datajunction import DJBuilder
 from datajunction.exceptions import (
     DJClientException,
     DJDeploymentFailure,
 )
+from datajunction.models import DeploymentInfo
+from datajunction.rendering import print_deployment_header, print_results
+
+
+# TODO: replace with generated models from OpenAPI spec once client codegen is set up.
+# Canonical definitions live in datajunction_server/models/deployment.py.
+
+
+class DeploymentStatus(str, Enum):
+    """Overall deployment status. Mirrors server DeploymentStatus."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ResultStatus(str, Enum):
+    """Per-result node status. Mirrors server DeploymentResult.Status."""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    INVALID = "invalid"
+    SKIPPED = "skipped"
+    NOOP = "noop"
 
 
 class DeploymentService:
@@ -151,101 +174,6 @@ class DeploymentService:
             }
             yaml.safe_dump(project_spec, yaml_file, sort_keys=False)
 
-    @staticmethod
-    @staticmethod
-    def _render_error_bullets(message: str) -> Text:
-        """Render a semicolon-separated error message as indented bullet points."""
-        bullets = [m.strip() for m in message.split(";") if m.strip()]
-        body = Text()
-        for i, bullet in enumerate(bullets):
-            if i > 0:
-                body.append("\n")
-            body.append("  • ", style="bold red")
-            head, _, tail = bullet.partition(": ")
-            for j, part in enumerate(head.split("`")):
-                body.append(part, style="bold dark_green" if j % 2 == 1 else "")
-            if tail:
-                body.append("\n    ")
-                for j, part in enumerate(tail.split("`")):
-                    body.append(part, style="bold dark_green" if j % 2 == 1 else "")
-        return body
-
-    @staticmethod
-    def print_results(
-        deployment_uuid: str,
-        data: dict,
-        console: Console,
-        verbose: bool = False,
-    ) -> None:
-        """Render all deployment results inside a single panel."""
-        namespace = data.get("namespace", "")
-        overall_status = data.get("status", "")
-        border_color = "green" if overall_status == "success" else "red"
-
-        icon_map = {"success": "✓", "failed": "✗", "skipped": "–", "pending": "…"}
-        color_map = {
-            "success": "green",
-            "failed": "red",
-            "skipped": "grey50",
-            "pending": "yellow",
-        }
-
-        results = data.get("results", [])
-        counts: dict[str, int] = {}
-        for r in results:
-            counts[r.get("status", "")] = counts.get(r.get("status", ""), 0) + 1
-
-        rows = Text()
-        for result in results:
-            status = result.get("status", "")
-            color = color_map.get(status, "white")
-            icon = icon_map.get(status, " ")
-            if not verbose and result.get("operation") == "noop":
-                continue
-            if rows:
-                rows.append("\n")
-            rows.append(
-                f"  {icon}  ",
-                style=f"{'bold ' if status == 'failed' else ''}{color}",
-            )
-            rows.append(f"{result.get('operation', ''):<8}  ", style="dim")
-            rows.append(
-                result.get("name", ""),
-                style=f"{'bold ' if status == 'failed' else ''}{color}",
-            )
-            if status == "failed":
-                rows.append("\n")
-                rows.append_text(
-                    DeploymentService._render_error_bullets(result.get("message", "")),
-                )
-
-        summary_parts = []
-        if counts.get("success"):
-            summary_parts.append(
-                Text(f"✓ {counts['success']} succeeded", style="green"),
-            )
-        if counts.get("skipped"):
-            summary_parts.append(Text(f"– {counts['skipped']} skipped", style="grey50"))
-        if not verbose and counts.get("noop"):
-            summary_parts.append(Text(f"{counts['noop']} noop", style="dim"))
-        if counts.get("failed"):
-            summary_parts.append(Text(f"✗ {counts['failed']} failed", style="bold red"))
-
-        summary = Text("  ").join(summary_parts) if summary_parts else Text()
-
-        content = Group(rows, Rule(style="dim"), summary) if summary_parts else rows
-
-        console.print()
-        console.print(
-            Panel(
-                content,
-                title=f"[dim]{deployment_uuid}  ·  {namespace}[/dim]",
-                title_align="left",
-                border_style=border_color,
-                padding=(0, 1),
-            ),
-        )
-
     def push(
         self,
         source_path: str | Path,
@@ -258,18 +186,12 @@ class DeploymentService:
         Push a local project to a namespace.
         """
         console = console or self.console
-        console.print(f"[bold]Pushing project from:[/bold] {source_path}")
 
         deployment_spec = self._reconstruct_deployment_spec(source_path)
 
         base_namespace = deployment_spec.get("namespace") or ""
         branch = DeploymentService._detect_git_branch(cwd=source_path)
         source = deployment_spec.get("source", {})
-        if source.get("repository"):
-            console.print(
-                f"[dim]  repo:    [bold]{source['repository']}[/bold]\n"
-                f"  branch:  [bold]{source.get('branch', 'unknown')}[/bold][/dim]",
-            )
         if namespace:
             deployment_spec["namespace"] = namespace
         elif branch and base_namespace:
@@ -277,10 +199,14 @@ class DeploymentService:
                 base_namespace,
                 branch,
             )
-            console.print(
-                f"[dim]Detected branch [bold]{branch}[/bold] → "
-                f"deploying to [bold]{deployment_spec['namespace']}[/bold][/dim]",
-            )
+
+        print_deployment_header(
+            mode="push",
+            namespace=deployment_spec["namespace"],
+            console=console,
+            repo=source.get("repository"),
+            branch=source.get("branch") or branch,
+        )
 
         if branch:
             # Only set parent_namespace when we derived it from dj.yaml (not when
@@ -315,34 +241,59 @@ class DeploymentService:
                 if time.time() > timeout:
                     raise DJClientException("Deployment timed out after 5 minutes")
 
-        DeploymentService.print_results(
+        deployment = DeploymentInfo.from_dict(deployment_data)
+        print_results(
             deployment_uuid,
-            deployment_data,
+            deployment,
             console,
             verbose=verbose,
         )
-        if deployment_data.get("status") == "success":
+        if deployment.status == DeploymentStatus.SUCCESS:
             console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
-        if deployment_data.get("status") == "failed":
-            results = deployment_data.get("results", [])
-            errors = [r for r in results if r.get("status") == "failed"]
+        if deployment.status == DeploymentStatus.FAILED:
+            errors = [r for r in deployment.results if r.status == ResultStatus.FAILED]
             raise DJDeploymentFailure(
                 project_name=deployment_spec.get("namespace", source_path),
-                errors=errors if errors else results,
+                errors=[r.__dict__ for r in (errors if errors else deployment.results)],
             )
 
     def get_impact(
         self,
         source_path: str | Path,
         namespace: str | None = None,
+        console: Console | None = None,
+        verbose: bool = False,
+        display: bool = True,
     ) -> dict[str, Any]:
         """
         Get impact analysis for a deployment without deploying.
-        Returns the impact analysis response from the server.
+        Displays a rich summary of what would change and which downstream nodes
+        would be affected (unless display=False), then returns the raw response dict.
         """
+        console = console or self.console
         deployment_spec = self._reconstruct_deployment_spec(source_path)
         deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
-        return self.client.get_deployment_impact(deployment_spec)
+        source = deployment_spec.get("source", {})
+        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        if display:
+            print_deployment_header(
+                mode="dry run",
+                namespace=deployment_spec["namespace"],
+                console=console,
+                repo=source.get("repository"),
+                branch=source.get("branch") or branch,
+            )
+        with Status("Analyzing impact...", console=console):
+            data = self.client.get_deployment_impact(deployment_spec)
+        deployment = DeploymentInfo.from_dict(data)
+        if display:
+            print_results(
+                "dry_run",
+                deployment,
+                console,
+                verbose=verbose,
+            )
+        return data
 
     @staticmethod
     def read_yaml_file(path: str | Path) -> dict[str, Any]:

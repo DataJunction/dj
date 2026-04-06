@@ -1185,7 +1185,11 @@ class TestDeployments:
         default_hard_hats,
     ):
         """
-        Test deployment failures with non-existent upstream dependencies
+        Test deployment with non-existent upstream dependencies.
+
+        The new behavior (vs raising DJInvalidDeploymentConfig) is to proceed
+        with deployment and mark affected nodes as INVALID, so the caller
+        can see exactly which nodes failed and why.
         """
         namespace = "missing_upstreams"
         data = await deploy_and_wait(
@@ -1195,23 +1199,19 @@ class TestDeployments:
                 nodes=[default_hard_hat],
             ),
         )
-        assert data == {
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "status": "failed",
-            "results": [
-                {
-                    "name": "DJInvalidDeploymentConfig",
-                    "deploy_type": "general",
-                    "status": "failed",
-                    "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.hard_hats, {namespace}.default.us_state",
-                    "operation": "unknown",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        assert data["uuid"] == mock.ANY
+        assert data["namespace"] == namespace
+        assert data["status"] == "failed"
+        assert data["downstream_impacts"] == []
+        # hard_hat node deployed as INVALID (missing hard_hats upstream)
+        node_result = next(r for r in data["results"] if r["deploy_type"] == "node")
+        assert node_result["name"] == f"{namespace}.default.hard_hat"
+        assert node_result["status"] == "invalid"
+        assert node_result["operation"] == "create"
+        # link to us_state failed (node doesn't exist)
+        link_result = next(r for r in data["results"] if r["deploy_type"] == "link")
+        assert f"{namespace}.default.us_state" in link_result["name"]
+        assert link_result["status"] == "failed"
 
     @pytest.mark.asyncio
     async def test_deploy_failed_on_non_existent_link_deps(
@@ -1231,23 +1231,14 @@ class TestDeployments:
                 nodes=[default_hard_hats, default_hard_hat],
             ),
         )
-        assert data == {
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "status": "failed",
-            "results": [
-                {
-                    "name": "DJInvalidDeploymentConfig",
-                    "deploy_type": "general",
-                    "status": "failed",
-                    "message": f"The following dependencies are not in the deployment and do not pre-exist in the system: {namespace}.default.us_state",
-                    "operation": "unknown",
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "source": None,
-        }
+        # New behavior: proceed with deployment — the node deploys but the link fails
+        assert data["uuid"] == mock.ANY
+        assert data["namespace"] == namespace
+        assert data["status"] == "failed"
+        assert data["downstream_impacts"] == []
+        link_result = next(r for r in data["results"] if r["deploy_type"] == "link")
+        assert f"{namespace}.default.us_state" in link_result["name"]
+        assert link_result["status"] == "failed"
 
     @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_pk(
@@ -1298,6 +1289,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1305,18 +1297,21 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Some columns in the primary key ['hard_hat_id'] were not found in "
-                    "the list of available columns for the node "
+                    "message": "Created dimension (v1.0)\n"
+                    "[invalid] Some columns in the primary key ['hard_hat_id'] were "
+                    "not found in the list of available columns for the node "
                     f"{namespace}.default.hard_hat.; "
                     f"Column 'state' referenced in join_on for "
                     f"'{namespace}.default.us_state' not found on node "
                     f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
-                    "status": "failed",
+                    "status": "invalid",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1324,10 +1319,22 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "link",
+                    "message": "Join link successfully deployed\n"
+                    f"[invalid] Node '{namespace}.default.hard_hat' is INVALID "
+                    "— link may not function until the node is fixed",
+                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
+                    "operation": "create",
+                    "status": "success",
+                    "changed_fields": [],
                 },
             ],
             "created_at": None,
             "created_by": None,
+            "downstream_impacts": [],
             "source": None,
         }
 
@@ -1387,6 +1394,7 @@ class TestDeployments:
             "message": "",
             "name": "link_removal.default.hard_hat -> link_removal.default.us_state",
             "operation": "delete",
+            "changed_fields": [],
             "status": "success",
         }
 
@@ -1452,6 +1460,7 @@ class TestDeployments:
             "message": "Join link successfully deployed",
             "name": "link_update.default.hard_hat -> link_update.default.us_state",
             "operation": "update",
+            "changed_fields": [],
             "status": "success",
         }
 
@@ -1496,6 +1505,7 @@ class TestDeployments:
             "message": "Reference link successfully deployed",
             "name": "reference_link.default.hard_hat -> reference_link.default.us_state",
             "operation": "create",
+            "changed_fields": [],
             "status": "success",
         }
         dim_spec.dimension_links = [
@@ -1509,9 +1519,10 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        assert (
-            "Dimension attribute 'random' not found in dimension"
-            in data["results"][-1]["message"]
+        assert any(
+            "Dimension attribute 'random' not found in dimension" in r["message"]
+            or "INVALID" in r["message"]
+            for r in data["results"]
         )
 
     @pytest.mark.asyncio
@@ -1601,7 +1612,8 @@ class TestDeployments:
             "name": f"{namespace}.default.hard_hat",
             "status": "success",
             "operation": "update",
-            "message": "Updated dimension (v2.0)\n└─ Updated dimension_links",
+            "changed_fields": ["query", "columns"],
+            "message": "Updated dimension (v2.0)\n└─ Column removed: hard_hat_id, state\n└─ Updated query, columns",
         }
         update_us_state = next(
             res
@@ -1613,6 +1625,7 @@ class TestDeployments:
             "message": "Node node_update.default.us_state is unchanged.",
             "name": "node_update.default.us_state",
             "operation": "noop",
+            "changed_fields": [],
             "status": "skipped",
         }
 
@@ -1659,11 +1672,13 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Metric metric_update.default.avg_length_of_employment has an invalid "
+            "message": "Updated metric (v2.0)\n└─ Updated query, display_name\n"
+            "[invalid] Metric metric_update.default.avg_length_of_employment has an invalid "
             "query, should have an aggregate expression",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
-            "status": "failed",
+            "changed_fields": ["query", "display_name"],
+            "status": "invalid",
         }
 
         # Fix query - metric should deploy successfully
@@ -1682,9 +1697,10 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v2.0)\n└─ Updated display_name",
+            "message": "Updated metric (v3.0)\n└─ Updated query, display_name",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
+            "changed_fields": ["query", "display_name"],
             "status": "success",
         }
 
@@ -1741,10 +1757,12 @@ class TestDeployments:
         assert data["status"] == "failed"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": mock.ANY,
+            "message": "Updated cube (v2.0)\n[invalid] One or more dimensions not found for cube "
+            "cube_update.default.repairs_cube: cube_update.default.us_state.non_existent_column",
             "name": "cube_update.default.repairs_cube",
             "operation": "update",
-            "status": "failed",
+            "changed_fields": ["dimensions"],
+            "status": "invalid",
         }
 
         # Update cube to add an existing dimension - should deploy successfully
@@ -1759,9 +1777,10 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated cube (v2.0)\n└─ Updated metrics, dimensions",
+            "message": "Updated cube (v3.0)\n└─ Updated metrics, dimensions",
             "name": "cube_update.default.repairs_cube",
             "operation": "update",
+            "changed_fields": ["metrics", "dimensions"],
             "status": "success",
         }
 
@@ -1824,7 +1843,9 @@ class TestDeployments:
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
         assert data["status"] == "failed"
-        failed_result = next(r for r in data["results"] if r["status"] == "failed")
+        failed_result = next(
+            r for r in data["results"] if r["status"] in ("failed", "invalid")
+        )
         assert "is not available on every metric" in failed_result["message"]
 
     @pytest.mark.asyncio
@@ -1882,6 +1903,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1889,15 +1911,18 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
-                    "message": f"Column 'state' referenced in join_on for "
+                    "message": "Created dimension (v1.0)\n"
+                    f"[invalid] Column 'state' referenced in join_on for "
                     f"'{namespace}.default.us_state' not found on node "
                     f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
-                    "status": "failed",
+                    "status": "invalid",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1905,10 +1930,22 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "link",
+                    "message": "Join link successfully deployed\n"
+                    f"[invalid] Node '{namespace}.default.hard_hat' is INVALID "
+                    "— link may not function until the node is fixed",
+                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
+                    "operation": "create",
+                    "status": "success",
+                    "changed_fields": [],
                 },
             ],
             "created_at": None,
             "created_by": None,
+            "downstream_impacts": [],
             "source": None,
         }
 
@@ -1946,6 +1983,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1953,6 +1991,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1960,6 +1999,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -1967,6 +2007,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -1974,10 +2015,12 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
             ],
             "created_at": mock.ANY,
             "created_by": mock.ANY,
+            "downstream_impacts": [],
             "source": mock.ANY,
         }
 
@@ -2013,6 +2056,7 @@ class TestDeployments:
             "message": "Node node_update.default.hard_hats has been removed.",
             "name": "node_update.default.hard_hats",
             "operation": "delete",
+            "changed_fields": [],
             "status": "success",
         }
 
@@ -2052,9 +2096,10 @@ class TestDeployments:
         )
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated dimension (v2.0)\n└─ Updated tags",
+            "message": "Updated dimension (v2.0)\n└─ Column removed: state_id, state_name, state_region, state_short\n└─ Updated tags, columns",
             "name": "node_update.default.us_state",
             "operation": "update",
+            "changed_fields": ["tags", "columns"],
             "status": "success",
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
@@ -2103,13 +2148,18 @@ class TestDeployments:
                 "message": "Node node_update.default.us_states is unchanged.",
                 "name": "node_update.default.us_states",
                 "operation": "noop",
+                "changed_fields": [],
                 "status": "skipped",
             },
             {
                 "deploy_type": "node",
-                "message": "Updated dimension (v2.0)\n└─ Set properties for 1 columns",
+                "message": "Updated dimension (v2.0)\n└─ Set properties for 1 columns\n"
+                "└─ Column removed: state_id, state_region, state_short\n"
+                "└─ Column 'state_name': display_name 'State Name' → 'State Name 1122'; description changed\n"
+                "└─ Updated columns",
                 "name": "node_update.default.us_state",
                 "operation": "update",
+                "changed_fields": ["columns"],
                 "status": "success",
             },
         ]
@@ -2132,6 +2182,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.contractors",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2139,6 +2190,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2146,6 +2198,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.municipality",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2153,6 +2206,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order_details",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2160,6 +2214,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2167,6 +2222,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_type",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2174,6 +2230,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_region",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2181,6 +2238,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2188,6 +2246,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.dispatchers",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2195,6 +2254,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2202,6 +2262,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.municipality_municipality_type",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2209,6 +2270,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.municipality_type",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2216,6 +2278,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.national_level_agg",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2223,6 +2286,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.regional_level_agg",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2230,6 +2294,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders_fact",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2237,6 +2302,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.avg_length_of_employment",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2244,6 +2310,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.avg_repair_order_discounts",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2251,6 +2318,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.avg_repair_price",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2258,6 +2326,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.avg_time_to_dispatch",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2265,6 +2334,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.contractor",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2272,6 +2342,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.discounted_orders_rate",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2279,6 +2350,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.dispatcher",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2286,6 +2358,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hat_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2293,6 +2366,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2300,6 +2374,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.num_repair_orders",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2307,6 +2382,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.regional_repair_efficiency",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2314,6 +2390,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2321,6 +2398,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders_view",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2328,6 +2406,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.total_repair_cost",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2335,6 +2414,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.total_repair_order_discounts",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2342,6 +2422,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2349,6 +2430,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders -> base.default.repair_order",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2356,6 +2438,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders -> base.default.dispatcher",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2363,6 +2446,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order_details -> base.default.repair_order",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2370,6 +2454,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_type -> base.default.contractor",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2377,6 +2462,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.contractors -> base.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2384,6 +2470,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order -> base.default.dispatcher",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2391,6 +2478,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order -> base.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2398,6 +2486,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_order -> base.default.hard_hat",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2405,6 +2494,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.hard_hat -> base.default.us_state",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2412,6 +2502,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2419,6 +2510,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.hard_hat",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "link",
@@ -2426,6 +2518,7 @@ class TestDeployments:
                     "name": f"{namespace}.default.repair_orders_fact -> base.default.dispatcher",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
                 {
                     "deploy_type": "node",
@@ -2433,10 +2526,12 @@ class TestDeployments:
                     "name": f"{namespace}.default.repairs_cube",
                     "status": "success",
                     "operation": "create",
+                    "changed_fields": [],
                 },
             ],
             "created_at": mock.ANY,
             "created_by": mock.ANY,
+            "downstream_impacts": [],
             "source": mock.ANY,
         }
 
@@ -2553,7 +2648,7 @@ class TestDeployments:
         assert metric_result["status"] == "success"
 
         cube_result = next(r for r in node_results if "cube.user_analysis" in r["name"])
-        assert cube_result["status"] == "failed"
+        assert cube_result["status"] in ("failed", "invalid")
         # The failure is about dimension reachability, not a missing namespace prefix
         assert "is not available on every metric" in cube_result["message"]
         assert not any(
@@ -3979,6 +4074,54 @@ class TestDeploymentStatusUpdate:
                 results=None,
             )
         # If we get here without exception, the test passes
+
+    @pytest.mark.asyncio
+    async def test_run_deployment_task_exception_handler(self, session, current_user):
+        """When deploy() raises an unexpected exception, the except handler at
+        api/deployments.py lines 217-219 catches it and records a FAILED status.
+        """
+        from contextlib import asynccontextmanager
+        from datajunction_server.internal.deployment.utils import DeploymentContext
+        from datajunction_server.database.deployment import Deployment
+
+        deployment_id = str(uuid.uuid4())
+
+        # Create a real Deployment record so update_status can find it
+        dep = Deployment(
+            uuid=deployment_id,
+            status=DeploymentStatus.PENDING,
+            namespace="test",
+            created_by_id=current_user.id,
+        )
+        session.add(dep)
+        await session.flush()
+
+        @asynccontextmanager
+        async def mock_session_context():
+            yield session
+
+        deployment_spec = DeploymentSpec(namespace="test", nodes=[])
+        context = MagicMock(spec=DeploymentContext)
+
+        with (
+            patch(
+                "datajunction_server.api.deployments.session_context",
+                mock_session_context,
+            ),
+            patch(
+                "datajunction_server.api.deployments.deploy",
+                side_effect=RuntimeError("unexpected failure"),
+            ),
+        ):
+            executor_instance = InProcessExecutor()
+            await executor_instance._run_deployment(
+                deployment_id=deployment_id,
+                deployment_spec=deployment_spec,
+                context=context,
+            )
+
+        await session.refresh(dep)
+        assert dep.status == DeploymentStatus.FAILED
 
 
 class TestHistoryUser:

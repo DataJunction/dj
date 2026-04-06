@@ -6,6 +6,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DeploymentStatus,
 )
+from datajunction_server.models.impact import DownstreamImpact
 from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
@@ -40,6 +41,7 @@ class Deployment(Base):
     )
     spec: Mapped[dict] = mapped_column(JSON, default={})
     results: Mapped[dict] = mapped_column(JSON, default={})
+    downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship("User", lazy="selectin")
@@ -69,3 +71,7 @@ class Deployment(Base):
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
         self.results = [result.model_dump() for result in value]  # pragma: no cover
+
+    @property
+    def deployment_downstream_impacts(self) -> list[DownstreamImpact]:
+        return [DownstreamImpact(**item) for item in (self.downstream_impacts or [])]

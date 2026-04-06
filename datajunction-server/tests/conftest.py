@@ -290,11 +290,15 @@ def settings_no_qs(
     )
 
     from datajunction_server.models.dialect import register_dialect_plugin
-    from datajunction_server.transpilation import SQLTranspilationPlugin
+    from datajunction_server.transpilation import (
+        SQLTranspilationPlugin,
+        SQLGlotTranspilationPlugin,
+    )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
     register_dialect_plugin("druid", SQLTranspilationPlugin)
+    register_dialect_plugin("postgres", SQLGlotTranspilationPlugin)
 
     mocker.patch(
         "datajunction_server.utils.get_settings",

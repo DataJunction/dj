@@ -40,7 +40,10 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     CubeSpec,
     DeploymentResult,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
 )
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.database.tag import Tag
@@ -570,7 +573,11 @@ class TestOrchestrationFlow:
                 "_validate_deployment_resources",
             ) as mock_validate_resources,
             patch.object(orchestrator, "_create_deployment_plan") as mock_create_plan,
-            patch.object(orchestrator, "_execute_deployment_plan") as mock_execute_plan,
+            patch.object(
+                orchestrator,
+                "_execute_deployment_plan",
+                return_value=[],
+            ) as mock_execute_plan,
         ):
             # Configure deployment plan
             mock_plan = Mock(spec=DeploymentPlan)
@@ -814,25 +821,28 @@ class TestCubeDeployment:
             ),
         ]
 
-        # Mock invalid node processing
-        orchestrator._process_invalid_node_deploy = Mock(
-            return_value=DeploymentResult(
-                name="invalid_cube",
-                deploy_type="node",
-                status="failed",
-                operation="create",
-                message="Invalid cube",
-            ),
+        # Mock _deploy_invalid_cube — returns (node, revision, result) with SUCCESS status
+        mock_node = Mock()
+        mock_revision = Mock()
+        mock_result = DeploymentResult(
+            name="invalid_cube",
+            deploy_type="node",
+            status="success",
+            operation="create",
+            message="Created cube (v1.0)\n[invalid] Invalid cube",
+        )
+        orchestrator._deploy_invalid_cube = AsyncMock(
+            return_value=(mock_node, mock_revision, mock_result),
         )
 
         nodes, revisions, results = await orchestrator._create_cubes_from_validation(
             invalid_results,
         )
 
-        assert len(nodes) == 0
-        assert len(revisions) == 0
+        assert len(nodes) == 1
+        assert len(revisions) == 1
         assert len(results) == 1
-        assert results[0].status == "failed"
+        assert results[0].status == "success"
 
     @pytest.mark.asyncio
     async def test_cube_column_partition_applied_from_spec(
@@ -1716,8 +1726,11 @@ async def test_check_external_deps_duplicate_source_forms(session, current_user:
     # when we encounter "source.ext.schema.tbl", so the append at line 1807 is skipped.
     node_graph = {"test.transform": ["source.ext.schema.tbl", "ext.schema.tbl"]}
 
-    external_deps, auto_registered = await orchestrator.check_external_deps(node_graph)
+    external_deps, auto_registered, missing = await orchestrator.check_external_deps(
+        node_graph,
+    )
     assert auto_registered == []
+    assert missing == []
     assert len(orchestrator.errors) == 0
 
 
@@ -1824,9 +1837,322 @@ async def test_create_deployment_plan_all_auto_sources_already_exist(
     with patch.object(
         orchestrator,
         "check_external_deps",
-        side_effect=[(set(), [auto_source]), (set(), [])],
+        side_effect=[(set(), [auto_source], []), (set(), [], [])],
     ):
         plan = await orchestrator._create_deployment_plan()
 
     # The existing source was found in DB and added to existing_specs (lines 743-747)
     assert "ext_cat.s.t" in plan.existing_specs
+
+
+@pytest.mark.asyncio
+async def test_validate_single_cube_with_invalid_metric(
+    orchestrator,
+):
+    """When a cube references a metric that is in the registry but INVALID,
+    _validate_single_cube returns INVALID (covers line 1738)."""
+    invalid_metric = MagicMock()
+    invalid_metric.name = "test.broken_metric"
+    invalid_metric.current.status = NodeStatus.INVALID
+
+    cube_spec = CubeSpec(
+        name="test_cube_bad",
+        namespace="test",
+        metrics=["broken_metric"],
+        dimensions=[],
+    )
+
+    result = await orchestrator._validate_single_cube(
+        cube_spec=cube_spec,
+        metric_nodes_map={"broken_metric": invalid_metric},
+        missing_metrics=set(),
+        missing_dimensions=set(),
+        dimension_mapping={},
+    )
+
+    assert result.status == NodeStatus.INVALID
+    assert any("INVALID" in err.message for err in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_deploy_reference_link_on_invalid_node(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """When a node is INVALID and the link spec is a REFERENCE (not JOIN),
+    _deploy_link_spec returns a FAILED result (covers line 1381)."""
+    invalid_node = MagicMock()
+    invalid_node.name = "test.invalid_transform"
+    invalid_node.current.status = NodeStatus.INVALID
+    invalid_node.current.columns = []
+
+    dimension_node = MagicMock()
+    dimension_node.name = "test.some_dim"
+
+    ref_link = DimensionReferenceLinkSpec(
+        dimension="test.some_dim.id",
+        node_column="fk_id",
+    )
+    ref_link.namespace = "test"
+
+    transform_spec = TransformSpec(
+        name="invalid_transform",
+        namespace="test",
+        query="SELECT bad_col FROM nonexistent",
+    )
+
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="ref-link-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    orch.registry.nodes["test.invalid_transform"] = invalid_node
+    orch.registry.nodes["test.some_dim"] = dimension_node
+
+    result = await orch._process_node_dimension_link(
+        node_spec=transform_spec,
+        link_spec=ref_link,
+        validation_results={},
+    )
+
+    assert result.status == DeploymentResult.Status.FAILED
+    assert "INVALID" in result.message
+
+
+@pytest.mark.asyncio
+async def test_deploy_delete_node_calls_add_history(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """_deploy_delete_node with a real existing node calls hard_delete_node which
+    invokes the nested add_history callback (covers line 2196)."""
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="delete-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=False,
+    )
+
+    # "default.hard_hat" is present in the pre-loaded roads example DB
+    result = await orch._deploy_delete_node("default.hard_hat")
+
+    # The node was found and deleted successfully
+    assert result.status == DeploymentResult.Status.SUCCESS
+    assert result.operation == DeploymentResult.Operation.DELETE
+
+
+class TestGenerateChangelog:
+    """Unit tests for DeploymentOrchestrator._generate_changelog."""
+
+    @pytest.mark.asyncio
+    async def test_no_changed_fields_with_dimension_links(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """When an existing node has the same spec but non-empty dimension_links,
+        _generate_changelog covers all three false branches:
+          3012->3017  (col_change_notes is empty)
+          3017->3033  (changed_fields is empty)
+          3038        (dimension_links non-empty → appends 'Updated dimension_links')
+        """
+        dim_link = DimensionJoinLinkSpec(dimension_node="default.some_dim")
+        transform_spec = TransformSpec(
+            name="test_node",
+            namespace="default",
+            query="SELECT id FROM default.source_table",
+            dimension_links=[dim_link],
+        )
+        # existing_spec is identical — diff() will return []
+        existing_spec = TransformSpec(
+            name="test_node",
+            namespace="default",
+            query="SELECT id FROM default.source_table",
+            dimension_links=[dim_link],
+        )
+
+        # Mock the existing Node object
+        mock_existing = MagicMock()
+        mock_existing.current.columns = []
+        mock_existing.to_spec = AsyncMock(return_value=existing_spec)
+
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="changelog-test",
+            session=session,
+            context=mock_deployment_context,
+            dry_run=True,
+        )
+        orchestrator.registry.nodes["default.test_node"] = mock_existing
+
+        result = NodeValidationResult(
+            spec=transform_spec,
+            status=None,
+            inferred_columns=[],
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields = await orchestrator._generate_changelog(result)
+
+        assert changed_fields == []
+        assert changelog == ["└─ Updated dimension_links"]
+
+
+@pytest.mark.asyncio
+async def test_execute_deployment_plan_wet_run_commits(
+    session,
+    current_user: User,
+):
+    """When dry_run=False and the plan is empty (nothing to deploy/delete),
+    _execute_deployment_plan exits the SAVEPOINT cleanly and commits the
+    outer transaction (line 1201 — the wet-run commit path).
+    """
+    context = MagicMock(autospec=DeploymentContext)
+    context.current_user = current_user
+    context.save_history = AsyncMock()
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="wet-run-test",
+        session=session,
+        context=context,
+        dry_run=False,  # Wet-run mode — line 1193 branch is False
+    )
+
+    plan = DeploymentPlan(
+        to_deploy=[],
+        to_skip=[],
+        to_delete=[],
+        existing_specs={},
+        node_graph={},
+        external_deps=set(),
+    )
+
+    # Should succeed without raising — the SAVEPOINT is committed and then
+    # session.commit() at line 1201 runs (wet-run path).
+    await orchestrator._execute_deployment_plan(plan)
+
+
+@pytest.mark.asyncio
+async def test_update_deployment_status_dry_run_noop(
+    session,
+    current_user: User,
+    mock_deployment_context,
+):
+    """_update_deployment_status returns immediately when dry_run=True.
+
+    Covers orchestrator.py line 298: if self.dry_run: return
+    """
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="dry-run-status-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    # Should return without calling InProcessExecutor (no error = success)
+    await orchestrator._update_deployment_status()
+
+
+@pytest.mark.asyncio
+async def test_execute_deployment_plan_dry_run_savepoint_rollback(
+    session,
+    current_user: User,
+    mock_deployment_context,
+):
+    """When dry_run=True, _execute_deployment_plan raises _DryRunRollback inside
+    the SAVEPOINT, which rolls it back.
+
+    Covers orchestrator.py lines 967-970: except _DryRunRollback: pass
+    """
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="dry-run-rollback-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    plan = DeploymentPlan(
+        to_deploy=[],
+        to_skip=[],
+        to_delete=[],
+        existing_specs={},
+        node_graph={},
+        external_deps=set(),
+    )
+    # Patch _deploy_nodes / _deploy_links / _deploy_cubes to avoid real DB work
+    with (
+        patch.object(
+            orchestrator,
+            "_deploy_nodes",
+            new=AsyncMock(return_value=([], [])),
+        ),
+        patch.object(orchestrator, "_deploy_links", new=AsyncMock(return_value=[])),
+        patch.object(orchestrator, "_deploy_cubes", new=AsyncMock(return_value=[])),
+        patch.object(orchestrator, "_delete_nodes", new=AsyncMock(return_value=[])),
+    ):
+        downstream = await orchestrator._execute_deployment_plan(plan)
+
+    # Dry-run should roll back the SAVEPOINT and return empty downstream
+    assert downstream == []
+
+
+@pytest.mark.asyncio
+async def test_process_node_dimension_link_validation_exception(
+    session,
+    current_user: User,
+    mock_deployment_context,
+):
+    """When validation_results contains an Exception for a link, the error branch
+    at orchestrator.py lines 1169-1174 is reached.
+    """
+    valid_node = MagicMock()
+    valid_node.name = "test.my_dim"
+    valid_node.current.status = NodeStatus.VALID
+    valid_node.current.columns = [MagicMock(name="col", type="string")]
+
+    dimension_node = MagicMock()
+    dimension_node.name = "test.some_dim"
+
+    join_link = DimensionJoinLinkSpec(
+        dimension_node="test.some_dim",
+        join_type="inner",
+        join_on="test.my_dim.col = test.some_dim.col",
+    )
+    join_link.namespace = "test"
+
+    transform_spec = TransformSpec(
+        name="my_dim",
+        namespace="test",
+        query="SELECT col FROM test.source_table",
+    )
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+        deployment_id="val-err-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    orchestrator.registry.nodes["test.my_dim"] = valid_node
+    orchestrator.registry.nodes["test.some_dim"] = dimension_node
+
+    validation_error = ValueError("Join path is broken")
+    validation_results: dict[tuple[str, str, str | None], Exception | None] = {
+        ("test.my_dim", "test.some_dim", None): validation_error,
+    }
+
+    result = await orchestrator._process_node_dimension_link(
+        node_spec=transform_spec,
+        link_spec=join_link,
+        validation_results=validation_results,
+    )
+
+    assert result.status == DeploymentResult.Status.FAILED
+    assert "Join path is broken" in result.message

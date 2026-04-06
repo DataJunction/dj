@@ -269,3 +269,78 @@ class AvailabilityState(SerializableMixin):
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
+
+
+# ---------------------------------------------------------------------------
+# Deployment response models
+#
+# TODO: replace with generated models from OpenAPI spec once client codegen
+# is set up. Canonical definitions live in datajunction_server/models/deployment.py.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DeploymentResult:
+    """A single node-level result within a deployment."""
+
+    name: str
+    operation: str
+    status: str
+    message: str = ""
+    changed_fields: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DeploymentResult":
+        return cls(
+            name=d.get("name", ""),
+            operation=d.get("operation", ""),
+            status=d.get("status", ""),
+            message=d.get("message", ""),
+            changed_fields=d.get("changed_fields") or [],
+        )
+
+
+@dataclass
+class DownstreamImpact:
+    """A downstream node that will be affected by a deployment."""
+
+    name: str
+    node_type: str
+    predicted_status: str
+    caused_by: List[str] = field(default_factory=list)
+    depth: int = 0
+    impact_type: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DownstreamImpact":
+        return cls(
+            name=d.get("name", ""),
+            node_type=d.get("node_type", ""),
+            predicted_status=d.get("predicted_status", ""),
+            caused_by=d.get("caused_by") or [],
+            depth=d.get("depth", 0),
+            impact_type=d.get("impact_type", ""),
+        )
+
+
+@dataclass
+class DeploymentInfo:
+    """The full response from a deployment or dry-run impact call."""
+
+    uuid: str
+    namespace: str
+    status: str
+    results: List[DeploymentResult] = field(default_factory=list)
+    downstream_impacts: List[DownstreamImpact] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DeploymentInfo":
+        return cls(
+            uuid=d.get("uuid", ""),
+            namespace=d.get("namespace", ""),
+            status=d.get("status", ""),
+            results=[DeploymentResult.from_dict(r) for r in d.get("results", [])],
+            downstream_impacts=[
+                DownstreamImpact.from_dict(i) for i in d.get("downstream_impacts", [])
+            ],
+        )

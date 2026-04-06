@@ -1,11 +1,19 @@
+import importlib.metadata
 import io
 from pathlib import Path
 import time
 from unittest import mock
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
+from datajunction.models import DeploymentInfo
+from datajunction.rendering import (
+    _render_error_bullets,
+    _strip_summary_lines,
+    print_deployment_header,
+    print_results,
+)
 import yaml
 from rich.console import Console
 
@@ -132,97 +140,127 @@ def test_pull_raises_if_target_not_empty(tmp_path):
         svc.pull("ns", tmp_path)
 
 
-def test_print_results_success(capsys):
+def test_print_results_success():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "abc-123",
-        {
-            "namespace": "some.namespace",
-            "status": "success",
-            "results": [
-                {
-                    "name": "some.random.node",
-                    "operation": "create",
-                    "status": "success",
-                    "message": "ok",
-                },
-            ],
-        },
-        Console(file=out),
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "some.namespace",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "some.random.node",
+                        "operation": "create",
+                        "status": "success",
+                        "message": "ok",
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "some.random.node" in rendered
-    assert "create" in rendered
-    assert "abc-123" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ abc-123  ·  some.namespace ─────────────────────────────────────────────────╮\n"
+        "│   ✓  create    some.random.node                                              │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_hides_noops_by_default():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-1",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.node_a", "operation": "create", "status": "success"},
-                {"name": "ns.node_b", "operation": "noop", "status": "success"},
-            ],
-        },
-        Console(file=out),
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.node_a", "operation": "create", "status": "success"},
+                    {"name": "ns.node_b", "operation": "noop", "status": "success"},
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
     )
-    rendered = out.getvalue()
-    assert "ns.node_a" in rendered
-    assert "ns.node_b" not in rendered  # noop hidden when verbose=False
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-1  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.node_a                                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 2 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_shows_noops_when_verbose():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-1",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.node_a", "operation": "create", "status": "success"},
-                {"name": "ns.node_b", "operation": "noop", "status": "success"},
-            ],
-        },
-        Console(file=out),
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.node_a", "operation": "create", "status": "success"},
+                    {"name": "ns.node_b", "operation": "noop", "status": "success"},
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
         verbose=True,
     )
-    rendered = out.getvalue()
-    assert "ns.node_b" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-1  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.node_a                                                     │\n"
+        "│   ✓  noop      ns.node_b                                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 2 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_print_results_summary_includes_skipped_and_noop_counts():
     out = io.StringIO()
-    DeploymentService.print_results(
+    print_results(
         "uuid-2",
-        {
-            "namespace": "ns",
-            "status": "success",
-            "results": [
-                {"name": "ns.a", "operation": "create", "status": "success"},
-                {"name": "ns.b", "operation": "skip", "status": "skipped"},
-                {"name": "ns.c", "operation": "noop", "status": "noop"},
-            ],
-        },
-        Console(file=out),
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "create", "status": "success"},
+                    {"name": "ns.b", "operation": "skip", "status": "skipped"},
+                    {"name": "ns.c", "operation": "noop", "status": "noop"},
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
         verbose=False,
     )
-    rendered = out.getvalue()
-    assert "skipped" in rendered
-    assert "noop" in rendered
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-2  ·  ns ──────────────────────────────────────────────────────────────╮\n"
+        "│   ✓  create    ns.a                                                          │\n"
+        "│   –  skip      ns.b                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  – 1 skipped  1 noop                                           │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
 
 
 def test_render_error_bullets_single():
-    text = DeploymentService._render_error_bullets("Column `x` does not exist")
+    text = _render_error_bullets("Column `x` does not exist")
     assert "Column" in text.plain
     assert "x" in text.plain
 
 
 def test_render_error_bullets_multiple_semicolons():
-    text = DeploymentService._render_error_bullets(
+    text = _render_error_bullets(
         "Missing `a`; Invalid type for `b`; Unknown column `c`",
     )
     plain = text.plain
@@ -231,6 +269,398 @@ def test_render_error_bullets_multiple_semicolons():
     assert "Unknown column" in plain
     # Three bullets means two newlines were inserted between them
     assert plain.count("•") == 3
+
+
+def test_render_error_bullets_multiline_indents_continuation():
+    """Embedded newlines in a bullet are indented so they align under the bullet text."""
+    text = _render_error_bullets(
+        "First line\nSecond line\nThird line",
+    )
+    plain = text.plain
+    assert plain.count("•") == 1
+    assert "First line" in plain
+    assert "Second line" in plain
+    assert "Third line" in plain
+
+
+def test_strip_summary_lines_removes_update_headers():
+    msg = "Updated transform (v2.0)\n└─ Updated query, dimension_links\n[invalid] join_on error"
+    result = _strip_summary_lines(msg)
+    assert "Updated transform" not in result
+    assert "└─" not in result
+    assert "[invalid] join_on error" in result
+
+
+def test_strip_summary_lines_preserves_non_summary_content():
+    msg = "Column `x` does not exist; Invalid type"
+    assert _strip_summary_lines(msg) == msg
+
+
+def test_print_results_invalid_status_shown_as_error():
+    """Results with status='invalid' show ✗ and are counted in the summary."""
+    out = io.StringIO()
+    print_results(
+        "uuid-err",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "ns.bad_node",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "join_on references unknown node",
+                    },
+                    {
+                        "name": "ns.good_node",
+                        "operation": "create",
+                        "status": "success",
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-err  ·  ns ────────────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.bad_node                                                   │\n"
+        "│      • join_on references unknown node                                       │\n"
+        "│   ✓  create    ns.good_node                                                  │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid                                                   │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_unified_summary_combines_direct_and_downstream():
+    """Summary shows total invalid count with (N direct, N downstream) breakdown."""
+    out = io.StringIO()
+    print_results(
+        "uuid-combined",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "ns.a",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "some error",
+                    },
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-combined  ·  ns ───────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.a                                                          │\n"
+        "│      • some error                                                            │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   └ ✗ metric b  → invalid                                                    │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 2 invalid  (1 direct, 1 downstream)                                        │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_downstream_only_invalid_no_breakdown():
+    """When only downstream nodes are invalid (no direct errors), no breakdown parenthetical."""
+    out = io.StringIO()
+    print_results(
+        "uuid-downstream-only",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-downstream-only  ·  ns ────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   └ ✗ metric b  → invalid                                                    │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_dimension_links_grouped_under_parent():
+    """Dimension link results (name contains ' -> ') nest under their parent node row."""
+    out = io.StringIO()
+    print_results(
+        "uuid-dimlink",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "failed",
+                "results": [
+                    {
+                        "name": "ns.my_transform",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "join_on error",
+                        "changed_fields": ["dimension_links"],
+                    },
+                    {
+                        "name": "ns.my_transform -> ns.dim_date",
+                        "operation": "create",
+                        "status": "failed",
+                        "message": "node does not exist",
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-dimlink  ·  ns ────────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.my_transform  [dimension_links]                            │\n"
+        "│      • join_on error                                                         │\n"
+        "│      dimension links                                                         │\n"
+        "│      └─ ✗  create    → ns.dim_date                                           │\n"
+        "│         • node does not exist                                                │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 2 invalid                                                                  │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_dim_link_child_shows_changed_fields():
+    """Dim link child with changed_fields displays the field list (line 165)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-dl-cf",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.parent", "operation": "update", "status": "success"},
+                    {
+                        "name": "ns.parent -> ns.dim",
+                        "operation": "update",
+                        "status": "noop",
+                        "changed_fields": ["query"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+        verbose=True,
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-dl-cf  ·  ns ──────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.parent                                                     │\n"
+        "│      dimension links                                                         │\n"
+        "│      └─ ·  update    → ns.dim  [query]                                       │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded                                                                │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_error_message_fully_stripped():
+    """When _strip_summary_lines removes all content, no bullet block is rendered (line 195->198)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-stripped",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "failed",
+                "results": [
+                    {
+                        "name": "ns.node",
+                        "operation": "update",
+                        "status": "invalid",
+                        "message": "Updated transform (v2.0)\n└─ Updated query, dimension_links",
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-stripped  ·  ns ───────────────────────────────────────────────────────╮\n"
+        "│   ✗  update    ns.node                                                       │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✗ 1 invalid                                                                  │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_downstream_tree_with_cube_and_recursion():
+    """
+    Covers:
+      - lines 210-211: cube annotation in _impact_annotation (via: a, b)
+      - line 247: cycle detection in _collect_transitive_cubes
+      - line 250: cube collected in _collect_transitive_cubes
+      - line 284: recursive _collect_impact_lines (b → c)
+      - line 330: root ns.b has empty items after ns.a rendered everything
+    """
+    out = io.StringIO()
+    print_results(
+        "uuid-tree",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "transform",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a"],
+                    },
+                    {
+                        "name": "ns.c",
+                        "node_type": "transform",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.b"],
+                    },
+                    {
+                        "name": "ns.cube1",
+                        "node_type": "cube",
+                        "predicted_status": "invalid",
+                        "caused_by": ["ns.a", "ns.b"],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-tree  ·  ns ───────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│   Downstream Impacts                                                         │\n"
+        "│   from a                                                                     │\n"
+        "│   ├ ✗ transform b  → invalid                                                 │\n"
+        "│   │  └ ✗ transform c  → invalid                                              │\n"
+        "│   └ ✗ cube cube1  → invalid  (via: a, b)                                     │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 3 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_results_downstream_impact_with_no_caused_by_hides_tree():
+    """Invalidated downstream node with empty caused_by produces no tree section (line 348)."""
+    out = io.StringIO()
+    print_results(
+        "uuid-nocause",
+        DeploymentInfo.from_dict(
+            {
+                "namespace": "ns",
+                "status": "success",
+                "results": [
+                    {"name": "ns.a", "operation": "update", "status": "success"},
+                ],
+                "downstream_impacts": [
+                    {
+                        "name": "ns.b",
+                        "node_type": "metric",
+                        "predicted_status": "invalid",
+                        "caused_by": [],
+                    },
+                ],
+            },
+        ),
+        Console(file=out, no_color=True, width=80),
+    )
+    assert out.getvalue() == (
+        "\n"
+        "╭─ uuid-nocause  ·  ns ────────────────────────────────────────────────────────╮\n"
+        "│   ✓  update    ns.a                                                          │\n"
+        "│ ──────────────────────────────────────────────────────────────────────────── │\n"
+        "│ ✓ 1 succeeded  ✗ 1 invalid  (downstream)                                     │\n"
+        "╰──────────────────────────────────────────────────────────────────────────────╯\n"
+    )
+
+
+def test_print_deployment_header_with_client_version():
+    """Header includes client version row when package metadata is available (lines 414-415)."""
+    out = io.StringIO()
+    with patch("importlib.metadata.version", return_value="1.2.3"):
+        print_deployment_header(
+            "push",
+            "ads.moon",
+            Console(file=out, no_color=True, width=80),
+            repo="https://git.example.com/org/repo.git",
+            branch="main",
+        )
+    assert out.getvalue() == (
+        "\n"
+        "───────────────────────────────────── push ─────────────────────────────────────\n"
+        "  namespace  ads.moon\n"
+        "  repo       https://git.example.com/org/repo.git\n"
+        "  branch     main\n"
+        "  client     datajunction 1.2.3\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+    )
+
+
+def test_print_deployment_header_without_client_version():
+    """Header omits client row when package metadata is unavailable (line 422->425)."""
+    out = io.StringIO()
+    with patch(
+        "importlib.metadata.version",
+        side_effect=importlib.metadata.PackageNotFoundError,
+    ):
+        print_deployment_header(
+            "dry run",
+            "ads.moon",
+            Console(file=out, no_color=True, width=80),
+            repo="https://git.example.com/org/repo.git",
+            branch="main",
+        )
+    assert out.getvalue() == (
+        "\n"
+        "─────────────────────────────────── dry run ────────────────────────────────────\n"
+        "  namespace  ads.moon\n"
+        "  repo       https://git.example.com/org/repo.git\n"
+        "  branch     main\n"
+        "────────────────────────────────────────────────────────────────────────────────\n"
+    )
 
 
 def test_reconstruct_deployment_spec(tmp_path):
@@ -689,16 +1119,18 @@ class TestGetImpact:
         # Create mock client
         mock_client = MagicMock()
         mock_client.get_deployment_impact.return_value = {
+            "uuid": "dry_run",
             "namespace": "test.ns",
-            "changes": [],
-            "create_count": 0,
-            "update_count": 0,
-            "delete_count": 0,
-            "skip_count": 1,
+            "status": "success",
+            "results": [
+                {
+                    "name": "test.ns.my_node",
+                    "operation": "noop",
+                    "status": "success",
+                    "message": "",
+                },
+            ],
             "downstream_impacts": [],
-            "will_invalidate_count": 0,
-            "may_affect_count": 0,
-            "warnings": [],
         }
 
         svc = DeploymentService(mock_client)
@@ -712,7 +1144,7 @@ class TestGetImpact:
 
         # Verify the result is returned
         assert result["namespace"] == "test.ns"
-        assert result["skip_count"] == 1
+        assert result["uuid"] == "dry_run"
 
     def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
         """get_impact should respect namespace override."""
