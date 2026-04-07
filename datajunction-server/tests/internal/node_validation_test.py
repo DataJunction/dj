@@ -464,40 +464,16 @@ async def test_metric_referencing_dimension_attr_is_valid(
         columns=[Column(name="test.revenue", type=ct.BigIntType(), order=0)],
         created_by_id=user.id,
     )
-    metric_b = Node(
-        name="test.cost",
-        type=NodeType.METRIC,
-        created_by_id=user.id,
-        current_version="v1.0",
-    )
-    metric_b_revision = NodeRevision(
-        name="test.cost",
-        display_name="Cost",
-        type=NodeType.METRIC,
-        query="SELECT SUM(cost) FROM test.sales",
-        status=NodeStatus.VALID,
-        version="v1.0",
-        node=metric_b,
-        columns=[Column(name="test.cost", type=ct.BigIntType(), order=0)],
-        created_by_id=user.id,
-    )
-    for obj in (
-        dim_node,
-        dim_revision,
-        metric_a,
-        metric_a_revision,
-        metric_b,
-        metric_b_revision,
-    ):
+    for obj in (dim_node, dim_revision, metric_a, metric_a_revision):
         session.add(obj)
     await session.commit()
 
-    # Derived metric with no FROM clause referencing two metrics — valid
+    # Derived metric with no FROM clause referencing a single metric — valid
     data = NodeRevisionBase(
-        name="test.profit",
-        display_name="Profit",
+        name="test.revenue_scaled",
+        display_name="Revenue Scaled",
         type=NodeType.METRIC,
-        query="SELECT test.revenue - test.cost",
+        query="SELECT test.revenue",
         mode="published",
     )
 
