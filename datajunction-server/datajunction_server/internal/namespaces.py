@@ -1027,6 +1027,16 @@ async def get_node_specs_for_export(
     )
     node_specs = [await node.to_spec(session) for node in nodes]
 
+    # Pre-populate upstream dependency names from DB parent relationships.
+    # This avoids re-parsing SQL during the copy fast-path.
+    for node, spec in zip(nodes, node_specs):
+        if node.current and node.current.parents:
+            spec._upstream_names = [
+                inject_prefixes(p.name, namespace) for p in node.current.parents
+            ]
+        else:
+            spec._upstream_names = []
+
     # Build set of node suffixes in this namespace (for cube reference matching)
     # e.g., for "demo.feature_x.reports.revenue" with namespace "demo.feature_x",
     # the suffix is "reports.revenue"
@@ -1044,11 +1054,6 @@ async def get_node_specs_for_export(
     )
 
     for node_spec in node_specs:
-        logger.info(
-            "Processing node_spec: name=%s, node_type=%s",
-            node_spec.name,
-            node_spec.node_type,
-        )
         node_spec.name = inject_prefixes(node_spec.rendered_name, namespace)
         if node_spec.node_type in (
             NodeType.TRANSFORM,
@@ -1072,12 +1077,6 @@ async def get_node_specs_for_export(
                     link.dimension = inject_prefixes(link.dimension, namespace)
         if node_spec.node_type == NodeType.CUBE:
             cube_spec = cast(CubeSpec, node_spec)
-            logger.info(
-                "Processing cube '%s': metrics=%s, dimensions=%s",
-                node_spec.name,
-                node_spec.metrics,
-                node_spec.dimensions,
-            )
             cube_spec.metrics = [
                 _inject_prefix_for_cube_ref(
                     metric,

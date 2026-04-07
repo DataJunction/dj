@@ -3,7 +3,7 @@ Validation logic for node specifications during deployment
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 from typing import Dict, List, Optional
 import asyncio
@@ -81,6 +81,10 @@ class CubeValidationData:
     dimension_nodes: list
     dimension_columns: list
     catalog: Optional[object]
+    # Optional: Column → Node mapping. When provided, _create_cube_node_revision...
+    # uses it instead of session.refresh(col, ["node_revision"]) to get the owning
+    # node. Populated by the copy fast-path to avoid per-column DB round-trips.
+    col_to_node: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -395,7 +399,7 @@ class NodeSpecBulkValidator:
         Skips expensive SQL parsing and dependency extraction.
         Uses pre-existing columns from the source node.
         """
-        columns = spec.columns if hasattr(spec, "columns") else []
+        columns = (spec.columns if hasattr(spec, "columns") else None) or []
         errors = [
             err
             for err in [
@@ -938,7 +942,12 @@ async def bulk_validate_node_data(
     path that skips SQL parsing and dependency extraction.
     """
     validate_start = time.perf_counter()
-    _reparse_column_types(dependency_nodes)
+    # Skip column type reparsing for copy fast-path: all specs are pre-validated,
+    # so column types on dependency nodes are never used for type inference.
+    # This also avoids MissingGreenlet from lazy-loading node.current.columns on
+    # dependency nodes that were loaded with catalog-only options.
+    if not all(spec._skip_validation for spec in node_specs):
+        _reparse_column_types(dependency_nodes)
     context = ValidationContext(
         session=session,
         node_graph=node_graph,

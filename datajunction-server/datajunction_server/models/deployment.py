@@ -237,6 +237,10 @@ class NodeSpec(BaseModel):
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
     _skip_validation: bool = PrivateAttr(default=False)
+    # Internal: pre-computed upstream dependency names (with ${prefix} placeholders).
+    # Populated during export from source node DB parents to avoid re-parsing SQL
+    # during the copy fast-path. None means "not populated; fall back to SQL parsing".
+    _upstream_names: list[str] | None = PrivateAttr(default=None)
 
     model_config = ConfigDict(truncate_errors=False)
 

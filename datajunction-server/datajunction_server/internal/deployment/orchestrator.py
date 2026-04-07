@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Coroutine, cast
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, defer
 
@@ -66,6 +66,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
     SourceSpec,
     TagSpec,
+    render_prefixes,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -269,7 +270,10 @@ class DeploymentOrchestrator:
         await self._setup_deployment_resources()
         await self._validate_deployment_resources()
 
-        deployment_plan = await self._create_deployment_plan()
+        if await self._is_copy_fast_path():
+            deployment_plan = await self._build_copy_plan()
+        else:
+            deployment_plan = await self._create_deployment_plan()
         if deployment_plan.is_empty():
             return DeploymentExecuteResult(
                 results=await self._handle_no_changes(),
@@ -753,6 +757,90 @@ class DeploymentOrchestrator:
             )
         return all_catalogs_map
 
+    async def _is_copy_fast_path(self) -> bool:
+        """
+        Return True when all specs are pre-validated copies targeted at an empty
+        namespace. In that case we can skip the full planning phase (diff, external
+        dep resolution) and go straight to bulk inserts.
+        """
+        if not self.deployment_spec.nodes:
+            return False
+        if not all(spec._skip_validation for spec in self.deployment_spec.nodes):
+            return False
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(Node)
+            .where(
+                or_(
+                    Node.namespace == self.deployment_spec.namespace,
+                    Node.namespace.like(f"{self.deployment_spec.namespace}.%"),
+                ),
+            ),
+        )
+        return (count or 0) == 0
+
+    async def _build_copy_plan(self) -> DeploymentPlan:
+        """
+        Build a DeploymentPlan directly for a copy-into-empty-namespace operation.
+
+        Skips ``check_external_deps`` and diff computation entirely — the specs
+        are from already-validated nodes so there is nothing to validate or diff.
+        External dependency nodes are loaded into the registry so that
+        ``_create_node_revision`` can infer the correct catalog from parents.
+        """
+        non_cube_specs = [
+            s for s in self.deployment_spec.nodes if not isinstance(s, CubeSpec)
+        ]
+        # Fast path: if all specs have pre-computed upstream names (populated during
+        # export from source node DB parents), build the graph directly without
+        # re-parsing SQL queries.
+        if all(s._upstream_names is not None for s in non_cube_specs):
+            node_graph = {
+                spec.rendered_name: [
+                    render_prefixes(n, spec.namespace)
+                    for n in (spec._upstream_names or [])
+                ]
+                for spec in non_cube_specs
+            }
+        else:
+            node_graph = extract_node_graph(non_cube_specs)
+
+        incoming_names = {s.rendered_name for s in self.deployment_spec.nodes}
+        all_referenced = set(node_graph.keys()) | {
+            dep for deps in node_graph.values() for dep in deps
+        }
+        external_dep_names = all_referenced - incoming_names
+
+        if external_dep_names:
+            # Only catalog is needed from external deps: _create_node_revision uses it
+            # for catalog inference. Column type re-parsing is skipped for the copy
+            # fast-path (skip_type_reparsing=True in get_dependencies).
+            ext_nodes = await Node.get_by_names(
+                self.session,
+                list(external_dep_names),
+                options=[
+                    selectinload(Node.current).options(
+                        joinedload(NodeRevision.catalog),
+                    ),
+                    selectinload(Node.tags),
+                ],
+            )
+            self.registry.add_nodes({n.name: n for n in ext_nodes})
+
+        logger.info(
+            "Copy fast-path: deploying %d specs with %d external deps (skipping planning)",
+            len(self.deployment_spec.nodes),
+            len(external_dep_names),
+        )
+        return DeploymentPlan(
+            to_deploy=list(self.deployment_spec.nodes),
+            to_skip=[],
+            to_delete=[],
+            existing_specs={},
+            node_graph=node_graph,
+            external_deps=external_dep_names,
+        )
+
     async def _create_deployment_plan(self) -> DeploymentPlan:
         """Analyze existing nodes and create deployment plan"""
         nodes_start = time.perf_counter()
@@ -1016,17 +1104,31 @@ class DeploymentOrchestrator:
         """Deploy dimension links for nodes in the plan"""
         deployed_links = []
 
-        # Load dimension nodes once
+        # Load dimension nodes — serve from registry if already deployed, DB otherwise
+        missing_dim_names = [
+            name
+            for name in plan.linked_dimension_nodes
+            if name not in self.registry.nodes
+        ]
+        if missing_dim_names:
+            fetched = await Node.get_by_names(self.session, missing_dim_names)
+            self.registry.add_nodes({n.name: n for n in fetched})
         dimensions_map = {
-            node.name: node
-            for node in await Node.get_by_names(
-                self.session,
-                list(plan.linked_dimension_nodes),
-            )
+            name: self.registry.nodes[name]
+            for name in plan.linked_dimension_nodes
+            if name in self.registry.nodes
         }
-        self.registry.add_nodes(dimensions_map)
 
-        validation_results = await self.validate_dimension_links(plan)
+        # Copy fast-path: all links came from already-validated sources — skip re-validation
+        is_copy = all(
+            spec._skip_validation
+            for spec in plan.to_deploy
+            if isinstance(spec, LinkableNodeSpec) and spec.dimension_links
+        )
+        if is_copy:
+            validation_results = {}
+        else:
+            validation_results = await self.validate_dimension_links(plan)
 
         for node_spec in plan.to_deploy:
             if not isinstance(node_spec, LinkableNodeSpec):
@@ -1299,8 +1401,16 @@ class DeploymentOrchestrator:
         logger.info("Starting bulk deployment of %d cubes", len(cubes_to_deploy))
         start = time.perf_counter()
 
-        # Bulk validate cubes
-        validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
+        # Copy fast-path: metric/dimension nodes are already in the registry with all
+        # column data set in-memory — no DB queries needed at all.
+        if all(spec._skip_validation for spec in cubes_to_deploy):
+            validation_results = [
+                self._build_copy_cube_validation_data(cube_spec)
+                for cube_spec in cubes_to_deploy
+            ]
+        else:
+            # Bulk validate cubes
+            validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
 
         # Bulk create cubes from validation results
         nodes, revisions, deployment_results = await self._create_cubes_from_validation(
@@ -1312,10 +1422,16 @@ class DeploymentOrchestrator:
         self.session.add_all(revisions)
         await self.session.flush()
 
-        # Refresh all deployed cube nodes
-        all_nodes = await self.refresh_nodes(
-            [cube.rendered_name for cube in cubes_to_deploy],
-        )
+        if all(spec._skip_validation for spec in cubes_to_deploy):
+            # Wire current directly from in-session objects (same as non-cube levels)
+            for node_obj, revision in zip(nodes, revisions):
+                node_obj.current = revision
+            all_nodes = {node_obj.name: node_obj for node_obj in nodes}
+        else:
+            # Refresh all deployed cube nodes with cube-specific load options
+            all_nodes = await self.refresh_nodes(
+                [cube.rendered_name for cube in cubes_to_deploy],
+            )
         self.registry.add_nodes(all_nodes)
 
         logger.info(
@@ -1615,6 +1731,73 @@ class DeploymentOrchestrator:
             ),
         )
 
+    def _build_copy_cube_validation_data(
+        self,
+        cube_spec: CubeSpec,
+    ) -> NodeValidationResult:
+        """
+        Build a NodeValidationResult for a copy fast-path cube entirely from the
+        registry — no DB queries.
+
+        Metric and dimension nodes are already in the registry with their columns set
+        in-memory (via node.current = revision after flush).  All column attributes
+        needed by _create_cube_node_revision_from_validation_data (type, display_name,
+        attributes, attribute_type_id) are set on the in-session Column objects.
+        validate_shared_dimensions is skipped because the source cube was already valid.
+        """
+        cube_metric_nodes = [
+            self.registry.nodes[m]
+            for m in (cube_spec.rendered_metrics or [])
+            if m in self.registry.nodes
+        ]
+
+        metric_columns = [
+            node.current.columns[0]
+            for node in cube_metric_nodes
+            if node.current and node.current.columns
+        ]
+        col_to_node: dict = {
+            node.current.columns[0]: node
+            for node in cube_metric_nodes
+            if node.current and node.current.columns
+        }
+
+        cube_dimension_nodes: list[Node] = []
+        cube_dimensions: list[Column] = []
+        for dim_attr in cube_spec.rendered_dimensions or []:
+            node_name, col_name_raw = dim_attr.rsplit(SEPARATOR, 1)
+            node = self.registry.nodes.get(node_name)
+            if not (node and node.current):
+                continue
+            if node not in cube_dimension_nodes:
+                cube_dimension_nodes.append(node)
+            match = re.fullmatch(COLUMN_NAME_REGEX, col_name_raw)
+            col_name = match.groups()[0] if match else col_name_raw
+            for col in node.current.columns or []:
+                if col.name == col_name:
+                    cube_dimensions.append(col)
+                    col_to_node[col] = node
+                    break
+
+        catalogs = [m.current.catalog for m in cube_metric_nodes if m.current]
+        catalog = catalogs[0] if catalogs else None
+
+        return NodeValidationResult(
+            spec=cube_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=cube_spec.rendered_columns,
+            errors=[],
+            dependencies=[],
+            _cube_validation_data=CubeValidationData(
+                metric_columns=metric_columns,
+                metric_nodes=cube_metric_nodes,
+                dimension_nodes=cube_dimension_nodes,
+                dimension_columns=cube_dimensions,
+                catalog=catalog,
+                col_to_node=col_to_node,
+            ),
+        )
+
     async def _create_cubes_from_validation(
         self,
         validation_results: list[NodeValidationResult],
@@ -1787,8 +1970,14 @@ class DeploymentOrchestrator:
         for idx, col in enumerate(
             validation_data.metric_columns + validation_data.dimension_columns,
         ):
-            await self.session.refresh(col, ["node_revision"])
-            referenced_node = col.node_revision
+            # Fast path: use pre-built col→node map (avoids a DB round-trip per column).
+            # Slow path: refresh the back-reference from DB (original behaviour).
+            if col in validation_data.col_to_node:
+                owning_node = validation_data.col_to_node[col]
+                referenced_node = owning_node.current  # type: ignore
+            else:
+                await self.session.refresh(col, ["node_revision"])
+                referenced_node = col.node_revision
             full_element_name = (
                 referenced_node.name  # type: ignore
                 if referenced_node.type == NodeType.METRIC  # type: ignore
@@ -1843,6 +2032,9 @@ class DeploymentOrchestrator:
             version=new_node.current_version,
             mode=cube_spec.mode,
             cube_filters=cube_spec.rendered_filters or [],
+            # Initialize to empty so dimension_links can be appended without
+            # triggering a lazy load on the in-session revision (MissingGreenlet).
+            dimension_links=[],
         )
         return node_revision
 
@@ -2453,7 +2645,10 @@ class DeploymentOrchestrator:
         start = time.perf_counter()
         logger.info("Starting bulk deployment of %d nodes", len(node_specs))
 
-        dependency_nodes = await self.get_dependencies(node_graph)
+        dependency_nodes = await self.get_dependencies(
+            node_graph,
+            skip_type_reparsing=all(s._skip_validation for s in node_specs),
+        )
 
         # Validate all node queries to determine columns, types, and dependencies
         validation_results = await bulk_validate_node_data(
@@ -2482,10 +2677,12 @@ class DeploymentOrchestrator:
         self.session.add_all(revisions)
         await self.session.flush()
 
-        # Refresh nodes for latest state
-        all_nodes = await self.refresh_nodes(
-            [node.rendered_name for node in node_specs],
-        )
+        # Wire node.current directly from the just-flushed revisions — avoids a
+        # SELECT + N refresh round-trips.  All attributes we need (columns, catalog,
+        # status, parents) are already set on the in-session objects.
+        for node_obj, revision in zip(nodes, revisions):
+            node_obj.current = revision
+        all_nodes = {node_obj.name: node_obj for node_obj in nodes}
 
         logger.info(
             f"Deployed {len(nodes)} nodes in bulk in {time.perf_counter() - start:.2f}s",
@@ -2495,36 +2692,57 @@ class DeploymentOrchestrator:
     async def get_dependencies(
         self,
         node_graph: dict[str, list[str]],
+        skip_type_reparsing: bool = False,
     ) -> dict[str, Node]:
         all_required_nodes = node_graph.keys() | {
             dep for deps in node_graph.values() for dep in deps
         }
-        dependency_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(self.session, list(all_required_nodes))
-        }
-        for _, dep_node in dependency_nodes.items():
-            if dep_node.current and dep_node.current.columns:  # pragma: no cover
-                for column in dep_node.current.columns:
-                    if isinstance(column.type, str):
-                        try:
-                            from datajunction_server.sql.parsing.backends.antlr4 import (
-                                parse_rule,
-                            )
+        # Serve nodes already in the registry without a DB round-trip.
+        # Nodes from previous topological levels and preloaded external deps are
+        # already there; only names missing from the registry hit the database.
+        dependency_nodes: dict[str, Node] = {}
+        missing_names: list[str] = []
+        for name in all_required_nodes:
+            if name in self.registry.nodes:
+                dependency_nodes[name] = self.registry.nodes[name]
+            else:
+                missing_names.append(name)
+        if missing_names:
+            db_nodes = await Node.get_by_names(self.session, missing_names)
+            dependency_nodes.update({n.name: n for n in db_nodes})
+        if not skip_type_reparsing:
+            for dep_node in dependency_nodes.values():
+                if dep_node.current and dep_node.current.columns:  # pragma: no cover
+                    for column in dep_node.current.columns:
+                        if isinstance(column.type, str):
+                            try:
+                                from datajunction_server.sql.parsing.backends.antlr4 import (
+                                    parse_rule,
+                                )
 
-                            column.type = parse_rule(column.type, "dataType")
-                        except Exception:  # pragma: no cover
-                            pass  # pragma: no cover
+                                column.type = parse_rule(column.type, "dataType")
+                            except Exception:  # pragma: no cover
+                                pass  # pragma: no cover
         return dependency_nodes
 
     async def refresh_nodes(self, node_names: list[str]) -> dict[str, Node]:
+        """
+        Re-fetch nodes after a flush so that ``node.current`` points to the
+        newly-created NodeRevision, with all sub-relationships eagerly loaded.
+
+        Used after cube creation where cube elements (cube_elements, etc.) must be
+        loaded fresh from DB.  For non-cube levels, ``bulk_deploy_nodes_in_level``
+        wires ``node.current`` directly from in-session objects instead.
+        """
         refresh_start = time.perf_counter()
         all_nodes = {
             node.name: node
-            for node in await Node.get_by_names(self.session, node_names)
+            for node in await Node.get_by_names(
+                self.session,
+                node_names,
+                options=list(Node.cube_load_options()),
+            )
         }
-        for node in all_nodes.values():
-            await self.session.refresh(node, ["current"])
         logger.info(
             "Refreshed %d nodes in %.2fs",
             len(all_nodes),
@@ -2920,6 +3138,9 @@ class DeploymentOrchestrator:
             ],
             created_by_id=self.context.current_user.id,
             custom_metadata=result.spec.custom_metadata,
+            # Initialize to empty so _deploy_links can append without triggering a
+            # lazy load on the in-session revision (which would cause MissingGreenlet).
+            dimension_links=[],
         )
         new_revision.version = new_node.current_version
 
