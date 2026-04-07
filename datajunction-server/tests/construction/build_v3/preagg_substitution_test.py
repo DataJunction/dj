@@ -574,10 +574,9 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.customer_id,
-                t1.customer_id
+            SELECT t1.customer_id
             FROM v3_page_views_enriched t1
-            GROUP BY  t1.customer_id, t1.customer_id
+            GROUP BY  t1.customer_id
             )
 
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
@@ -656,10 +655,9 @@ class TestCrossFactMetrics:
             GROUP BY  customer_id
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.customer_id,
-                t1.customer_id
+            SELECT  t1.customer_id
             FROM v3_page_views_enriched t1
-            GROUP BY  t1.customer_id, t1.customer_id
+            GROUP BY  t1.customer_id
             )
             SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
                 SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
