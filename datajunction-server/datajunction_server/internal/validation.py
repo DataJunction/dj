@@ -111,12 +111,13 @@ async def validate_node_data(
         )
         query_ast = parse(formatted_query)  # type: ignore
 
-        # Collect table aliases and CTE names before bake_ctes() destroys them.
-        # These are valid SQL references and should not be surfaced as INVALID_COLUMN.
+        # Collect table/subquery aliases and CTE names before bake_ctes() destroys them.
+        # Both Table nodes (regular tables) and Query nodes (inline subqueries) can
+        # carry aliases that appear as column namespaces in the query body.
         local_aliases: Set[str] = set()
-        for tbl in query_ast.find_all(ast.Table):
-            if tbl.alias is not None:
-                local_aliases.add(tbl.alias.identifier(False))
+        for node in (*query_ast.find_all(ast.Table), *query_ast.find_all(ast.Query)):
+            if node.alias is not None:
+                local_aliases.add(node.alias.identifier(False))
         for cte in query_ast.ctes:
             local_aliases.add(cte.alias_or_name.identifier(False))
 
@@ -127,12 +128,12 @@ async def validate_node_data(
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
 
-        # compile() runs inside extract_dependencies for queries with a FROM clause.
-        # Surface any INVALID_COLUMN errors it produced, but filter out references
-        # whose namespace is a local SQL alias or CTE name — those are valid SQL
-        # and will be resolved at full compile time. No-FROM-clause dimension
-        # references are already handled inside compile() itself before the error
-        # is appended, so no extra DB lookup is needed here.
+        # compile() runs inside extract_dependencies. Surface any INVALID_COLUMN
+        # errors it produced, filtering out references whose namespace is a local
+        # SQL alias or CTE — those are valid and resolved at full compile time.
+        # Dimension attribute references where the node exists but the column isn't
+        # formally registered are already handled in compile() itself (clean return,
+        # no error appended), so no extra DB lookup is needed here.
         invalid_col_errors = [
             e for e in ctx.exception.errors if e.code == ErrorCode.INVALID_COLUMN
         ]

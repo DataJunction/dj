@@ -1248,7 +1248,9 @@ class Column(Aliasable, Named, Expression):
                                         self._type = dim_col.type
                                         self._is_compiled = True
                                         return
-                                # Dimension found but column not on it - fall through
+                                # Dimension found but column not formally registered —
+                                # defer to full compile time rather than flagging invalid.
+                                return
                         except DJErrorException:
                             pass  # Not a dimension either, fall through to error
 
