@@ -2076,6 +2076,77 @@ class TestMetricTypesMeasuresSQL:
         )
 
 
+class TestGrainColumnDimensionDedup:
+    @pytest.mark.asyncio
+    async def test_count_distinct_grain_col_not_duplicated_when_also_a_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Regression test: when a COUNT(DISTINCT col) metric's grain column is also
+        requested as an explicit dimension, it must appear only once in the SELECT.
+
+        v3.order_count = COUNT(DISTINCT order_id), so order_id is its LIMITED grain
+        column. If order_id is also requested as a dimension, the old code added it
+        to the projection twice — once via the dimension loop and once via the grain
+        column loop — producing a duplicate column in the SQL.
+
+        The measures layer passes through raw values for re-aggregation (not COUNT DISTINCT
+        itself), so the fix is that order_id appears exactly once in SELECT / columns.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.order_count"],
+                "dimensions": [
+                    "v3.order_details.status",
+                    "v3.order_details.order_id",
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        gg = response.json()["grain_groups"][0]
+
+        # order_id must appear exactly once in the SELECT (not duplicated as both
+        # dimension column and grain column)
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, o.status
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t1.status, t1.order_id
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+            """,
+            normalize_aliases=False,
+        )
+
+        # Columns list must not contain order_id twice — it should appear once,
+        # as a dimension (the grain column entry is suppressed since it's covered).
+        col_names = [c["name"] for c in gg["columns"]]
+        assert col_names.count("order_id") == 1, (
+            f"order_id appeared {col_names.count('order_id')} times: {col_names}"
+        )
+        assert gg["columns"] == [
+            {
+                "name": "status",
+                "type": "string",
+                "semantic_entity": "v3.order_details.status",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "order_id",
+                "type": "int",
+                "semantic_entity": "v3.order_details.order_id",
+                "semantic_type": "dimension",
+            },
+        ]
+
+
 class TestMeasuresSQLDerived:
     @pytest.mark.asyncio
     async def test_period_over_period_measures(self, client_with_build_v3):
