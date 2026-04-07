@@ -547,6 +547,100 @@ def test_find_upstreams_for_derived_metric():
     assert "ns.dimension" in upstreams
 
 
+@pytest.mark.asyncio
+async def test_catalog_not_shadowed_by_virtual_catalog_parent(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+):
+    """
+    When a node has multiple parents and the first parent carries the virtual
+    ("default") catalog, the deployed node should inherit its catalog from the
+    first parent with a real catalog, not the virtual-catalog parent.
+
+    Regression: shared dimensions (virtual catalog) appearing before real
+    source parents in the dependency list caused child nodes to be deployed
+    with catalog "default", which then blocked dimension link creation with
+    "Cannot link dimension to node, because catalogs do not match".
+    """
+    from datajunction_server.database.catalog import Catalog as CatalogModel
+
+    await default_attribute_types(session)
+
+    virtual_catalog = await CatalogModel.get_by_name(session, "default")
+    assert virtual_catalog is not None, "virtual catalog 'default' must be seeded"
+
+    # Shared dimension in the virtual catalog.
+    shared_dim_node = Node(
+        name="common.dim.observation_window",
+        type=NodeType.DIMENSION,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    shared_dim_revision = NodeRevision(
+        node=shared_dim_node,
+        name=shared_dim_node.name,
+        type=NodeType.DIMENSION,
+        catalog_id=virtual_catalog.id,
+        version="v1.0",
+        columns=[Column(name="window_days", type=IntegerType(), order=0)],
+        query="SELECT 7 AS window_days",
+        created_by_id=current_user.id,
+    )
+    # Source node in the real "prod" catalog.
+    source_node = Node(
+        name="prod.facts.events",
+        type=NodeType.SOURCE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    source_revision = NodeRevision(
+        node=source_node,
+        name=source_node.name,
+        type=NodeType.SOURCE,
+        catalog_id=catalog.id,
+        schema_="facts",
+        table="events",
+        version="v1.0",
+        columns=[
+            Column(name="event_id", type=IntegerType(), order=0),
+            Column(name="event_date", type=IntegerType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    session.add(shared_dim_revision)
+    session.add(source_revision)
+    await session.commit()
+
+    # Deploy a transform whose parent list starts with the virtual-catalog dimension.
+    transform_spec = TransformSpec(
+        name="prod.facts.enriched_events",
+        query=(
+            "SELECT e.event_id, e.event_date, w.window_days "
+            "FROM prod.facts.events e "
+            "JOIN common.dim.observation_window w ON 1=1"
+        ),
+        mode="published",
+    )
+    orchestrator = create_orchestrator(session, current_user, [transform_spec])
+    await orchestrator._setup_deployment_resources()
+    plan = await orchestrator._create_deployment_plan()
+    _, deployed_nodes = await orchestrator.bulk_deploy_nodes_in_level(
+        [transform_spec],
+        plan.node_graph,
+    )
+    print("deployed_nodes", deployed_nodes)
+    deployed = deployed_nodes.get("example.prod.facts.enriched_events")
+    assert deployed is not None
+    assert deployed.current is not None
+    assert deployed.current.catalog is not None
+    assert deployed.current.catalog.name == catalog.name, (
+        f"Expected catalog '{catalog.name}' but got "
+        f"'{deployed.current.catalog.name}'. "
+        "Virtual-catalog parent shadowed the real catalog."
+    )
+
+
 async def test_duplicate_nodes_in_deployment_spec(
     session: AsyncSession,
     current_user: User,
