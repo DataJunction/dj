@@ -432,8 +432,8 @@ class TestAddDimensionsFromMetricExpressions:
                 "description": "WoW metric without required_dimensions",
                 "query": """
                     SELECT
-                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week_code))
-                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week_code), 0) * 100
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
                 """,
                 "mode": "published",
             },
@@ -449,8 +449,8 @@ class TestAddDimensionsFromMetricExpressions:
         )
 
         # The week dimension should have been auto-added
-        assert any("week_code" in dim for dim in ctx.dimensions), (
-            f"Expected week_code to be auto-added, got: {ctx.dimensions}"
+        assert any("week" in dim for dim in ctx.dimensions), (
+            f"Expected week to be auto-added, got: {ctx.dimensions}"
         )
 
     async def test_dimension_not_added_when_already_covered(
