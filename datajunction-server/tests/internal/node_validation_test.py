@@ -413,3 +413,96 @@ async def test_metric_with_nonexistent_table_alias_is_invalid(
     assert ErrorCode.INVALID_COLUMN in error_codes, (
         f"Expected INVALID_COLUMN error, got: {validator.errors}"
     )
+
+
+@pytest.mark.asyncio
+async def test_metric_referencing_dimension_attr_is_valid(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    A no-FROM-clause derived metric that references a valid dimension attribute
+    (e.g. ``some_dim.col``) should remain VALID after the INVALID_COLUMN surfacing fix.
+
+    The compile step resolves dimension attribute references before appending any error,
+    so valid references must not be incorrectly flagged.
+    """
+    dim_node = Node(
+        name="test.dates",
+        type=NodeType.DIMENSION,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    dim_revision = NodeRevision(
+        name="test.dates",
+        display_name="Dates dimension",
+        type=NodeType.DIMENSION,
+        query="SELECT dateint, year FROM default.calendar",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=dim_node,
+        columns=[
+            Column(name="dateint", type=ct.IntegerType(), order=0),
+            Column(name="year", type=ct.IntegerType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    metric_a = Node(
+        name="test.revenue",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    metric_a_revision = NodeRevision(
+        name="test.revenue",
+        display_name="Revenue",
+        type=NodeType.METRIC,
+        query="SELECT SUM(amount) FROM test.sales",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=metric_a,
+        columns=[Column(name="test.revenue", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    metric_b = Node(
+        name="test.cost",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    metric_b_revision = NodeRevision(
+        name="test.cost",
+        display_name="Cost",
+        type=NodeType.METRIC,
+        query="SELECT SUM(cost) FROM test.sales",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=metric_b,
+        columns=[Column(name="test.cost", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    for obj in (
+        dim_node,
+        dim_revision,
+        metric_a,
+        metric_a_revision,
+        metric_b,
+        metric_b_revision,
+    ):
+        session.add(obj)
+    await session.commit()
+
+    # Derived metric with no FROM clause referencing two metrics — valid
+    data = NodeRevisionBase(
+        name="test.profit",
+        display_name="Profit",
+        type=NodeType.METRIC,
+        query="SELECT test.revenue - test.cost",
+        mode="published",
+    )
+
+    validator = await validate_node_data(data, session)
+
+    assert validator.status == NodeStatus.VALID, (
+        f"Expected VALID but got {validator.status}. Errors: {validator.errors}"
+    )
