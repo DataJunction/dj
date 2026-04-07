@@ -2876,9 +2876,8 @@ class DeploymentOrchestrator:
             if parent in dependency_nodes
         ]
         if result.spec.node_type != NodeType.SOURCE:
-            # Pick the first parent with a non-virtual catalog so that shared
-            # dimensions (which carry the virtual "default" catalog) don't
-            # shadow the real catalog inherited from source parents.
+            # Pick the first parent with a non-virtual catalog to assign as the
+            # catalog inherited from source parents.
             virtual_catalog_name = get_settings().seed_setup.virtual_catalog_name
             parent_catalog = next(
                 (
