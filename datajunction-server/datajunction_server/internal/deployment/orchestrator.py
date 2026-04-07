@@ -1113,11 +1113,6 @@ class DeploymentOrchestrator:
         if missing_dim_names:
             fetched = await Node.get_by_names(self.session, missing_dim_names)
             self.registry.add_nodes({n.name: n for n in fetched})
-        dimensions_map = {
-            name: self.registry.nodes[name]
-            for name in plan.linked_dimension_nodes
-            if name in self.registry.nodes
-        }
 
         # Copy fast-path: all links came from already-validated sources — skip re-validation
         is_copy = all(
