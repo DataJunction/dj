@@ -695,12 +695,22 @@ def build_select_ast(
     # These are added to the output so the result can be re-aggregated.
     # When the grain column is a complex expression (e.g., IF(...)), rewrite
     # column references to use the table alias, and select it with a clean alias.
+    #
+    # Skip adding to projection if the column was already projected as a dimension
+    # (e.g., order_id requested as both a dimension and a COUNT DISTINCT level).
+    projected_dim_col_names = {
+        rd.column_name
+        for rd in resolved_dimensions
+        if rd.original_ref not in ctx.filter_dimensions
+    }
     grain_col_refs: list[ast.Column] = []
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
-            col_ref = make_column_ref(gc_expr.name.name, main_alias)
+            col_name = gc_expr.name.name
+            col_ref = make_column_ref(col_name, main_alias)
             grain_col_refs.append(col_ref)
-            projection.append(col_ref)
+            if col_name not in projected_dim_col_names:
+                projection.append(col_ref)
         else:
             _rewrite_col_refs(gc_expr, main_alias)
             projection.append(ast.Alias(child=gc_expr, alias=ast.Name(gc_alias)))
@@ -743,9 +753,11 @@ def build_select_ast(
     # Add grain columns to GROUP BY for LIMITED aggregability.
     # Simple columns are referenced with the table alias (same as dimensions).
     # Complex expressions are already aliased in the SELECT, so reference just the alias.
+    # Skip plain columns already present via the dimension loop above.
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
-            group_by.append(make_column_ref(gc_expr.name.name, main_alias))
+            if gc_expr.name.name not in projected_dim_col_names:
+                group_by.append(make_column_ref(gc_expr.name.name, main_alias))
         else:
             group_by.append(ast.Column(name=ast.Name(gc_alias)))
 
@@ -1434,12 +1446,22 @@ def build_grain_group_sql(
     # Add grain columns (for LIMITED and NONE).
     # The alias comes directly from grain_col_aliases; no AST parsing needed here
     # since column metadata only uses the alias string, not the expression.
+    # Skip plain grain columns that are already represented as a requested dimension
+    # to avoid duplicate entries (e.g., order_id requested as both a dimension and
+    # the COUNT DISTINCT level column).
+    projected_dim_col_names_meta = {
+        rd.column_name
+        for rd in resolved_dimensions
+        if rd.original_ref not in ctx.filter_dimensions
+    }
     _eff_alias_map = grain_group.grain_col_aliases
     effective_grain_aliases = [
         _eff_alias_map.get(gc) or gc for gc in effective_grain_columns
     ]
 
-    for gc_alias in effective_grain_aliases:
+    for gc, gc_alias in zip(effective_grain_columns, effective_grain_aliases):
+        if gc in projected_dim_col_names_meta:
+            continue
         col_type = get_column_type(parent_node, gc_alias)
         columns_metadata.append(
             ColumnMetadata(
