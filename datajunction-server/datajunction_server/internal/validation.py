@@ -139,7 +139,7 @@ async def validate_node_data(
         unresolved = [
             e
             for e in invalid_col_errors
-            if (e.debug or {}).get("namespace", "") not in local_aliases
+            if (ns := (e.debug or {}).get("namespace", "")) and ns not in local_aliases
         ]
         if unresolved:
             node_validator.status = NodeStatus.INVALID
