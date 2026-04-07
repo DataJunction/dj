@@ -2876,10 +2876,20 @@ class DeploymentOrchestrator:
             if parent in dependency_nodes
         ]
         if result.spec.node_type != NodeType.SOURCE:
-            parent_catalog = (
-                parents[0].current.catalog  # type: ignore
-                if parents and parents[0].current  # type: ignore
-                else None
+            # Pick the first parent with a non-virtual catalog so that shared
+            # dimensions (which carry the virtual "default" catalog) don't
+            # shadow the real catalog inherited from source parents.
+            virtual_catalog_name = get_settings().seed_setup.virtual_catalog_name
+            parent_catalog = next(
+                (
+                    p.current.catalog  # type: ignore
+                    for p in parents
+                    if p
+                    and p.current
+                    and p.current.catalog  # type: ignore
+                    and p.current.catalog.name != virtual_catalog_name  # type: ignore
+                ),
+                None,
             )
             # _fallback_catalog() (from deployment_spec.default_catalog) takes priority
             # over parent_catalog so that an explicitly configured catalog wins even when
