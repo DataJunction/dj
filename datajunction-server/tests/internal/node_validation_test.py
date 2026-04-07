@@ -359,8 +359,8 @@ async def test_metric_with_nonexistent_table_alias_is_invalid(
     user: User,
 ):
     """
-    Regression test: a metric query referencing a nonexistent table alias (e.g. `ux.label`
-    where `ux` is not a struct column, not a valid alias, and not a dimension node) should
+    Regression test: a metric query referencing a nonexistent table alias (e.g. `ghost.value`
+    where `ghost` is not a struct column, not a valid alias, and not a dimension node) should
     produce NodeStatus.INVALID with an INVALID_COLUMN error.
 
     Previously, INVALID_COLUMN errors from compile() inside extract_dependencies() were
@@ -381,8 +381,8 @@ async def test_metric_with_nonexistent_table_alias_is_invalid(
         version="v1.0",
         node=source_node,
         columns=[
-            Column(name="impressions", type=ct.BigIntType(), order=0),
-            Column(name="ad_instance_id", type=ct.StringType(), order=1),
+            Column(name="event_count", type=ct.BigIntType(), order=0),
+            Column(name="user_id", type=ct.StringType(), order=1),
         ],
         created_by_id=user.id,
     )
@@ -390,13 +390,13 @@ async def test_metric_with_nonexistent_table_alias_is_invalid(
     session.add(source_revision)
     await session.commit()
 
-    # `ux` is not an alias, not a struct, and not a dimension node — should be INVALID
+    # `ghost` is not an alias, not a struct, and not a dimension node — should be INVALID
     data = NodeRevisionBase(
         name="test.metric_invalid_alias",
         display_name="Metric with invalid alias",
         type=NodeType.METRIC,
         query=(
-            "SELECT COUNT(IF(ux.label IS NOT NULL, 1, 0)) "
+            "SELECT COUNT(IF(ghost.value IS NOT NULL, 1, 0)) "
             "FROM test.source_for_invalid_alias_metric"
         ),
         mode="published",
