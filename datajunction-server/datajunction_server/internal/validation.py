@@ -115,9 +115,9 @@ async def validate_node_data(
         # Both Table nodes (regular tables) and Query nodes (inline subqueries) can
         # carry aliases that appear as column namespaces in the query body.
         local_aliases: Set[str] = set()
-        for node in (*query_ast.find_all(ast.Table), *query_ast.find_all(ast.Query)):
-            if node.alias is not None:
-                local_aliases.add(node.alias.identifier(False))
+        for tbl in (*query_ast.find_all(ast.Table), *query_ast.find_all(ast.Query)):
+            if tbl.alias is not None:
+                local_aliases.add(tbl.alias.identifier(False))
         for cte in query_ast.ctes:
             local_aliases.add(cte.alias_or_name.identifier(False))
 
