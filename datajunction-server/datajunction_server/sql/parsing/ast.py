@@ -1256,6 +1256,9 @@ class Column(Aliasable, Named, Expression):
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
                         message=f"Column `{self}` does not exist on any valid table.",
+                        debug={
+                            "namespace": SEPARATOR.join(n.name for n in self.namespace),
+                        },
                     ),
                 )
                 return
@@ -1276,6 +1279,9 @@ class Column(Aliasable, Named, Expression):
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
                         message=f"Column `{self}` does not exist on any valid table.",
+                        debug={
+                            "namespace": SEPARATOR.join(n.name for n in self.namespace),
+                        },
                     ),
                 )
                 return

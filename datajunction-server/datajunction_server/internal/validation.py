@@ -94,11 +94,6 @@ async def validate_node_data(
 
     if isinstance(data, NodeRevision):
         validated_node = data
-        # await session.refresh(data, ["parents"])
-        # ctx = await create_compile_context_with_bulk_deps(
-        #     session=session,
-        #     node_names={parent.name for parent in data.parents},
-        # )
     else:
         node = Node(name=data.name, type=data.type)
         validated_node = NodeRevision(**data.model_dump())
@@ -115,12 +110,41 @@ async def validate_node_data(
             else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
+
+        # Collect table aliases and CTE names before bake_ctes() destroys them.
+        # These are valid SQL references and should not be surfaced as INVALID_COLUMN.
+        local_aliases: Set[str] = set()
+        for tbl in query_ast.find_all(ast.Table):
+            if tbl.alias is not None:
+                local_aliases.add(tbl.alias.identifier(False))
+        for cte in query_ast.ctes:
+            local_aliases.add(cte.alias_or_name.identifier(False))
+
         (
             dependencies_map,
             missing_parents_map,
         ) = await query_ast.bake_ctes().extract_dependencies(ctx)
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
+
+        # compile() runs inside extract_dependencies for queries with a FROM clause.
+        # Surface any INVALID_COLUMN errors it produced, but filter out references
+        # whose namespace is a local SQL alias or CTE name — those are valid SQL
+        # and will be resolved at full compile time. No-FROM-clause dimension
+        # references are already handled inside compile() itself before the error
+        # is appended, so no extra DB lookup is needed here.
+        invalid_col_errors = [
+            e for e in ctx.exception.errors if e.code == ErrorCode.INVALID_COLUMN
+        ]
+        unresolved = [
+            e
+            for e in invalid_col_errors
+            if (e.debug or {}).get("namespace", "") not in local_aliases
+        ]
+        if unresolved:
+            node_validator.status = NodeStatus.INVALID
+            node_validator.errors.extend(unresolved)
+
     except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:
         node_validator.status = NodeStatus.INVALID
         node_validator.errors.append(
