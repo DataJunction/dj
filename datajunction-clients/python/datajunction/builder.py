@@ -152,10 +152,20 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def delete_branch(
         self,
         namespace: str,
-        branch_namespace: str,
+        branch_name: str,
         delete_git_branch: bool = True,
     ) -> None:
-        """Delete a branch namespace (and optionally its git branch)."""
+        """Delete a branch namespace (and optionally its git branch).
+
+        Args:
+            namespace: The parent/root namespace (e.g., "myns.main")
+            branch_name: The git branch name (e.g., "feature-x")
+            delete_git_branch: If True (default), also delete the git branch in GitHub
+        """
+        # Convert branch name to namespace format: feature-x -> feature_x
+        branch_suffix = branch_name.replace("-", "_").replace("/", "_")
+        branch_namespace = f"{namespace}.{branch_suffix}"
+
         response = self._session.request(
             "DELETE",
             f"/namespaces/{namespace}/branches/{branch_namespace}",

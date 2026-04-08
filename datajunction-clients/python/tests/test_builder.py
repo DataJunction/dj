@@ -1019,13 +1019,14 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         )
         result = client.delete_branch(
             namespace="myns.main",
-            branch_namespace="myns.feature_x",
+            branch_name="feature-x",
             delete_git_branch=True,
         )
         assert result is None
+        # branch_name "feature-x" is converted to namespace suffix "feature_x"
         client._session.request.assert_called_once_with(
             "DELETE",
-            "/namespaces/myns.main/branches/myns.feature_x",
+            "/namespaces/myns.main/branches/myns.main.feature_x",
             timeout=client._timeout,
             params={"delete_git_branch": True},
         )
@@ -1041,7 +1042,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
         )
         with pytest.raises(DJClientException) as exc_info:
-            client.delete_branch(namespace="myns.main", branch_namespace="nonexistent")
+            client.delete_branch(namespace="myns.main", branch_name="nonexistent")
         assert "Branch not found" in str(exc_info.value)
 
     #
