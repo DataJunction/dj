@@ -2611,7 +2611,9 @@ class TestGitCommands:
         )
 
         with patch.object(
-            builder_client, "init_git_root", return_value=mock_config,
+            builder_client,
+            "init_git_root",
+            return_value=mock_config,
         ) as mock_init:
             test_args = [
                 "dj",
@@ -2647,7 +2649,9 @@ class TestGitCommands:
         )
 
         with patch.object(
-            builder_client, "init_git_root", return_value=mock_config,
+            builder_client,
+            "init_git_root",
+            return_value=mock_config,
         ) as mock_init:
             test_args = [
                 "dj",
@@ -2683,7 +2687,9 @@ class TestGitCommands:
         )
 
         with patch.object(
-            builder_client, "get_git_config", return_value=mock_config,
+            builder_client,
+            "get_git_config",
+            return_value=mock_config,
         ) as mock_get:
             test_args = ["dj", "git", "show", "myns"]
             with patch.object(sys, "argv", test_args):
@@ -2717,7 +2723,9 @@ class TestGitCommands:
     def test_git_clear(self, builder_client: DJBuilder):
         """Test `dj git clear <namespace>`"""
         with patch.object(
-            builder_client, "clear_git_config", return_value=None,
+            builder_client,
+            "clear_git_config",
+            return_value=None,
         ) as mock_clear:
             test_args = ["dj", "git", "clear", "myns"]
             with patch.object(sys, "argv", test_args):
@@ -2740,7 +2748,9 @@ class TestGitBranchCommands:
         mock_namespace.namespace = "myns.feature_x"
 
         with patch.object(
-            builder_client, "create_branch", return_value=mock_namespace,
+            builder_client,
+            "create_branch",
+            return_value=mock_namespace,
         ) as mock_create:
             test_args = ["dj", "git", "create-branch", "myns", "feature-x"]
             with patch.object(sys, "argv", test_args):
@@ -2771,7 +2781,9 @@ class TestGitBranchCommands:
         ]
 
         with patch.object(
-            builder_client, "list_branches", return_value=mock_branches,
+            builder_client,
+            "list_branches",
+            return_value=mock_branches,
         ) as mock_list:
             test_args = ["dj", "git", "list-branches", "myns"]
             with patch.object(sys, "argv", test_args):
@@ -2816,7 +2828,9 @@ class TestGitBranchCommands:
     def test_git_delete_branch(self, builder_client: DJBuilder):
         """Test `dj git delete-branch <namespace> <branch-name>`"""
         with patch.object(
-            builder_client, "delete_branch", return_value=None,
+            builder_client,
+            "delete_branch",
+            return_value=None,
         ) as mock_delete:
             test_args = ["dj", "git", "delete-branch", "myns", "feature-x"]
             with patch.object(sys, "argv", test_args):
@@ -2831,7 +2845,9 @@ class TestGitBranchCommands:
     def test_git_delete_branch_keep_git_branch(self, builder_client: DJBuilder):
         """Test `dj git delete-branch <namespace> <branch-name> --keep-git-branch`"""
         with patch.object(
-            builder_client, "delete_branch", return_value=None,
+            builder_client,
+            "delete_branch",
+            return_value=None,
         ) as mock_delete:
             test_args = [
                 "dj",

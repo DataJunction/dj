@@ -773,7 +773,10 @@ class DJCLI:
             raise SystemExit(1)
 
     def branch_delete(
-        self, namespace: str, branch_name: str, keep_git_branch: bool = False,
+        self,
+        namespace: str,
+        branch_name: str,
+        keep_git_branch: bool = False,
     ):
         """Delete a branch namespace."""
         console = Console()
