@@ -389,7 +389,7 @@ class TestBranchManagement:
         await client_with_service_setup.post("/namespaces/test_no_default")
         await client_with_service_setup.patch(
             "/namespaces/test_no_default/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         response = await client_with_service_setup.post(
@@ -3355,7 +3355,7 @@ class TestGitOnlyNamespaceProtection:
         await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         await client_with_service_setup.patch(
             f"/namespaces/{root_namespace}/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         # Try to create a source node directly in the git root namespace
@@ -3386,7 +3386,7 @@ class TestGitOnlyNamespaceProtection:
         await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         await client_with_service_setup.patch(
             f"/namespaces/{root_namespace}/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         response = await client_with_service_setup.post(
@@ -4524,6 +4524,7 @@ class TestSyncFromGit:
             "/namespaces/sync_test/git",
             json={
                 "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
                 "git_path": "nodes",
             },
         )
@@ -4557,7 +4558,6 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/sync_test/sync-from-git",
-                json={"ref": "main"},
             )
 
             assert response.status_code == HTTPStatus.OK
@@ -4566,7 +4566,7 @@ columns:
             assert data["status"] == "success"
             assert len(data["results"]) >= 1
 
-            # Verify resolve_ref_to_sha was called
+            # Verify resolve_ref_to_sha was called with the configured branch
             mock_github.resolve_ref_to_sha.assert_called_once_with(
                 "myorg/myrepo",
                 "main",
@@ -4584,6 +4584,7 @@ columns:
                 "myorg/myrepo",
                 "abc123def456",
             )
+            assert data["source"]["branch"] == "main"
             assert data["source"]["commit_author_name"] == "Alice Smith"
             assert data["source"]["commit_author_email"] == "alice@example.com"
 
@@ -4597,24 +4598,42 @@ columns:
 
         response = await client_with_service_setup.post(
             "/namespaces/no_git_ns/sync-from-git",
-            json={"ref": "main"},
         )
 
         assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
         assert "does not have github_repo_path configured" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_sync_from_git_invalid_ref(
+    async def test_sync_from_git_no_git_branch(
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test sync-from-git fails when ref doesn't exist."""
+        """Test sync-from-git fails when namespace has no git_branch configured."""
+        await client_with_service_setup.post("/namespaces/no_branch_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/no_branch_ns/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        response = await client_with_service_setup.post(
+            "/namespaces/no_branch_ns/sync-from-git",
+        )
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "does not have git_branch configured" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_branch_not_found(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git fails when the configured branch doesn't exist in the repo."""
         from datajunction_server.internal.git.github_service import GitHubServiceError
 
         await client_with_service_setup.post("/namespaces/sync_test2")
         await client_with_service_setup.patch(
             "/namespaces/sync_test2/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "deleted-branch"},
         )
 
         with patch(
@@ -4623,7 +4642,7 @@ columns:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(
                 side_effect=GitHubServiceError(
-                    "Ref 'nonexistent' not found in repository 'myorg/myrepo'",
+                    "Ref 'deleted-branch' not found in repository 'myorg/myrepo'",
                     http_status_code=400,
                 ),
             )
@@ -4631,7 +4650,6 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/sync_test2/sync-from-git",
-                json={"ref": "nonexistent"},
             )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
@@ -4646,7 +4664,7 @@ columns:
         await client_with_service_setup.post("/namespaces/empty_sync")
         await client_with_service_setup.patch(
             "/namespaces/empty_sync/git",
-            json={"github_repo_path": "myorg/emptyrepo"},
+            json={"github_repo_path": "myorg/emptyrepo", "git_branch": "main"},
         )
 
         # Empty tarball with no YAML files
@@ -4663,22 +4681,21 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/empty_sync/sync-from-git",
-                json={"ref": "main"},
             )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "No node definitions found" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_sync_from_git_with_commit_sha(
+    async def test_sync_from_git_source_records_branch_and_sha(
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test sync-from-git works with commit SHA instead of branch name."""
+        """Test that source metadata always records the configured branch and resolved SHA."""
         await client_with_service_setup.post("/namespaces/sha_sync")
         await client_with_service_setup.patch(
             "/namespaces/sha_sync/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -4698,7 +4715,6 @@ columns:
             "datajunction_server.api.git_sync.GitHubService",
         ) as mock_github_class:
             mock_github = MagicMock()
-            # When ref is already a full SHA, resolve_ref_to_sha returns it as-is
             mock_github.resolve_ref_to_sha = AsyncMock(
                 return_value="abc123def456789012345678901234567890abcd",
             )
@@ -4708,13 +4724,12 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/sha_sync/sync-from-git",
-                json={"ref": "abc123def456789012345678901234567890abcd"},
             )
 
             assert response.status_code == HTTPStatus.OK
             data = response.json()
             assert data["status"] == "success"
-            # Source should include the commit SHA
+            assert data["source"]["branch"] == "main"
             assert (
                 data["source"]["commit_sha"]
                 == "abc123def456789012345678901234567890abcd"
@@ -4731,6 +4746,7 @@ columns:
             "/namespaces/path_sync/git",
             json={
                 "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
                 "git_path": "definitions/metrics",
             },
         )
@@ -4764,7 +4780,6 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/path_sync/sync-from-git",
-                json={"ref": "main"},
             )
 
             assert response.status_code == HTTPStatus.OK
@@ -4779,7 +4794,7 @@ columns:
         await client_with_service_setup.post("/namespaces/empty_archive_ns")
         await client_with_service_setup.patch(
             "/namespaces/empty_archive_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         # Build a tarball with no entries at all (no root directory)
@@ -4800,8 +4815,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/empty_archive_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "Failed to extract archive" in response.json()["message"]
@@ -4837,8 +4851,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/bad_path_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "nonexistent/subdir" in response.json()["message"]
@@ -4853,7 +4866,7 @@ columns:
         await client_with_service_setup.post("/namespaces/dj_yaml_ns")
         await client_with_service_setup.patch(
             "/namespaces/dj_yaml_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -4889,8 +4902,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/dj_yaml_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             assert response.status_code == HTTPStatus.OK
             # Only the real node should be deployed, not the dj.yaml content
@@ -4907,7 +4919,7 @@ columns:
         await client_with_service_setup.post("/namespaces/noname_yaml_ns")
         await client_with_service_setup.patch(
             "/namespaces/noname_yaml_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -4940,8 +4952,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/noname_yaml_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             # Only the valid node should be deployed
             assert response.status_code == HTTPStatus.OK
@@ -4956,7 +4967,7 @@ columns:
         await client_with_service_setup.post("/namespaces/bad_yaml_ns")
         await client_with_service_setup.patch(
             "/namespaces/bad_yaml_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -4988,8 +4999,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/bad_yaml_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             # The valid node should still be deployed despite the broken file
             assert response.status_code == HTTPStatus.OK
@@ -5006,7 +5016,7 @@ columns:
         await client_with_service_setup.post("/namespaces/dl_fail_ns")
         await client_with_service_setup.patch(
             "/namespaces/dl_fail_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         with patch(
@@ -5025,8 +5035,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/dl_fail_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "Failed to fetch from git" in response.json()["message"]
@@ -5040,7 +5049,7 @@ columns:
         await client_with_service_setup.post("/namespaces/orch_fail_ns")
         await client_with_service_setup.patch(
             "/namespaces/orch_fail_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -5079,8 +5088,7 @@ columns:
             with pytest.raises(RuntimeError, match="Unexpected deploy failure"):
                 await client_with_service_setup.post(
                     "/namespaces/orch_fail_ns/sync-from-git",
-                    json={"ref": "main"},
-                )
+                    )
 
     @pytest.mark.asyncio
     async def test_sync_from_git_commit_author_fetch_fails(
@@ -5093,7 +5101,7 @@ columns:
         await client_with_service_setup.post("/namespaces/author_fail_ns")
         await client_with_service_setup.patch(
             "/namespaces/author_fail_ns/git",
-            json={"github_repo_path": "myorg/myrepo"},
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
         )
 
         node_yaml = """
@@ -5125,8 +5133,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/author_fail_ns/sync-from-git",
-                json={"ref": "main"},
-            )
+                )
 
             # Deployment should still succeed without author info
             assert response.status_code == HTTPStatus.OK

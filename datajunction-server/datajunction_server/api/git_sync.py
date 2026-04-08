@@ -166,12 +166,6 @@ class PRResult(BaseModel):
     base_branch: str
 
 
-class SyncFromGitRequest(BaseModel):
-    """Request to sync a namespace from git (DJ-pull model)."""
-
-    ref: str  # Git ref: branch name or commit SHA
-
-
 async def _fetch_deployment_spec_from_git(
     github: GitHubService,
     repo_path: str,
@@ -824,7 +818,6 @@ async def create_pull_request(
 )
 async def sync_namespace_from_git(
     namespace: str,
-    request_body: SyncFromGitRequest,
     http_request: Request,
     background_tasks: BackgroundTasks,
     *,
@@ -835,30 +828,28 @@ async def sync_namespace_from_git(
     cache: Cache = Depends(get_cache),
 ) -> DeploymentInfo:
     """
-    Sync a namespace by pulling node specs directly from git (DJ-pull model).
+    Sync a namespace by pulling node specs directly from the HEAD of its configured
+    git branch (DJ-pull model).
 
-    The server fetches content from GitHub at the given ref, then deploys it.
-    User-submitted content is never trusted - only the ref is provided by the user.
-
-    This eliminates the trust issue where users could claim a commit hash while
-    deploying different content.
-
-    Args:
-        namespace: Target namespace to deploy to
-        request_body.ref: Git reference - can be a branch name or commit SHA
+    The server fetches content from GitHub — no ref is accepted from the caller.
+    This ensures only the latest commit on the configured branch can be deployed,
+    preventing users from pinning to an older (potentially vulnerable) commit.
 
     Returns:
         DeploymentInfo with deployment results
 
     Raises:
         400: If namespace has no github_repo_path configured
-        400: If ref doesn't exist in the repository
+        400: If namespace has no git_branch configured
     """
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # 1. Resolve git config (validates namespace exists via resolve_git_config)
-    github_repo_path, git_path, _ = await resolve_git_config(session, namespace)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
 
     if not github_repo_path:
         raise DJInvalidInputException(
@@ -866,10 +857,16 @@ async def sync_namespace_from_git(
             "Cannot sync from git. Configure git settings on this namespace or a parent.",
         )
 
-    # 2. Resolve ref to commit SHA
+    if not git_branch:
+        raise DJInvalidInputException(
+            message=f"Namespace '{namespace}' does not have git_branch configured. "
+            "Cannot sync from git without a branch to track.",
+        )
+
+    # 2. Resolve branch to current HEAD commit SHA
     github = GitHubService()
     try:
-        commit_sha = await github.resolve_ref_to_sha(github_repo_path, request_body.ref)
+        commit_sha = await github.resolve_ref_to_sha(github_repo_path, git_branch)
     except GitHubServiceError as e:
         raise DJInvalidInputException(message=str(e)) from e
 
@@ -877,7 +874,7 @@ async def sync_namespace_from_git(
         "Syncing namespace '%s' from git: %s @ %s (resolved to %s)",
         namespace,
         github_repo_path,
-        request_body.ref,
+        git_branch,
         commit_sha[:12],
     )
 
@@ -913,7 +910,7 @@ async def sync_namespace_from_git(
     if not deployment_spec_dict.get("nodes"):
         raise DJInvalidInputException(
             message=f"No node definitions found in repository '{github_repo_path}' "
-            f"at ref '{request_body.ref}'"
+            f"at branch '{git_branch}'"
             + (f" in path '{git_path}'" if git_path else ""),
         )
 
@@ -921,7 +918,7 @@ async def sync_namespace_from_git(
     deployment_spec_dict["source"] = {
         "type": "git",
         "repository": github_repo_path,
-        "branch": request_body.ref if request_body.ref != commit_sha else None,
+        "branch": git_branch,
         "commit_sha": commit_sha,
         "commit_author_name": commit_author_name,
         "commit_author_email": commit_author_email,
@@ -966,7 +963,7 @@ async def sync_namespace_from_git(
         source=GitDeploymentSource(
             type="git",
             repository=github_repo_path,
-            branch=request_body.ref if request_body.ref != commit_sha else None,
+            branch=git_branch,
             commit_sha=commit_sha,
             commit_author_name=commit_author_name,
             commit_author_email=commit_author_email,
