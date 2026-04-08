@@ -1089,68 +1089,74 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             client.get_git_config(namespace="nonexistent")
         assert "Git config not found" in str(exc_info.value)
 
-    def test_init_git_config(self, client):
+    def test_init_git_root(self, client):
         """
-        Verifies that initializing git config works.
+        Verifies that initializing a git root works.
         """
         client._session.patch = MagicMock(
             return_value=MagicMock(
                 status_code=200,
                 json=lambda: {
                     "github_repo_path": "org/repo",
-                    "git_branch": "main",
-                    "git_path": "dj/nodes",
+                    "git_path": "definitions/",
                     "default_branch": "main",
                     "git_only": True,
                 },
             ),
         )
-        result = client.init_git_config(
-            namespace="myns.main",
+        result = client.init_git_root(
+            namespace="myns",
             github_repo_path="org/repo",
-            git_branch="main",
-            git_path="dj/nodes",
             default_branch="main",
+            git_path="definitions/",
             git_only=True,
         )
         assert result.github_repo_path == "org/repo"
+        assert result.default_branch == "main"
         assert result.git_only is True
         client._session.patch.assert_called_once_with(
-            "/namespaces/myns.main/git",
+            "/namespaces/myns/git",
             json={
                 "github_repo_path": "org/repo",
-                "git_branch": "main",
-                "git_path": "dj/nodes",
                 "default_branch": "main",
+                "git_path": "definitions/",
                 "git_only": True,
             },
             timeout=client._timeout,
         )
 
-    def test_init_git_config_partial(self, client):
+    def test_init_git_root_minimal(self, client):
         """
-        Verifies that init_git_config only sends non-None fields.
+        Verifies that init_git_root only sends required + provided fields.
         """
         client._session.patch = MagicMock(
             return_value=MagicMock(
                 status_code=200,
-                json=lambda: {"github_repo_path": "org/repo"},
+                json=lambda: {
+                    "github_repo_path": "org/repo",
+                    "default_branch": "main",
+                },
             ),
         )
-        result = client.init_git_config(
-            namespace="myns.main",
+        result = client.init_git_root(
+            namespace="myns",
             github_repo_path="org/repo",
+            default_branch="main",
         )
         assert result.github_repo_path == "org/repo"
+        assert result.default_branch == "main"
         client._session.patch.assert_called_once_with(
-            "/namespaces/myns.main/git",
-            json={"github_repo_path": "org/repo"},
+            "/namespaces/myns/git",
+            json={
+                "github_repo_path": "org/repo",
+                "default_branch": "main",
+            },
             timeout=client._timeout,
         )
 
-    def test_init_git_config_error(self, client):
+    def test_init_git_root_error(self, client):
         """
-        Verifies that init_git_config raises on error.
+        Verifies that init_git_root raises on error.
         """
         client._session.patch = MagicMock(
             return_value=MagicMock(
@@ -1159,7 +1165,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
         )
         with pytest.raises(DJClientException) as exc_info:
-            client.init_git_config(namespace="myns.main", github_repo_path="bad/repo")
+            client.init_git_root(
+                namespace="myns",
+                github_repo_path="bad/repo",
+                default_branch="main",
+            )
         assert "Invalid git config" in str(exc_info.value)
 
     def test_clear_git_config(self, client):

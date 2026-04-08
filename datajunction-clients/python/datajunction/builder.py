@@ -188,29 +188,36 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             raise DJClientException(response.json()["message"])
         return GitConfig.from_dict(None, response.json())
 
-    def init_git_config(
+    def init_git_root(
         self,
         namespace: str,
-        github_repo_path: Optional[str] = None,
-        git_branch: Optional[str] = None,
+        github_repo_path: str,
+        default_branch: str,
         git_path: Optional[str] = None,
-        default_branch: Optional[str] = None,
-        parent_namespace: Optional[str] = None,
         git_only: Optional[bool] = None,
     ) -> GitConfig:
-        """Set (or update) git configuration on a namespace."""
-        payload = {
-            k: v
-            for k, v in {
-                "github_repo_path": github_repo_path,
-                "git_branch": git_branch,
-                "git_path": git_path,
-                "default_branch": default_branch,
-                "parent_namespace": parent_namespace,
-                "git_only": git_only,
-            }.items()
-            if v is not None
+        """Initialize git configuration on a root namespace.
+
+        This sets up a namespace as a git root, enabling branch creation via
+        `create_branch()`. Branch namespaces inherit their git config from
+        the root automatically.
+
+        Args:
+            namespace: The root namespace to configure (e.g., "myns")
+            github_repo_path: GitHub repository path (e.g., "org/repo")
+            default_branch: The canonical git branch (e.g., "main")
+            git_path: Subdirectory within repo for node definitions (optional)
+            git_only: If True, UI edits are blocked; must edit via git (optional)
+        """
+        payload: dict = {
+            "github_repo_path": github_repo_path,
+            "default_branch": default_branch,
         }
+        if git_path is not None:
+            payload["git_path"] = git_path
+        if git_only is not None:
+            payload["git_only"] = git_only
+
         response = self._session.patch(
             f"/namespaces/{namespace}/git",
             json=payload,
