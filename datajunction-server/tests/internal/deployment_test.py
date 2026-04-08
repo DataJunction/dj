@@ -323,15 +323,21 @@ def create_orchestrator(
     session: AsyncSession,
     current_user: User,
     nodes: list[NodeSpec],
+    namespace: str = "example",
+    dry_run: bool = True,
 ) -> DeploymentOrchestrator:
     """
     Create a deployment orchestrator for testing.
+
+    dry_run defaults to True because unit tests don't need to update deployment
+    status in the database, and doing so requires a separate session that would
+    try to connect to the production database config.
     """
     context = MagicMock(autospec=DeploymentContext)
     context.current_user = current_user
     context.save_history = mock_save_history
     deployment_spec = DeploymentSpec(
-        namespace="example",
+        namespace=namespace,
         nodes=nodes,
         tags=[],
     )
@@ -340,6 +346,7 @@ def create_orchestrator(
         deployment_id="test-deployment",
         session=session,
         context=context,
+        dry_run=dry_run,
     )
 
 
@@ -676,8 +683,9 @@ async def test_copy_fast_path_taken_for_empty_namespace(
     session.add(source_revision)
     await session.commit()
 
+    # Node name is relative; it will be prefixed with the deployment namespace
     transform_spec = TransformSpec(
-        name="branch.transforms.revenue",
+        name="transforms.revenue",
         query="SELECT amount FROM prod.facts.sales",
         mode="published",
     )
@@ -692,9 +700,10 @@ async def test_copy_fast_path_taken_for_empty_namespace(
     ) as mock_check:
         result = await orchestrator.execute()
 
-    # Fast-path was used — check_external_deps should NOT have been called
+    # Fast-path was used, which means check_external_deps should NOT have been called
     mock_check.assert_not_called()
-    assert any(r.name == "branch.transforms.revenue" for r in result.results), (
+    # Node name is prefixed with deployment namespace "example"
+    assert any(r.name == "example.transforms.revenue" for r in result.results), (
         result.results
     )
 
