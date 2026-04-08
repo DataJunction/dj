@@ -2865,3 +2865,93 @@ class TestGitBranchCommands:
                 branch_name="feature-x",
                 delete_git_branch=False,
             )
+
+    def test_git_init_error(self, builder_client: DJBuilder):
+        """Test `dj git init` error handling (covers lines 677-679)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "init_git_config",
+            side_effect=DJClientException("Namespace not found"),
+        ):
+            test_args = ["dj", "git", "init", "myns", "--repo", "org/repo"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_show_error(self, builder_client: DJBuilder):
+        """Test `dj git show` error handling (covers lines 703-705)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "get_git_config",
+            side_effect=DJClientException("No git config found"),
+        ):
+            test_args = ["dj", "git", "show", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_clear_error(self, builder_client: DJBuilder):
+        """Test `dj git clear` error handling (covers lines 715-717)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "clear_git_config",
+            side_effect=DJClientException("Failed to clear git config"),
+        ):
+            test_args = ["dj", "git", "clear", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_create_branch_error(self, builder_client: DJBuilder):
+        """Test `dj git create-branch` error handling (covers lines 735-737)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "create_branch",
+            side_effect=DJClientException("Branch already exists"),
+        ):
+            test_args = ["dj", "git", "create-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_list_branches_error(self, builder_client: DJBuilder):
+        """Test `dj git list-branches` error handling (covers lines 771-773)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "list_branches",
+            side_effect=DJClientException("Namespace not found"),
+        ):
+            test_args = ["dj", "git", "list-branches", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_delete_branch_error(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch` error handling (covers lines 795-797)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "delete_branch",
+            side_effect=DJClientException("Branch not found"),
+        ):
+            test_args = ["dj", "git", "delete-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
