@@ -4160,6 +4160,17 @@ columns:
         )
         assert self._check(yaml_str, spec) is False
 
+    def test_empty_yaml_treated_as_changed(self):
+        """Empty YAML document (null parse result) should return False — trigger sync."""
+        from datajunction_server.models.deployment import TransformSpec
+
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT 1",
+        )
+        assert self._check("", spec) is False
+
     def test_invalid_yaml_treated_as_changed(self):
         """Malformed YAML should return False (safe fallback — trigger sync)."""
         from datajunction_server.models.deployment import TransformSpec
