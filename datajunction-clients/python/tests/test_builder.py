@@ -924,126 +924,132 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Verifies that creating a branch namespace works.
         """
-        client._session.post = MagicMock(
-            return_value=MagicMock(
-                status_code=201,
-                json=lambda: {
-                    "branch": {
-                        "namespace": "myns.feature_x",
-                        "git_branch": "feature-x",
-                        "parent_namespace": "myns",
-                        "github_repo_path": "org/repo",
-                        "num_nodes": 0,
-                    },
-                    "deployment_results": [],
+        mock_response = MagicMock(
+            status_code=201,
+            json=lambda: {
+                "branch": {
+                    "namespace": "myns.feature_x",
+                    "git_branch": "feature-x",
+                    "parent_namespace": "myns",
+                    "github_repo_path": "org/repo",
+                    "num_nodes": 0,
                 },
-            ),
+                "deployment_results": [],
+            },
         )
-        result = client.create_branch(namespace="myns", branch_name="feature-x")
-        assert result.namespace == "myns.feature_x"
-        client._session.post.assert_called_once_with(
-            "/namespaces/myns/branches",
-            json={"branch_name": "feature-x"},
-            timeout=client._timeout,
-        )
+        with patch.object(
+            client._session,
+            "post",
+            return_value=mock_response,
+        ) as mock_post:
+            result = client.create_branch(namespace="myns", branch_name="feature-x")
+            assert result.namespace == "myns.feature_x"
+            mock_post.assert_called_once_with(
+                "/namespaces/myns/branches",
+                json={"branch_name": "feature-x"},
+                timeout=client._timeout,
+            )
 
     def test_create_branch_error(self, client):
         """
         Verifies that create_branch raises on error.
         """
-        client._session.post = MagicMock(
-            return_value=MagicMock(
-                status_code=400,
-                json=lambda: {"message": "Branch creation failed"},
-            ),
+        mock_response = MagicMock(
+            status_code=400,
+            json=lambda: {"message": "Branch creation failed"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.create_branch(namespace="myns", branch_name="bad-branch")
-        assert "Branch creation failed" in str(exc_info.value)
+        with patch.object(client._session, "post", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.create_branch(namespace="myns", branch_name="bad-branch")
+            assert "Branch creation failed" in str(exc_info.value)
 
     def test_list_branches(self, client):
         """
         Verifies that listing branch namespaces works.
         """
-        client._session.get = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: [
-                    {
-                        "namespace": "myns.feature_x",
-                        "git_branch": "feature-x",
-                        "parent_namespace": "myns",
-                        "github_repo_path": "org/repo",
-                    },
-                    {
-                        "namespace": "myns.feature_y",
-                        "git_branch": "feature-y",
-                        "parent_namespace": "myns",
-                        "github_repo_path": "org/repo",
-                    },
-                ],
-            ),
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: [
+                {
+                    "namespace": "myns.feature_x",
+                    "git_branch": "feature-x",
+                    "parent_namespace": "myns",
+                    "github_repo_path": "org/repo",
+                },
+                {
+                    "namespace": "myns.feature_y",
+                    "git_branch": "feature-y",
+                    "parent_namespace": "myns",
+                    "github_repo_path": "org/repo",
+                },
+            ],
         )
-        result = client.list_branches(namespace="myns")
-        assert len(result) == 2
-        assert result[0].namespace == "myns.feature_x"
-        assert result[0].git_branch == "feature-x"
-        client._session.get.assert_called_once_with(
-            "/namespaces/myns/branches",
-            timeout=client._timeout,
-        )
+        with patch.object(
+            client._session,
+            "get",
+            return_value=mock_response,
+        ) as mock_get:
+            result = client.list_branches(namespace="myns")
+            assert len(result) == 2
+            assert result[0].namespace == "myns.feature_x"
+            assert result[0].git_branch == "feature-x"
+            mock_get.assert_called_once_with(
+                "/namespaces/myns/branches",
+                timeout=client._timeout,
+            )
 
     def test_list_branches_error(self, client):
         """
         Verifies that list_branches raises on error.
         """
-        client._session.get = MagicMock(
-            return_value=MagicMock(
-                status_code=404,
-                json=lambda: {"message": "Namespace not found"},
-            ),
+        mock_response = MagicMock(
+            status_code=404,
+            json=lambda: {"message": "Namespace not found"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.list_branches(namespace="nonexistent")
-        assert "Namespace not found" in str(exc_info.value)
+        with patch.object(client._session, "get", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.list_branches(namespace="nonexistent")
+            assert "Namespace not found" in str(exc_info.value)
 
     def test_delete_branch(self, client):
         """
         Verifies that deleting a branch namespace works.
         """
-        client._session.request = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: {"message": "Branch deleted"},
-            ),
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: {"message": "Branch deleted"},
         )
-        result = client.delete_branch(
-            namespace="myns",
-            branch_name="feature-x",
-            delete_git_branch=True,
-        )
-        assert result is None
-        # branch_name "feature-x" is converted to namespace suffix "feature_x"
-        client._session.request.assert_called_once_with(
-            "DELETE",
-            "/namespaces/myns/branches/myns.feature_x",
-            timeout=client._timeout,
-            params={"delete_git_branch": True},
-        )
+        with patch.object(
+            client._session,
+            "request",
+            return_value=mock_response,
+        ) as mock_request:
+            result = client.delete_branch(
+                namespace="myns",
+                branch_name="feature-x",
+                delete_git_branch=True,
+            )
+            assert result is None
+            # branch_name "feature-x" is converted to namespace suffix "feature_x"
+            mock_request.assert_called_once_with(
+                "DELETE",
+                "/namespaces/myns/branches/myns.feature_x",
+                timeout=client._timeout,
+                params={"delete_git_branch": True},
+            )
 
     def test_delete_branch_error(self, client):
         """
         Verifies that delete_branch raises on error.
         """
-        client._session.request = MagicMock(
-            return_value=MagicMock(
-                status_code=404,
-                json=lambda: {"message": "Branch not found"},
-            ),
+        mock_response = MagicMock(
+            status_code=404,
+            json=lambda: {"message": "Branch not found"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.delete_branch(namespace="myns", branch_name="nonexistent")
-        assert "Branch not found" in str(exc_info.value)
+        with patch.object(client._session, "request", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.delete_branch(namespace="myns", branch_name="nonexistent")
+            assert "Branch not found" in str(exc_info.value)
 
     #
     # Git config
@@ -1052,157 +1058,166 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         """
         Verifies that getting git config works.
         """
-        client._session.get = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "github_repo_path": "org/repo",
-                    "git_branch": "main",
-                    "git_path": "dj/nodes",
-                    "default_branch": "main",
-                    "git_only": False,
-                },
-            ),
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "github_repo_path": "org/repo",
+                "git_branch": "main",
+                "git_path": "dj/nodes",
+                "default_branch": "main",
+                "git_only": False,
+            },
         )
-        result = client.get_git_config(namespace="myns.main")
-        assert result.github_repo_path == "org/repo"
-        assert result.git_branch == "main"
-        assert result.git_path == "dj/nodes"
-        assert result.default_branch == "main"
-        assert result.git_only is False
-        client._session.get.assert_called_once_with(
-            "/namespaces/myns.main/git",
-            timeout=client._timeout,
-        )
+        with patch.object(
+            client._session,
+            "get",
+            return_value=mock_response,
+        ) as mock_get:
+            result = client.get_git_config(namespace="myns.main")
+            assert result.github_repo_path == "org/repo"
+            assert result.git_branch == "main"
+            assert result.git_path == "dj/nodes"
+            assert result.default_branch == "main"
+            assert result.git_only is False
+            mock_get.assert_called_once_with(
+                "/namespaces/myns.main/git",
+                timeout=client._timeout,
+            )
 
     def test_get_git_config_error(self, client):
         """
         Verifies that get_git_config raises on error.
         """
-        client._session.get = MagicMock(
-            return_value=MagicMock(
-                status_code=404,
-                json=lambda: {"message": "Git config not found"},
-            ),
+        mock_response = MagicMock(
+            status_code=404,
+            json=lambda: {"message": "Git config not found"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.get_git_config(namespace="nonexistent")
-        assert "Git config not found" in str(exc_info.value)
+        with patch.object(client._session, "get", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.get_git_config(namespace="nonexistent")
+            assert "Git config not found" in str(exc_info.value)
 
     def test_init_git_root(self, client):
         """
         Verifies that initializing a git root works.
         """
-        client._session.patch = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "github_repo_path": "org/repo",
-                    "git_path": "definitions/",
-                    "default_branch": "main",
-                    "git_only": True,
-                },
-            ),
-        )
-        result = client.init_git_root(
-            namespace="myns",
-            github_repo_path="org/repo",
-            default_branch="main",
-            git_path="definitions/",
-            git_only=True,
-        )
-        assert result.github_repo_path == "org/repo"
-        assert result.default_branch == "main"
-        assert result.git_only is True
-        client._session.patch.assert_called_once_with(
-            "/namespaces/myns/git",
-            json={
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: {
                 "github_repo_path": "org/repo",
-                "default_branch": "main",
                 "git_path": "definitions/",
+                "default_branch": "main",
                 "git_only": True,
             },
-            timeout=client._timeout,
         )
+        with patch.object(
+            client._session,
+            "patch",
+            return_value=mock_response,
+        ) as mock_patch:
+            result = client.init_git_root(
+                namespace="myns",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="definitions/",
+                git_only=True,
+            )
+            assert result.github_repo_path == "org/repo"
+            assert result.default_branch == "main"
+            assert result.git_only is True
+            mock_patch.assert_called_once_with(
+                "/namespaces/myns/git",
+                json={
+                    "github_repo_path": "org/repo",
+                    "default_branch": "main",
+                    "git_path": "definitions/",
+                    "git_only": True,
+                },
+                timeout=client._timeout,
+            )
 
     def test_init_git_root_minimal(self, client):
         """
         Verifies that init_git_root only sends required + provided fields.
         """
-        client._session.patch = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "github_repo_path": "org/repo",
-                    "default_branch": "main",
-                },
-            ),
-        )
-        result = client.init_git_root(
-            namespace="myns",
-            github_repo_path="org/repo",
-            default_branch="main",
-        )
-        assert result.github_repo_path == "org/repo"
-        assert result.default_branch == "main"
-        client._session.patch.assert_called_once_with(
-            "/namespaces/myns/git",
-            json={
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: {
                 "github_repo_path": "org/repo",
                 "default_branch": "main",
             },
-            timeout=client._timeout,
         )
+        with patch.object(
+            client._session,
+            "patch",
+            return_value=mock_response,
+        ) as mock_patch:
+            result = client.init_git_root(
+                namespace="myns",
+                github_repo_path="org/repo",
+                default_branch="main",
+            )
+            assert result.github_repo_path == "org/repo"
+            assert result.default_branch == "main"
+            mock_patch.assert_called_once_with(
+                "/namespaces/myns/git",
+                json={
+                    "github_repo_path": "org/repo",
+                    "default_branch": "main",
+                },
+                timeout=client._timeout,
+            )
 
     def test_init_git_root_error(self, client):
         """
         Verifies that init_git_root raises on error.
         """
-        client._session.patch = MagicMock(
-            return_value=MagicMock(
-                status_code=400,
-                json=lambda: {"message": "Invalid git config"},
-            ),
+        mock_response = MagicMock(
+            status_code=400,
+            json=lambda: {"message": "Invalid git config"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.init_git_root(
-                namespace="myns",
-                github_repo_path="bad/repo",
-                default_branch="main",
-            )
-        assert "Invalid git config" in str(exc_info.value)
+        with patch.object(client._session, "patch", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.init_git_root(
+                    namespace="myns",
+                    github_repo_path="bad/repo",
+                    default_branch="main",
+                )
+            assert "Invalid git config" in str(exc_info.value)
 
     def test_clear_git_config(self, client):
         """
         Verifies that clearing git config works.
         """
-        client._session.request = MagicMock(
-            return_value=MagicMock(
-                status_code=200,
-                json=lambda: {"message": "Git config cleared"},
-            ),
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: {"message": "Git config cleared"},
         )
-        result = client.clear_git_config(namespace="myns.main")
-        assert result is None
-        client._session.request.assert_called_once_with(
-            "DELETE",
-            "/namespaces/myns.main/git",
-            timeout=client._timeout,
-        )
+        with patch.object(
+            client._session,
+            "request",
+            return_value=mock_response,
+        ) as mock_request:
+            result = client.clear_git_config(namespace="myns.main")
+            assert result is None
+            mock_request.assert_called_once_with(
+                "DELETE",
+                "/namespaces/myns.main/git",
+                timeout=client._timeout,
+            )
 
     def test_clear_git_config_error(self, client):
         """
         Verifies that clear_git_config raises on error.
         """
-        client._session.request = MagicMock(
-            return_value=MagicMock(
-                status_code=404,
-                json=lambda: {"message": "Namespace not found"},
-            ),
+        mock_response = MagicMock(
+            status_code=404,
+            json=lambda: {"message": "Namespace not found"},
         )
-        with pytest.raises(DJClientException) as exc_info:
-            client.clear_git_config(namespace="nonexistent")
-        assert "Namespace not found" in str(exc_info.value)
+        with patch.object(client._session, "request", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.clear_git_config(namespace="nonexistent")
+            assert "Namespace not found" in str(exc_info.value)
 
     def test_get_node_revisions(self, client):
         """
