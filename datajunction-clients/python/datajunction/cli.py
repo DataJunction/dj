@@ -1536,7 +1536,7 @@ class DJCLI:
                 )
             elif args.git_command == "list-branches":
                 self.branch_list(namespace=args.namespace, format=args.format)
-            elif args.git_command == "delete-branch":
+            elif args.git_command == "delete-branch":  # pragma: no branch
                 self.branch_delete(
                     namespace=args.namespace,
                     branch_name=args.branch_name,
