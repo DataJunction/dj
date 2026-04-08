@@ -723,10 +723,11 @@ async def test_copy_fast_path_skipped_when_namespace_not_empty(
 
     await default_attribute_types(session)
 
-    # categories fixture lives in "example" namespace (via catalog.dim.categories)
-    # We need a node in the *target* namespace used by the orchestrator ("example")
+    # Create an existing node in the target namespace ("example")
+    # The namespace must be set explicitly as it defaults to "default"
     existing_node = Node(
         name="example.existing_node",
+        namespace="example",
         type=NodeType.TRANSFORM,
         current_version="v1.0",
         created_by_id=current_user.id,
@@ -744,8 +745,9 @@ async def test_copy_fast_path_skipped_when_namespace_not_empty(
     session.add(existing_revision)
     await session.commit()
 
+    # Node name is relative; it will be prefixed with deployment namespace
     transform_spec = TransformSpec(
-        name="example.new_node",
+        name="new_node",
         query="SELECT 1 AS x",
         mode="published",
     )
