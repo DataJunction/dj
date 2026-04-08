@@ -3902,6 +3902,264 @@ mode: published
         )
         assert self._check(yaml_str, spec) is False
 
+    def test_display_name_unchanged(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+display_name: Revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            display_name="Revenue",
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_display_name_changed(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+display_name: Revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            display_name="Total Revenue",  # changed
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_display_name_none_in_spec_is_wildcard(self):
+        """If the spec has no display_name set, it should not trigger a change."""
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+display_name: Revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            display_name=None,  # not set → wildcard, matches anything
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_description_unchanged(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+description: Revenue after refunds
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            description="Revenue after refunds",
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_description_changed(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+description: Revenue after refunds
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            description="Net revenue",  # changed
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_custom_metadata_unchanged(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+custom_metadata:
+  team: finance
+  tier: gold
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount FROM ${prefix}orders",
+            custom_metadata={"team": "finance", "tier": "gold"},
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_custom_metadata_changed(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+custom_metadata:
+  team: finance
+  tier: gold
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount FROM ${prefix}orders",
+            custom_metadata={"team": "finance", "tier": "silver"},  # changed
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_custom_metadata_none_equals_empty_dict(self):
+        """custom_metadata=None and absent custom_metadata should be treated as equivalent."""
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount FROM ${prefix}orders",
+            custom_metadata=None,
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_column_attributes_unchanged(self):
+        from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}orders
+catalog: prod
+schema: public
+table: orders
+mode: published
+columns:
+  - name: region
+    type: string
+    attributes:
+      - dimension
+"""
+        spec = SourceSpec(
+            name="${prefix}orders",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders",
+            columns=[
+                ColumnSpec(name="region", type="string", attributes=["dimension"]),
+            ],
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_column_attributes_changed(self):
+        from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}orders
+catalog: prod
+schema: public
+table: orders
+mode: published
+columns:
+  - name: region
+    type: string
+    attributes:
+      - dimension
+"""
+        spec = SourceSpec(
+            name="${prefix}orders",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders",
+            columns=[
+                ColumnSpec(
+                    name="region",
+                    type="string",
+                    attributes=[],
+                ),  # dimension removed
+            ],
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_column_primary_key_attribute_ignored(self):
+        """primary_key is stripped before comparison — it's managed at the node level,
+        not as a column attribute. Adding or removing it does not trigger a sync."""
+        from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}orders
+catalog: prod
+schema: public
+table: orders
+mode: published
+columns:
+  - name: id
+    type: int
+    attributes:
+      - primary_key
+"""
+        spec = SourceSpec(
+            name="${prefix}orders",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders",
+            columns=[
+                ColumnSpec(name="id", type="int", attributes=[]),
+            ],  # primary_key absent
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_column_description_changed(self):
+        from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}orders
+catalog: prod
+schema: public
+table: orders
+mode: published
+columns:
+  - name: id
+    type: int
+    description: The order identifier
+"""
+        spec = SourceSpec(
+            name="${prefix}orders",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders",
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    type="int",
+                    description="Order primary key",
+                ),  # changed
+            ],
+        )
+        assert self._check(yaml_str, spec) is False
+
     def test_invalid_yaml_treated_as_changed(self):
         """Malformed YAML should return False (safe fallback — trigger sync)."""
         from datajunction_server.models.deployment import TransformSpec
