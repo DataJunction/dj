@@ -644,6 +644,155 @@ class DJCLI:
             console.print(f"[bold red]ERROR:[/bold red] {exc}")
             raise
 
+    #
+    # Git config commands
+    #
+    def git_init(
+        self,
+        namespace: str,
+        repo: str,
+        default_branch: str,
+        git_path: Optional[str] = None,
+        git_only: bool = False,
+    ):
+        """Initialize git configuration on a namespace."""
+        console = Console()
+        try:
+            config = self.builder_client.init_git_root(
+                namespace=namespace,
+                github_repo_path=repo,
+                default_branch=default_branch,
+                git_path=git_path,
+                git_only=git_only if git_only else None,
+            )
+            console.print(
+                f"[green]Git config initialized for namespace[/green] [bold]{namespace}[/bold]",
+            )
+            console.print(f"  Repository:     {config.github_repo_path}")
+            console.print(f"  Default Branch: {config.default_branch}")
+            if config.git_path:
+                console.print(f"  Git Path:       {config.git_path}")
+            if config.git_only:
+                console.print(f"  Git Only:       {config.git_only}")
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
+    def git_show(self, namespace: str, format: str = "text"):
+        """Show git configuration for a namespace."""
+        console = Console()
+        try:
+            config = self.builder_client.get_git_config(namespace=namespace)
+            if format == "json":
+                config_dict = {
+                    "namespace": namespace,
+                    "github_repo_path": config.github_repo_path,
+                    "git_branch": config.git_branch,
+                    "default_branch": config.default_branch,
+                    "git_path": config.git_path,
+                    "git_only": config.git_only,
+                }
+                print(json.dumps(config_dict, indent=2))
+            else:
+                console.print(f"\n[bold]Git Configuration for {namespace}[/bold]")
+                console.print(f"  Repository:     {config.github_repo_path or 'N/A'}")
+                console.print(f"  Git Branch:     {config.git_branch or 'N/A'}")
+                console.print(f"  Default Branch: {config.default_branch or 'N/A'}")
+                console.print(f"  Git Path:       {config.git_path or 'N/A'}")
+                console.print(f"  Git Only:       {config.git_only or False}")
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
+    def git_clear(self, namespace: str):
+        """Clear git configuration from a namespace."""
+        console = Console()
+        try:
+            self.builder_client.clear_git_config(namespace=namespace)
+            console.print(
+                f"[green]Git config cleared for namespace[/green] [bold]{namespace}[/bold]",
+            )
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
+    #
+    # Branch commands
+    #
+    def branch_create(self, namespace: str, branch_name: str):
+        """Create a branch namespace."""
+        console = Console()
+        try:
+            result = self.builder_client.create_branch(
+                namespace=namespace,
+                branch_name=branch_name,
+            )
+            console.print(
+                f"[green]Branch created:[/green] [bold]{result.namespace}[/bold]",
+            )
+            console.print(f"  Git Branch: {branch_name}")
+            console.print(f"  Parent:     {namespace}")
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
+    def branch_list(self, namespace: str, format: str = "text"):
+        """List branches under a namespace."""
+        console = Console()
+        try:
+            branches = self.builder_client.list_branches(namespace=namespace)
+            if format == "json":
+                branches_list = [
+                    {
+                        "namespace": b.namespace,
+                        "git_branch": b.git_branch,
+                        "parent_namespace": b.parent_namespace,
+                        "github_repo_path": b.github_repo_path,
+                    }
+                    for b in branches
+                ]
+                print(json.dumps(branches_list, indent=2))
+            else:
+                if not branches:
+                    console.print(f"[dim]No branches found under {namespace}[/dim]")
+                    return
+                console.print(f"\n[bold]Branches under {namespace}[/bold]\n")
+                table = Table(show_header=True, header_style="bold")
+                table.add_column("Namespace")
+                table.add_column("Git Branch")
+                table.add_column("Repository")
+                for branch in branches:
+                    table.add_row(
+                        branch.namespace,
+                        branch.git_branch,
+                        branch.github_repo_path or "",
+                    )
+                console.print(table)
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
+    def branch_delete(
+        self, namespace: str, branch_name: str, keep_git_branch: bool = False,
+    ):
+        """Delete a branch namespace."""
+        console = Console()
+        try:
+            self.builder_client.delete_branch(
+                namespace=namespace,
+                branch_name=branch_name,
+                delete_git_branch=not keep_git_branch,
+            )
+            git_msg = (
+                " (git branch kept)" if keep_git_branch else " (git branch deleted)"
+            )
+            console.print(
+                f"[green]Branch deleted:[/green] [bold]{branch_name}[/bold]{git_msg}",
+            )
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
     def create_parser(self):
         """Creates the CLI arg parser"""
         parser = argparse.ArgumentParser(prog="dj", description="DataJunction CLI")
@@ -1133,6 +1282,132 @@ class DJCLI:
             help="Skip subagent installation",
         )
 
+        # `dj git` command group
+        git_parser = subparsers.add_parser(
+            "git",
+            help="Git configuration management",
+        )
+        git_subparsers = git_parser.add_subparsers(dest="git_command", required=True)
+
+        # `dj git init <namespace> --repo <org/repo> --default-branch <branch>`
+        git_init_parser = git_subparsers.add_parser(
+            "init",
+            help="Initialize git configuration on a namespace",
+        )
+        git_init_parser.add_argument(
+            "namespace",
+            help="The namespace to configure as a git root",
+        )
+        git_init_parser.add_argument(
+            "--repo",
+            type=str,
+            required=True,
+            help="GitHub repository path (e.g., 'org/repo')",
+        )
+        git_init_parser.add_argument(
+            "--default-branch",
+            type=str,
+            required=True,
+            help="Default git branch (e.g., 'main')",
+        )
+        git_init_parser.add_argument(
+            "--git-path",
+            type=str,
+            default=None,
+            help="Subdirectory within repo for node definitions (optional)",
+        )
+        git_init_parser.add_argument(
+            "--git-only",
+            action="store_true",
+            help="Block UI edits; changes must come via git",
+        )
+
+        # `dj git show <namespace>`
+        git_show_parser = git_subparsers.add_parser(
+            "show",
+            help="Show git configuration for a namespace",
+        )
+        git_show_parser.add_argument(
+            "namespace",
+            help="The namespace to show git config for",
+        )
+        git_show_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
+        # `dj git clear <namespace>`
+        git_clear_parser = git_subparsers.add_parser(
+            "clear",
+            help="Clear git configuration from a namespace",
+        )
+        git_clear_parser.add_argument(
+            "namespace",
+            help="The namespace to clear git config from",
+        )
+
+        # `dj branch` command group
+        branch_parser = subparsers.add_parser(
+            "branch",
+            help="Branch namespace management",
+        )
+        branch_subparsers = branch_parser.add_subparsers(
+            dest="branch_command", required=True,
+        )
+
+        # `dj branch create <namespace> <branch-name>`
+        branch_create_parser = branch_subparsers.add_parser(
+            "create",
+            help="Create a branch namespace",
+        )
+        branch_create_parser.add_argument(
+            "namespace",
+            help="The git root namespace (e.g., 'myns')",
+        )
+        branch_create_parser.add_argument(
+            "branch_name",
+            help="The git branch name (e.g., 'feature-x')",
+        )
+
+        # `dj branch list <namespace>`
+        branch_list_parser = branch_subparsers.add_parser(
+            "list",
+            help="List branch namespaces under a root namespace",
+        )
+        branch_list_parser.add_argument(
+            "namespace",
+            help="The git root namespace to list branches for",
+        )
+        branch_list_parser.add_argument(
+            "--format",
+            type=str,
+            default="text",
+            choices=["text", "json"],
+            help="Output format (default: text)",
+        )
+
+        # `dj branch delete <namespace> <branch-name>`
+        branch_delete_parser = branch_subparsers.add_parser(
+            "delete",
+            help="Delete a branch namespace",
+        )
+        branch_delete_parser.add_argument(
+            "namespace",
+            help="The git root namespace (e.g., 'myns')",
+        )
+        branch_delete_parser.add_argument(
+            "branch_name",
+            help="The git branch name to delete (e.g., 'feature-x')",
+        )
+        branch_delete_parser.add_argument(
+            "--keep-git-branch",
+            action="store_true",
+            help="Keep the git branch in GitHub (only delete DJ namespace)",
+        )
+
         return parser
 
     def dispatch_command(self, args, parser):
@@ -1247,6 +1522,33 @@ class DJCLI:
                 mcp=args.mcp,
                 agents=args.agents,
             )
+        elif args.command == "git":
+            if args.git_command == "init":
+                self.git_init(
+                    namespace=args.namespace,
+                    repo=args.repo,
+                    default_branch=args.default_branch,
+                    git_path=args.git_path,
+                    git_only=args.git_only,
+                )
+            elif args.git_command == "show":
+                self.git_show(namespace=args.namespace, format=args.format)
+            elif args.git_command == "clear":
+                self.git_clear(namespace=args.namespace)
+        elif args.command == "branch":
+            if args.branch_command == "create":
+                self.branch_create(
+                    namespace=args.namespace,
+                    branch_name=args.branch_name,
+                )
+            elif args.branch_command == "list":
+                self.branch_list(namespace=args.namespace, format=args.format)
+            elif args.branch_command == "delete":
+                self.branch_delete(
+                    namespace=args.namespace,
+                    branch_name=args.branch_name,
+                    keep_git_branch=args.keep_git_branch,
+                )
         else:
             parser.print_help()  # pragma: no cover
 

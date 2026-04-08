@@ -181,6 +181,52 @@ print(f"Git-only: {config.git_only}")
 dj.clear_git_config("demo.metrics")
 ```
 
+## CLI
+
+The same Git operations are available via the DJ command-line tool.
+
+### Configure a Git Root Namespace
+
+```bash
+# Initialize a namespace as a git root
+dj git init demo.metrics \
+    --repo myorg/dj-definitions \
+    --default-branch main \
+    --git-path nodes/ \
+    --git-only
+
+# View git configuration
+dj git show demo.metrics
+
+# Clear git configuration
+dj git clear demo.metrics
+```
+
+### Create and Manage Branches
+
+```bash
+# Create a branch namespace
+dj branch create demo.metrics add-revenue-metrics
+
+# List all branches under a root namespace
+dj branch list demo.metrics
+
+# Delete a branch (removes both DJ namespace and Git branch)
+dj branch delete demo.metrics add-revenue-metrics
+
+# Delete only the DJ namespace, keep the Git branch
+dj branch delete demo.metrics add-revenue-metrics --keep-git-branch
+```
+
+### JSON Output
+
+Both `dj git show` and `dj branch list` support JSON output:
+
+```bash
+dj git show demo.metrics --format json
+dj branch list demo.metrics --format json
+```
+
 ## Server Setup
 
 This section covers prerequisites for administrators setting up Git integration.
