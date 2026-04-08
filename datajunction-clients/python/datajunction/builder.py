@@ -124,9 +124,13 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         namespace: str,
         branch_name: str,
     ) -> "Namespace":
-        """Create a branch namespace from `namespace` for the given git branch.
+        """Create a branch namespace for the given git branch.
 
-        Returns the newly created Namespace object.
+        Args:
+            namespace: The git root namespace (e.g., "myns")
+            branch_name: The git branch name (e.g., "feature-x")
+
+        Returns the newly created Namespace object (e.g., "myns.feature_x").
         """
         response = self._session.post(
             f"/namespaces/{namespace}/branches",
@@ -140,7 +144,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         return Namespace(namespace=branch_info["namespace"], dj_client=self)
 
     def list_branches(self, namespace: str) -> List[BranchInfo]:
-        """List all branch namespaces created from `namespace`."""
+        """List all branch namespaces under a git root namespace."""
         response = self._session.get(
             f"/namespaces/{namespace}/branches",
             timeout=self._timeout,
@@ -158,7 +162,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         """Delete a branch namespace (and optionally its git branch).
 
         Args:
-            namespace: The parent/root namespace (e.g., "myns.main")
+            namespace: The git root namespace (e.g., "myns")
             branch_name: The git branch name (e.g., "feature-x")
             delete_git_branch: If True (default), also delete the git branch in GitHub
         """

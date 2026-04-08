@@ -931,7 +931,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                     "branch": {
                         "namespace": "myns.feature_x",
                         "git_branch": "feature-x",
-                        "parent_namespace": "myns.main",
+                        "parent_namespace": "myns",
                         "github_repo_path": "org/repo",
                         "num_nodes": 0,
                     },
@@ -939,10 +939,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 },
             ),
         )
-        result = client.create_branch(namespace="myns.main", branch_name="feature-x")
+        result = client.create_branch(namespace="myns", branch_name="feature-x")
         assert result.namespace == "myns.feature_x"
         client._session.post.assert_called_once_with(
-            "/namespaces/myns.main/branches",
+            "/namespaces/myns/branches",
             json={"branch_name": "feature-x"},
             timeout=client._timeout,
         )
@@ -958,7 +958,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
         )
         with pytest.raises(DJClientException) as exc_info:
-            client.create_branch(namespace="myns.main", branch_name="bad-branch")
+            client.create_branch(namespace="myns", branch_name="bad-branch")
         assert "Branch creation failed" in str(exc_info.value)
 
     def test_list_branches(self, client):
@@ -972,24 +972,24 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                     {
                         "namespace": "myns.feature_x",
                         "git_branch": "feature-x",
-                        "parent_namespace": "myns.main",
+                        "parent_namespace": "myns",
                         "github_repo_path": "org/repo",
                     },
                     {
                         "namespace": "myns.feature_y",
                         "git_branch": "feature-y",
-                        "parent_namespace": "myns.main",
+                        "parent_namespace": "myns",
                         "github_repo_path": "org/repo",
                     },
                 ],
             ),
         )
-        result = client.list_branches(namespace="myns.main")
+        result = client.list_branches(namespace="myns")
         assert len(result) == 2
         assert result[0].namespace == "myns.feature_x"
         assert result[0].git_branch == "feature-x"
         client._session.get.assert_called_once_with(
-            "/namespaces/myns.main/branches",
+            "/namespaces/myns/branches",
             timeout=client._timeout,
         )
 
@@ -1018,7 +1018,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
         )
         result = client.delete_branch(
-            namespace="myns.main",
+            namespace="myns",
             branch_name="feature-x",
             delete_git_branch=True,
         )
@@ -1026,7 +1026,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
         # branch_name "feature-x" is converted to namespace suffix "feature_x"
         client._session.request.assert_called_once_with(
             "DELETE",
-            "/namespaces/myns.main/branches/myns.main.feature_x",
+            "/namespaces/myns/branches/myns.feature_x",
             timeout=client._timeout,
             params={"delete_git_branch": True},
         )
@@ -1042,7 +1042,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             ),
         )
         with pytest.raises(DJClientException) as exc_info:
-            client.delete_branch(namespace="myns.main", branch_name="nonexistent")
+            client.delete_branch(namespace="myns", branch_name="nonexistent")
         assert "Branch not found" in str(exc_info.value)
 
     #
