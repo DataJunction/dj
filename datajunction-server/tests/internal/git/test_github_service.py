@@ -914,6 +914,73 @@ class TestVerifyCommit:
             assert result is False
 
 
+class TestResolveRefToSha:
+    """Tests for resolve_ref_to_sha method."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_branch_name(self, github_service):
+        """Should resolve branch name to commit SHA."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "object": {"sha": "abc123def456"},
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            result = await github_service.resolve_ref_to_sha("owner/repo", "main")
+
+            assert result == "abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_resolve_commit_sha(self, github_service):
+        """Should resolve commit SHA directly when branch not found."""
+        # First call (branch lookup) fails
+        mock_branch_response = MagicMock()
+        mock_branch_response.is_success = False
+        mock_branch_response.status_code = 404
+
+        # Second call (commit lookup) succeeds
+        mock_commit_response = MagicMock()
+        mock_commit_response.is_success = True
+        mock_commit_response.json.return_value = {
+            "sha": "abc123def456789",
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                side_effect=[mock_branch_response, mock_commit_response],
+            )
+
+            result = await github_service.resolve_ref_to_sha(
+                "owner/repo",
+                "abc123def456789",
+            )
+
+            assert result == "abc123def456789"
+
+    @pytest.mark.asyncio
+    async def test_resolve_ref_not_found(self, github_service):
+        """Should raise error when ref doesn't exist as branch or commit."""
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 404
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            with pytest.raises(GitHubServiceError) as exc_info:
+                await github_service.resolve_ref_to_sha("owner/repo", "nonexistent")
+
+            assert "not found" in str(exc_info.value).lower()
+            assert exc_info.value.http_status_code == 400
+
+
 class TestDownloadArchive:
     """Tests for download_archive method."""
 

@@ -4507,3 +4507,251 @@ class TestGitSyncEdgeCases:
             assert response.status_code == HTTPStatus.OK
             # File path should be just the short name
             assert response.json()["file_path"] == "test_node.yaml"
+
+
+class TestSyncFromGit:
+    """Tests for sync-from-git endpoint (DJ-pull model)."""
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_success(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test successfully syncing a namespace from git."""
+        # Create namespace with git config
+        await client_with_service_setup.post("/namespaces/sync_test")
+        await client_with_service_setup.patch(
+            "/namespaces/sync_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_path": "nodes",
+            },
+        )
+
+        # Create mock tarball with node YAML files
+        node_yaml = """
+name: ${prefix}test_source
+node_type: source
+description: Test source node
+catalog: default
+schema_: test
+table: test_table
+columns:
+  - name: id
+    type: int
+  - name: name
+    type: string
+"""
+        tarball = create_mock_tarball({"nodes/test_source.yaml": node_yaml})
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123def456")
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sync_test/sync-from-git",
+                json={"ref": "main"},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["namespace"] == "sync_test"
+            assert data["status"] == "success"
+            assert len(data["results"]) >= 1
+
+            # Verify resolve_ref_to_sha was called
+            mock_github.resolve_ref_to_sha.assert_called_once_with(
+                "myorg/myrepo",
+                "main",
+            )
+
+            # Verify download_archive was called with resolved SHA
+            mock_github.download_archive.assert_called_once_with(
+                repo_path="myorg/myrepo",
+                branch="abc123def456",
+                format="tarball",
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_no_git_config(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git fails when namespace has no git config."""
+        await client_with_service_setup.post("/namespaces/no_git_ns")
+
+        response = await client_with_service_setup.post(
+            "/namespaces/no_git_ns/sync-from-git",
+            json={"ref": "main"},
+        )
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "does not have github_repo_path configured" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_invalid_ref(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git fails when ref doesn't exist."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_service_setup.post("/namespaces/sync_test2")
+        await client_with_service_setup.patch(
+            "/namespaces/sync_test2/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Ref 'nonexistent' not found in repository 'myorg/myrepo'",
+                    http_status_code=400,
+                ),
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sync_test2/sync-from-git",
+                json={"ref": "nonexistent"},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert "not found" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_empty_repo(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git fails when no YAML files found."""
+        await client_with_service_setup.post("/namespaces/empty_sync")
+        await client_with_service_setup.patch(
+            "/namespaces/empty_sync/git",
+            json={"github_repo_path": "myorg/emptyrepo"},
+        )
+
+        # Empty tarball with no YAML files
+        tarball = create_mock_tarball({})
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/empty_sync/sync-from-git",
+                json={"ref": "main"},
+            )
+
+            assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+            assert "No node definitions found" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_with_commit_sha(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git works with commit SHA instead of branch name."""
+        await client_with_service_setup.post("/namespaces/sha_sync")
+        await client_with_service_setup.patch(
+            "/namespaces/sha_sync/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        node_yaml = """
+name: ${prefix}sha_test
+node_type: source
+description: Test
+catalog: default
+schema_: test
+table: test
+columns:
+  - name: id
+    type: int
+"""
+        tarball = create_mock_tarball({"sha_test.yaml": node_yaml})
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            # When ref is already a full SHA, resolve_ref_to_sha returns it as-is
+            mock_github.resolve_ref_to_sha = AsyncMock(
+                return_value="abc123def456789012345678901234567890abcd",
+            )
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/sha_sync/sync-from-git",
+                json={"ref": "abc123def456789012345678901234567890abcd"},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["status"] == "success"
+            # Source should include the commit SHA
+            assert (
+                data["source"]["commit_sha"]
+                == "abc123def456789012345678901234567890abcd"
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_with_git_path(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git respects git_path subdirectory."""
+        await client_with_service_setup.post("/namespaces/path_sync")
+        await client_with_service_setup.patch(
+            "/namespaces/path_sync/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_path": "definitions/metrics",
+            },
+        )
+
+        node_yaml = """
+name: ${prefix}metric_source
+node_type: source
+description: Test
+catalog: default
+schema_: test
+table: test
+columns:
+  - name: id
+    type: int
+"""
+        # File is inside the git_path subdirectory
+        tarball = create_mock_tarball(
+            {
+                "definitions/metrics/metric_source.yaml": node_yaml,
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/path_sync/sync-from-git",
+                json={"ref": "main"},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.json()["status"] == "success"

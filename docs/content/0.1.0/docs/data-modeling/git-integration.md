@@ -73,7 +73,9 @@ Complete the deployment cycle:
 
 Automate deployments when changes are merged to your main branch.
 
-### Example: GitHub Actions
+### Option 1: Client Push (Simple)
+
+Use `dj push` to deploy from your CI runner. The client reads YAML files and sends them to the server.
 
 Create `.github/workflows/deploy-dj.yml`:
 
@@ -107,6 +109,43 @@ jobs:
         run: |
           dj push ./nodes --namespace demo.metrics.main
 ```
+
+### Option 2: Server Pull (Secure)
+
+Use the `sync-from-git` API to have the DJ server fetch content directly from GitHub. This is more secure because:
+- The server fetches content itself at the specified commit
+- User-submitted content is never trusted
+- Eliminates the risk of deploying different content than what's in the repo
+
+```yaml
+name: Deploy DJ Definitions (Server Pull)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'nodes/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger DJ sync from git
+        run: |
+          curl -X POST "$DJ_URL/namespaces/demo.metrics.main/sync-from-git" \
+            -H "Authorization: Bearer $DJ_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"ref": "${{ github.sha }}"}'
+        env:
+          DJ_URL: ${{ secrets.DJ_URL }}
+          DJ_TOKEN: ${{ secrets.DJ_TOKEN }}
+```
+
+The server will:
+1. Resolve the ref (branch name or commit SHA)
+2. Download the repository archive from GitHub at that ref
+3. Parse node definitions from the configured `git_path`
+4. Deploy them to the namespace
 
 ## Best Practices
 
