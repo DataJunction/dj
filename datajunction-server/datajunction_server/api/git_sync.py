@@ -69,7 +69,7 @@ def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
 
     Args:
         existing_yaml: YAML string from git
-        new_spec: NodeSpec from current node (with ${prefix} placeholders)
+        new_spec: NodeSpec from current node (with ${prefix} placeholders and namespace set)
 
     Returns:
         True if the specs are semantically equivalent, False otherwise.
@@ -88,9 +88,21 @@ def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
         # The discriminator field (node_type) determines which class to use
         existing_spec = _node_spec_adapter.validate_python(existing_dict)
 
+        # Inject the namespace into the parsed spec so rendered_name matches
+        # (NodeSpec.__eq__ compares rendered_name which depends on namespace)
+        existing_spec.namespace = new_spec.namespace
+
         # Use the NodeSpec's __eq__ which does semantic comparison
         # (AST comparison for queries, sorted dimension links, etc.)
-        return new_spec == existing_spec
+        result = new_spec == existing_spec
+        if not result:
+            _logger.debug(
+                "Specs differ for %s: new=%s, existing=%s",
+                new_spec.rendered_name,
+                new_spec.model_dump(exclude_none=True),
+                existing_spec.model_dump(exclude_none=True),
+            )
+        return result
     except Exception as e:
         # If we can't parse, assume they're different (safer)
         _logger.debug("Failed to compare specs: %s", e)

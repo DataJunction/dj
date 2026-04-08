@@ -2007,65 +2007,108 @@ class TestGitSync:
         self,
         client_with_service_setup: AsyncClient,
     ):
-        """Test that namespace sync skips commit when no files have changed."""
+        """Test that namespace sync skips commit when no files have changed.
+
+        Uses a transform node to exercise the AST-based query comparison logic
+        from NodeSpec.__eq__ - queries with different formatting but same
+        semantics should be detected as equivalent.
+        """
         client = client_with_service_setup
 
-        # Create a minimal namespace with just one node
-        await client.post("/namespaces/unchanged_test")
+        # Create a namespace with a transform node
+        await client.post("/namespaces/sync_test")
         await client.patch(
-            "/namespaces/unchanged_test/git",
+            "/namespaces/sync_test/git",
             json={
                 "github_repo_path": "myorg/myrepo",
                 "git_branch": "main",
             },
         )
 
-        # Create a simple source node
+        # Create source for the transform to reference
         await client.post(
             "/nodes/source/",
             json={
-                "name": "unchanged_test.my_source",
-                "description": "Test source",
+                "name": "sync_test.orders_source",
+                "description": "Orders source",
                 "catalog": "default",
                 "schema_": "public",
-                "table": "my_table",
-                "columns": [{"name": "id", "type": "int"}],
+                "table": "orders",
+                "columns": [
+                    {"name": "order_id", "type": "int"},
+                    {"name": "amount", "type": "float"},
+                ],
             },
         )
 
-        with (
-            patch(
-                "datajunction_server.api.git_sync.GitHubService",
-            ) as mock_github_class,
-            patch(
-                "datajunction_server.api.git_sync.node_spec_to_yaml",
-            ) as mock_node_spec_to_yaml,
-        ):
+        # Create a transform node
+        await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "sync_test.orders_fact",
+                "description": "Orders fact transform",
+                "query": "SELECT order_id, amount FROM sync_test.orders_source",
+            },
+        )
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
             mock_github = MagicMock()
-            # Return tarball with existing YAML that matches what we'll generate
-            unchanged_yaml = "name: unchanged\nquery: SELECT 1"
+
+            # Existing YAML with slightly different query formatting
+            # (extra whitespace) - should still match via AST comparison
+            existing_transform_yaml = """name: ${prefix}orders_fact
+node_type: transform
+owners:
+  - dj
+display_name: Orders Fact
+description: Orders fact transform
+mode: published
+query: |
+  SELECT
+    order_id,
+    amount
+  FROM ${prefix}orders_source
+"""
+            existing_source_yaml = """name: ${prefix}orders_source
+node_type: source
+owners:
+  - dj
+display_name: default.public.orders
+description: Orders source
+catalog: default
+schema: public
+table: orders
+mode: published
+columns:
+  - name: order_id
+    type: int
+    display_name: Order Id
+  - name: amount
+    type: float
+    display_name: Amount
+"""
             mock_github.download_archive = AsyncMock(
                 return_value=create_mock_tarball(
                     {
-                        "my_source.yaml": unchanged_yaml,
+                        "orders_fact.yaml": existing_transform_yaml,
+                        "orders_source.yaml": existing_source_yaml,
                     },
                 ),
             )
             mock_github.commit_files = AsyncMock()
             mock_github_class.return_value = mock_github
 
-            # Return the same YAML content to simulate no changes
-            mock_node_spec_to_yaml.return_value = unchanged_yaml
-
             response = await client.post(
-                "/namespaces/unchanged_test/sync-to-git",
+                "/namespaces/sync_test/sync-to-git",
                 json={},
             )
 
             assert response.status_code == HTTPStatus.OK
 
             data = response.json()
-            assert data["namespace"] == "unchanged_test"
+            assert data["namespace"] == "sync_test"
             assert data["files_synced"] == 0
             assert data["commit_sha"] is None
             assert data["commit_url"] is None
@@ -3599,6 +3642,276 @@ class TestGitHubServiceErrorHandling:
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             # Error message should include the detailed error
             assert "Validation Failed" in response.json()["message"]
+
+
+class TestSpecsAreEquivalent:
+    """
+    Unit tests for _specs_are_equivalent covering all NodeSpec subtypes.
+
+    Each test verifies two things:
+    - Semantically identical specs → True  (no commit should be made)
+    - Actually changed specs      → False (commit should be triggered)
+    """
+
+    def _check(self, yaml_str: str, spec) -> bool:
+        from datajunction_server.api.git_sync import _specs_are_equivalent
+
+        return _specs_are_equivalent(yaml_str, spec)
+
+    def test_source_unchanged(self):
+        from datajunction_server.models.deployment import SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}my_table
+catalog: prod
+schema: public
+table: orders
+mode: published
+"""
+        spec = SourceSpec(
+            name="${prefix}my_table",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_source_table_changed(self):
+        from datajunction_server.models.deployment import SourceSpec
+
+        yaml_str = """node_type: source
+name: ${prefix}my_table
+catalog: prod
+schema: public
+table: orders
+mode: published
+"""
+        spec = SourceSpec(
+            name="${prefix}my_table",
+            namespace="demo.main",
+            catalog="prod",
+            schema_="public",
+            table="orders_v2",  # changed
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_transform_unchanged(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_transform_whitespace_only_diff_unchanged(self):
+        """Query whitespace differences should be ignored (AST comparison)."""
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT   amount   FROM   ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount FROM ${prefix}orders",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_transform_query_changed(self):
+        from datajunction_server.models.deployment import TransformSpec
+
+        yaml_str = """node_type: transform
+name: ${prefix}revenue
+query: SELECT amount FROM ${prefix}orders
+mode: published
+"""
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT amount * 2 FROM ${prefix}orders",  # changed
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_dimension_unchanged(self):
+        from datajunction_server.models.deployment import DimensionSpec
+
+        yaml_str = """node_type: dimension
+name: ${prefix}customers
+query: SELECT id, name FROM ${prefix}raw_customers
+primary_key:
+  - id
+mode: published
+"""
+        spec = DimensionSpec(
+            name="${prefix}customers",
+            namespace="demo.main",
+            query="SELECT id, name FROM ${prefix}raw_customers",
+            primary_key=["id"],
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_dimension_query_changed(self):
+        from datajunction_server.models.deployment import DimensionSpec
+
+        yaml_str = """node_type: dimension
+name: ${prefix}customers
+query: SELECT id, name FROM ${prefix}raw_customers
+primary_key:
+  - id
+mode: published
+"""
+        spec = DimensionSpec(
+            name="${prefix}customers",
+            namespace="demo.main",
+            query="SELECT id, name, region FROM ${prefix}raw_customers",  # added column
+            primary_key=["id"],
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_metric_unchanged(self):
+        from datajunction_server.models.deployment import MetricSpec
+
+        yaml_str = """node_type: metric
+name: ${prefix}total_revenue
+query: SELECT SUM(amount) FROM ${prefix}revenue
+mode: published
+"""
+        spec = MetricSpec(
+            name="${prefix}total_revenue",
+            namespace="demo.main",
+            query="SELECT SUM(amount) FROM ${prefix}revenue",
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_metric_query_changed(self):
+        from datajunction_server.models.deployment import MetricSpec
+
+        yaml_str = """node_type: metric
+name: ${prefix}total_revenue
+query: SELECT SUM(amount) FROM ${prefix}revenue
+mode: published
+"""
+        spec = MetricSpec(
+            name="${prefix}total_revenue",
+            namespace="demo.main",
+            query="SELECT COUNT(amount) FROM ${prefix}revenue",  # SUM→COUNT
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_metric_required_dimensions_changed(self):
+        from datajunction_server.models.deployment import MetricSpec
+
+        yaml_str = """node_type: metric
+name: ${prefix}total_revenue
+query: SELECT SUM(amount) FROM ${prefix}revenue
+mode: published
+"""
+        spec = MetricSpec(
+            name="${prefix}total_revenue",
+            namespace="demo.main",
+            query="SELECT SUM(amount) FROM ${prefix}revenue",
+            required_dimensions=["${prefix}customers.region"],  # added
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_cube_unchanged(self):
+        from datajunction_server.models.deployment import CubeSpec
+
+        yaml_str = """node_type: cube
+name: ${prefix}sales_cube
+metrics:
+  - ${prefix}total_revenue
+dimensions:
+  - ${prefix}customers.region
+mode: published
+"""
+        spec = CubeSpec(
+            name="${prefix}sales_cube",
+            namespace="demo.main",
+            metrics=["${prefix}total_revenue"],
+            dimensions=["${prefix}customers.region"],
+        )
+        assert self._check(yaml_str, spec) is True
+
+    def test_cube_metric_added(self):
+        from datajunction_server.models.deployment import CubeSpec
+
+        yaml_str = """node_type: cube
+name: ${prefix}sales_cube
+metrics:
+  - ${prefix}total_revenue
+dimensions:
+  - ${prefix}customers.region
+mode: published
+"""
+        spec = CubeSpec(
+            name="${prefix}sales_cube",
+            namespace="demo.main",
+            metrics=["${prefix}total_revenue", "${prefix}order_count"],  # added
+            dimensions=["${prefix}customers.region"],
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_cube_dimension_removed(self):
+        from datajunction_server.models.deployment import CubeSpec
+
+        yaml_str = """node_type: cube
+name: ${prefix}sales_cube
+metrics:
+  - ${prefix}total_revenue
+dimensions:
+  - ${prefix}customers.region
+  - ${prefix}customers.country
+mode: published
+"""
+        spec = CubeSpec(
+            name="${prefix}sales_cube",
+            namespace="demo.main",
+            metrics=["${prefix}total_revenue"],
+            dimensions=["${prefix}customers.region"],  # country removed
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_cube_filter_added(self):
+        from datajunction_server.models.deployment import CubeSpec
+
+        yaml_str = """node_type: cube
+name: ${prefix}sales_cube
+metrics:
+  - ${prefix}total_revenue
+dimensions:
+  - ${prefix}customers.region
+mode: published
+"""
+        spec = CubeSpec(
+            name="${prefix}sales_cube",
+            namespace="demo.main",
+            metrics=["${prefix}total_revenue"],
+            dimensions=["${prefix}customers.region"],
+            filters=["region = 'US'"],  # added
+        )
+        assert self._check(yaml_str, spec) is False
+
+    def test_invalid_yaml_treated_as_changed(self):
+        """Malformed YAML should return False (safe fallback — trigger sync)."""
+        from datajunction_server.models.deployment import TransformSpec
+
+        spec = TransformSpec(
+            name="${prefix}revenue",
+            namespace="demo.main",
+            query="SELECT 1",
+        )
+        assert self._check("this is not: valid: yaml: [[[", spec) is False
 
 
 class TestGitSyncEdgeCases:
