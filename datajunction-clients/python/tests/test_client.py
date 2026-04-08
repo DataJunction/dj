@@ -552,6 +552,20 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
         assert "message" in result or "detail" in result
 
+    def test_plan_with_cube(self, client):
+        """
+        Test query execution plan retrieval with cube parameter
+        """
+        result = client.plan(
+            metrics=["default.num_repair_orders"],
+            dimensions=["default.municipality_dim.local_region"],
+            cube="default.cube_two",
+        )
+        assert isinstance(result, dict)
+        assert "grain_groups" in result
+        assert "metric_formulas" in result
+        assert "requested_dimensions" in result
+
     def test_plan_with_temporal_filters(self, client):
         """
         Test query execution plan retrieval with temporal filter parameters

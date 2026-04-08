@@ -2849,6 +2849,87 @@ async def test_get_query_plan_with_dialect_and_lookback():
 
 
 @pytest.mark.asyncio
+async def test_get_query_plan_with_cube():
+    """Test get_query_plan passes cube param when provided"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        await tools.get_query_plan(
+            metrics=["finance.revenue"],
+            cube="default.my_cube",
+        )
+
+        call_kwargs = mock_http_client.get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert params.get("cube") == "default.my_cube"
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_no_cube_not_in_params():
+    """Test get_query_plan omits cube param when not provided"""
+    mock_response_json = {
+        "dialect": "spark",
+        "requested_dimensions": [],
+        "grain_groups": [],
+        "metric_formulas": [],
+    }
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.json.return_value = mock_response_json
+    mock_http_response.raise_for_status = MagicMock()
+
+    with (
+        patch.object(tools, "get_client") as mock_get_client,
+        patch("httpx.AsyncClient") as mock_client_class,
+    ):
+        mock_client = AsyncMock()
+        mock_client._ensure_token = AsyncMock()
+        mock_client.settings = MagicMock(
+            dj_api_url="http://localhost:8000",
+            request_timeout=30.0,
+        )
+        mock_client._get_headers = MagicMock(return_value={})
+        mock_get_client.return_value = mock_client
+
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = mock_http_response
+        mock_client_class.return_value.__aenter__.return_value = mock_http_client
+
+        await tools.get_query_plan(metrics=["finance.revenue"])
+
+        call_kwargs = mock_http_client.get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert "cube" not in params
+
+
+@pytest.mark.asyncio
 async def test_get_query_plan_no_dialect_or_lookback_not_in_params():
     """Test get_query_plan omits dialect and lookback_window when not provided"""
     mock_response_json = {

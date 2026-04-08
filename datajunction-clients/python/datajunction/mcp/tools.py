@@ -678,6 +678,7 @@ async def get_query_plan(
     metrics: List[str],
     dimensions: Optional[List[str]] = None,
     filters: Optional[List[str]] = None,
+    cube: Optional[str] = None,
     dialect: Optional[str] = None,
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
@@ -694,6 +695,8 @@ async def get_query_plan(
         metrics: List of metric node names to analyze
         dimensions: Optional list of dimensions to group by
         filters: Optional list of SQL filter conditions
+        cube: Optional cube node name. When provided, the cube's stored filters
+            are automatically prepended to the query filters.
         dialect: Optional SQL dialect (e.g., 'spark', 'trino', 'postgres')
         use_materialized: Whether to use materialized tables when available (default: True)
         include_temporal_filters: Whether to include temporal partition filters (default: False)
@@ -713,6 +716,8 @@ async def get_query_plan(
             "use_materialized": use_materialized,
             "include_temporal_filters": include_temporal_filters,
         }
+        if cube:
+            params["cube"] = cube
         if dialect:
             params["dialect"] = dialect
         if lookback_window:
