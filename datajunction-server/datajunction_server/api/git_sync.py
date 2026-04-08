@@ -28,13 +28,17 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
+from pydantic import TypeAdapter
+
 from datajunction_server.internal.namespaces import (
     get_node_specs_for_export,
     inject_prefixes,
     node_spec_to_yaml,
     resolve_git_config,
+    _get_yaml_handler,
 )
 from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.deployment import NodeUnion
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import (
     SEPARATOR,
@@ -46,6 +50,51 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["git-sync"])
+
+# TypeAdapter for parsing YAML dicts into the correct NodeSpec subclass
+_node_spec_adapter = TypeAdapter(NodeUnion)
+
+
+def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
+    """
+    Compare a YAML spec from git with a NodeSpec using the existing
+    semantic comparison logic from the deployment orchestrator.
+
+    Parses the existing YAML into a NodeSpec and uses the NodeSpec.__eq__
+    method which handles:
+    - AST-based query comparison (whitespace/formatting agnostic)
+    - Sorted dimension link comparison
+    - Column comparison with type inference handling
+    - Metric metadata comparison with defaults
+
+    Args:
+        existing_yaml: YAML string from git
+        new_spec: NodeSpec from current node (with ${prefix} placeholders)
+
+    Returns:
+        True if the specs are semantically equivalent, False otherwise.
+    """
+    try:
+        yaml_handler = _get_yaml_handler()
+        existing_data = yaml_handler.load(existing_yaml)
+
+        if not existing_data:
+            return False
+
+        # Convert ruamel.yaml CommentedMap to regular dict for Pydantic
+        existing_dict = dict(existing_data)
+
+        # Parse the existing YAML into the appropriate NodeSpec subclass
+        # The discriminator field (node_type) determines which class to use
+        existing_spec = _node_spec_adapter.validate_python(existing_dict)
+
+        # Use the NodeSpec's __eq__ which does semantic comparison
+        # (AST comparison for queries, sorted dimension links, etc.)
+        return new_spec == existing_spec
+    except Exception as e:
+        # If we can't parse, assume they're different (safer)
+        _logger.debug("Failed to compare specs: %s", e)
+        return False
 
 
 class SyncToGitRequest(BaseModel):
@@ -363,8 +412,12 @@ async def sync_namespace_to_git(
                 # Convert to YAML using the export format (with ${prefix})
                 yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
 
-                # Only include files that have actually changed
-                if existing_yaml is not None and yaml_content == existing_yaml:
+                # Only include files that have actually changed (semantic comparison)
+                # Uses NodeSpec.__eq__ which does AST-based query comparison, etc.
+                if existing_yaml is not None and _specs_are_equivalent(
+                    existing_yaml,
+                    node_spec,
+                ):
                     skipped_unchanged += 1
                     continue
 
