@@ -69,8 +69,8 @@ class SyncNamespaceResult(BaseModel):
 
     namespace: str
     files_synced: int
-    commit_sha: str
-    commit_url: str
+    commit_sha: Optional[str] = None  # None if no changes detected
+    commit_url: Optional[str] = None  # None if no changes detected
     results: List[SyncResult]
 
 
@@ -333,6 +333,7 @@ async def sync_namespace_to_git(
                     existing_files_map[str(rel_path)] = yaml_file
 
             # Process each node spec
+            skipped_unchanged = 0
             for node_spec in node_specs:
                 # The spec name has ${prefix} injected (e.g., "${prefix}orders")
                 # Strip ${prefix} to get the short name for file path
@@ -362,6 +363,11 @@ async def sync_namespace_to_git(
                 # Convert to YAML using the export format (with ${prefix})
                 yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
 
+                # Only include files that have actually changed
+                if existing_yaml is not None and yaml_content == existing_yaml:
+                    skipped_unchanged += 1
+                    continue
+
                 files_to_commit.append(
                     {
                         "path": file_path,
@@ -374,6 +380,27 @@ async def sync_namespace_to_git(
                     file_path,
                     spec_name,
                 )
+
+            if skipped_unchanged > 0:
+                _logger.info(
+                    "Skipped %d unchanged files for namespace '%s'",
+                    skipped_unchanged,
+                    namespace,
+                )
+
+        # If no files have changed, return early without making a commit
+        if not files_to_commit:
+            _logger.info(
+                "No changes detected for namespace '%s' - skipping commit",
+                namespace,
+            )
+            return SyncNamespaceResult(
+                namespace=namespace,
+                files_synced=0,
+                commit_sha=None,
+                commit_url=None,
+                results=[],
+            )
 
         commit_message = request.commit_message or f"Sync {namespace}"
 

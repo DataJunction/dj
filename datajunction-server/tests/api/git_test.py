@@ -2003,6 +2003,78 @@ class TestGitSync:
             )
 
     @pytest.mark.asyncio
+    async def test_sync_namespace_no_changes(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test that namespace sync skips commit when no files have changed."""
+        client = client_with_service_setup
+
+        # Create a minimal namespace with just one node
+        await client.post("/namespaces/unchanged_test")
+        await client.patch(
+            "/namespaces/unchanged_test/git",
+            json={
+                "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
+            },
+        )
+
+        # Create a simple source node
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "unchanged_test.my_source",
+                "description": "Test source",
+                "catalog": "default",
+                "schema_": "public",
+                "table": "my_table",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+
+        with (
+            patch(
+                "datajunction_server.api.git_sync.GitHubService",
+            ) as mock_github_class,
+            patch(
+                "datajunction_server.api.git_sync.node_spec_to_yaml",
+            ) as mock_node_spec_to_yaml,
+        ):
+            mock_github = MagicMock()
+            # Return tarball with existing YAML that matches what we'll generate
+            unchanged_yaml = "name: unchanged\nquery: SELECT 1"
+            mock_github.download_archive = AsyncMock(
+                return_value=create_mock_tarball(
+                    {
+                        "my_source.yaml": unchanged_yaml,
+                    },
+                ),
+            )
+            mock_github.commit_files = AsyncMock()
+            mock_github_class.return_value = mock_github
+
+            # Return the same YAML content to simulate no changes
+            mock_node_spec_to_yaml.return_value = unchanged_yaml
+
+            response = await client.post(
+                "/namespaces/unchanged_test/sync-to-git",
+                json={},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+
+            data = response.json()
+            assert data["namespace"] == "unchanged_test"
+            assert data["files_synced"] == 0
+            assert data["commit_sha"] is None
+            assert data["commit_url"] is None
+            assert data["results"] == []
+
+            # Verify commit_files was NOT called since no changes
+            assert not mock_github.commit_files.called
+
+    @pytest.mark.asyncio
     async def test_sync_node_file_doesnt_exist_yet(
         self,
         client_with_roads: AsyncClient,
