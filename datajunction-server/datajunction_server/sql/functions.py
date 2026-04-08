@@ -4810,6 +4810,55 @@ def infer_type(
     return [arg.key, arg.value]
 
 
+class Range(TableFunction):
+    """
+    range(start[, end[, step[, numSlices]]]) / range(end)
+    Returns a table with a single BIGINT column `id` containing values
+    within the specified range.
+    """
+
+    dialects = [Dialect.SPARK]
+
+
+@Range.register
+def infer_type(end: ct.IntegerBase) -> List[ct.NestedField]:
+    """range(end) - generates 0 to end-1"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end)"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+    step: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end, step)"""
+    print(f"DEBUG: Range.infer_type called with start={start}, end={end}, step={step}")
+    result = [ct.NestedField(name="id", field_type=ct.BigIntType())]
+    print(f"DEBUG: Returning {result}")
+    return result
+
+
+@Range.register
+def infer_type(  # type: ignore
+    start: ct.IntegerBase,
+    end: ct.IntegerBase,
+    step: ct.IntegerBase,
+    num_slices: ct.IntegerBase,
+) -> List[ct.NestedField]:
+    """range(start, end, step, numSlices)"""
+    return [ct.NestedField(name="id", field_type=ct.BigIntType())]
+
+
 class FunctionRegistryDict(dict):
     """
     Custom dictionary mapping for functions

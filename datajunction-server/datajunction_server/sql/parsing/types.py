@@ -20,6 +20,7 @@ from typing import (
     Dict,
     Optional,
     Tuple,
+    Union,
     cast,
     Callable,
 )
@@ -245,7 +246,7 @@ class NestedField(ColumnType):
 
     def __init__(
         self,
-        name: "ast.Name",
+        name: Union["ast.Name", str],
         field_type: ColumnType,
         is_optional: bool = True,
         doc: Optional[str] = None,
