@@ -323,15 +323,21 @@ def create_orchestrator(
     session: AsyncSession,
     current_user: User,
     nodes: list[NodeSpec],
+    namespace: str = "example",
+    dry_run: bool = True,
 ) -> DeploymentOrchestrator:
     """
     Create a deployment orchestrator for testing.
+
+    dry_run defaults to True because unit tests don't need to update deployment
+    status in the database, and doing so requires a separate session that would
+    try to connect to the production database config.
     """
     context = MagicMock(autospec=DeploymentContext)
     context.current_user = current_user
     context.save_history = mock_save_history
     deployment_spec = DeploymentSpec(
-        namespace="example",
+        namespace=namespace,
         nodes=nodes,
         tags=[],
     )
@@ -340,6 +346,7 @@ def create_orchestrator(
         deployment_id="test-deployment",
         session=session,
         context=context,
+        dry_run=dry_run,
     )
 
 
@@ -629,7 +636,6 @@ async def test_catalog_not_shadowed_by_virtual_catalog_parent(
         [transform_spec],
         plan.node_graph,
     )
-    print("deployed_nodes", deployed_nodes)
     deployed = deployed_nodes.get("example.prod.facts.enriched_events")
     assert deployed is not None
     assert deployed.current is not None
@@ -639,6 +645,160 @@ async def test_catalog_not_shadowed_by_virtual_catalog_parent(
         f"'{deployed.current.catalog.name}'. "
         "Virtual-catalog parent shadowed the real catalog."
     )
+
+
+@pytest.mark.asyncio
+async def test_copy_fast_path_taken_for_empty_namespace(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+):
+    """
+    When all specs have _skip_validation=True and the target namespace is empty,
+    _build_copy_plan() is used instead of _create_deployment_plan(), skipping
+    check_external_deps entirely.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await default_attribute_types(session)
+
+    # Create a source node in the DB (external dependency)
+    source_node = Node(
+        name="prod.facts.sales",
+        type=NodeType.SOURCE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    source_revision = NodeRevision(
+        node=source_node,
+        name=source_node.name,
+        type=NodeType.SOURCE,
+        catalog_id=catalog.id,
+        schema_="facts",
+        table="sales",
+        version="v1.0",
+        columns=[Column(name="amount", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    session.add(source_revision)
+    await session.commit()
+
+    # Node name is relative; it will be prefixed with the deployment namespace
+    transform_spec = TransformSpec(
+        name="transforms.revenue",
+        query="SELECT amount FROM prod.facts.sales",
+        mode="published",
+    )
+    transform_spec._skip_validation = True
+
+    orchestrator = create_orchestrator(session, current_user, [transform_spec])
+
+    with patch.object(
+        orchestrator,
+        "check_external_deps",
+        new_callable=AsyncMock,
+    ) as mock_check:
+        result = await orchestrator.execute()
+
+    # Fast-path was used, which means check_external_deps should NOT have been called
+    mock_check.assert_not_called()
+    # Node name is prefixed with deployment namespace "example"
+    assert any(r.name == "example.transforms.revenue" for r in result.results), (
+        result.results
+    )
+
+
+@pytest.mark.asyncio
+async def test_copy_fast_path_skipped_when_namespace_not_empty(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+    categories: Node,
+):
+    """
+    If the target namespace already has nodes, the fast-path is NOT taken —
+    the full orchestrator runs (check_external_deps is called).
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await default_attribute_types(session)
+
+    # Create an existing node in the target namespace ("example")
+    # The namespace must be set explicitly as it defaults to "default"
+    existing_node = Node(
+        name="example.existing_node",
+        namespace="example",
+        type=NodeType.TRANSFORM,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    existing_revision = NodeRevision(
+        node=existing_node,
+        name=existing_node.name,
+        type=NodeType.TRANSFORM,
+        catalog_id=catalog.id,
+        query="SELECT 1 AS x",
+        version="v1.0",
+        columns=[Column(name="x", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    session.add(existing_revision)
+    await session.commit()
+
+    # Node name is relative; it will be prefixed with deployment namespace
+    transform_spec = TransformSpec(
+        name="new_node",
+        query="SELECT 1 AS x",
+        mode="published",
+    )
+    transform_spec._skip_validation = True
+
+    orchestrator = create_orchestrator(session, current_user, [transform_spec])
+
+    with patch.object(
+        orchestrator,
+        "check_external_deps",
+        new_callable=AsyncMock,
+        return_value=(set(), [], []),
+    ) as mock_check:
+        await orchestrator.execute()
+
+    # Namespace was not empty → full plan → check_external_deps was called
+    mock_check.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_copy_fast_path_skipped_when_not_all_skip_validation(
+    session: AsyncSession,
+    current_user: User,
+    catalog: Catalog,
+):
+    """
+    If even one spec does NOT have _skip_validation=True, the fast-path is
+    not taken and the full orchestrator runs.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await default_attribute_types(session)
+
+    spec_with_validation = TransformSpec(
+        name="ns.node_a",
+        query="SELECT 1 AS x",
+        mode="published",
+    )
+    # _skip_validation defaults to False — no change needed
+
+    orchestrator = create_orchestrator(session, current_user, [spec_with_validation])
+
+    with patch.object(
+        orchestrator,
+        "check_external_deps",
+        new_callable=AsyncMock,
+        return_value=(set(), [], []),
+    ) as mock_check:
+        await orchestrator.execute()
+
+    mock_check.assert_called_once()
 
 
 async def test_duplicate_nodes_in_deployment_spec(

@@ -354,7 +354,9 @@ async def create_branch(
             message=f"Namespace '{new_namespace}' already exists.",
         )
 
-    # Run git branch creation and namespace/node copying in parallel
+    # Git branch creation runs in a background task (no session access).
+    # Namespace/node copying must run in the current task because SQLAlchemy
+    # async sessions are greenlet-bound and cannot be shared across asyncio tasks.
     _logger.info(
         "Starting parallel creation of git branch and namespace for '%s'",
         new_namespace,
@@ -368,22 +370,23 @@ async def create_branch(
         ),
     )
 
-    namespace_task = asyncio.create_task(
-        _create_namespace_and_copy_nodes(
+    try:
+        namespace_result: Exception | list = await _create_namespace_and_copy_nodes(
             session=session,
             new_namespace=new_namespace,
             branch_name=branch_name,
             root_namespace=parent_ns,
             current_user=current_user,
-        ),
-    )
+        )
+    except Exception as exc:
+        _logger.exception("Namespace creation raised exception for '%s'", new_namespace)
+        namespace_result = exc
 
-    # Wait for both operations with proper error handling
-    git_result, namespace_result = await asyncio.gather(
-        git_task,
-        namespace_task,
-        return_exceptions=True,
-    )
+    try:
+        await git_task
+        git_result: Exception | None = None
+    except Exception as exc:
+        git_result = exc
 
     # Handle failures and cleanup
     git_succeeded = not isinstance(git_result, Exception)
