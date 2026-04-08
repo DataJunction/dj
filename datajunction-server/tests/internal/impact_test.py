@@ -367,3 +367,415 @@ async def test_propagate_impact_cause_names_in_result(session, current_user: Use
     # Both should trace back to ns.source
     assert by_name["ns.transform"].caused_by == ["ns.source"]
     assert by_name["ns.metric"].caused_by == ["ns.source"]
+
+
+# ---------------------------------------------------------------------------
+# Validity Recovery Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_validity_recovery_basic(session, current_user: User):
+    """INVALID child with VALID parent → child recovers to VALID."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Parent is now VALID (simulating a fix in deployment)
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    # Child was INVALID (presumably because parent was previously INVALID)
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert len(result) == 1
+    impact = result[0]
+    assert impact.name == "ns.transform"
+    assert impact.impact_type == ImpactType.WILL_RECOVER
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.VALID
+    # The ORM object should be mutated to VALID
+    assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_validity_recovery_cascading(
+    session,
+    current_user: User,
+):
+    """INVALID chain recovers when root becomes VALID: A→B→C all recover."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Root is now VALID
+    root, root_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    # Children were INVALID
+    child1, child1_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    child2, child2_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    await _persist(session, root, root_rev, child1, child1_rev, child2, child2_rev)
+    await _persist(session, _link(root, child1_rev), _link(child1, child2_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert len(result) == 2
+    by_name = {r.name: r for r in result}
+
+    # Both should recover
+    assert by_name["ns.transform"].impact_type == ImpactType.WILL_RECOVER
+    assert by_name["ns.transform"].predicted_status == NodeStatus.VALID
+    assert by_name["ns.metric"].impact_type == ImpactType.WILL_RECOVER
+    assert by_name["ns.metric"].predicted_status == NodeStatus.VALID
+
+    # ORM objects mutated
+    assert child1_rev.status == NodeStatus.VALID
+    assert child2_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_no_recovery_if_other_parent_invalid(
+    session,
+    current_user: User,
+):
+    """INVALID child with one VALID parent but another INVALID parent → no recovery."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # parent1 is VALID (changed)
+    parent1, parent1_rev = _make_node(
+        "ns.source1",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    # parent2 is INVALID (not changed, external)
+    parent2, parent2_rev = _make_node(
+        "ns.source2",
+        NodeType.SOURCE,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    # Child is INVALID
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    await _persist(
+        session,
+        parent1,
+        parent1_rev,
+        parent2,
+        parent2_rev,
+        child,
+        child_rev,
+    )
+    await _persist(session, _link(parent1, child_rev), _link(parent2, child_rev))
+
+    # Only parent1 is in the changed set
+    result = await propagate_impact(session, "ns", {"ns.source1"})
+
+    assert len(result) == 1
+    impact = result[0]
+    assert impact.name == "ns.transform"
+    # Should NOT recover because parent2 is still INVALID
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.INVALID
+    # ORM object should NOT be changed
+    assert child_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_no_recovery_if_parent_deleted(
+    session,
+    current_user: User,
+):
+    """INVALID child whose parent is being deleted → invalidates, doesn't recover."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    # Parent is deleted, not changed
+    result = await propagate_impact(
+        session,
+        "ns",
+        set(),
+        deleted_node_names=frozenset(["ns.source"]),
+    )
+
+    assert len(result) == 1
+    impact = result[0]
+    # Deletion invalidates, doesn't recover
+    assert impact.impact_type == ImpactType.WILL_INVALIDATE
+    assert impact.predicted_status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_mixed_invalidation_and_recovery(
+    session,
+    current_user: User,
+):
+    """Multiple changes: one fixes a node (recovery), another breaks a node (invalidation)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # source1 is now VALID (was fixed)
+    source1, source1_rev = _make_node(
+        "ns.source1",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    # source2 is now INVALID (was broken)
+    source2, source2_rev = _make_node(
+        "ns.source2",
+        NodeType.SOURCE,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    # child1 depends on source1, was INVALID → should recover
+    child1, child1_rev = _make_node(
+        "ns.child1",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+    # child2 depends on source2, was VALID → should invalidate
+    child2, child2_rev = _make_node(
+        "ns.child2",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    await _persist(
+        session,
+        source1,
+        source1_rev,
+        source2,
+        source2_rev,
+        child1,
+        child1_rev,
+        child2,
+        child2_rev,
+    )
+    await _persist(session, _link(source1, child1_rev), _link(source2, child2_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source1", "ns.source2"})
+
+    assert len(result) == 2
+    by_name = {r.name: r for r in result}
+
+    # child1 should recover
+    assert by_name["ns.child1"].impact_type == ImpactType.WILL_RECOVER
+    assert by_name["ns.child1"].predicted_status == NodeStatus.VALID
+    assert child1_rev.status == NodeStatus.VALID
+
+    # child2 should invalidate
+    assert by_name["ns.child2"].impact_type == ImpactType.WILL_INVALIDATE
+    assert by_name["ns.child2"].predicted_status == NodeStatus.INVALID
+    assert child2_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_valid_child_stays_valid(session, current_user: User):
+    """VALID child with VALID parent → stays VALID (MAY_AFFECT, not recovery)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert len(result) == 1
+    impact = result[0]
+    # Not a recovery because it was already VALID
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert impact.current_status == NodeStatus.VALID
+    assert impact.predicted_status == NodeStatus.VALID
+    assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_no_recovery_if_node_has_sql_error(
+    session,
+    current_user: User,
+):
+    """INVALID child with VALID parent but bad SQL → no recovery (validated)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Parent is VALID
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+
+    # Child is INVALID and has broken SQL (syntax error)
+    child = Node(
+        name="ns.transform",
+        type=NodeType.TRANSFORM,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        namespace="ns",
+    )
+    child_rev = NodeRevision(
+        name="ns.transform",
+        type=NodeType.TRANSFORM,
+        node=child,
+        version="v1.0",
+        status=NodeStatus.INVALID,
+        query="SELECT * FORM broken_syntax",  # Intentional typo: FORM instead of FROM
+        created_by_id=current_user.id,
+    )
+
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert len(result) == 1
+    impact = result[0]
+    # Should NOT recover because validation fails on the SQL syntax error
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.INVALID
+    # Status should remain INVALID
+    assert child_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_source_node_recovery(session, current_user: User):
+    """INVALID source node with VALID parent → auto-recovers (no SQL to validate)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Parent source is VALID
+    parent, parent_rev = _make_node(
+        "ns.source1",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+
+    # Child is a source node that was INVALID (unusual but possible)
+    child = Node(
+        name="ns.source2",
+        type=NodeType.SOURCE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        namespace="ns",
+    )
+    child_rev = NodeRevision(
+        name="ns.source2",
+        type=NodeType.SOURCE,
+        node=child,
+        version="v1.0",
+        status=NodeStatus.INVALID,
+        query=None,  # Source nodes don't have queries
+        created_by_id=current_user.id,
+    )
+
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source1"})
+
+    assert len(result) == 1
+    impact = result[0]
+    # Source nodes auto-recover without validation
+    assert impact.impact_type == ImpactType.WILL_RECOVER
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_cube_node_recovery(session, current_user: User):
+    """INVALID cube with all VALID metric parents → auto-recovers (no SQL parsing needed)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Parent metric is VALID
+    parent, parent_rev = _make_node(
+        "ns.metric1",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+
+    # Child is a cube node that was INVALID (e.g., because its metric parent was invalid)
+    child = Node(
+        name="ns.cube1",
+        type=NodeType.CUBE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        namespace="ns",
+    )
+    child_rev = NodeRevision(
+        name="ns.cube1",
+        type=NodeType.CUBE,
+        node=child,
+        version="v1.0",
+        status=NodeStatus.INVALID,
+        query=None,  # Cube nodes don't have queries
+        created_by_id=current_user.id,
+    )
+
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.metric1"})
+
+    assert len(result) == 1
+    impact = result[0]
+    # Cubes auto-recover when all their metric parents are VALID (no SQL parsing needed)
+    assert impact.impact_type == ImpactType.WILL_RECOVER
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.VALID
+    assert child_rev.status == NodeStatus.VALID
