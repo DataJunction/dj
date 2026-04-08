@@ -2591,3 +2591,376 @@ class TestGenerateCodeowners:
 
         assert count == 1
         assert "list.metric" not in output.read_text()
+
+
+#
+# Git command tests
+#
+class TestGitCommands:
+    """Tests for `dj git` command group."""
+
+    def test_git_init(self, builder_client: DJBuilder):
+        """Test `dj git init <namespace> --repo <repo> --default-branch <branch>`"""
+        from datajunction.models import GitConfig
+
+        mock_config = GitConfig(
+            github_repo_path="org/repo",
+            default_branch="main",
+            git_path="nodes/",
+            git_only=True,
+        )
+
+        with patch.object(
+            builder_client,
+            "init_git_root",
+            return_value=mock_config,
+        ) as mock_init:
+            test_args = [
+                "dj",
+                "git",
+                "init",
+                "myns",
+                "--repo",
+                "org/repo",
+                "--default-branch",
+                "main",
+                "--git-path",
+                "nodes/",
+                "--git-only",
+            ]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_init.assert_called_once_with(
+                namespace="myns",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path="nodes/",
+                git_only=True,
+            )
+
+    def test_git_init_minimal(self, builder_client: DJBuilder):
+        """Test `dj git init` with only required args."""
+        from datajunction.models import GitConfig
+
+        mock_config = GitConfig(
+            github_repo_path="org/repo",
+            default_branch="main",
+        )
+
+        with patch.object(
+            builder_client,
+            "init_git_root",
+            return_value=mock_config,
+        ) as mock_init:
+            test_args = [
+                "dj",
+                "git",
+                "init",
+                "myns",
+                "--repo",
+                "org/repo",
+                "--default-branch",
+                "main",
+            ]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_init.assert_called_once_with(
+                namespace="myns",
+                github_repo_path="org/repo",
+                default_branch="main",
+                git_path=None,
+                git_only=None,
+            )
+
+    def test_git_show(self, builder_client: DJBuilder):
+        """Test `dj git show <namespace>`"""
+        from datajunction.models import GitConfig
+
+        mock_config = GitConfig(
+            github_repo_path="org/repo",
+            git_branch="main",
+            default_branch="main",
+            git_path="nodes/",
+            git_only=True,
+        )
+
+        with patch.object(
+            builder_client,
+            "get_git_config",
+            return_value=mock_config,
+        ) as mock_get:
+            test_args = ["dj", "git", "show", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_get.assert_called_once_with(namespace="myns")
+
+    def test_git_show_json(self, builder_client: DJBuilder, capsys):
+        """Test `dj git show <namespace> --format json`"""
+        from datajunction.models import GitConfig
+
+        mock_config = GitConfig(
+            github_repo_path="org/repo",
+            git_branch="main",
+            default_branch="main",
+            git_path="nodes/",
+            git_only=True,
+        )
+
+        with patch.object(builder_client, "get_git_config", return_value=mock_config):
+            test_args = ["dj", "git", "show", "myns", "--format", "json"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["namespace"] == "myns"
+        assert output["github_repo_path"] == "org/repo"
+        assert output["default_branch"] == "main"
+
+    def test_git_clear(self, builder_client: DJBuilder):
+        """Test `dj git clear <namespace>`"""
+        with patch.object(
+            builder_client,
+            "clear_git_config",
+            return_value=None,
+        ) as mock_clear:
+            test_args = ["dj", "git", "clear", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_clear.assert_called_once_with(namespace="myns")
+
+
+#
+# Branch command tests (under `dj git`)
+#
+class TestGitBranchCommands:
+    """Tests for `dj git create-branch/list-branches/delete-branch` commands."""
+
+    def test_git_create_branch(self, builder_client: DJBuilder):
+        """Test `dj git create-branch <namespace> <branch-name>`"""
+        from datajunction.nodes import Namespace
+
+        mock_namespace = mock.MagicMock(spec=Namespace)
+        mock_namespace.namespace = "myns.feature_x"
+
+        with patch.object(
+            builder_client,
+            "create_branch",
+            return_value=mock_namespace,
+        ) as mock_create:
+            test_args = ["dj", "git", "create-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_create.assert_called_once_with(
+                namespace="myns",
+                branch_name="feature-x",
+            )
+
+    def test_git_list_branches(self, builder_client: DJBuilder):
+        """Test `dj git list-branches <namespace>`"""
+        from datajunction.models import BranchInfo
+
+        mock_branches = [
+            BranchInfo(
+                namespace="myns.feature_x",
+                git_branch="feature-x",
+                parent_namespace="myns",
+                github_repo_path="org/repo",
+            ),
+            BranchInfo(
+                namespace="myns.feature_y",
+                git_branch="feature-y",
+                parent_namespace="myns",
+                github_repo_path="org/repo",
+            ),
+        ]
+
+        with patch.object(
+            builder_client,
+            "list_branches",
+            return_value=mock_branches,
+        ) as mock_list:
+            test_args = ["dj", "git", "list-branches", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_list.assert_called_once_with(namespace="myns")
+
+    def test_git_list_branches_json(self, builder_client: DJBuilder, capsys):
+        """Test `dj git list-branches <namespace> --format json`"""
+        from datajunction.models import BranchInfo
+
+        mock_branches = [
+            BranchInfo(
+                namespace="myns.feature_x",
+                git_branch="feature-x",
+                parent_namespace="myns",
+                github_repo_path="org/repo",
+            ),
+        ]
+
+        with patch.object(builder_client, "list_branches", return_value=mock_branches):
+            test_args = ["dj", "git", "list-branches", "myns", "--format", "json"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert len(output) == 1
+        assert output[0]["namespace"] == "myns.feature_x"
+        assert output[0]["git_branch"] == "feature-x"
+
+    def test_git_list_branches_empty(self, builder_client: DJBuilder, capsys):
+        """Test `dj git list-branches` with no branches."""
+        with patch.object(builder_client, "list_branches", return_value=[]):
+            test_args = ["dj", "git", "list-branches", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+        captured = capsys.readouterr()
+        assert "No branches found" in captured.out
+
+    def test_git_delete_branch(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch <namespace> <branch-name>`"""
+        with patch.object(
+            builder_client,
+            "delete_branch",
+            return_value=None,
+        ) as mock_delete:
+            test_args = ["dj", "git", "delete-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_delete.assert_called_once_with(
+                namespace="myns",
+                branch_name="feature-x",
+                delete_git_branch=True,
+            )
+
+    def test_git_delete_branch_keep_git_branch(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch <namespace> <branch-name> --keep-git-branch`"""
+        with patch.object(
+            builder_client,
+            "delete_branch",
+            return_value=None,
+        ) as mock_delete:
+            test_args = [
+                "dj",
+                "git",
+                "delete-branch",
+                "myns",
+                "feature-x",
+                "--keep-git-branch",
+            ]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_delete.assert_called_once_with(
+                namespace="myns",
+                branch_name="feature-x",
+                delete_git_branch=False,
+            )
+
+    def test_git_init_error(self, builder_client: DJBuilder):
+        """Test `dj git init` error handling (covers lines 677-679)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "init_git_root",
+            side_effect=DJClientException("Namespace not found"),
+        ):
+            test_args = [
+                "dj",
+                "git",
+                "init",
+                "myns",
+                "--repo",
+                "org/repo",
+                "--default-branch",
+                "main",
+            ]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_show_error(self, builder_client: DJBuilder):
+        """Test `dj git show` error handling (covers lines 703-705)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "get_git_config",
+            side_effect=DJClientException("No git config found"),
+        ):
+            test_args = ["dj", "git", "show", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_clear_error(self, builder_client: DJBuilder):
+        """Test `dj git clear` error handling (covers lines 715-717)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "clear_git_config",
+            side_effect=DJClientException("Failed to clear git config"),
+        ):
+            test_args = ["dj", "git", "clear", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_create_branch_error(self, builder_client: DJBuilder):
+        """Test `dj git create-branch` error handling (covers lines 735-737)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "create_branch",
+            side_effect=DJClientException("Branch already exists"),
+        ):
+            test_args = ["dj", "git", "create-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_list_branches_error(self, builder_client: DJBuilder):
+        """Test `dj git list-branches` error handling (covers lines 771-773)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "list_branches",
+            side_effect=DJClientException("Namespace not found"),
+        ):
+            test_args = ["dj", "git", "list-branches", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
+
+    def test_git_delete_branch_error(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch` error handling (covers lines 795-797)."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "delete_branch",
+            side_effect=DJClientException("Branch not found"),
+        ):
+            test_args = ["dj", "git", "delete-branch", "myns", "feature-x"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
