@@ -272,6 +272,73 @@ END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
 
 
 # ---------------------------------------------------------------------------
+# Git config and branch models
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class GitConfig(SerializableMixin):
+    """
+    Git configuration for a namespace, enabling git-backed branch management.
+    """
+
+    github_repo_path: Optional[str] = None
+    git_branch: Optional[str] = None
+    git_path: Optional[str] = None
+    default_branch: Optional[str] = None
+    parent_namespace: Optional[str] = None
+    git_only: Optional[bool] = None
+
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: Optional["DJClient"],
+        data: Dict[str, Any],
+    ) -> "GitConfig":
+        """Create a GitConfig from a dictionary."""
+        return cls(
+            github_repo_path=data.get("github_repo_path"),
+            git_branch=data.get("git_branch"),
+            git_path=data.get("git_path"),
+            default_branch=data.get("default_branch"),
+            parent_namespace=data.get("parent_namespace"),
+            git_only=data.get("git_only"),
+        )
+
+
+@dataclass
+class BranchInfo(SerializableMixin):
+    """Information about a branch namespace."""
+
+    namespace: str
+    git_branch: str
+    parent_namespace: str
+    github_repo_path: str
+    num_nodes: int = 0
+    invalid_node_count: int = 0
+    git_only: bool = False
+    last_deployed_at: Optional[str] = None
+
+    @classmethod
+    def from_dict(
+        cls,
+        dj_client: Optional["DJClient"],
+        data: Dict[str, Any],
+    ) -> "BranchInfo":
+        """Create a BranchInfo from a dictionary."""
+        return cls(
+            namespace=data["namespace"],
+            git_branch=data["git_branch"],
+            parent_namespace=data["parent_namespace"],
+            github_repo_path=data["github_repo_path"],
+            num_nodes=data.get("num_nodes", 0),
+            invalid_node_count=data.get("invalid_node_count", 0),
+            git_only=data.get("git_only", False),
+            last_deployed_at=data.get("last_deployed_at"),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Deployment response models
 #
 # TODO: replace with generated models from OpenAPI spec once client codegen

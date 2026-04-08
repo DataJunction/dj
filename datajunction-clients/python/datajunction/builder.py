@@ -15,6 +15,7 @@ from datajunction.exceptions import (
     DJTagAlreadyExists,
     DJViewAlreadyRegistered,
 )
+from datajunction.models import BranchInfo, GitConfig
 from datajunction.nodes import (
     Cube,
     Dimension,
@@ -113,6 +114,110 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             },
         )
         if response.status_code != HTTPStatus.CREATED:
+            raise DJClientException(response.json()["message"])
+
+    #
+    # Branches
+    #
+    def create_branch(
+        self,
+        namespace: str,
+        branch_name: str,
+    ) -> "Namespace":
+        """Create a branch namespace from `namespace` for the given git branch.
+
+        Returns the newly created Namespace object.
+        """
+        response = self._session.post(
+            f"/namespaces/{namespace}/branches",
+            json={"branch_name": branch_name},
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        data = response.json()
+        branch_info = data["branch"]
+        return Namespace(namespace=branch_info["namespace"], dj_client=self)
+
+    def list_branches(self, namespace: str) -> List[BranchInfo]:
+        """List all branch namespaces created from `namespace`."""
+        response = self._session.get(
+            f"/namespaces/{namespace}/branches",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return [BranchInfo.from_dict(None, item) for item in response.json()]
+
+    def delete_branch(
+        self,
+        namespace: str,
+        branch_namespace: str,
+        delete_git_branch: bool = True,
+    ) -> None:
+        """Delete a branch namespace (and optionally its git branch)."""
+        response = self._session.request(
+            "DELETE",
+            f"/namespaces/{namespace}/branches/{branch_namespace}",
+            timeout=self._timeout,
+            params={"delete_git_branch": delete_git_branch},
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+
+    #
+    # Git config
+    #
+    def get_git_config(self, namespace: str) -> GitConfig:
+        """Get the effective git configuration for a namespace."""
+        response = self._session.get(
+            f"/namespaces/{namespace}/git",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return GitConfig.from_dict(None, response.json())
+
+    def init_git_config(
+        self,
+        namespace: str,
+        github_repo_path: Optional[str] = None,
+        git_branch: Optional[str] = None,
+        git_path: Optional[str] = None,
+        default_branch: Optional[str] = None,
+        parent_namespace: Optional[str] = None,
+        git_only: Optional[bool] = None,
+    ) -> GitConfig:
+        """Set (or update) git configuration on a namespace."""
+        payload = {
+            k: v
+            for k, v in {
+                "github_repo_path": github_repo_path,
+                "git_branch": git_branch,
+                "git_path": git_path,
+                "default_branch": default_branch,
+                "parent_namespace": parent_namespace,
+                "git_only": git_only,
+            }.items()
+            if v is not None
+        }
+        response = self._session.patch(
+            f"/namespaces/{namespace}/git",
+            json=payload,
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return GitConfig.from_dict(None, response.json())
+
+    def clear_git_config(self, namespace: str) -> None:
+        """Remove all git configuration from a namespace."""
+        response = self._session.request(
+            "DELETE",
+            f"/namespaces/{namespace}/git",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
     #
