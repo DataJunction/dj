@@ -138,7 +138,7 @@ Initialize a namespace as a Git root to enable branch creation:
 
 ```python
 dj.init_git_root(
-    namespace="demo.metrics.main",
+    namespace="demo.metrics",
     github_repo_path="myorg/dj-definitions",
     default_branch="main",
     git_path="nodes/",      # optional: subdirectory for node definitions
@@ -152,33 +152,33 @@ Create a branch namespace for development:
 
 ```python
 # Create a new branch (creates both Git branch and DJ namespace)
-branch_ns = dj.create_branch("demo.metrics.main", "add-revenue-metrics")
-# Returns namespace: demo.metrics.main.add_revenue_metrics
+branch_ns = dj.create_branch("demo.metrics", "add-revenue-metrics")
+# Returns namespace: demo.metrics.add_revenue_metrics
 
 # List all branches under a root namespace
-branches = dj.list_branches("demo.metrics.main")
+branches = dj.list_branches("demo.metrics")
 for branch in branches:
     print(f"{branch.namespace} -> {branch.git_branch}")
 
 # Delete a branch (removes both DJ namespace and Git branch)
-dj.delete_branch("demo.metrics.main", "add-revenue-metrics")
+dj.delete_branch("demo.metrics", "add-revenue-metrics")
 
 # Delete only the DJ namespace, keep the Git branch
-dj.delete_branch("demo.metrics.main", "add-revenue-metrics", delete_git_branch=False)
+dj.delete_branch("demo.metrics", "add-revenue-metrics", delete_git_branch=False)
 ```
 
 ### Inspect and Clear Git Config
 
 ```python
 # Get the current Git configuration for a namespace
-config = dj.get_git_config("demo.metrics.main")
+config = dj.get_git_config("demo.metrics")
 print(f"Repo: {config.github_repo_path}")
 print(f"Branch: {config.default_branch}")
 print(f"Path: {config.git_path}")
 print(f"Git-only: {config.git_only}")
 
 # Remove Git configuration from a namespace
-dj.clear_git_config("demo.metrics.main")
+dj.clear_git_config("demo.metrics")
 ```
 
 ## Server Setup
