@@ -2872,10 +2872,19 @@ class TestGitBranchCommands:
 
         with patch.object(
             builder_client,
-            "init_git_config",
+            "init_git_root",
             side_effect=DJClientException("Namespace not found"),
         ):
-            test_args = ["dj", "git", "init", "myns", "--repo", "org/repo"]
+            test_args = [
+                "dj",
+                "git",
+                "init",
+                "myns",
+                "--repo",
+                "org/repo",
+                "--default-branch",
+                "main",
+            ]
             with patch.object(sys, "argv", test_args):
                 with pytest.raises(SystemExit) as exc_info:
                     main(builder_client=builder_client)
