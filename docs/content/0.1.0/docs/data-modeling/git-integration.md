@@ -206,25 +206,25 @@ dj git clear demo.metrics
 
 ```bash
 # Create a branch namespace
-dj branch create demo.metrics add-revenue-metrics
+dj git create-branch demo.metrics add-revenue-metrics
 
 # List all branches under a root namespace
-dj branch list demo.metrics
+dj git list-branches demo.metrics
 
 # Delete a branch (removes both DJ namespace and Git branch)
-dj branch delete demo.metrics add-revenue-metrics
+dj git delete-branch demo.metrics add-revenue-metrics
 
 # Delete only the DJ namespace, keep the Git branch
-dj branch delete demo.metrics add-revenue-metrics --keep-git-branch
+dj git delete-branch demo.metrics add-revenue-metrics --keep-git-branch
 ```
 
 ### JSON Output
 
-Both `dj git show` and `dj branch list` support JSON output:
+Both `dj git show` and `dj git list-branches` support JSON output:
 
 ```bash
 dj git show demo.metrics --format json
-dj branch list demo.metrics --format json
+dj git list-branches demo.metrics --format json
 ```
 
 ## Server Setup
