@@ -120,6 +120,67 @@ jobs:
 
 5. Automate deployments with CI/CD to ensure consistent, repeatable deployments
 
+## Python Client
+
+All Git operations can also be performed programmatically using the Python client.
+
+### Setup
+
+```python
+from datajunction import DJBuilder
+
+dj = DJBuilder("http://localhost:8000")
+```
+
+### Configure a Git Root Namespace
+
+Initialize a namespace as a Git root to enable branch creation:
+
+```python
+dj.init_git_root(
+    namespace="demo.metrics",
+    github_repo_path="myorg/dj-definitions",
+    default_branch="main",
+    git_path="nodes/",      # optional: subdirectory for node definitions
+    git_only=True,          # optional: block UI edits, require changes via Git
+)
+```
+
+### Create and Manage Branches
+
+Create a branch namespace for development:
+
+```python
+# Create a new branch (creates both Git branch and DJ namespace)
+branch_ns = dj.create_branch("demo.metrics", "add-revenue-metrics")
+# Returns namespace: demo.metrics.add_revenue_metrics
+
+# List all branches under a root namespace
+branches = dj.list_branches("demo.metrics")
+for branch in branches:
+    print(f"{branch.namespace} -> {branch.git_branch}")
+
+# Delete a branch (removes both DJ namespace and Git branch)
+dj.delete_branch("demo.metrics", "add-revenue-metrics")
+
+# Delete only the DJ namespace, keep the Git branch
+dj.delete_branch("demo.metrics", "add-revenue-metrics", delete_git_branch=False)
+```
+
+### Inspect and Clear Git Config
+
+```python
+# Get the current Git configuration for a namespace
+config = dj.get_git_config("demo.metrics")
+print(f"Repo: {config.github_repo_path}")
+print(f"Branch: {config.default_branch}")
+print(f"Path: {config.git_path}")
+print(f"Git-only: {config.git_only}")
+
+# Remove Git configuration from a namespace
+dj.clear_git_config("demo.metrics")
+```
+
 ## Server Setup
 
 This section covers prerequisites for administrators setting up Git integration.

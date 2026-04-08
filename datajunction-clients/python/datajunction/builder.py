@@ -15,6 +15,7 @@ from datajunction.exceptions import (
     DJTagAlreadyExists,
     DJViewAlreadyRegistered,
 )
+from datajunction.models import BranchInfo, GitConfig
 from datajunction.nodes import (
     Cube,
     Dimension,
@@ -113,6 +114,131 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             },
         )
         if response.status_code != HTTPStatus.CREATED:
+            raise DJClientException(response.json()["message"])
+
+    #
+    # Branches
+    #
+    def create_branch(
+        self,
+        namespace: str,
+        branch_name: str,
+    ) -> "Namespace":
+        """Create a branch namespace for the given git branch.
+
+        Args:
+            namespace: The git root namespace (e.g., "myns")
+            branch_name: The git branch name (e.g., "feature-x")
+
+        Returns the newly created Namespace object (e.g., "myns.feature_x").
+        """
+        response = self._session.post(
+            f"/namespaces/{namespace}/branches",
+            json={"branch_name": branch_name},
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        data = response.json()
+        branch_info = data["branch"]
+        return Namespace(namespace=branch_info["namespace"], dj_client=self)
+
+    def list_branches(self, namespace: str) -> List[BranchInfo]:
+        """List all branch namespaces under a git root namespace."""
+        response = self._session.get(
+            f"/namespaces/{namespace}/branches",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return [BranchInfo.from_dict(None, item) for item in response.json()]
+
+    def delete_branch(
+        self,
+        namespace: str,
+        branch_name: str,
+        delete_git_branch: bool = True,
+    ) -> None:
+        """Delete a branch namespace (and optionally its git branch).
+
+        Args:
+            namespace: The git root namespace (e.g., "myns")
+            branch_name: The git branch name (e.g., "feature-x")
+            delete_git_branch: If True (default), also delete the git branch in GitHub
+        """
+        # Convert branch name to namespace format: feature-x -> feature_x
+        branch_suffix = branch_name.replace("-", "_").replace("/", "_")
+        branch_namespace = f"{namespace}.{branch_suffix}"
+
+        response = self._session.request(
+            "DELETE",
+            f"/namespaces/{namespace}/branches/{branch_namespace}",
+            timeout=self._timeout,
+            params={"delete_git_branch": delete_git_branch},
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+
+    #
+    # Git config
+    #
+    def get_git_config(self, namespace: str) -> GitConfig:
+        """Get the effective git configuration for a namespace."""
+        response = self._session.get(
+            f"/namespaces/{namespace}/git",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return GitConfig.from_dict(None, response.json())
+
+    def init_git_root(
+        self,
+        namespace: str,
+        github_repo_path: str,
+        default_branch: str,
+        git_path: Optional[str] = None,
+        git_only: Optional[bool] = None,
+    ) -> GitConfig:
+        """Initialize git configuration on a root namespace.
+
+        This sets up a namespace as a git root, enabling branch creation via
+        `create_branch()`. Branch namespaces inherit their git config from
+        the root automatically.
+
+        Args:
+            namespace: The root namespace to configure (e.g., "myns")
+            github_repo_path: GitHub repository path (e.g., "org/repo")
+            default_branch: The canonical git branch (e.g., "main")
+            git_path: Subdirectory within repo for node definitions (optional)
+            git_only: If True, UI edits are blocked; must edit via git (optional)
+        """
+        payload: dict = {
+            "github_repo_path": github_repo_path,
+            "default_branch": default_branch,
+        }
+        if git_path is not None:
+            payload["git_path"] = git_path
+        if git_only is not None:
+            payload["git_only"] = git_only
+
+        response = self._session.patch(
+            f"/namespaces/{namespace}/git",
+            json=payload,
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return GitConfig.from_dict(None, response.json())
+
+    def clear_git_config(self, namespace: str) -> None:
+        """Remove all git configuration from a namespace."""
+        response = self._session.request(
+            "DELETE",
+            f"/namespaces/{namespace}/git",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
     #
