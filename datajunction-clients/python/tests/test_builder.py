@@ -636,7 +636,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE "
-                "default.large_revenue_payments_and_business_only > 1000000 "
+                "payment_amount > 1000000 "
                 "AND account_type='BUSINESS'"
             ),
             mode=NodeMode.PUBLISHED,

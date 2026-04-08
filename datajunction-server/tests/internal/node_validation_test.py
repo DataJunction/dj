@@ -351,3 +351,119 @@ async def test_struct_field_access_depth1_valid(session: AsyncSession, user: Use
     all_error_messages = " ".join(e.message for e in validator_invalid.errors)
     assert "ad_account_status" in all_error_messages
     assert "Available" in all_error_messages
+
+
+@pytest.mark.asyncio
+async def test_metric_with_nonexistent_table_alias_is_invalid(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Regression test: a metric query referencing a nonexistent table alias (e.g. `ghost.value`
+    where `ghost` is not a struct column, not a valid alias, and not a dimension node) should
+    produce NodeStatus.INVALID with an INVALID_COLUMN error.
+
+    Previously, INVALID_COLUMN errors from compile() inside extract_dependencies() were
+    silently discarded, causing such metrics to pass validation incorrectly.
+    """
+    source_node = Node(
+        name="test.source_for_invalid_alias_metric",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_revision = NodeRevision(
+        name="test.source_for_invalid_alias_metric",
+        display_name="Source for invalid alias metric test",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source_node,
+        columns=[
+            Column(name="event_count", type=ct.BigIntType(), order=0),
+            Column(name="user_id", type=ct.StringType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    session.add(source_node)
+    session.add(source_revision)
+    await session.commit()
+
+    # `ghost` is not an alias, not a struct, and not a dimension node — should be INVALID
+    data = NodeRevisionBase(
+        name="test.metric_invalid_alias",
+        display_name="Metric with invalid alias",
+        type=NodeType.METRIC,
+        query=(
+            "SELECT COUNT(IF(ghost.value IS NOT NULL, 1, 0)) "
+            "FROM test.source_for_invalid_alias_metric"
+        ),
+        mode="published",
+    )
+
+    validator = await validate_node_data(data, session)
+
+    assert validator.status == NodeStatus.INVALID, (
+        f"Expected INVALID but got {validator.status}. Errors: {validator.errors}"
+    )
+    from datajunction_server.errors import ErrorCode
+
+    error_codes = [e.code for e in validator.errors]
+    assert ErrorCode.INVALID_COLUMN in error_codes, (
+        f"Expected INVALID_COLUMN error, got: {validator.errors}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_metric_referencing_dimension_attr_is_valid(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    A no-FROM-clause metric that references a valid dimension attribute
+    (e.g. ``test.dates.year``) should remain VALID after the INVALID_COLUMN surfacing fix.
+
+    Dimension attribute references (``dim_node.col``) are resolved inside compile() via
+    a second lookup branch — the compile step sets _is_compiled=True before appending any
+    error, so no INVALID_COLUMN is ever generated for them. This test confirms that valid
+    dimension references are not incorrectly flagged.
+    """
+    dim_node = Node(
+        name="test.dates",
+        type=NodeType.DIMENSION,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    dim_revision = NodeRevision(
+        name="test.dates",
+        display_name="Dates dimension",
+        type=NodeType.DIMENSION,
+        query="SELECT dateint, year FROM default.calendar",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=dim_node,
+        columns=[
+            Column(name="dateint", type=ct.IntegerType(), order=0),
+            Column(name="year", type=ct.IntegerType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    for obj in (dim_node, dim_revision):
+        session.add(obj)
+    await session.commit()
+
+    # No-FROM-clause metric referencing a dimension attribute — valid
+    data = NodeRevisionBase(
+        name="test.current_year_sessions",
+        display_name="Current Year Sessions",
+        type=NodeType.METRIC,
+        query="SELECT COUNT(IF(test.dates.year = 2024, 1, 0))",
+        mode="published",
+    )
+
+    validator = await validate_node_data(data, session)
+
+    assert validator.status == NodeStatus.VALID, (
+        f"Expected VALID but got {validator.status}. Errors: {validator.errors}"
+    )
