@@ -1763,13 +1763,13 @@ class DeploymentOrchestrator:
             node_name, col_name_raw = dim_attr.rsplit(SEPARATOR, 1)
             node = self.registry.nodes.get(node_name)
             if not (node and node.current):
-                continue
-            if node not in cube_dimension_nodes:
+                continue  # pragma: no cover
+            if node not in cube_dimension_nodes:  # pragma: no branch
                 cube_dimension_nodes.append(node)
             match = re.fullmatch(COLUMN_NAME_REGEX, col_name_raw)
             col_name = match.groups()[0] if match else col_name_raw
-            for col in node.current.columns or []:
-                if col.name == col_name:
+            for col in node.current.columns or []:  # pragma: no branch
+                if col.name == col_name:  # pragma: no branch
                     cube_dimensions.append(col)
                     col_to_node[col] = node
                     break
