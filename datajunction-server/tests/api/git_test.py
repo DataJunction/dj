@@ -4549,6 +4549,9 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123def456")
+            mock_github.get_commit_author = AsyncMock(
+                return_value=("Alice Smith", "alice@example.com"),
+            )
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4575,6 +4578,14 @@ columns:
                 branch="abc123def456",
                 format="tarball",
             )
+
+            # Verify commit author is recorded in source metadata
+            mock_github.get_commit_author.assert_called_once_with(
+                "myorg/myrepo",
+                "abc123def456",
+            )
+            assert data["source"]["commit_author_name"] == "Alice Smith"
+            assert data["source"]["commit_author_email"] == "alice@example.com"
 
     @pytest.mark.asyncio
     async def test_sync_from_git_no_git_config(
@@ -4646,6 +4657,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4690,6 +4702,7 @@ columns:
             mock_github.resolve_ref_to_sha = AsyncMock(
                 return_value="abc123def456789012345678901234567890abcd",
             )
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4745,6 +4758,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4780,6 +4794,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=empty_tarball)
             mock_github_class.return_value = mock_github
 
@@ -4816,6 +4831,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4865,6 +4881,9 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(
+                return_value=("Alice Smith", "alice@example.com"),
+            )
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4915,6 +4934,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4962,6 +4982,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -4993,6 +5014,7 @@ columns:
         ) as mock_github_class:
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(
                 side_effect=GitHubServiceError(
                     "Repository not found or access denied",
@@ -5044,6 +5066,7 @@ columns:
         ):
             mock_github = MagicMock()
             mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(return_value=(None, None))
             mock_github.download_archive = AsyncMock(return_value=tarball)
             mock_github_class.return_value = mock_github
 
@@ -5058,3 +5081,56 @@ columns:
                     "/namespaces/orch_fail_ns/sync-from-git",
                     json={"ref": "main"},
                 )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_git_commit_author_fetch_fails(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """Test sync-from-git proceeds normally when get_commit_author raises GitHubServiceError."""
+        from datajunction_server.internal.git.github_service import GitHubServiceError
+
+        await client_with_service_setup.post("/namespaces/author_fail_ns")
+        await client_with_service_setup.patch(
+            "/namespaces/author_fail_ns/git",
+            json={"github_repo_path": "myorg/myrepo"},
+        )
+
+        node_yaml = """
+name: ${prefix}author_source
+node_type: source
+description: Test
+catalog: default
+schema_: test
+table: test_table
+columns:
+  - name: id
+    type: int
+"""
+        tarball = create_mock_tarball({"author_source.yaml": node_yaml})
+
+        with patch(
+            "datajunction_server.api.git_sync.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.resolve_ref_to_sha = AsyncMock(return_value="abc123")
+            mock_github.get_commit_author = AsyncMock(
+                side_effect=GitHubServiceError(
+                    "Could not fetch commit",
+                    http_status_code=500,
+                ),
+            )
+            mock_github.download_archive = AsyncMock(return_value=tarball)
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/author_fail_ns/sync-from-git",
+                json={"ref": "main"},
+            )
+
+            # Deployment should still succeed without author info
+            assert response.status_code == HTTPStatus.OK
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["source"]["commit_author_name"] is None
+            assert data["source"]["commit_author_email"] is None

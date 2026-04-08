@@ -690,3 +690,33 @@ class GitHubService:
             )
             self._handle_error(resp, f"download {format}")
             return resp.content
+
+    async def get_commit_author(
+        self,
+        repo_path: str,
+        commit_sha: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return the (name, email) of the commit author for the given SHA.
+
+        Uses the GitHub Commits API which includes the full author object.
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            commit_sha: Full commit SHA
+
+        Returns:
+            Tuple of (author_name, author_email), either may be None if not present.
+
+        Raises:
+            GitHubServiceError: If the commit cannot be fetched.
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/commits/{commit_sha}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            self._handle_error(resp, f"get commit {commit_sha}")
+            data = resp.json()
+            author = data.get("commit", {}).get("author", {})
+            return author.get("name"), author.get("email")

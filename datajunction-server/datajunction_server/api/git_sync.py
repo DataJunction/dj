@@ -881,7 +881,22 @@ async def sync_namespace_from_git(
         commit_sha[:12],
     )
 
-    # 3. Download and parse YAML files from git at this commit
+    # 3. Fetch commit author so history records the person who changed the YAML,
+    #    not the CI caller. Failures are non-fatal — we proceed without author info.
+    commit_author_name, commit_author_email = None, None
+    try:
+        commit_author_name, commit_author_email = await github.get_commit_author(
+            github_repo_path,
+            commit_sha,
+        )
+    except GitHubServiceError:
+        _logger.warning(
+            "Could not fetch commit author for %s @ %s; history will use API caller",
+            github_repo_path,
+            commit_sha[:12],
+        )
+
+    # 4. Download and parse YAML files from git at this commit
     try:
         deployment_spec_dict = await _fetch_deployment_spec_from_git(
             github=github,
@@ -902,15 +917,17 @@ async def sync_namespace_from_git(
             + (f" in path '{git_path}'" if git_path else ""),
         )
 
-    # 4. Set source metadata (proves content came from verified commit)
+    # 5. Set source metadata (proves content came from verified commit)
     deployment_spec_dict["source"] = {
         "type": "git",
         "repository": github_repo_path,
         "branch": request_body.ref if request_body.ref != commit_sha else None,
         "commit_sha": commit_sha,
+        "commit_author_name": commit_author_name,
+        "commit_author_email": commit_author_email,
     }
 
-    # 5. Deploy using existing orchestrator
+    # 6. Deploy using existing orchestrator
     deployment_id = str(uuid.uuid4())
     deployment_spec = DeploymentSpec(**deployment_spec_dict)
 
@@ -951,5 +968,7 @@ async def sync_namespace_from_git(
             repository=github_repo_path,
             branch=request_body.ref if request_body.ref != commit_sha else None,
             commit_sha=commit_sha,
+            commit_author_name=commit_author_name,
+            commit_author_email=commit_author_email,
         ),
     )
