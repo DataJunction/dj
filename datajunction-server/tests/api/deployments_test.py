@@ -46,6 +46,110 @@ def patch_effective_writer_concurrency():
         yield
 
 
+def _assert_deployment_spec_matches(
+    input_spec,
+    deployed_spec,
+    namespace: str,
+    node_name: str,
+):
+    """
+    Assert that a deployed node's spec matches the input spec.
+
+    Handles namespace transformation (${prefix} -> namespace.) and
+    compares key fields based on node type.
+    """
+    prefix = f"{namespace}."
+
+    def transform_value(value):
+        """Transform ${prefix} placeholders to actual namespace."""
+        if isinstance(value, str):
+            return value.replace("${prefix}", prefix)
+        elif isinstance(value, list):
+            return [transform_value(v) for v in value]
+        elif isinstance(value, dict):
+            return {k: transform_value(v) for k, v in value.items()}
+        return value
+
+    # Common fields for all node types
+    assert deployed_spec.name == f"{prefix}{input_spec.name}", (
+        f"Name mismatch for {node_name}: "
+        f"expected {prefix}{input_spec.name}, got {deployed_spec.name}"
+    )
+
+    # Validate owners
+    if input_spec.owners:
+        assert set(deployed_spec.owners) == set(input_spec.owners), (
+            f"Owners mismatch for {node_name}"
+        )
+
+    # Validate description
+    if input_spec.description:
+        # Allow whitespace normalization in description
+        expected_desc = " ".join(input_spec.description.split())
+        actual_desc = " ".join((deployed_spec.description or "").split())
+        assert actual_desc == expected_desc, (
+            f"Description mismatch for {node_name}: "
+            f"expected '{expected_desc}', got '{actual_desc}'"
+        )
+
+    # Type-specific validations
+    if isinstance(input_spec, SourceSpec):
+        # Validate catalog/schema/table
+        assert deployed_spec.catalog == input_spec.catalog
+        assert deployed_spec.schema == input_spec.schema
+        assert deployed_spec.table == input_spec.table
+
+        # Validate columns
+        input_cols = {col.name: col for col in (input_spec.columns or [])}
+        deployed_cols = {col.name: col for col in (deployed_spec.columns or [])}
+        assert set(input_cols.keys()) == set(deployed_cols.keys()), (
+            f"Column name mismatch for {node_name}: "
+            f"expected {set(input_cols.keys())}, got {set(deployed_cols.keys())}"
+        )
+
+    elif isinstance(input_spec, (DimensionSpec, TransformSpec)):
+        # Validate query exists (content may have minor reformatting)
+        assert deployed_spec.query is not None, f"Query missing for {node_name}"
+
+        # Validate primary key for dimensions
+        if isinstance(input_spec, DimensionSpec) and input_spec.primary_key:
+            deployed_pk = deployed_spec.primary_key or []
+            assert set(deployed_pk) == set(input_spec.primary_key), (
+                f"Primary key mismatch for {node_name}"
+            )
+
+        # Validate dimension links
+        if input_spec.dimension_links:
+            assert len(deployed_spec.dimension_links or []) == len(
+                input_spec.dimension_links,
+            ), f"Dimension link count mismatch for {node_name}"
+
+    elif isinstance(input_spec, MetricSpec):
+        # Validate query exists
+        assert deployed_spec.query is not None, f"Query missing for {node_name}"
+
+        # Validate required_dimensions if present
+        if input_spec.required_dimensions:
+            assert set(deployed_spec.required_dimensions or []) == set(
+                input_spec.required_dimensions,
+            ), f"Required dimensions mismatch for {node_name}"
+
+    elif isinstance(input_spec, CubeSpec):
+        # Validate metrics
+        expected_metrics = [transform_value(m) for m in input_spec.metrics]
+        assert set(deployed_spec.metrics) == set(expected_metrics), (
+            f"Metrics mismatch for {node_name}: "
+            f"expected {expected_metrics}, got {deployed_spec.metrics}"
+        )
+
+        # Validate dimensions
+        expected_dims = [transform_value(d) for d in input_spec.dimensions]
+        assert set(deployed_spec.dimensions) == set(expected_dims), (
+            f"Dimensions mismatch for {node_name}: "
+            f"expected {expected_dims}, got {deployed_spec.dimensions}"
+        )
+
+
 @pytest.fixture
 def default_repair_orders():
     return SourceSpec(
@@ -2165,7 +2269,7 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
-    async def test_roads_deployment(self, client, roads_nodes):
+    async def test_roads_deployment(self, session, client, roads_nodes):
         namespace = "base"
         data = await deploy_and_wait(
             client,
@@ -2545,6 +2649,50 @@ class TestDeployments:
         )
         assert all(res["status"] == "skipped" for res in data["results"])
         assert all(res["operation"] == "noop" for res in data["results"])
+
+        # Comprehensive spec validation: verify deployed nodes match input specs
+        # Select a representative sample covering all node types
+        nodes_to_validate = [
+            # (input_spec, deployed_name, node_type)
+            ("default.repair_orders", f"{namespace}.default.repair_orders", "source"),
+            ("default.hard_hat", f"{namespace}.default.hard_hat", "dimension"),
+            (
+                "default.repair_orders_fact",
+                f"{namespace}.default.repair_orders_fact",
+                "transform",
+            ),  # noqa: E501
+            (
+                "default.num_repair_orders",
+                f"{namespace}.default.num_repair_orders",
+                "metric",
+            ),
+            ("default.repairs_cube", f"{namespace}.default.repairs_cube", "cube"),
+        ]
+
+        # Build lookup of input specs by name
+        input_specs_by_name = {spec.name: spec for spec in roads_nodes}
+
+        for input_name, deployed_name, node_type in nodes_to_validate:
+            input_spec = input_specs_by_name[input_name]
+
+            # Cubes need special load options to avoid lazy loading issues
+            options = Node.cube_load_options() if node_type == "cube" else None
+            deployed_node = await Node.get_by_name(
+                session,
+                deployed_name,
+                options=options,
+            )
+            assert deployed_node is not None, f"Deployed node {deployed_name} not found"
+
+            deployed_spec = await deployed_node.to_spec(session)
+
+            # Validate key fields match (with namespace transformation)
+            _assert_deployment_spec_matches(
+                input_spec,
+                deployed_spec,
+                namespace=namespace,
+                node_name=input_name,
+            )
 
     @pytest.mark.asyncio
     async def test_deploy_nested_namespace_not_treated_as_missing_dependency(

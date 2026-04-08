@@ -3485,6 +3485,273 @@ class TestCopyNodesToNamespace:
         assert "copy_test.feature_copy.source_table" in response.json()["query"]
 
 
+@pytest.mark.asyncio
+async def test_branch_copy_validates_all_specs_match(
+    session,
+    client_with_service_setup: AsyncClient,
+):
+    """
+    Comprehensive test that branch creation copies nodes with all attributes preserved.
+
+    Creates a comprehensive node graph with:
+    - Source with multiple column types
+    - Dimension with primary key
+    - Transform with dimension link
+    - Metric with metadata (direction, unit)
+    - Cube with partition
+
+    Validates that to_spec() on copied nodes matches to_spec() on originals
+    (after namespace transformation).
+    """
+    from datajunction_server.database.node import Node
+
+    client = client_with_service_setup
+    root_ns = "spec_validation"
+    main_ns = f"{root_ns}.main"
+    branch_ns = f"{root_ns}.feature_copy"
+
+    # 1. Set up git root namespace
+    await client.post(f"/namespaces/{root_ns}")
+    await client.patch(
+        f"/namespaces/{root_ns}/git",
+        json={
+            "github_repo_path": "myorg/spec-validation-repo",
+            "default_branch": "main",
+        },
+    )
+
+    # 2. Create main branch using the branches endpoint (required for git root namespaces)
+    with patch(
+        "datajunction_server.api.branches.GitHubService",
+    ) as mock_github_class:
+        mock_github = MagicMock()
+        mock_github.create_branch = AsyncMock(
+            return_value={
+                "ref": "refs/heads/main",
+                "object": {"sha": "abc123"},
+            },
+        )
+        mock_github.branch_exists = AsyncMock(return_value=False)
+        mock_github_class.return_value = mock_github
+
+        response = await client.post(
+            f"/namespaces/{root_ns}/branches",
+            json={"branch_name": "main"},
+        )
+        assert response.status_code in (
+            HTTPStatus.CREATED,
+            HTTPStatus.OK,
+        ), response.json()
+
+    # 3. Create comprehensive node graph in main namespace
+
+    # Source with multiple column types
+    response = await client.post(
+        "/nodes/source/",
+        json={
+            "name": f"{main_ns}.orders",
+            "description": "Orders table with various column types",
+            "catalog": "default",
+            "schema_": "public",
+            "table": "orders",
+            "columns": [
+                {"name": "order_id", "type": "int"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "order_date", "type": "timestamp"},
+                {"name": "amount", "type": "float"},
+                {"name": "status", "type": "string"},
+            ],
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Source for dimension
+    response = await client.post(
+        "/nodes/source/",
+        json={
+            "name": f"{main_ns}.customers_table",
+            "description": "Customers table",
+            "catalog": "default",
+            "schema_": "public",
+            "table": "customers",
+            "columns": [
+                {"name": "customer_id", "type": "int"},
+                {"name": "customer_name", "type": "string"},
+                {"name": "region", "type": "string"},
+            ],
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Dimension with primary key
+    response = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": f"{main_ns}.customer_dim",
+            "description": "Customer dimension",
+            "query": f"SELECT customer_id, customer_name, region FROM {main_ns}.customers_table",
+            "primary_key": ["customer_id"],
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Transform with dimension link
+    response = await client.post(
+        "/nodes/transform/",
+        json={
+            "name": f"{main_ns}.order_facts",
+            "description": "Order facts with customer info",
+            "query": f"SELECT order_id, customer_id, order_date, amount FROM {main_ns}.orders",
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Add dimension link to transform
+    response = await client.post(
+        f"/nodes/{main_ns}.order_facts/link",
+        json={
+            "dimension_node": f"{main_ns}.customer_dim",
+            "join_type": "left",
+            "join_on": f"{main_ns}.order_facts.customer_id = {main_ns}.customer_dim.customer_id",
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Metric with metadata
+    response = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": f"{main_ns}.total_revenue",
+            "description": "Total revenue from orders",
+            "query": f"SELECT SUM(amount) FROM {main_ns}.order_facts",
+            "metric_metadata": {
+                "direction": "higher_is_better",
+                "unit": "dollar",
+            },
+        },
+    )
+    assert response.status_code in (HTTPStatus.CREATED, HTTPStatus.OK), response.json()
+
+    # Cube with partition
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "name": f"{main_ns}.revenue_cube",
+            "description": "Revenue cube by customer",
+            "metrics": [f"{main_ns}.total_revenue"],
+            "dimensions": [f"{main_ns}.customer_dim.customer_name"],
+        },
+    )
+    assert response.status_code == HTTPStatus.CREATED, response.json()
+
+    # Nodes to validate with their types (for selecting proper load options)
+    nodes_to_validate = [
+        (f"{main_ns}.orders", "source"),
+        (f"{main_ns}.customer_dim", "dimension"),
+        (f"{main_ns}.order_facts", "transform"),
+        (f"{main_ns}.total_revenue", "metric"),
+        (f"{main_ns}.revenue_cube", "cube"),
+    ]
+
+    # Get original specs
+    original_specs = {}
+    for node_name, node_type in nodes_to_validate:
+        # Cubes need special load options
+        options = Node.cube_load_options() if node_type == "cube" else None
+        node = await Node.get_by_name(session, node_name, options=options)
+        assert node is not None, f"Node {node_name} not found"
+        original_specs[node_name] = await node.to_spec(session)
+
+    # 4. Create branch - this triggers fast-path copy
+    with patch(
+        "datajunction_server.api.branches.GitHubService",
+    ) as mock_github_class:
+        mock_github = MagicMock()
+        mock_github.create_branch = AsyncMock(
+            return_value={
+                "ref": "refs/heads/feature-copy",
+                "object": {"sha": "abc123"},
+            },
+        )
+        mock_github_class.return_value = mock_github
+
+        response = await client.post(
+            f"/namespaces/{root_ns}/branches",
+            json={"branch_name": "feature-copy"},
+        )
+        assert response.status_code == HTTPStatus.CREATED, response.json()
+
+    # 5. Get copied specs and compare
+    for node_name, node_type in nodes_to_validate:
+        original_spec = original_specs[node_name]
+        # Transform name to branch namespace
+        suffix = node_name.replace(f"{main_ns}.", "")
+        copied_name = f"{branch_ns}.{suffix}"
+
+        # Cubes need special load options
+        options = Node.cube_load_options() if node_type == "cube" else None
+        copied_node = await Node.get_by_name(session, copied_name, options=options)
+        assert copied_node is not None, f"Copied node {copied_name} not found"
+        copied_spec = await copied_node.to_spec(session)
+
+        # Compare specs with namespace transformation
+        _assert_specs_equivalent(
+            original_spec,
+            copied_spec,
+            from_ns=main_ns,
+            to_ns=branch_ns,
+            node_name=node_name,
+        )
+
+
+def _transform_namespace_in_value(value: str, from_ns: str, to_ns: str) -> str:
+    """Transform namespace references in a string value."""
+    return value.replace(f"{from_ns}.", f"{to_ns}.")
+
+
+def _assert_specs_equivalent(
+    original,
+    copied,
+    from_ns: str,
+    to_ns: str,
+    node_name: str,
+):
+    """
+    Assert two specs are equivalent after namespace transformation.
+
+    Compares all fields, transforming namespace references where appropriate.
+    """
+    original_dict = original.model_dump(exclude_none=True, exclude_unset=True)
+    copied_dict = copied.model_dump(exclude_none=True, exclude_unset=True)
+
+    # Transform namespace references in original to match expected copied form
+    def transform_dict(d):
+        if isinstance(d, dict):
+            return {k: transform_dict(v) for k, v in d.items()}
+        elif isinstance(d, list):
+            return [transform_dict(item) for item in d]
+        elif isinstance(d, str):
+            return _transform_namespace_in_value(d, from_ns, to_ns)
+        return d
+
+    expected_dict = transform_dict(original_dict)
+
+    # Compare each field for better error messages
+    all_keys = set(expected_dict.keys()) | set(copied_dict.keys())
+    mismatches = []
+
+    for key in sorted(all_keys):
+        expected_val = expected_dict.get(key)
+        copied_val = copied_dict.get(key)
+
+        if expected_val != copied_val:
+            mismatches.append(
+                f"  {key}:\n    expected: {expected_val}\n    got:      {copied_val}",
+            )
+
+    assert not mismatches, f"Spec mismatch for {node_name}:\n" + "\n".join(mismatches)
+
+
 class TestGitHubServiceErrorHandling:
     """Tests for GitHub service error handling edge cases."""
 
