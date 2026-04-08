@@ -2727,13 +2727,13 @@ class TestGitCommands:
 
 
 #
-# Branch command tests
+# Branch command tests (under `dj git`)
 #
-class TestBranchCommands:
-    """Tests for `dj branch` command group."""
+class TestGitBranchCommands:
+    """Tests for `dj git create-branch/list-branches/delete-branch` commands."""
 
-    def test_branch_create(self, builder_client: DJBuilder):
-        """Test `dj branch create <namespace> <branch-name>`"""
+    def test_git_create_branch(self, builder_client: DJBuilder):
+        """Test `dj git create-branch <namespace> <branch-name>`"""
         from datajunction.nodes import Namespace
 
         mock_namespace = mock.MagicMock(spec=Namespace)
@@ -2742,7 +2742,7 @@ class TestBranchCommands:
         with patch.object(
             builder_client, "create_branch", return_value=mock_namespace,
         ) as mock_create:
-            test_args = ["dj", "branch", "create", "myns", "feature-x"]
+            test_args = ["dj", "git", "create-branch", "myns", "feature-x"]
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
@@ -2751,8 +2751,8 @@ class TestBranchCommands:
                 branch_name="feature-x",
             )
 
-    def test_branch_list(self, builder_client: DJBuilder):
-        """Test `dj branch list <namespace>`"""
+    def test_git_list_branches(self, builder_client: DJBuilder):
+        """Test `dj git list-branches <namespace>`"""
         from datajunction.models import BranchInfo
 
         mock_branches = [
@@ -2773,14 +2773,14 @@ class TestBranchCommands:
         with patch.object(
             builder_client, "list_branches", return_value=mock_branches,
         ) as mock_list:
-            test_args = ["dj", "branch", "list", "myns"]
+            test_args = ["dj", "git", "list-branches", "myns"]
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
             mock_list.assert_called_once_with(namespace="myns")
 
-    def test_branch_list_json(self, builder_client: DJBuilder, capsys):
-        """Test `dj branch list <namespace> --format json`"""
+    def test_git_list_branches_json(self, builder_client: DJBuilder, capsys):
+        """Test `dj git list-branches <namespace> --format json`"""
         from datajunction.models import BranchInfo
 
         mock_branches = [
@@ -2793,7 +2793,7 @@ class TestBranchCommands:
         ]
 
         with patch.object(builder_client, "list_branches", return_value=mock_branches):
-            test_args = ["dj", "branch", "list", "myns", "--format", "json"]
+            test_args = ["dj", "git", "list-branches", "myns", "--format", "json"]
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
@@ -2803,22 +2803,22 @@ class TestBranchCommands:
         assert output[0]["namespace"] == "myns.feature_x"
         assert output[0]["git_branch"] == "feature-x"
 
-    def test_branch_list_empty(self, builder_client: DJBuilder, capsys):
-        """Test `dj branch list` with no branches."""
+    def test_git_list_branches_empty(self, builder_client: DJBuilder, capsys):
+        """Test `dj git list-branches` with no branches."""
         with patch.object(builder_client, "list_branches", return_value=[]):
-            test_args = ["dj", "branch", "list", "myns"]
+            test_args = ["dj", "git", "list-branches", "myns"]
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
         captured = capsys.readouterr()
         assert "No branches found" in captured.out
 
-    def test_branch_delete(self, builder_client: DJBuilder):
-        """Test `dj branch delete <namespace> <branch-name>`"""
+    def test_git_delete_branch(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch <namespace> <branch-name>`"""
         with patch.object(
             builder_client, "delete_branch", return_value=None,
         ) as mock_delete:
-            test_args = ["dj", "branch", "delete", "myns", "feature-x"]
+            test_args = ["dj", "git", "delete-branch", "myns", "feature-x"]
             with patch.object(sys, "argv", test_args):
                 main(builder_client=builder_client)
 
@@ -2828,15 +2828,15 @@ class TestBranchCommands:
                 delete_git_branch=True,
             )
 
-    def test_branch_delete_keep_git_branch(self, builder_client: DJBuilder):
-        """Test `dj branch delete <namespace> <branch-name> --keep-git-branch`"""
+    def test_git_delete_branch_keep_git_branch(self, builder_client: DJBuilder):
+        """Test `dj git delete-branch <namespace> <branch-name> --keep-git-branch`"""
         with patch.object(
             builder_client, "delete_branch", return_value=None,
         ) as mock_delete:
             test_args = [
                 "dj",
-                "branch",
-                "delete",
+                "git",
+                "delete-branch",
                 "myns",
                 "feature-x",
                 "--keep-git-branch",

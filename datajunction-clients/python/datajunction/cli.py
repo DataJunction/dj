@@ -1349,39 +1349,30 @@ class DJCLI:
             help="The namespace to clear git config from",
         )
 
-        # `dj branch` command group
-        branch_parser = subparsers.add_parser(
-            "branch",
-            help="Branch namespace management",
+        # `dj git create-branch <namespace> <branch-name>`
+        git_create_branch_parser = git_subparsers.add_parser(
+            "create-branch",
+            help="Create a branch namespace for development",
         )
-        branch_subparsers = branch_parser.add_subparsers(
-            dest="branch_command", required=True,
-        )
-
-        # `dj branch create <namespace> <branch-name>`
-        branch_create_parser = branch_subparsers.add_parser(
-            "create",
-            help="Create a branch namespace",
-        )
-        branch_create_parser.add_argument(
+        git_create_branch_parser.add_argument(
             "namespace",
             help="The git root namespace (e.g., 'myns')",
         )
-        branch_create_parser.add_argument(
+        git_create_branch_parser.add_argument(
             "branch_name",
             help="The git branch name (e.g., 'feature-x')",
         )
 
-        # `dj branch list <namespace>`
-        branch_list_parser = branch_subparsers.add_parser(
-            "list",
+        # `dj git list-branches <namespace>`
+        git_list_branches_parser = git_subparsers.add_parser(
+            "list-branches",
             help="List branch namespaces under a root namespace",
         )
-        branch_list_parser.add_argument(
+        git_list_branches_parser.add_argument(
             "namespace",
             help="The git root namespace to list branches for",
         )
-        branch_list_parser.add_argument(
+        git_list_branches_parser.add_argument(
             "--format",
             type=str,
             default="text",
@@ -1389,20 +1380,20 @@ class DJCLI:
             help="Output format (default: text)",
         )
 
-        # `dj branch delete <namespace> <branch-name>`
-        branch_delete_parser = branch_subparsers.add_parser(
-            "delete",
+        # `dj git delete-branch <namespace> <branch-name>`
+        git_delete_branch_parser = git_subparsers.add_parser(
+            "delete-branch",
             help="Delete a branch namespace",
         )
-        branch_delete_parser.add_argument(
+        git_delete_branch_parser.add_argument(
             "namespace",
             help="The git root namespace (e.g., 'myns')",
         )
-        branch_delete_parser.add_argument(
+        git_delete_branch_parser.add_argument(
             "branch_name",
             help="The git branch name to delete (e.g., 'feature-x')",
         )
-        branch_delete_parser.add_argument(
+        git_delete_branch_parser.add_argument(
             "--keep-git-branch",
             action="store_true",
             help="Keep the git branch in GitHub (only delete DJ namespace)",
@@ -1535,15 +1526,14 @@ class DJCLI:
                 self.git_show(namespace=args.namespace, format=args.format)
             elif args.git_command == "clear":
                 self.git_clear(namespace=args.namespace)
-        elif args.command == "branch":
-            if args.branch_command == "create":
+            elif args.git_command == "create-branch":
                 self.branch_create(
                     namespace=args.namespace,
                     branch_name=args.branch_name,
                 )
-            elif args.branch_command == "list":
+            elif args.git_command == "list-branches":
                 self.branch_list(namespace=args.namespace, format=args.format)
-            elif args.branch_command == "delete":
+            elif args.git_command == "delete-branch":
                 self.branch_delete(
                     namespace=args.namespace,
                     branch_name=args.branch_name,
