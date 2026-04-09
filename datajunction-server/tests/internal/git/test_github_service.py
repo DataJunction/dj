@@ -1053,3 +1053,60 @@ class TestDownloadArchive:
 
             assert "download tarball failed" in str(exc_info.value)
             assert exc_info.value.github_status == 404
+
+
+class TestGetCommitAuthor:
+    """Tests for GitHubService.get_commit_author."""
+
+    @pytest.mark.asyncio
+    async def test_get_commit_author_success(self, github_service):
+        """Should return (name, email) from the commit author object."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "commit": {
+                "author": {
+                    "name": "Alice Smith",
+                    "email": "alice@example.com",
+                },
+            },
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            name, email = await github_service.get_commit_author(
+                repo_path="owner/repo",
+                commit_sha="abc123def456",
+            )
+
+            assert name == "Alice Smith"
+            assert email == "alice@example.com"
+
+            call_args = mock_client.return_value.__aenter__.return_value.get.call_args
+            assert "/repos/owner/repo/commits/abc123def456" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_get_commit_author_error(self, github_service):
+        """Should raise GitHubServiceError when the commit cannot be fetched."""
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Not Found"}
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=mock_response,
+            )
+
+            with pytest.raises(GitHubServiceError) as exc_info:
+                await github_service.get_commit_author(
+                    repo_path="owner/repo",
+                    commit_sha="deadbeef",
+                )
+
+            assert "get commit deadbeef failed" in str(exc_info.value)
+            assert exc_info.value.github_status == 404
