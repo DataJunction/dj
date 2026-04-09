@@ -42,19 +42,10 @@ const NODE_TYPE_COLORS = {
   source: { bg: '#ccf7e5', color: '#00b368' },
 };
 
-function DefaultBranchPreview({ nodes, defaultBranchNs }) {
-  const groups = {};
-  nodes.forEach(node => {
-    const type = (node.type || 'unknown').toLowerCase();
-    if (!groups[type]) groups[type] = [];
-    groups[type].push(node);
-  });
-  const grouped = NODE_TYPE_ORDER.filter(t => groups[t]?.length > 0).map(t => ({
-    type: t,
-    nodes: groups[t],
-  }));
+function DefaultBranchPreview({ groups, defaultBranchNs }) {
+  const filtered = groups.filter(g => g.nodes.length > 0);
 
-  if (grouped.length === 0) return null;
+  if (filtered.length === 0) return null;
 
   return (
     <div
@@ -65,9 +56,8 @@ function DefaultBranchPreview({ nodes, defaultBranchNs }) {
         margin: '20px',
       }}
     >
-      {grouped.map(({ type, nodes: typeNodes }, idx) => {
-        const shown = typeNodes.slice(0, MAX_PER_TYPE);
-        const remaining = typeNodes.length - shown.length;
+      {filtered.map(({ type, nodes: typeNodes, hasMore }, idx) => {
+        const shown = typeNodes;
         const isLeftCol = idx % 2 === 0;
         return (
           <div
@@ -113,7 +103,7 @@ function DefaultBranchPreview({ nodes, defaultBranchNs }) {
                   {typeNodes.length}
                 </span>
               </span>
-              {remaining > 0 && (
+              {hasMore && (
                 <a
                   href={`/namespaces/${defaultBranchNs}?type=${type}`}
                   style={{
@@ -123,7 +113,7 @@ function DefaultBranchPreview({ nodes, defaultBranchNs }) {
                     fontWeight: '500',
                   }}
                 >
-                  +{remaining} more →
+                  see all →
                 </a>
               )}
             </div>
@@ -383,7 +373,7 @@ export function NamespacePage() {
   // Branch landing state (for git-root namespaces)
   const [branches, setBranches] = useState(null); // null = not yet fetched
   const [branchesLoading, setBranchesLoading] = useState(false);
-  const [defaultBranchNodes, setDefaultBranchNodes] = useState([]);
+  const [defaultBranchGroups, setDefaultBranchGroups] = useState([]);
   const [defaultBranchNodesLoading, setDefaultBranchNodesLoading] =
     useState(false);
 
@@ -426,35 +416,45 @@ export function NamespacePage() {
       .finally(() => setBranchesLoading(false));
   }, [djClient, namespace, isGitRoot]);
 
-  // Fetch default branch nodes for the TypeGroupGrid preview
+  // Fetch default branch nodes for the preview, one query per node type so
+  // that no single type crowds out the others in a shared limit.
   useEffect(() => {
     if (!isGitRoot || !gitConfig?.default_branch) return;
     const defaultBranchNs = `${namespace}.${gitConfig.default_branch}`;
     setDefaultBranchNodesLoading(true);
-    djClient
-      .listNodesForLanding(
-        defaultBranchNs,
-        [],
-        [],
-        null,
-        null,
-        null,
-        200,
-        { key: 'updatedAt', direction: 'descending' },
-        null,
-        {},
-      )
-      .then(result => {
-        const nodes =
-          result?.data?.findNodesPaginated?.edges?.map(e => ({
-            ...e.node,
-            // TypeGroupGrid reads status/mode at top level; normalize from current
-            status: e.node.current?.status,
-            mode: e.node.current?.mode,
-          })) || [];
-        setDefaultBranchNodes(nodes);
-      })
-      .catch(() => setDefaultBranchNodes([]))
+    const fetchLimit = MAX_PER_TYPE + 1;
+    Promise.all(
+      NODE_TYPE_ORDER.map(type =>
+        djClient
+          .listNodesForLanding(
+            defaultBranchNs,
+            [type.toUpperCase()],
+            [],
+            null,
+            null,
+            null,
+            fetchLimit,
+            { key: 'name', direction: 'ascending' },
+            null,
+            {},
+          )
+          .then(result => {
+            const edges = result?.data?.findNodesPaginated?.edges ?? [];
+            const nodes = edges.map(e => ({
+              ...e.node,
+              status: e.node.current?.status,
+              mode: e.node.current?.mode,
+            }));
+            return {
+              type,
+              nodes: nodes.slice(0, MAX_PER_TYPE),
+              hasMore: nodes.length > MAX_PER_TYPE,
+            };
+          })
+          .catch(() => ({ type, nodes: [], hasMore: false })),
+      ),
+    )
+      .then(groups => setDefaultBranchGroups(groups))
       .finally(() => setDefaultBranchNodesLoading(false));
   }, [djClient, namespace, isGitRoot, gitConfig?.default_branch]);
 
@@ -1531,7 +1531,7 @@ export function NamespacePage() {
                         <LoadingIcon />
                       ) : (
                         <DefaultBranchPreview
-                          nodes={defaultBranchNodes}
+                          groups={defaultBranchGroups}
                           defaultBranchNs={`${namespace}.${gitConfig.default_branch}`}
                         />
                       )}
