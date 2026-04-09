@@ -4815,7 +4815,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/empty_archive_ns/sync-from-git",
-                )
+            )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "Failed to extract archive" in response.json()["message"]
@@ -4851,7 +4851,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/bad_path_ns/sync-from-git",
-                )
+            )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "nonexistent/subdir" in response.json()["message"]
@@ -4902,7 +4902,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/dj_yaml_ns/sync-from-git",
-                )
+            )
 
             assert response.status_code == HTTPStatus.OK
             # Only the real node should be deployed, not the dj.yaml content
@@ -4952,7 +4952,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/noname_yaml_ns/sync-from-git",
-                )
+            )
 
             # Only the valid node should be deployed
             assert response.status_code == HTTPStatus.OK
@@ -4999,7 +4999,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/bad_yaml_ns/sync-from-git",
-                )
+            )
 
             # The valid node should still be deployed despite the broken file
             assert response.status_code == HTTPStatus.OK
@@ -5035,7 +5035,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/dl_fail_ns/sync-from-git",
-                )
+            )
 
             assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
             assert "Failed to fetch from git" in response.json()["message"]
@@ -5088,7 +5088,7 @@ columns:
             with pytest.raises(RuntimeError, match="Unexpected deploy failure"):
                 await client_with_service_setup.post(
                     "/namespaces/orch_fail_ns/sync-from-git",
-                    )
+                )
 
     @pytest.mark.asyncio
     async def test_sync_from_git_commit_author_fetch_fails(
@@ -5133,7 +5133,7 @@ columns:
 
             response = await client_with_service_setup.post(
                 "/namespaces/author_fail_ns/sync-from-git",
-                )
+            )
 
             # Deployment should still succeed without author info
             assert response.status_code == HTTPStatus.OK
