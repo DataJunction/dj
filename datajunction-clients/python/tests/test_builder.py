@@ -1219,6 +1219,47 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods, protected-acces
                 client.clear_git_config(namespace="nonexistent")
             assert "Namespace not found" in str(exc_info.value)
 
+    def test_sync_from_git(self, client):
+        """
+        Verifies that sync_from_git POSTs to the correct endpoint and returns the response.
+        """
+        expected_response = {
+            "source": {
+                "branch": "main",
+                "commit_sha": "abc123",
+                "commit_author_email": "alice@example.com",
+            },
+            "results": [{"operation": "create"}, {"operation": "noop"}],
+        }
+        mock_response = MagicMock(
+            status_code=200,
+            json=lambda: expected_response,
+        )
+        with patch.object(
+            client._session,
+            "post",
+            return_value=mock_response,
+        ) as mock_post:
+            result = client.sync_from_git(namespace="myns")
+            assert result == expected_response
+            mock_post.assert_called_once_with(
+                "/namespaces/myns/sync-from-git",
+                timeout=client._timeout,
+            )
+
+    def test_sync_from_git_error(self, client):
+        """
+        Verifies that sync_from_git raises DJClientException on error.
+        """
+        mock_response = MagicMock(
+            status_code=422,
+            json=lambda: {"message": "No git branch configured for namespace"},
+        )
+        with patch.object(client._session, "post", return_value=mock_response):
+            with pytest.raises(DJClientException) as exc_info:
+                client.sync_from_git(namespace="myns")
+            assert "No git branch configured" in str(exc_info.value)
+
     def test_get_node_revisions(self, client):
         """
         Verifies that retrieving node revisions works

@@ -2964,3 +2964,60 @@ class TestGitBranchCommands:
                 with pytest.raises(SystemExit) as exc_info:
                     main(builder_client=builder_client)
                 assert exc_info.value.code == 1
+
+
+#
+# Git sync command tests (under `dj git`)
+#
+class TestGitSyncCommand:
+    """Tests for `dj git sync` command."""
+
+    def test_git_sync_success(self, builder_client: DJBuilder, capsys):
+        """Test `dj git sync <namespace>` prints summary of created/updated/unchanged nodes."""
+        with patch.object(
+            builder_client,
+            "sync_from_git",
+            return_value={
+                "source": {
+                    "branch": "main",
+                    "commit_sha": "abc123def456789",
+                },
+                "results": [
+                    {"operation": "create"},
+                    {"operation": "create"},
+                    {"operation": "update"},
+                    {"operation": "noop"},
+                ],
+            },
+        ) as mock_sync:
+            test_args = ["dj", "git", "sync", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)
+
+            mock_sync.assert_called_once_with(namespace="myns")
+
+    def test_git_sync_no_source(self, builder_client: DJBuilder):
+        """Test `dj git sync` handles missing source gracefully (branch/sha show as unknown/empty)."""
+        with patch.object(
+            builder_client,
+            "sync_from_git",
+            return_value={"source": None, "results": []},
+        ):
+            test_args = ["dj", "git", "sync", "myns"]
+            with patch.object(sys, "argv", test_args):
+                main(builder_client=builder_client)  # should not raise
+
+    def test_git_sync_error(self, builder_client: DJBuilder):
+        """Test `dj git sync` error handling exits with code 1."""
+        from datajunction.exceptions import DJClientException
+
+        with patch.object(
+            builder_client,
+            "sync_from_git",
+            side_effect=DJClientException("No git branch configured"),
+        ):
+            test_args = ["dj", "git", "sync", "myns"]
+            with patch.object(sys, "argv", test_args):
+                with pytest.raises(SystemExit) as exc_info:
+                    main(builder_client=builder_client)
+                assert exc_info.value.code == 1
