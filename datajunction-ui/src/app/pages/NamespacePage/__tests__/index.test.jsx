@@ -702,18 +702,27 @@ describe('NamespacePage', () => {
       );
     });
 
-    it('calls listNodesForLanding for the default branch namespace', async () => {
+    it('calls listNodesForLanding once per node type for the default branch namespace', async () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(
         () => {
-          // After isGitRoot is set, a second listNodesForLanding call for
-          // 'default.main' should be made
+          // One call per node type is made for the default branch preview
           const calls = mockDjClient.listNodesForLanding.mock.calls;
-          const defaultBranchCall = calls.find(
+          const defaultBranchCalls = calls.filter(
             args => args[0] === 'default.main',
           );
-          expect(defaultBranchCall).toBeDefined();
+          expect(defaultBranchCalls).toHaveLength(5);
+          const types = defaultBranchCalls.map(args => args[1][0]);
+          expect(types).toEqual(
+            expect.arrayContaining([
+              'METRIC',
+              'CUBE',
+              'DIMENSION',
+              'TRANSFORM',
+              'SOURCE',
+            ]),
+          );
         },
         { timeout: 3000 },
       );
