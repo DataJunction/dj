@@ -1495,6 +1495,39 @@ class TestFilterCteProjectionPositionalGroupBy:
                 f"Expected positional integer in GROUP BY, got {type(item)}: {item}"
             )
 
+    def test_positional_group_by_pointing_at_unaliased_expression(self):
+        """
+        Positional GROUP BY pointing at a complex unaliased expression (no alias)
+        — _col_name returns None so we can't protect it by name. The query is
+        still handled without error and other columns are pruned normally.
+        """
+        query_ast = parse("SELECT SUM(x), a, b FROM t GROUP BY 1")
+        # Position 1 is SUM(x) with no alias — _col_name returns None (788->783 branch)
+        result = filter_cte_projection(query_ast, {"a"})
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by columns_to_select
+        assert "b" not in col_names  # pruned
+
+    def test_non_column_group_by_item_does_not_crash(self):
+        """
+        A GROUP BY item that is neither a positional integer nor a plain column
+        (e.g. a function call like UPPER(a)) is ignored for protection purposes
+        but must not cause an error. Other columns are still pruned normally.
+        """
+        query_ast = parse("SELECT a, b, c FROM t GROUP BY UPPER(a)")
+        result = filter_cte_projection(query_ast, {"c"})
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "c" in col_names  # kept by columns_to_select
+        assert "b" not in col_names  # pruned
+
 
 class TestFlattenInnerCtes:
     """Tests for flatten_inner_ctes function."""
