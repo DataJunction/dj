@@ -716,6 +716,29 @@ class DJCLI:
             console.print(f"[bold red]ERROR:[/bold red] {exc}")
             raise SystemExit(1)
 
+    def git_sync(self, namespace: str):
+        """Sync a namespace from the HEAD of its configured git branch."""
+        console = Console()
+        try:
+            info = self.builder_client.sync_from_git(namespace=namespace)
+            source = info.get("source") or {}
+            branch = source.get("branch", "unknown")
+            commit = (source.get("commit_sha") or "")[:12]
+            results = info.get("results", [])
+            created = sum(1 for r in results if r.get("operation") == "create")
+            updated = sum(1 for r in results if r.get("operation") == "update")
+            skipped = sum(1 for r in results if r.get("operation") == "noop")
+            console.print(
+                f"[green]Synced namespace[/green] [bold]{namespace}[/bold] "
+                f"from [bold]{branch}[/bold] @ [dim]{commit}[/dim]",
+            )
+            console.print(
+                f"  {created} created, {updated} updated, {skipped} unchanged",
+            )
+        except DJClientException as exc:
+            console.print(f"[bold red]ERROR:[/bold red] {exc}")
+            raise SystemExit(1)
+
     #
     # Branch commands
     #
@@ -1352,6 +1375,16 @@ class DJCLI:
             help="The namespace to clear git config from",
         )
 
+        # `dj git sync <namespace>`
+        git_sync_parser = git_subparsers.add_parser(
+            "sync",
+            help="Sync a namespace from the HEAD of its configured git branch",
+        )
+        git_sync_parser.add_argument(
+            "namespace",
+            help="The namespace to sync",
+        )
+
         # `dj git create-branch <namespace> <branch-name>`
         git_create_branch_parser = git_subparsers.add_parser(
             "create-branch",
@@ -1536,6 +1569,8 @@ class DJCLI:
                 )
             elif args.git_command == "list-branches":
                 self.branch_list(namespace=args.namespace, format=args.format)
+            elif args.git_command == "sync":
+                self.git_sync(namespace=args.namespace)
             elif args.git_command == "delete-branch":  # pragma: no branch
                 self.branch_delete(
                     namespace=args.namespace,

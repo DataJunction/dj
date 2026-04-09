@@ -241,6 +241,26 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         if not response.status_code < 400:
             raise DJClientException(response.json()["message"])
 
+    def sync_from_git(self, namespace: str) -> dict:
+        """Sync a namespace by pulling the latest commit from its configured git branch.
+
+        The server fetches content directly from GitHub — no ref is accepted.
+        Everything needed (repo, branch, path) is read from the namespace's git config.
+
+        Args:
+            namespace: The namespace to sync
+
+        Returns:
+            DeploymentInfo dict with status, results, and source metadata
+        """
+        response = self._session.post(
+            f"/namespaces/{namespace}/sync-from-git",
+            timeout=self._timeout,
+        )
+        if not response.status_code < 400:
+            raise DJClientException(response.json()["message"])
+        return response.json()
+
     #
     # Nodes: all
     #
