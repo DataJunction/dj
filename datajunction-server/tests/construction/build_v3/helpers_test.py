@@ -1367,6 +1367,168 @@ class TestFilterCteProjection:
         assert len(projection) == 2
 
 
+class TestFilterCteProjectionPositionalGroupBy:
+    """Tests for filter_cte_projection with positional GROUP BY handling."""
+
+    def test_positional_group_by_protects_columns_from_pruning(self):
+        """
+        Core regression: a column referenced only via positional GROUP BY must
+        not be pruned even when it isn't in columns_to_select.
+        """
+        query_ast = parse("SELECT a, b, c, SUM(x) AS total FROM t GROUP BY 1, 2, 3")
+        result = filter_cte_projection(query_ast, {"a", "c", "total"})
+        col_names = [
+            str(p.name.name)
+            if isinstance(p, ast.Column)
+            else (str(p.alias.name) if isinstance(p, ast.Alias) and p.alias else None)
+            for p in result.select.projection
+        ]
+        # b must be kept — GROUP BY 2 depends on it
+        assert "b" in col_names
+
+    def test_positional_group_by_not_renumbered_when_nothing_pruned(self):
+        """When no columns are pruned, positional GROUP BY integers stay the same."""
+        query_ast = parse("SELECT a, b, c FROM t GROUP BY 1, 2, 3")
+        result = filter_cte_projection(query_ast, {"a", "b", "c"})
+        positions = [
+            int(item.value)
+            for item in result.select.group_by
+            if isinstance(item, ast.Number)
+        ]
+        assert positions == [1, 2, 3]
+
+    def test_positional_group_by_renumbered_after_pruning(self):
+        """
+        When columns before a GROUP BY position are pruned, the positional
+        integer is renumbered to reflect the new SELECT order.
+
+        SELECT a, b, c, d, SUM(x) AS total GROUP BY 1, 4
+        Only {a, total} needed → b and c pruned → d moves from pos 4 to pos 2.
+        GROUP BY should become 1, 2.
+        """
+        query_ast = parse("SELECT a, b, c, d, SUM(x) AS total FROM t GROUP BY 1, 4")
+        result = filter_cte_projection(query_ast, {"a", "total"})
+        positions = [
+            int(item.value)
+            for item in result.select.group_by
+            if isinstance(item, ast.Number)
+        ]
+        assert positions == [1, 2]
+
+    def test_out_of_bounds_positional_ref_left_unchanged(self):
+        """Positional references beyond the SELECT list are left as-is."""
+        query_ast = parse("SELECT a, b FROM t GROUP BY 1, 99")
+        result = filter_cte_projection(query_ast, {"a", "b"})
+        numbers = [
+            int(item.value)
+            for item in result.select.group_by
+            if isinstance(item, ast.Number)
+        ]
+        assert 99 in numbers
+
+    def test_named_group_by_columns_protected(self):
+        """Columns referenced by name in GROUP BY are never pruned."""
+        query_ast = parse("SELECT a, b, c FROM t GROUP BY a")
+        result = filter_cte_projection(query_ast, {"c"})
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by GROUP BY
+        assert "c" in col_names  # kept by columns_to_select
+        assert "b" not in col_names  # pruned
+
+    def test_multiple_named_group_by_columns_all_protected(self):
+        """All named GROUP BY columns are protected; unrelated ones are pruned."""
+        query_ast = parse("SELECT a, b, c, d FROM t GROUP BY a, c")
+        result = filter_cte_projection(query_ast, set())
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by GROUP BY
+        assert "c" in col_names  # kept by GROUP BY
+        assert "b" not in col_names  # pruned
+        assert "d" not in col_names  # pruned
+
+    def test_table_qualified_group_by_columns_protected(self):
+        """Table-qualified GROUP BY columns (t.col) are protected from pruning."""
+        query_ast = parse("SELECT t.a, t.b, t.c, t.d FROM t GROUP BY t.a, t.c")
+        result = filter_cte_projection(query_ast, set())
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by GROUP BY t.a
+        assert "c" in col_names  # kept by GROUP BY t.c
+        assert "b" not in col_names  # pruned
+        assert "d" not in col_names  # pruned
+
+    def test_mixed_positional_and_named_group_by(self):
+        """Mixed GROUP BY with positional and named references both work."""
+        query_ast = parse("SELECT a, b, c FROM t GROUP BY 1, c")
+        result = filter_cte_projection(query_ast, set())
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by GROUP BY 1
+        assert "c" in col_names  # kept by GROUP BY c
+
+    def test_literal_constant_in_group_by_position_stays_positional(self):
+        """
+        Trino regression: SELECT ..., 1 AS has_session GROUP BY 1, 2, 3.
+        Rewriting GROUP BY 3 to 'has_session' would break Trino (aliases not
+        valid in GROUP BY). The fix keeps references positional and only
+        renumbers after pruning.
+        """
+        query_ast = parse(
+            "SELECT a, b, 1 AS has_session, SUM(x) AS total FROM t GROUP BY 1, 2, 3",
+        )
+        result = filter_cte_projection(query_ast, {"a", "total"})
+        for item in result.select.group_by:
+            assert isinstance(item, ast.Number), (
+                f"Expected positional integer in GROUP BY, got {type(item)}: {item}"
+            )
+
+    def test_positional_group_by_pointing_at_unaliased_expression(self):
+        """
+        Positional GROUP BY pointing at a complex unaliased expression (no alias)
+        — _col_name returns None so we can't protect it by name. The query is
+        still handled without error and other columns are pruned normally.
+        """
+        query_ast = parse("SELECT SUM(x), a, b FROM t GROUP BY 1")
+        # Position 1 is SUM(x) with no alias — _col_name returns None (788->783 branch)
+        result = filter_cte_projection(query_ast, {"a"})
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "a" in col_names  # kept by columns_to_select
+        assert "b" not in col_names  # pruned
+
+    def test_non_column_group_by_item_does_not_crash(self):
+        """
+        A GROUP BY item that is neither a positional integer nor a plain column
+        (e.g. a function call like UPPER(a)) is ignored for protection purposes
+        but must not cause an error. Other columns are still pruned normally.
+        """
+        query_ast = parse("SELECT a, b, c FROM t GROUP BY UPPER(a)")
+        result = filter_cte_projection(query_ast, {"c"})
+        col_names = [
+            str(p.name.name)
+            for p in result.select.projection
+            if isinstance(p, ast.Column)
+        ]
+        assert "c" in col_names  # kept by columns_to_select
+        assert "b" not in col_names  # pruned
+
+
 class TestFlattenInnerCtes:
     """Tests for flatten_inner_ctes function."""
 

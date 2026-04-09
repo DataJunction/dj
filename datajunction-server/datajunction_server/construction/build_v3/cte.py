@@ -746,6 +746,16 @@ def filter_cte_projection(
     This modifies the SELECT clause to only project columns that are
     actually needed downstream.
 
+    Columns referenced by name in GROUP BY are always protected from pruning,
+    and positional references (eg GROUP BY 1, 2, 3) are handled safely:
+    - Columns at referenced positions are protected from pruning.
+    - After pruning, positional integers are renumbered to reflect the new
+      SELECT order, so they continue to point at the correct columns.
+
+    This avoids rewriting positional references to alias names, which is
+    invalid in dialects like Trino where GROUP BY cannot reference SELECT
+    aliases.
+
     Args:
         query_ast: The query AST to modify
         columns_to_select: Set of column names to keep
@@ -756,27 +766,63 @@ def filter_cte_projection(
     if not query_ast.select.projection:  # pragma: no cover
         return query_ast
 
-    new_projection = []
-    for expr in query_ast.select.projection:
-        # Get the name this column will be known by
-        if isinstance(expr, ast.Alias):
-            col_name = str(expr.alias.name) if expr.alias else None
-            if not col_name and isinstance(expr.child, ast.Column):  # pragma: no cover
-                col_name = str(expr.child.name.name)
-        elif isinstance(expr, ast.Column):
-            col_name = str(expr.alias.name) if expr.alias else str(expr.name.name)
-        else:  # pragma: no cover
-            # Keep expressions we can't analyze (defensive - shouldn't happen in practice)
-            new_projection.append(expr)
-            continue
+    projection = query_ast.select.projection
 
-        # Keep if it's in our needed set
-        if col_name and col_name in columns_to_select:
+    def _col_name(expr: object) -> str | None:
+        if isinstance(expr, ast.Alias):
+            return str(expr.alias.name) if expr.alias else None
+        if isinstance(expr, ast.Column):
+            return str(expr.alias.name) if expr.alias else str(expr.name.name)
+        return None
+
+    # Protect columns that GROUP BY depends on so we never prune them.
+    # Positional references (integers) protect the column at that SELECT position;
+    # named references protect by column name.
+    effective_cols = set(columns_to_select)
+    positional_refs: set[int] = set()  # 1-indexed positions from GROUP BY
+    for item in query_ast.select.group_by:
+        if isinstance(item, ast.Number) and isinstance(item.value, int):
+            pos = int(item.value)
+            if 1 <= pos <= len(projection):
+                positional_refs.add(pos)
+                if name := _col_name(projection[pos - 1]):
+                    effective_cols.add(name)
+        elif isinstance(item, ast.Column):
+            name = str(item.alias.name) if item.alias else str(item.name.name)
+            effective_cols.add(name)
+
+    # Build the filtered projection, tracking old to new position for renumbering.
+    new_projection = []
+    old_to_new: dict[int, int] = {}  # 1-indexed old pos to 1-indexed new pos
+    for i, expr in enumerate(projection):
+        old_pos = i + 1
+        col_name = _col_name(expr)
+        if col_name is None:  # pragma: no cover
+            # Keep expressions we can't analyze (defensive)
             new_projection.append(expr)
+            old_to_new[old_pos] = len(new_projection)
+        elif col_name in effective_cols:
+            new_projection.append(expr)
+            old_to_new[old_pos] = len(new_projection)
+        # else: pruned — no mapping entry
 
     # If we filtered everything, keep original (shouldn't happen)
     if new_projection:
         query_ast.select.projection = new_projection
+
+    # Renumber positional GROUP BY references if any columns were removed before them.
+    if positional_refs:
+        new_group_by: list[ast.Expression] = []
+        for item in query_ast.select.group_by:
+            if isinstance(item, ast.Number) and isinstance(item.value, int):
+                old_pos = int(item.value)
+                new_pos = old_to_new.get(old_pos, old_pos)
+                new_group_by.append(
+                    ast.Number(value=new_pos) if new_pos != old_pos else item,
+                )
+            else:
+                new_group_by.append(item)
+        query_ast.select.group_by = new_group_by
 
     return query_ast
 
