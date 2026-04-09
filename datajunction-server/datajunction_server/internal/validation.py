@@ -25,6 +25,29 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
 
+def _reparse_parent_column_types(dependencies_map: Dict) -> None:
+    """Re-parse string column types on parent nodes before type inference.
+
+    Columns loaded from the DB with exotic types (map<...>, array<...>) may
+    arrive as plain strings if they bypassed the normal parse path. This
+    ensures those types are fully parsed before the AST type-inference walk.
+    If a type string is unparseable, the original value is left unchanged.
+    """
+    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
+
+    for parent in dependencies_map.keys():
+        for col in parent.columns:
+            if isinstance(col.type, str) or (
+                type(col.type).__name__ == "ColumnType"
+                and not isinstance(col.type, (MapType, ListType, StructType))
+            ):
+                try:
+                    col.type = parse_rule(str(col.type), "dataType")
+                except Exception:
+                    # If parsing fails, leave the original type
+                    pass
+
+
 def update_ast_column_types(node: ast.Node) -> None:
     """Recursively update AST Column._type from parsed database column types.
 
@@ -154,21 +177,7 @@ async def validate_node_data(
         return node_validator
 
     # Parse parent column types before type inference
-    # This ensures that map/list/struct types are properly parsed before being used
-    from datajunction_server.sql.parsing.backends.antlr4 import parse_rule
-
-    for parent in dependencies_map.keys():
-        for col in parent.columns:
-            # If the column type is a string or plain ColumnType, parse it
-            if isinstance(col.type, str) or (
-                type(col.type).__name__ == "ColumnType"
-                and not isinstance(col.type, (MapType, ListType, StructType))
-            ):
-                try:
-                    col.type = parse_rule(str(col.type), "dataType")
-                except Exception:
-                    # If parsing fails, leave the original type
-                    pass
+    _reparse_parent_column_types(dependencies_map)
 
     # Update AST Column nodes with the newly parsed types.
     update_ast_column_types(query_ast)

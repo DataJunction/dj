@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.internal.validation import validate_node_data
+from datajunction_server.internal.validation import (
+    validate_node_data,
+    _reparse_parent_column_types,
+)
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.sql.parsing import types as ct
 
@@ -467,3 +470,41 @@ async def test_metric_referencing_dimension_attr_is_valid(
     assert validator.status == NodeStatus.VALID, (
         f"Expected VALID but got {validator.status}. Errors: {validator.errors}"
     )
+
+
+class TestReparseParentColumnTypes:
+    """Tests for _reparse_parent_column_types."""
+
+    def _make_revision(self, name: str, columns: list) -> NodeRevision:
+        return NodeRevision(
+            name=name,
+            type=NodeType.SOURCE,
+            version="v1",
+            columns=columns,
+        )
+
+    def test_string_type_is_parsed(self):
+        """A column with a string type is parsed into a ColumnType object."""
+        col = Column(name="tags", type="int", order=0)
+        revision = self._make_revision("test.node", [col])
+        _reparse_parent_column_types({revision: None})
+        assert isinstance(col.type, ct.IntegerType)
+
+    def test_unparseable_string_is_left_unchanged(self):
+        """If parsing fails, the original string value is preserved (except path covered)."""
+        col = Column(name="bad", type="NOT_A_VALID_TYPE_$$$$", order=0)
+        revision = self._make_revision("test.node", [col])
+        _reparse_parent_column_types({revision: None})
+        assert col.type == "NOT_A_VALID_TYPE_$$$$"
+
+    def test_already_parsed_type_is_skipped(self):
+        """Columns with a proper ColumnType subclass are left untouched."""
+        col = Column(name="id", type=ct.BigIntType(), order=0)
+        original = col.type
+        revision = self._make_revision("test.node", [col])
+        _reparse_parent_column_types({revision: None})
+        assert col.type is original
+
+    def test_empty_map_is_noop(self):
+        """An empty dependencies_map doesn't raise."""
+        _reparse_parent_column_types({})  # Should not raise

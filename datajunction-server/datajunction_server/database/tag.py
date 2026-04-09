@@ -56,6 +56,7 @@ class Tag(Base):
         session: AsyncSession,
         tag_names: list[str] | None = None,
         tag_types: list[str] | None = None,
+        options: list[ExecutableOption] | None = None,
     ) -> list["Tag"]:
         """
         Find tags by name or tag type.
@@ -65,6 +66,8 @@ class Tag(Base):
             statement = statement.where(Tag.name.in_(tag_names))
         if tag_types:
             statement = statement.where(Tag.tag_type.in_(tag_types))
+        if options:
+            statement = statement.options(*options)
         return (await session.execute(statement)).scalars().all()
 
     @classmethod

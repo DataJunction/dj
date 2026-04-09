@@ -70,7 +70,10 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     """
     Lifespan context for initializing and tearing down app-wide resources, like the FastAPI cache
     """
+    from datajunction_server.models.column import warm_column_type_cache
+
     FastAPICache.init(InMemoryBackend(), prefix="inmemory-cache")  # pragma: no cover
+    warm_column_type_cache()
 
     # Use scoped_session only for request lifecycle sessions. For setup/teardown (lifespan),
     # prefer direct session factories and async with

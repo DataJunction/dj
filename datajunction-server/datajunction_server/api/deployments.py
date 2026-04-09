@@ -4,6 +4,7 @@ Bulk deployment APIs.
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import Optional
 
@@ -30,6 +31,7 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.deployment import deploy
 from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.deployment.utils import DeploymentContext
@@ -285,6 +287,13 @@ async def create_deployment(
     if namespace_obj and (namespace_obj.git_only or is_git_root):
         await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
+    _t0 = time.monotonic()
+    source_type = deployment_spec.source.type if deployment_spec.source else "local"
+    _metrics_tags = {
+        "namespace": deployment_spec.namespace,
+        "source_type": str(source_type),
+    }
+
     deployment_id = await executor.submit(
         spec=deployment_spec,
         context=DeploymentContext(
@@ -296,6 +305,16 @@ async def create_deployment(
         ),
     )
     deployment = await session.get(Deployment, deployment_id)
+    status = deployment.status.value if deployment else "unknown"
+    get_metrics_provider().timer(
+        "dj.deployments.create_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _metrics_tags,
+    )
+    get_metrics_provider().counter(
+        "dj.deployments.create",
+        tags={**_metrics_tags, "status": status},
+    )
     return DeploymentInfo(
         uuid=deployment_id,
         namespace=deployment.namespace,

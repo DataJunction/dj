@@ -357,7 +357,10 @@ class Node(Base):
             NodeType.CUBE: CubeSpec,
         }
 
-        await session.refresh(self, ["owners"])
+        from sqlalchemy import inspect as sa_inspect
+
+        if "owners" in sa_inspect(self).unloaded:
+            await session.refresh(self, ["owners"])
 
         # Sort columns by order field once to ensure consistent output everywhere
         # Check for columns without order set
@@ -481,6 +484,16 @@ class Node(Base):
         return [
             selectinload(Node.current).options(*NodeRevision.cube_load_options()),
             selectinload(Node.tags),
+            selectinload(Node.owners),
+        ]
+
+    @classmethod
+    def export_load_options(cls) -> List[ExecutableOption]:
+        """Slim load options for export/copy paths — skips unused relationships."""
+        return [
+            selectinload(Node.current).options(*NodeRevision.export_load_options()),
+            selectinload(Node.tags),
+            selectinload(Node.owners),
         ]
 
     @classmethod
@@ -1170,6 +1183,52 @@ class NodeRevision(
         """
         return (
             *cls.default_load_options(),
+            selectinload(NodeRevision.cube_elements)
+            .selectinload(Column.node_revision)
+            .options(
+                selectinload(NodeRevision.node),
+            ),
+        )
+
+    @classmethod
+    def export_load_options(cls):
+        """
+        Slim load options for export/copy paths (to_spec only).
+
+        Omits materializations, availability, and created_by — none are used by
+        to_spec — saving ~4 SELECT round-trips vs default_load_options.
+        Also includes cube_elements for cube node specs.
+        """
+        from datajunction_server.database.dimensionlink import DimensionLink
+
+        return (
+            selectinload(NodeRevision.columns).options(
+                joinedload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                joinedload(Column.dimension).options(
+                    noload(Node.created_by),
+                ),
+                joinedload(Column.partition),
+            ),
+            joinedload(NodeRevision.catalog),
+            selectinload(NodeRevision.parents).options(
+                selectinload(Node.current).options(
+                    noload(NodeRevision.created_by),
+                ),
+                noload(Node.created_by),
+            ),
+            selectinload(NodeRevision.metric_metadata),
+            selectinload(NodeRevision.dimension_links).options(
+                joinedload(DimensionLink.dimension).options(
+                    selectinload(Node.current).options(
+                        noload(NodeRevision.created_by),
+                    ),
+                    noload(Node.created_by),
+                ),
+                joinedload(DimensionLink.node_revision),
+            ),
+            selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.cube_elements)
             .selectinload(Column.node_revision)
             .options(

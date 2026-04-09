@@ -12,6 +12,7 @@ from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
     ValidationContext,
     _reparse_column_types,
+    bulk_validate_node_data,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -454,6 +455,121 @@ class TestReparseColumnTypes:
     def test_empty_dict_is_noop(self):
         """Empty dependency_nodes dict is handled without error."""
         _reparse_column_types({})  # Should not raise
+
+
+class TestBulkValidateSkipValidation:
+    """Tests for the _skip_validation fast-path in bulk_validate_node_data."""
+
+    def _make_node(self, name: str, columns: list) -> Node:
+        node = Node(name=name, type=NodeType.SOURCE)
+        revision = NodeRevision(
+            name=name,
+            type=node.type,
+            version="v1",
+            columns=columns,
+        )
+        node.current = revision
+        return node
+
+    @pytest.mark.asyncio
+    async def test_skip_validation_specs_bypass_parsing(
+        self,
+        session: AsyncSession,
+    ):
+        """Specs with _skip_validation=True return pre-existing columns without SQL parsing."""
+        spec = TransformSpec(
+            name="test.copy_node",
+            query="SELECT id, name FROM test.parent",
+            description="Copied node",
+            mode="published",
+            columns=[
+                ColumnSpec(name="id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        spec._skip_validation = True
+
+        results = await bulk_validate_node_data(
+            node_specs=[spec],
+            node_graph={"test.copy_node": []},
+            session=session,
+            dependency_nodes={},
+        )
+
+        assert len(results) == 1
+        assert results[0].status == NodeStatus.VALID
+        assert results[0].inferred_columns == spec.columns
+
+    @pytest.mark.asyncio
+    async def test_mixed_specs_skip_and_validate(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Specs with and without _skip_validation are handled in the same batch."""
+        skip_spec = TransformSpec(
+            name="test.skip_node",
+            query="SELECT id FROM test.parent",
+            description="Copied",
+            mode="published",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+        skip_spec._skip_validation = True
+
+        normal_spec = TransformSpec(
+            name="test.normal_node",
+            query="SELECT id FROM test.parent",
+            description="Normal node",
+            mode="published",
+            columns=[ColumnSpec(name="id", type="int")],
+        )
+
+        results = await bulk_validate_node_data(
+            node_specs=[skip_spec, normal_spec],
+            node_graph={
+                "test.skip_node": ["test.parent"],
+                "test.normal_node": [],
+            },
+            session=session,
+            dependency_nodes={parent_node.name: parent_node},
+        )
+
+        assert len(results) == 2
+        # skip_spec result uses pre-existing columns
+        skip_result = next(r for r in results if r.spec.name == "test.skip_node")
+        assert skip_result.inferred_columns == skip_spec.columns
+
+    @pytest.mark.asyncio
+    async def test_validate_without_parsing_directly(
+        self,
+        session: AsyncSession,
+    ):
+        """_validate_without_parsing returns VALID result with spec columns."""
+        spec = TransformSpec(
+            name="test.direct",
+            query="SELECT id FROM nowhere",
+            description="Direct",
+            mode="published",
+            columns=[ColumnSpec(name="id", type="bigint")],
+        )
+        spec._skip_validation = True
+
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.direct": []},
+            dependency_nodes={},
+            compile_context=ast.CompileContext(
+                session=session,
+                exception=ast.DJException(),
+                dependencies_cache={},
+            ),
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator._validate_without_parsing(spec)
+
+        assert result.status == NodeStatus.VALID
+        assert result.inferred_columns == spec.columns
+        assert result.errors == []
 
 
 class TestRequiredDimensions:

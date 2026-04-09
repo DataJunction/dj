@@ -1023,7 +1023,7 @@ async def get_node_specs_for_export(
     nodes = await NodeNamespace.list_all_nodes(
         session,
         namespace,
-        options=Node.cube_load_options(),
+        options=Node.export_load_options(),
     )
     node_specs = [await node.to_spec(session) for node in nodes]
 
@@ -1047,10 +1047,9 @@ async def get_node_specs_for_export(
             namespace_suffixes.add(suffix)
 
     logger.info(
-        "Export namespace '%s': parent_namespace=%s, namespace_suffixes=%s",
+        "Export namespace '%s': parent_namespace=%s",
         namespace,
         parent_namespace,
-        namespace_suffixes,
     )
 
     for node_spec in node_specs:

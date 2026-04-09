@@ -196,6 +196,7 @@ class User(Base):
         session: AsyncSession,
         usernames: list[str],
         raise_if_not_exists: bool = True,
+        options: list[ExecutableOption] | None = None,
     ) -> list["User"]:
         """
         Find users by username, preserving the order of the input usernames list.
@@ -211,6 +212,8 @@ class User(Base):
         statement = (
             select(User).where(User.username.in_(usernames)).order_by(order_case)
         )
+        if options:
+            statement = statement.options(*options)
         result = await session.execute(statement)
         users = result.unique().scalars().all()
         if len(users) != len(usernames) and raise_if_not_exists:
