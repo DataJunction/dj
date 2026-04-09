@@ -389,7 +389,7 @@ class TestBranchManagement:
         await client_with_service_setup.post("/namespaces/test_no_default")
         await client_with_service_setup.patch(
             "/namespaces/test_no_default/git",
-            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+            json={"github_repo_path": "myorg/myrepo"},
         )
 
         response = await client_with_service_setup.post(
@@ -3355,7 +3355,7 @@ class TestGitOnlyNamespaceProtection:
         await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         await client_with_service_setup.patch(
             f"/namespaces/{root_namespace}/git",
-            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+            json={"github_repo_path": "myorg/myrepo"},
         )
 
         # Try to create a source node directly in the git root namespace
@@ -3386,7 +3386,7 @@ class TestGitOnlyNamespaceProtection:
         await client_with_service_setup.post(f"/namespaces/{root_namespace}")
         await client_with_service_setup.patch(
             f"/namespaces/{root_namespace}/git",
-            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+            json={"github_repo_path": "myorg/myrepo"},
         )
 
         response = await client_with_service_setup.post(
@@ -4612,7 +4612,7 @@ columns:
         await client_with_service_setup.post("/namespaces/no_branch_ns")
         await client_with_service_setup.patch(
             "/namespaces/no_branch_ns/git",
-            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+            json={"github_repo_path": "myorg/myrepo"},
         )
 
         response = await client_with_service_setup.post(
@@ -4831,6 +4831,7 @@ columns:
             "/namespaces/bad_path_ns/git",
             json={
                 "github_repo_path": "myorg/myrepo",
+                "git_branch": "main",
                 "git_path": "nonexistent/subdir",
             },
         )
