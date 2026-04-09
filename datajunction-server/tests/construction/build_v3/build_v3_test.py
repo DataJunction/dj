@@ -144,7 +144,8 @@ class TestInnerCTEFlattening:
             ),
             v3_transform_with_cte AS (
               SELECT
-                SUM(total_amount) AS total_spent
+                customer_id,
+	            SUM(total_amount) AS total_spent
               FROM v3_transform_with_cte__order_totals order_totals
               GROUP BY  customer_id
             )
