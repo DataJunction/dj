@@ -785,16 +785,15 @@ def filter_cte_projection(
             pos = int(item.value)
             if 1 <= pos <= len(projection):
                 positional_refs.add(pos)
-                name = _col_name(projection[pos - 1])
-                if name:
+                if name := _col_name(projection[pos - 1]):
                     effective_cols.add(name)
         elif isinstance(item, ast.Column):
             name = str(item.alias.name) if item.alias else str(item.name.name)
             effective_cols.add(name)
 
-    # Build the filtered projection, tracking old→new position for renumbering.
+    # Build the filtered projection, tracking old to new position for renumbering.
     new_projection = []
-    old_to_new: dict[int, int] = {}  # 1-indexed old pos → 1-indexed new pos
+    old_to_new: dict[int, int] = {}  # 1-indexed old pos to 1-indexed new pos
     for i, expr in enumerate(projection):
         old_pos = i + 1
         col_name = _col_name(expr)
