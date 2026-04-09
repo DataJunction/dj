@@ -3647,7 +3647,7 @@ class TestDeploymentHistoryTracking:
         history = response.json()
         create_events = [h for h in history if h["activity_type"] == "create"]
         assert len(create_events) >= 1
-        assert create_events[0]["user"] == "Alice Smith"
+        assert create_events[0]["user"] == "alice@example.com"
 
     @pytest.mark.asyncio
     async def test_git_author_email_used_when_no_name(
@@ -4291,7 +4291,7 @@ class TestHistoryUser:
             context=context,
         )
 
-    def test_returns_author_name_when_present(self):
+    def test_returns_author_email_when_present(self):
         spec = DeploymentSpec(
             namespace="test",
             source=GitDeploymentSource(
@@ -4301,18 +4301,18 @@ class TestHistoryUser:
             ),
         )
         orchestrator = self._make_orchestrator(spec)
-        assert orchestrator._history_user == "Alice Smith"
+        assert orchestrator._history_user == "alice@example.com"
 
-    def test_falls_back_to_email_when_no_name(self):
+    def test_falls_back_to_name_when_no_email(self):
         spec = DeploymentSpec(
             namespace="test",
             source=GitDeploymentSource(
                 repository="github.com/org/repo",
-                commit_author_email="alice@example.com",
+                commit_author_name="Alice Smith",
             ),
         )
         orchestrator = self._make_orchestrator(spec)
-        assert orchestrator._history_user == "alice@example.com"
+        assert orchestrator._history_user == "Alice Smith"
 
     def test_falls_back_to_current_user_when_no_author(self):
         spec = DeploymentSpec(

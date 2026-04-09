@@ -2,6 +2,7 @@
 Git sync API endpoints.
 
 Enables syncing node definitions to git and creating pull requests.
+Also provides sync-from-git endpoint for DJ-pull model deployments.
 """
 
 import base64
@@ -9,10 +10,12 @@ import io
 import logging
 import tarfile
 import tempfile
+import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends
+import yaml
+from fastapi import BackgroundTasks, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +29,10 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
+from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.git import GitHubService
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from pydantic import TypeAdapter
@@ -38,11 +45,19 @@ from datajunction_server.internal.namespaces import (
     _get_yaml_handler,
 )
 from datajunction_server.models.access import ResourceAction
-from datajunction_server.models.deployment import NodeUnion
+from datajunction_server.models.deployment import (
+    DeploymentInfo,
+    DeploymentSpec,
+    DeploymentStatus,
+    GitDeploymentSource,
+    NodeUnion,
+)
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     SEPARATOR,
     get_current_user,
+    get_query_service_client,
     get_session,
     get_settings,
 )
@@ -149,6 +164,100 @@ class PRResult(BaseModel):
     pr_url: str
     head_branch: str
     base_branch: str
+
+
+async def _fetch_deployment_spec_from_git(
+    github: GitHubService,
+    repo_path: str,
+    ref: str,
+    git_path: Optional[str],
+    namespace: str,
+) -> dict:
+    """
+    Download repo archive at ref, extract, and parse YAML files into a DeploymentSpec dict.
+
+    This implements the DJ-pull model: server fetches content directly from GitHub,
+    so user-submitted content is never trusted.
+
+    Args:
+        github: GitHubService instance
+        repo_path: Repository path (e.g., "owner/repo")
+        ref: Git ref (commit SHA or branch name)
+        git_path: Subdirectory within repo for node definitions (optional)
+        namespace: Target namespace for deployment
+
+    Returns:
+        DeploymentSpec-compatible dict with nodes, namespace, etc.
+    """
+    _logger.info(
+        "Fetching deployment spec from git: %s @ %s (path: %s)",
+        repo_path,
+        ref[:12] if len(ref) > 12 else ref,
+        git_path or "/",
+    )
+
+    # Download archive at specific ref (works with commit SHAs and branch names)
+    archive_bytes = await github.download_archive(
+        repo_path=repo_path,
+        branch=ref,
+        format="tarball",
+    )
+
+    # Extract and parse YAML files
+    nodes: List[dict] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
+            tar.extractall(tmpdir)
+
+        # Find extracted directory (GitHub adds prefix like "owner-repo-sha")
+        extracted_dirs = list(Path(tmpdir).iterdir())
+        if not extracted_dirs:
+            raise DJInvalidInputException(
+                message="Failed to extract archive - no directories found",
+            )
+        repo_dir = extracted_dirs[0]
+
+        # Determine files directory
+        if git_path:
+            files_dir = repo_dir / git_path.strip("/")
+        else:
+            files_dir = repo_dir
+
+        if not files_dir.exists():
+            raise DJInvalidInputException(
+                message=f"Path '{git_path}' not found in repository at ref '{ref}'",
+            )
+
+        # Parse all YAML files (skip dj.yaml project file)
+        for yaml_file in files_dir.rglob("*.yaml"):
+            if yaml_file.name == "dj.yaml":
+                continue
+            try:
+                with open(yaml_file, "r", encoding="utf-8") as f:
+                    node = yaml.safe_load(f)
+                if isinstance(node, dict) and "name" in node:
+                    nodes.append(node)
+                    _logger.debug("Loaded node spec: %s", node.get("name"))
+            except Exception as e:
+                _logger.warning(
+                    "Skipping invalid YAML file %s: %s",
+                    yaml_file,
+                    e,
+                )
+                continue
+
+    _logger.info(
+        "Fetched %d node specs from git: %s @ %s",
+        len(nodes),
+        repo_path,
+        ref[:12] if len(ref) > 12 else ref,
+    )
+
+    return {
+        "namespace": namespace,
+        "nodes": nodes,
+        "tags": [],
+    }
 
 
 @router.post(
@@ -700,3 +809,163 @@ async def create_pull_request(
         raise DJInvalidInputException(
             message=str(e),
         ) from e
+
+
+@router.post(
+    "/namespaces/{namespace}/sync-from-git",
+    response_model=DeploymentInfo,
+    name="Sync namespace from git",
+)
+async def sync_namespace_from_git(
+    namespace: str,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    cache: Cache = Depends(get_cache),
+) -> DeploymentInfo:
+    """
+    Sync a namespace by pulling node specs directly from the HEAD of its configured
+    git branch (DJ-pull model).
+
+    The server fetches content from GitHub — no ref is accepted from the caller.
+    This ensures only the latest commit on the configured branch can be deployed,
+    preventing users from pinning to an older (potentially vulnerable) commit.
+
+    Returns:
+        DeploymentInfo with deployment results
+
+    Raises:
+        400: If namespace has no github_repo_path configured
+        400: If namespace has no git_branch configured
+    """
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    # 1. Resolve git config (validates namespace exists via resolve_git_config)
+    github_repo_path, git_path, git_branch = await resolve_git_config(
+        session,
+        namespace,
+    )
+
+    if not github_repo_path:
+        raise DJInvalidInputException(
+            message=f"Namespace '{namespace}' does not have github_repo_path configured. "
+            "Cannot sync from git. Configure git settings on this namespace or a parent.",
+        )
+
+    if not git_branch:
+        raise DJInvalidInputException(
+            message=f"Namespace '{namespace}' does not have git_branch configured. "
+            "Cannot sync from git without a branch to track.",
+        )
+
+    # 2. Resolve branch to current HEAD commit SHA
+    github = GitHubService()
+    try:
+        commit_sha = await github.resolve_ref_to_sha(github_repo_path, git_branch)
+    except GitHubServiceError as e:
+        raise DJInvalidInputException(message=str(e)) from e
+
+    _logger.info(
+        "Syncing namespace '%s' from git: %s @ %s (resolved to %s)",
+        namespace,
+        github_repo_path,
+        git_branch,
+        commit_sha[:12],
+    )
+
+    # 3. Fetch commit author so history records the person who changed the YAML,
+    #    not the CI caller. Failures are non-fatal — we proceed without author info.
+    commit_author_name, commit_author_email = None, None
+    try:
+        commit_author_name, commit_author_email = await github.get_commit_author(
+            github_repo_path,
+            commit_sha,
+        )
+    except GitHubServiceError:
+        _logger.warning(
+            "Could not fetch commit author for %s @ %s; history will use API caller",
+            github_repo_path,
+            commit_sha[:12],
+        )
+
+    # 4. Download and parse YAML files from git at this commit
+    try:
+        deployment_spec_dict = await _fetch_deployment_spec_from_git(
+            github=github,
+            repo_path=github_repo_path,
+            ref=commit_sha,
+            git_path=git_path,
+            namespace=namespace,
+        )
+    except GitHubServiceError as e:
+        raise DJInvalidInputException(
+            message=f"Failed to fetch from git: {e.message}",
+        ) from e
+
+    if not deployment_spec_dict.get("nodes"):
+        raise DJInvalidInputException(
+            message=f"No node definitions found in repository '{github_repo_path}' "
+            f"at branch '{git_branch}'"
+            + (f" in path '{git_path}'" if git_path else ""),
+        )
+
+    # 5. Set source metadata (proves content came from verified commit)
+    deployment_spec_dict["source"] = {
+        "type": "git",
+        "repository": github_repo_path,
+        "branch": git_branch,
+        "commit_sha": commit_sha,
+        "commit_author_name": commit_author_name,
+        "commit_author_email": commit_author_email,
+    }
+
+    # 6. Deploy using existing orchestrator
+    deployment_id = str(uuid.uuid4())
+    deployment_spec = DeploymentSpec(**deployment_spec_dict)
+
+    orchestrator = DeploymentOrchestrator(
+        deployment_id=deployment_id,
+        deployment_spec=deployment_spec,
+        session=session,
+        context=DeploymentContext(
+            current_user=current_user,
+            request=http_request,
+            query_service_client=query_service_client,
+            background_tasks=background_tasks,
+            cache=cache,
+        ),
+        dry_run=False,
+    )
+
+    try:
+        execute_result = await orchestrator.execute()
+    except Exception as e:
+        _logger.error("Deployment failed for sync-from-git: %s", e)
+        raise
+
+    _logger.info(
+        "Sync-from-git completed for namespace '%s': %d results",
+        namespace,
+        len(execute_result.results),
+    )
+
+    return DeploymentInfo(
+        uuid=deployment_id,
+        namespace=namespace,
+        status=DeploymentStatus.SUCCESS,
+        results=execute_result.results,
+        downstream_impacts=execute_result.downstream_impacts,
+        source=GitDeploymentSource(
+            type="git",
+            repository=github_repo_path,
+            branch=git_branch,
+            commit_sha=commit_sha,
+            commit_author_name=commit_author_name,
+            commit_author_email=commit_author_email,
+        ),
+    )

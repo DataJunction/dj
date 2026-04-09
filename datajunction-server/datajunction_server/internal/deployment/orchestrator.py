@@ -248,7 +248,7 @@ class DeploymentOrchestrator:
         """
         source = self.deployment_spec.source
         if source is not None and source.type == "git":
-            author = source.commit_author_name or source.commit_author_email
+            author = source.commit_author_email or source.commit_author_name
             if author:
                 return author
         return self.context.current_user.username

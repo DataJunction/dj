@@ -620,6 +620,48 @@ class GitHubService:
             self._handle_error(resp, f"verify commit {commit_sha} in {repo_path}")
             return True
 
+    async def resolve_ref_to_sha(self, repo_path: str, ref: str) -> str:
+        """Resolve a git ref (branch name or commit SHA) to a full commit SHA.
+
+        Tries to resolve in order:
+        1. As a branch name (refs/heads/{ref})
+        2. As a commit SHA directly
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            ref: Git reference - can be a branch name or commit SHA
+
+        Returns:
+            The resolved full commit SHA
+
+        Raises:
+            GitHubServiceError: If ref cannot be resolved
+        """
+        async with httpx.AsyncClient() as client:
+            # Try as branch first
+            branch_resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/git/ref/heads/{ref}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            if branch_resp.is_success:
+                return branch_resp.json()["object"]["sha"]
+
+            # Try as commit SHA
+            commit_resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/commits/{ref}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            if commit_resp.is_success:
+                return commit_resp.json()["sha"]
+
+            raise GitHubServiceError(
+                message=f"Ref '{ref}' not found in repository '{repo_path}'. "
+                "Must be a valid branch name or commit SHA.",
+                http_status_code=400,
+            )
+
     async def download_archive(
         self,
         repo_path: str,
@@ -648,3 +690,33 @@ class GitHubService:
             )
             self._handle_error(resp, f"download {format}")
             return resp.content
+
+    async def get_commit_author(
+        self,
+        repo_path: str,
+        commit_sha: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return the (name, email) of the commit author for the given SHA.
+
+        Uses the GitHub Commits API which includes the full author object.
+
+        Args:
+            repo_path: Repository path (e.g., "owner/repo")
+            commit_sha: Full commit SHA
+
+        Returns:
+            Tuple of (author_name, author_email), either may be None if not present.
+
+        Raises:
+            GitHubServiceError: If the commit cannot be fetched.
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/repos/{repo_path}/commits/{commit_sha}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            self._handle_error(resp, f"get commit {commit_sha}")
+            data = resp.json()
+            author = data.get("commit", {}).get("author", {})
+            return author.get("name"), author.get("email")
