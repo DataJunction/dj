@@ -1374,6 +1374,16 @@ def test_struct_column_name_deep_namespace():
     )
 
 
+def test_values_clause_explicit_column_aliases():
+    """(VALUES (1, 2)) AS v(a, b) — inner Query._columns should use 'a'/'b', not 'col1'/'col2'."""
+    query_ast = parse("SELECT v.a, v.b FROM (VALUES (1, 2)) AS v(a, b)")
+    all_queries = list(query_ast.find_all(ast.Query))
+    inner_q = [q for q in all_queries if q.alias is not None][0]
+    assert inner_q.alias.name == "v"
+    col_names = [col.name.name for col in inner_q.select._columns]
+    assert col_names == ["a", "b"], f"Expected ['a', 'b'], got {col_names}"
+
+
 def test_struct_column_name_two_level():
     """
     The original 2-level struct case must continue to work after the deep-namespace fix.

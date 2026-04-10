@@ -2629,7 +2629,7 @@ class Lambda(Expression):
     Represents a lambda expression
     """
 
-    identifiers: List[Named]
+    identifiers: List[Name]
     expr: Expression
 
     def __str__(self) -> str:
@@ -3149,6 +3149,13 @@ class Query(TableExpression, UnNamed):
 
     async def compile(self, ctx: CompileContext):
         if self._is_compiled:
+            return
+
+        # A Query whose select is an InlineTable arises from (VALUES ...) AS alias(cols).
+        # Its columns are already set on the InlineTable; just expose them and return.
+        if isinstance(self.select, InlineTable):
+            self._columns = list(self.select._columns)
+            self._is_compiled = True
             return
 
         def _compile(info: Tuple[Column, List[TableExpression]]):
