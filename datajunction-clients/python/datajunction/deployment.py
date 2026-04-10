@@ -187,7 +187,7 @@ class DeploymentService:
         """
         console = console or self.console
 
-        deployment_spec = self._reconstruct_deployment_spec(source_path)
+        deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
 
         base_namespace = deployment_spec.get("namespace") or ""
         branch = DeploymentService._detect_git_branch(cwd=source_path)
@@ -256,6 +256,14 @@ class DeploymentService:
                 project_name=deployment_spec.get("namespace", source_path),
                 errors=[r.__dict__ for r in (errors if errors else deployment.results)],
             )
+        if file_errors:
+            console.print()
+            console.rule("[red bold]Errors[/red bold]", style="red", align="left")
+            for err in file_errors:
+                console.print(f"[red]  {err}[/red]")
+            raise DJClientException(
+                "Fix file name mismatches before deploying.",
+            )
 
     def get_impact(
         self,
@@ -271,7 +279,7 @@ class DeploymentService:
         would be affected (unless display=False), then returns the raw response dict.
         """
         console = console or self.console
-        deployment_spec = self._reconstruct_deployment_spec(source_path)
+        deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
         deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
         source = deployment_spec.get("source", {})
         branch = DeploymentService._detect_git_branch(cwd=source_path)
@@ -293,6 +301,11 @@ class DeploymentService:
                 console,
                 verbose=verbose,
             )
+        if file_errors:
+            console.print()
+            console.rule("[red bold]Errors[/red bold]", style="red", align="left")
+            for err in file_errors:
+                console.print(f"[red]  {err}[/red]")
         return data
 
     @staticmethod
@@ -413,18 +426,35 @@ class DeploymentService:
         output_path.write_text(content, encoding="utf-8")
         return len(entries)
 
-    def _collect_nodes_from_dir(self, base_dir: str | Path) -> list[dict[str, Any]]:
+    def _collect_nodes_from_dir(
+        self,
+        base_dir: str | Path,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
         """
         Recursively collect all node YAML files under base_dir/nodes.
+        Returns (nodes, warnings) where warnings are filename mismatch messages.
         """
         nodes = []
+        warnings = []
         nodes_dir = Path(base_dir)
         for path in nodes_dir.rglob("*.yaml"):
             if path.name == "dj.yaml":
                 continue
             node_dict = DeploymentService.read_yaml_file(path)
+
+            # Check filename matches node name
+            node_name = node_dict.get("name", "")
+            if node_name:
+                short_name = node_name.replace("${prefix}", "").split(".")[-1]
+                file_stem = path.stem
+                if file_stem != short_name:
+                    warnings.append(
+                        f"  {path.relative_to(nodes_dir)}: node '{node_name}' "
+                        f"(expected: {short_name}.yaml)",
+                    )
+
             nodes.append(node_dict)
-        return nodes
+        return nodes, warnings
 
     def _read_project_yaml(self, base_dir: str | Path) -> dict[str, Any]:
         """
@@ -435,20 +465,24 @@ class DeploymentService:
             return DeploymentService.read_yaml_file(project_path)
         return {}
 
-    def _reconstruct_deployment_spec(self, base_dir: str | Path) -> dict[str, Any]:
+    def _reconstruct_deployment_spec(
+        self,
+        base_dir: str | Path,
+    ) -> tuple[dict[str, Any], list[str]]:
         """
         Reads exported YAML files and reconstructs a DeploymentSpec-compatible dict.
+        Returns (deployment_spec, warnings).
         """
         project_metadata = self._read_project_yaml(base_dir)
-        nodes = self._collect_nodes_from_dir(base_dir)
+        nodes, warnings = self._collect_nodes_from_dir(base_dir)
 
         # Deduplicate nodes by name (keep last occurrence)
         seen_names: dict[str, dict] = {}
         for node in nodes:
             node_name = node.get("name", "")
             if node_name in seen_names:
-                print(  # pragma: no cover
-                    f"WARNING: Duplicate node '{node_name}' found, keeping last occurrence",
+                warnings.append(
+                    f"  Duplicate node '{node_name}', keeping last occurrence",
                 )
             seen_names[node_name] = node
         nodes = list(seen_names.values())
@@ -464,7 +498,7 @@ class DeploymentService:
         if source:  # pragma: no branch
             deployment_spec["source"] = source
 
-        return deployment_spec
+        return deployment_spec, warnings
 
     @staticmethod
     def _detect_git_branch(cwd: str | Path | None = None) -> str | None:

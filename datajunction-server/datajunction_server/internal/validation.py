@@ -149,7 +149,6 @@ async def validate_node_data(
         for lambda_expr in query_ast.find_all(ast.Lambda):
             for ident in lambda_expr.identifiers:
                 local_aliases.add(ident.name)
-
         (
             dependencies_map,
             missing_parents_map,

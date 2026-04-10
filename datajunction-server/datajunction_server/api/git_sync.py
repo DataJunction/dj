@@ -42,7 +42,6 @@ from datajunction_server.internal.namespaces import (
     inject_prefixes,
     node_spec_to_yaml,
     resolve_git_config,
-    _get_yaml_handler,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
@@ -72,54 +71,38 @@ _node_spec_adapter = TypeAdapter(NodeUnion)
 
 def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
     """
-    Compare a YAML spec from git with a NodeSpec using the existing
-    semantic comparison logic from the deployment orchestrator.
-
-    Parses the existing YAML into a NodeSpec and uses the NodeSpec.__eq__
-    method which handles:
-    - AST-based query comparison (whitespace/formatting agnostic)
-    - Sorted dimension link comparison
-    - Column comparison with type inference handling
-    - Metric metadata comparison with defaults
-
-    Args:
-        existing_yaml: YAML string from git
-        new_spec: NodeSpec from current node (with ${prefix} placeholders and namespace set)
-
-    Returns:
-        True if the specs are semantically equivalent, False otherwise.
+    Compare a YAML spec from git with a NodeSpec using semantic comparison.
+    Uses PyYAML (fast C parser) instead of ruamel.yaml since we only need dicts.
+    Skips ANTLR4 SQL parsing when query strings are identical.
     """
     try:
-        yaml_handler = _get_yaml_handler()
-        existing_data = yaml_handler.load(existing_yaml)
+        import yaml as pyyaml
 
-        if not existing_data:
+        existing_dict = pyyaml.safe_load(existing_yaml)
+        if not existing_dict:
             return False
 
-        # Convert ruamel.yaml CommentedMap to regular dict for Pydantic
-        existing_dict = dict(existing_data)
-
-        # Parse the existing YAML into the appropriate NodeSpec subclass
-        # The discriminator field (node_type) determines which class to use
         existing_spec = _node_spec_adapter.validate_python(existing_dict)
-
-        # Inject the namespace into the parsed spec so rendered_name matches
-        # (NodeSpec.__eq__ compares rendered_name which depends on namespace)
         existing_spec.namespace = new_spec.namespace
 
-        # Use the NodeSpec's __eq__ which does semantic comparison
-        # (AST comparison for queries, sorted dimension links, etc.)
+        # Skip expensive AST parsing when query strings match
+        existing_query = getattr(existing_spec, "rendered_query", None)
+        new_query = getattr(new_spec, "rendered_query", None)
+        shared = False
+        if existing_query and new_query and existing_query.strip() == new_query.strip():
+            _sentinel = type("_EqSentinel", (), {"compare": lambda self, other: True})()
+            existing_spec._query_ast = _sentinel
+            _saved = new_spec._query_ast
+            new_spec._query_ast = _sentinel
+            shared = True
+
         result = new_spec == existing_spec
-        if not result:
-            _logger.debug(
-                "Specs differ for %s: new=%s, existing=%s",
-                new_spec.rendered_name,
-                new_spec.model_dump(exclude_none=True),
-                existing_spec.model_dump(exclude_none=True),
-            )
+
+        if shared:
+            new_spec._query_ast = _saved
+
         return result
     except Exception as e:
-        # If we can't parse, assume they're different (safer)
         _logger.debug("Failed to compare specs: %s", e)
         return False
 
@@ -530,17 +513,16 @@ async def sync_namespace_to_git(
                         # File couldn't be read - that's ok
                         pass
 
-                # Convert to YAML using the export format (with ${prefix})
-                yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
-
                 # Only include files that have actually changed (semantic comparison)
-                # Uses NodeSpec.__eq__ which does AST-based query comparison, etc.
                 if existing_yaml is not None and _specs_are_equivalent(
                     existing_yaml,
                     node_spec,
                 ):
                     skipped_unchanged += 1
                     continue
+
+                # Convert to YAML using the export format (with ${prefix})
+                yaml_content = node_spec_to_yaml(node_spec, existing_yaml=existing_yaml)
 
                 files_to_commit.append(
                     {
