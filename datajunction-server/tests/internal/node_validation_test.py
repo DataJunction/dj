@@ -10,8 +10,8 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.validation import (
-    validate_node_data,
     _reparse_parent_column_types,
+    validate_node_data,
 )
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.sql.parsing import types as ct
@@ -472,6 +472,248 @@ async def test_metric_referencing_dimension_attr_is_valid(
     )
 
 
+@pytest.mark.asyncio
+async def test_metric_with_lambda_parameters_is_valid(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Regression test: a transform node using higher-order functions (FILTER, AGGREGATE) with
+    lambda expressions should remain VALID. Lambda parameters (e.g. ``c`` in ``c -> c.name``)
+    are valid namespaces inside the lambda body and must not be flagged as INVALID_COLUMN.
+
+    Previously, the INVALID_COLUMN surfacing fix in PR #1961 incorrectly treated lambda
+    parameters as unresolved table aliases, causing nodes using FILTER/AGGREGATE/TRANSFORM
+    with struct field access to be rejected.
+    """
+    from datajunction_server.sql.parsing.ast import Name
+
+    _make_source(
+        session,
+        user,
+        "test.lambda_source",
+        [
+            Column(
+                name="items",
+                type=ct.ListType(
+                    element_type=ct.StructType(
+                        ct.NestedField(name=Name("key"), field_type=ct.StringType()),
+                        ct.NestedField(name=Name("val"), field_type=ct.DoubleType()),
+                    ),
+                ),
+                order=0,
+            ),
+        ],
+    )
+    await session.commit()
+
+    # Lambda parameters `x` and `acc` must not be treated as unresolved table aliases
+    data = NodeRevisionBase(
+        name="test.transform_with_lambda",
+        display_name="Transform with lambda",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT 4.0 * AGGREGATE("
+            "  FILTER(items, x -> x.key = 'FOO'),"
+            "  CAST(0.0 AS DOUBLE),"
+            "  (acc, x) -> CAST(acc + x.val AS DOUBLE)"
+            ") AS result "
+            "FROM test.lambda_source"
+        ),
+        mode="published",
+    )
+
+    validator = await validate_node_data(data, session)
+
+    from datajunction_server.errors import ErrorCode
+
+    invalid_col_errors = [
+        e for e in validator.errors if e.code == ErrorCode.INVALID_COLUMN
+    ]
+    assert not invalid_col_errors, (
+        f"Unexpected INVALID_COLUMN errors from lambda params: {invalid_col_errors}"
+    )
+
+
+def _make_source(session, user, name, columns):
+    """Helper: create and persist a SOURCE node with the given columns."""
+    node = Node(
+        name=name,
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    revision = NodeRevision(
+        name=name,
+        display_name=name,
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=node,
+        columns=columns,
+        created_by_id=user.id,
+    )
+    session.add(node)
+    session.add(revision)
+    return node
+
+
+@pytest.mark.asyncio
+async def test_lateral_view_alias_not_flagged_as_invalid_column(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Regression: LATERAL VIEW generates a virtual table alias (e.g. ``t`` in
+    ``LATERAL VIEW explode(arr) t AS elem``) that is referenced as ``t.elem``
+    in the SELECT. That alias is not an ast.Table or ast.Query node, so it was
+    not captured in local_aliases before the fix — causing a false INVALID_COLUMN.
+    """
+    from datajunction_server.errors import ErrorCode
+
+    _make_source(
+        session,
+        user,
+        "test.lateral_source",
+        [Column(name="arr", type=ct.ListType(element_type=ct.StringType()), order=0)],
+    )
+    await session.commit()
+
+    data = NodeRevisionBase(
+        name="test.lateral_transform",
+        display_name="Lateral view transform",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT t.elem FROM test.lateral_source LATERAL VIEW explode(arr) t AS elem"
+        ),
+        mode="published",
+    )
+    validator = await validate_node_data(data, session)
+    invalid_col_errors = [
+        e for e in validator.errors if e.code == ErrorCode.INVALID_COLUMN
+    ]
+    assert not invalid_col_errors, (
+        f"False INVALID_COLUMN from LATERAL VIEW alias: {invalid_col_errors}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_unnest_alias_not_flagged_as_invalid_column(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Regression: UNNEST with a column alias (``UNNEST(arr) AS t(elem)``) produces a
+    virtual table ``t`` referenced as ``t.elem``. Like LATERAL VIEW, that alias may
+    not be captured in local_aliases — causing a false INVALID_COLUMN.
+    """
+    from datajunction_server.errors import ErrorCode
+
+    _make_source(
+        session,
+        user,
+        "test.unnest_source",
+        [Column(name="arr", type=ct.ListType(element_type=ct.StringType()), order=0)],
+    )
+    await session.commit()
+
+    data = NodeRevisionBase(
+        name="test.unnest_transform",
+        display_name="Unnest transform",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT t.elem FROM test.unnest_source CROSS JOIN UNNEST(arr) AS t(elem)"
+        ),
+        mode="published",
+    )
+    validator = await validate_node_data(data, session)
+    invalid_col_errors = [
+        e for e in validator.errors if e.code == ErrorCode.INVALID_COLUMN
+    ]
+    assert not invalid_col_errors, (
+        f"False INVALID_COLUMN from UNNEST alias: {invalid_col_errors}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_values_clause_alias_not_flagged_as_invalid_column(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    Regression: a VALUES clause with a subquery alias (``(VALUES ...) AS v(a, b)``)
+    generates an INVALID_COLUMN error for ``v.a`` / ``v.b`` with namespace ``v``.
+    Even though ``v`` is an ast.Query alias, it is not being captured in local_aliases,
+    causing a false positive.
+    """
+    from datajunction_server.errors import ErrorCode
+
+    data = NodeRevisionBase(
+        name="test.values_transform",
+        display_name="Values transform",
+        type=NodeType.TRANSFORM,
+        query="SELECT v.a, v.b FROM (VALUES (1, 2)) AS v(a, b)",
+        mode="published",
+    )
+    validator = await validate_node_data(data, session)
+    invalid_col_errors = [
+        e for e in validator.errors if e.code == ErrorCode.INVALID_COLUMN
+    ]
+    assert not invalid_col_errors, (
+        f"False INVALID_COLUMN from VALUES alias: {invalid_col_errors}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_correlated_subquery_outer_alias_not_flagged_as_invalid_column(
+    session: AsyncSession,
+    user: User,
+):
+    """
+    A correlated subquery references an alias (``o``) from the outer query scope.
+    ``find_all(ast.Table)`` traverses into subqueries, so ``o`` should be in
+    local_aliases and not produce a false INVALID_COLUMN.
+    This test confirms that assumption holds.
+    """
+    from datajunction_server.errors import ErrorCode
+
+    _make_source(
+        session,
+        user,
+        "test.outer_table",
+        [Column(name="id", type=ct.BigIntType(), order=0)],
+    )
+    _make_source(
+        session,
+        user,
+        "test.inner_table",
+        [Column(name="id", type=ct.BigIntType(), order=0)],
+    )
+    await session.commit()
+
+    data = NodeRevisionBase(
+        name="test.correlated_transform",
+        display_name="Correlated subquery transform",
+        type=NodeType.TRANSFORM,
+        query=(
+            "SELECT o.id "
+            "FROM test.outer_table o "
+            "WHERE EXISTS ("
+            "  SELECT 1 FROM test.inner_table WHERE test.inner_table.id = o.id"
+            ")"
+        ),
+        mode="published",
+    )
+    validator = await validate_node_data(data, session)
+    invalid_col_errors = [
+        e for e in validator.errors if e.code == ErrorCode.INVALID_COLUMN
+    ]
+    assert not invalid_col_errors, (
+        f"False INVALID_COLUMN from correlated subquery outer alias: {invalid_col_errors}"
+    )
+
+
 class TestReparseParentColumnTypes:
     """Tests for _reparse_parent_column_types."""
 
@@ -491,7 +733,7 @@ class TestReparseParentColumnTypes:
         assert isinstance(col.type, ct.IntegerType)
 
     def test_unparseable_string_is_left_unchanged(self):
-        """If parsing fails, the original string value is preserved (except path covered)."""
+        """If parsing fails, the original string value is preserved."""
         col = Column(name="bad", type="NOT_A_VALID_TYPE_$$$$", order=0)
         revision = self._make_revision("test.node", [col])
         _reparse_parent_column_types({revision: None})
@@ -507,4 +749,4 @@ class TestReparseParentColumnTypes:
 
     def test_empty_map_is_noop(self):
         """An empty dependencies_map doesn't raise."""
-        _reparse_parent_column_types({})  # Should not raise
+        _reparse_parent_column_types({})

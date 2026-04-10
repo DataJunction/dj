@@ -144,6 +144,12 @@ async def validate_node_data(
         for cte in query_ast.ctes:
             local_aliases.add(cte.alias_or_name.identifier(False))
 
+        # Lambda parameters (e.g. `c` in `c -> c.name = ...`) are also valid namespaces
+        # inside their lambda body and must be excluded from INVALID_COLUMN checks.
+        for lambda_expr in query_ast.find_all(ast.Lambda):
+            for ident in lambda_expr.identifiers:
+                local_aliases.add(ident.name)
+
         (
             dependencies_map,
             missing_parents_map,

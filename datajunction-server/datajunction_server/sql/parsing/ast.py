@@ -2629,7 +2629,7 @@ class Lambda(Expression):
     Represents a lambda expression
     """
 
-    identifiers: List[Named]
+    identifiers: List[Name]
     expr: Expression
 
     def __str__(self) -> str:
