@@ -3151,6 +3151,13 @@ class Query(TableExpression, UnNamed):
         if self._is_compiled:
             return
 
+        # A Query whose select is an InlineTable arises from (VALUES ...) AS alias(cols).
+        # Its columns are already set on the InlineTable; just expose them and return.
+        if isinstance(self.select, InlineTable):
+            self._columns = list(self.select._columns)
+            self._is_compiled = True
+            return
+
         def _compile(info: Tuple[Column, List[TableExpression]]):
             """
             Given a list of table sources, find a matching origin table for the column.

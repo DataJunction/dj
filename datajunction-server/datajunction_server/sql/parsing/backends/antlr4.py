@@ -1045,11 +1045,17 @@ def _(ctx: sbp.AliasedQueryContext) -> ast.Select:
     query = visit(ctx.query())
     query.parenthesized = True
     table_alias = ctx.tableAlias()
-    ident, _ = visit(table_alias)
+    ident, col_aliases = visit(table_alias)
     if ident:
         query = query.set_alias(ident)
     if table_alias.AS():
         query = query.set_as(True)
+    # Apply explicit column name aliases to InlineTable columns when present.
+    # For example: (VALUES (1, 2)) AS v(a, b) → rename col1/col2 → a/b so that
+    # outer references like v.a resolve correctly.
+    if col_aliases and isinstance(query.select, ast.InlineTable):
+        for col_obj, col_name in zip(query.select._columns, col_aliases):
+            col_obj.name = col_name
     return query
 
 

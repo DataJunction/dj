@@ -642,10 +642,8 @@ async def test_values_clause_alias_not_flagged_as_invalid_column(
     user: User,
 ):
     """
-    Regression: a VALUES clause with a subquery alias (``(VALUES ...) AS v(a, b)``)
-    generates an INVALID_COLUMN error for ``v.a`` / ``v.b`` with namespace ``v``.
-    Even though ``v`` is an ast.Query alias, it is not being captured in local_aliases,
-    causing a false positive.
+    A VALUES clause with explicit column aliases ``(VALUES ...) AS v(a, b)`` should
+    not produce false INVALID_COLUMN errors for ``v.a`` / ``v.b``.
     """
     from datajunction_server.errors import ErrorCode
 
