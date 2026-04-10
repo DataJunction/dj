@@ -7,6 +7,7 @@ to git branches for the git-backed workflow.
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from http import HTTPStatus
 from typing import List, Optional
@@ -42,6 +43,7 @@ from datajunction_server.internal.namespaces import (
 from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.utils import SEPARATOR, get_current_user, get_session
 
 _logger = logging.getLogger(__name__)
@@ -200,6 +202,12 @@ async def _create_namespace_and_copy_nodes(
         source_namespace=source_namespace,
         target_namespace=new_namespace,
         current_user=current_user,
+    )
+    _logger.info(
+        "Copied %d nodes from '%s' to '%s'",
+        len(deployment_results),
+        source_namespace,
+        new_namespace,
     )
     return deployment_results
 
@@ -362,6 +370,9 @@ async def create_branch(
         new_namespace,
     )
 
+    _t0 = time.monotonic()
+    _metrics_tags = {"namespace": namespace}
+
     git_task = asyncio.create_task(
         _create_git_branch(
             repo_path=github_repo_path,
@@ -398,6 +409,10 @@ async def create_branch(
             "Both git branch and namespace creation failed for '%s'",
             new_namespace,
         )
+        get_metrics_provider().counter(
+            "dj.branches.create",
+            tags={**_metrics_tags, "status": "failure"},
+        )
         raise DJInvalidInputException(
             message=f"Failed to create branch: Git error: {git_result}, "
             f"Namespace error: {namespace_result}",
@@ -413,6 +428,10 @@ async def create_branch(
                 "Failed to cleanup namespace after git failure: %s",
                 cleanup_error,
             )
+        get_metrics_provider().counter(
+            "dj.branches.create",
+            tags={**_metrics_tags, "status": "failure"},
+        )
         raise DJInvalidInputException(
             message=f"Failed to create git branch '{branch_name}': "
             f"{getattr(git_result, 'message', str(git_result))}",
@@ -428,11 +447,24 @@ async def create_branch(
                 "Failed to cleanup git branch after namespace failure: %s",
                 cleanup_error,
             )
+        get_metrics_provider().counter(
+            "dj.branches.create",
+            tags={**_metrics_tags, "status": "failure"},
+        )
         raise DJInvalidInputException(
             message=f"Failed to create namespace '{new_namespace}': {namespace_result}",
         )
 
     # Both succeeded!
+    get_metrics_provider().timer(
+        "dj.branches.create_latency_ms",
+        (time.monotonic() - _t0) * 1000,
+        _metrics_tags,
+    )
+    get_metrics_provider().counter(
+        "dj.branches.create",
+        tags={**_metrics_tags, "status": "success"},
+    )
     deployment_results = namespace_result
 
     return CreateBranchResult(

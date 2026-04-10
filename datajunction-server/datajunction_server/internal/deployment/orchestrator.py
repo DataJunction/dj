@@ -8,7 +8,7 @@ from typing import Coroutine, cast
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, defer
+from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
 
 from datajunction_server.api.helpers import (
     get_node_namespace,
@@ -28,6 +28,7 @@ from datajunction_server.database.node import NodeRelationship
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import User, OAuthProvider
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.errors import (
     DJError,
     DJInvalidDeploymentConfig,
@@ -282,11 +283,26 @@ class DeploymentOrchestrator:
 
         downstream = await self._execute_deployment_plan(deployment_plan)
 
+        elapsed_ms = (time.perf_counter() - start_total) * 1000
+        _metrics_tags = {
+            "namespace": self.deployment_spec.namespace,
+            "dry_run": str(self.dry_run),
+        }
+        get_metrics_provider().timer(
+            "dj.deployments.execute_latency_ms",
+            elapsed_ms,
+            _metrics_tags,
+        )
+        get_metrics_provider().gauge(
+            "dj.deployments.node_count",
+            len(self.deployed_results),
+            _metrics_tags,
+        )
         logger.info(
             "Completed deployment for %s [%s] in %.3fs",
             self.deployment_spec.namespace,
             self.deployment_id,
-            time.perf_counter() - start_total,
+            elapsed_ms / 1000,
         )
         return DeploymentExecuteResult(
             results=self.deployed_results,
@@ -635,7 +651,22 @@ class DeploymentOrchestrator:
         existing_tags = {
             tag.name: tag
             for tag in (
-                await Tag.find_tags(self.session, tag_names=list(all_tag_names))
+                await Tag.find_tags(
+                    self.session,
+                    tag_names=list(all_tag_names),
+                    options=[
+                        load_only(
+                            Tag.id,
+                            Tag.name,
+                            Tag.tag_type,
+                            Tag.description,
+                            Tag.display_name,
+                            Tag.created_by_id,
+                        ),
+                        noload(Tag.created_by),
+                        noload(Tag.nodes),
+                    ],
+                )
                 if all_tag_names
                 else []
             )
@@ -656,6 +687,7 @@ class DeploymentOrchestrator:
             )
 
         # Upsert tags
+        tags_modified = False
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
@@ -664,6 +696,7 @@ class DeploymentOrchestrator:
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
                     self.session.add(tag)
+                    tags_modified = True
             else:
                 tag = Tag(
                     name=tag_name,
@@ -673,9 +706,11 @@ class DeploymentOrchestrator:
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
+                tags_modified = True
             existing_tags[tag_name] = tag
 
-        await self.session.flush()  # Get IDs but don't commit
+        if tags_modified:
+            await self.session.flush()  # Get IDs but don't commit
         return existing_tags
 
     async def _setup_owners(self):
@@ -692,6 +727,16 @@ class DeploymentOrchestrator:
             self.session,
             usernames,
             raise_if_not_exists=False,
+            options=[
+                load_only(User.id, User.username),
+                noload(User.owned_nodes),
+                noload(User.owned_associations),
+                noload(User.created_by),
+                noload(User.created_node_revisions),
+                noload(User.group_members),
+                noload(User.member_of),
+                noload(User.role_assignments),
+            ],
         )
         existing_usernames = {user.username for user in existing_users}
         missing_usernames = set(usernames) - existing_usernames
@@ -711,7 +756,7 @@ class DeploymentOrchestrator:
                     ),
                 ),
             )
-        await self.session.flush()
+            await self.session.flush()
         return {user.username: user for user in existing_users + new_users}
 
     async def _setup_attributes(self) -> dict[str, AttributeType]:
@@ -1342,7 +1387,6 @@ class DeploymentOrchestrator:
                 else reference_link.dimension_attribute
             )
         role_suffix = f"[{link_spec.role}]" if link_spec.role else ""
-        await self.session.flush()
 
         # Track history for dimension link create/update (skip REFRESH/NOOP)
         if activity_type in (ActivityType.CREATE, ActivityType.UPDATE):
@@ -1855,7 +1899,6 @@ class DeploymentOrchestrator:
                             )
                         )
                 else:
-                    logger.info("Creating cube node %s", cube_spec.rendered_name)
                     namespace = get_namespace_from_name(cube_spec.rendered_name)
 
                     # Use no_autoflush to prevent premature flushing of columns without node_revision_id
@@ -2640,18 +2683,33 @@ class DeploymentOrchestrator:
         start = time.perf_counter()
         logger.info("Starting bulk deployment of %d nodes", len(node_specs))
 
+        is_copy = all(s._skip_validation for s in node_specs)
         dependency_nodes = await self.get_dependencies(
             node_graph,
-            skip_type_reparsing=all(s._skip_validation for s in node_specs),
+            skip_type_reparsing=is_copy,
         )
 
-        # Validate all node queries to determine columns, types, and dependencies
-        validation_results = await bulk_validate_node_data(
-            node_specs,
-            node_graph,
-            self.session,
-            dependency_nodes=dependency_nodes,
-        )
+        if is_copy:
+            # Copy fast-path: all specs are pre-validated — skip ValidationContext
+            # setup, NodeSpecBulkValidator, and _validate_dimension_link_specs entirely.
+            validation_results = [
+                NodeValidationResult(
+                    spec=spec,
+                    status=NodeStatus.VALID,
+                    inferred_columns=spec.columns or [],
+                    errors=[],
+                    dependencies=node_graph.get(spec.rendered_name, []),
+                )
+                for spec in node_specs
+            ]
+        else:
+            # Validate all node queries to determine columns, types, and dependencies
+            validation_results = await bulk_validate_node_data(
+                node_specs,
+                node_graph,
+                self.session,
+                dependency_nodes=dependency_nodes,
+            )
 
         # Process validation results and create nodes
         nodes, revisions, deployment_results = await self.create_nodes_from_validation(
@@ -2753,25 +2811,29 @@ class DeploymentOrchestrator:
     ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
         nodes, revisions = [], []
         deployment_results = []
-        for result in validation_results:
-            if result.status == NodeStatus.INVALID:
-                logger.warning(
-                    "Deploying node %s with INVALID status: %s",
-                    result.spec.rendered_name,
-                    "; ".join(e.message for e in result.errors),
+        # Use no_autoflush to prevent premature flushing mid-loop (columns without
+        # node_revision_id, nodes without IDs). The caller (bulk_deploy_nodes_in_level)
+        # does a single session.flush() after collecting all objects.
+        with self.session.no_autoflush:
+            for result in validation_results:
+                if result.status == NodeStatus.INVALID:
+                    logger.warning(
+                        "Deploying node %s with INVALID status: %s",
+                        result.spec.rendered_name,
+                        "; ".join(e.message for e in result.errors),
+                    )
+                (
+                    deployment_result,
+                    new_node,
+                    new_revision,
+                ) = await self._process_valid_node_deploy(
+                    result,
+                    dependency_nodes,
+                    node_graph,
                 )
-            (
-                deployment_result,
-                new_node,
-                new_revision,
-            ) = await self._process_valid_node_deploy(
-                result,
-                dependency_nodes,
-                node_graph,
-            )
-            deployment_results.append(deployment_result)
-            nodes.append(new_node)
-            revisions.append(new_revision)
+                deployment_results.append(deployment_result)
+                nodes.append(new_node)
+                revisions.append(new_revision)
         return nodes, revisions, deployment_results
 
     def _fallback_catalog(self) -> Catalog | None:
@@ -2906,7 +2968,6 @@ class DeploymentOrchestrator:
         )
         self.session.add(new_node)
         self.session.add(new_revision)
-        await self.session.flush()
 
         # Track history for create/update operations
         activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
@@ -3331,6 +3392,7 @@ class DeploymentOrchestrator:
             dimension_link = DimensionLink(
                 node_revision_id=node_revision.id,  # type: ignore
                 dimension_id=dimension_node.id,  # type: ignore
+                dimension=dimension_node,  # populate relationship so checks work without flush
                 join_sql=link_input.join_on,
                 join_type=join_type,
                 join_cardinality=link_input.join_cardinality,
