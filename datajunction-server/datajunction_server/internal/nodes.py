@@ -1246,6 +1246,11 @@ def has_minor_changes(
             and data.display_name
             and old_revision.display_name != data.display_name
         )
+        or (
+            data
+            and data.filters is not None
+            and data.filters != (old_revision.cube_filters or [])
+        )
     )
 
 
