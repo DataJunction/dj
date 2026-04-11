@@ -610,10 +610,14 @@ async def build_combiner_sql_from_preaggs(
             preagg_hash,
         )
 
-        # Build full table reference
-        full_table_ref = (
-            f"{settings.preagg_catalog}.{settings.preagg_schema}.{table_name}"
-        )
+        # Use the actual physical table ref from the pre-agg record if available,
+        # otherwise fall back to config defaults (for planning/previewing)
+        if matching_preagg and matching_preagg.materialized_table_ref:
+            full_table_ref = matching_preagg.materialized_table_ref
+        else:
+            full_table_ref = (
+                f"{settings.preagg_catalog}.{settings.preagg_schema}.{table_name}"
+            )
         preagg_table_refs.append(full_table_ref)
 
         # Create a modified grain group that reads from the pre-agg table
