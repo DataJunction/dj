@@ -1313,27 +1313,16 @@ class TestBuildCombinerSqlFromPreaggs:
         # Should have pre-agg table references
         assert len(table_refs) >= 1
 
-        # The table reference should use the CORRECT pre-agg's hash, not the wrong one
-        # This verifies that the loop skipped the first pre-agg and found the second
-        correct_hash = compute_preagg_hash(
-            node_revision_id,
-            grain_columns,
-            correct_measures,
-        )
-        wrong_hash = compute_preagg_hash(
-            node_revision_id,
-            grain_columns,
-            wrong_measures,
-        )
-
-        # At least one table ref should contain the correct hash
+        # The table reference should use the CORRECT pre-agg's availability table,
+        # not the wrong one. This verifies the loop skipped the first pre-agg and
+        # found the second. Since matching preaggs with availability use the
+        # materialized_table_ref (catalog.schema.table), we check for those.
         table_refs_str = " ".join(table_refs)
-        assert correct_hash[:8] in table_refs_str, (
-            f"Expected correct hash {correct_hash[:8]} in table refs, "
-            f"but got {table_refs}"
+        assert "order_details_preagg_correct" in table_refs_str, (
+            f"Expected correct preagg table in table refs, but got {table_refs}"
         )
-        assert wrong_hash[:8] not in table_refs_str, (
-            f"Wrong hash {wrong_hash[:8]} should not be in table refs"
+        assert "order_details_preagg_wrong" not in table_refs_str, (
+            f"Wrong preagg table should not be in table refs, but got {table_refs}"
         )
 
 

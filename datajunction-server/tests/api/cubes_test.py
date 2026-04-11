@@ -1542,6 +1542,7 @@ async def test_druid_cube_agg_materialization(
         "info": {
             "output_tables": ["common.a", "common.b"],
             "urls": ["http://fake.url/job"],
+            "workflow_names": [],
         },
     }
     called_kwargs_all = [
@@ -4526,7 +4527,7 @@ class TestCubeMaterializeV2SuccessPaths:
                   SUM(line_total_sum_e1f61696) line_total_sum_e1f61696,
                   hll_union_agg(customer_id_hll_23002251) customer_id_hll_23002251,
                   week_order
-                FROM default.dj_preaggs.v3_order_details_preagg_399a3bfd
+                FROM analytics.preaggs.v3_revenue_orders_by_week
                 GROUP BY  category, order_id, week_order
                 """,
             )
@@ -4729,6 +4730,100 @@ class TestCubeDeactivateSuccessPaths:
             f"/cubes/{cube_name}/materialize",
         )
         assert response.status_code == 200
+
+
+class TestCubeDeactivateWithStoredWorkflowNames:
+    """Tests for cube deactivation using stored workflow_names in config."""
+
+    @pytest.mark.asyncio
+    async def test_deactivate_cube_uses_stored_workflow_names(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """Deactivation calls deactivate_workflows when config has workflow_names."""
+        client = client_with_build_v3
+        cube_name = "v3.test_deactivate_wf_names_cube"
+
+        # Create a simple cube using build_v3 fixtures
+        response = await client.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "display_name": "Test Deactivate WF Names Cube",
+                "description": "Cube for testing deactivation with workflow_names",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, f"Failed to create cube: {response.text}"
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="category",
+                type="string",
+                semantic_name="v3.product.category",
+                semantic_type="dimension",
+            ),
+        ]
+
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["category"],
+            sql_string="SELECT category FROM preagg",
+        )
+
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="category",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                ["catalog.schema.preagg_table1"],
+                mock_temporal_info,
+            ),
+        )
+
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
+            urls=["http://workflow/cube-workflow"],
+            workflow_names=["cube_wf_name_1"],
+        )
+        client.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+
+        try:
+            # Create materialization (stores workflow_names in config)
+            response = await client.post(
+                f"/cubes/{cube_name}/materialize",
+                json={"strategy": "full", "schedule": "0 0 * * *"},
+            )
+            assert response.status_code == 200, f"Materialize failed: {response.text}"
+
+            # Now deactivate — should use deactivate_workflows, not deactivate_cube_workflow
+            response = await client.delete(
+                f"/cubes/{cube_name}/materialize",
+            )
+            assert response.status_code == 200
+            assert "deactivated" in response.json()["message"].lower()
+
+            # Verify the new deactivate_workflows path was used
+            mock_qs_client.deactivate_workflows.assert_called_once_with(
+                workflow_names=["cube_wf_name_1"],
+                request_headers=mocker.ANY,
+            )
+            # The old path should NOT have been called
+            mock_qs_client.deactivate_cube_workflow.assert_not_called()
+        finally:
+            if get_query_service_client in client.app.dependency_overrides:
+                del client.app.dependency_overrides[get_query_service_client]
 
 
 class TestCubeBackfillSuccessPaths:

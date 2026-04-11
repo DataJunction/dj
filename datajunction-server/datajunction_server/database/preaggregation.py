@@ -348,6 +348,7 @@ class PreAggregation(Base):
                         joinedload(DimensionLink.dimension),
                     ),
                 ),
+                joinedload(cls.availability),
             )
             .where(cls.grain_group_hash == grain_group_hash)
         )

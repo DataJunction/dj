@@ -85,6 +85,22 @@ class TestHttpQueryServiceClientCubeV2Methods:
             request_headers={"X-Test": "1"},
         )
 
+    def test_deactivate_workflows(self, mock_client):
+        """Test deactivate_workflows delegates to underlying client."""
+        client, mock_inner = mock_client
+        mock_inner.deactivate_workflows.return_value = {"deactivated": 1}
+
+        result = client.deactivate_workflows(
+            workflow_names=["wf_one"],
+            request_headers={"X-Test": "1"},
+        )
+
+        mock_inner.deactivate_workflows.assert_called_once_with(
+            workflow_names=["wf_one"],
+            request_headers={"X-Test": "1"},
+        )
+        assert result == {"deactivated": 1}
+
     def test_run_cube_backfill(self, mock_client):
         """Test run_cube_backfill delegates to underlying client."""
         client, mock_inner = mock_client
