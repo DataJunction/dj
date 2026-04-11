@@ -2299,6 +2299,52 @@ async def test_updating_cube(
 
 
 @pytest.mark.asyncio
+async def test_updating_cube_filters(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Verify that cube filters can be updated via the PATCH endpoint and
+    that the change is detected as a minor version bump.
+    """
+    cube_name = "default.repairs_cube_filters_update"
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        cube_name,
+    )
+
+    # Confirm the initial cube_filters
+    response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
+    assert response.json()["cube_filters"] == ["default.hard_hat.state='AZ'"]
+
+    # Update only the filters
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={
+            "filters": ["default.hard_hat.state='CA'"],
+        },
+    )
+    data = response.json()
+    assert data["version"] == "v1.1"
+
+    # Verify the updated filters are returned from the /cubes/ endpoint
+    response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
+    assert response.json()["cube_filters"] == ["default.hard_hat.state='CA'"]
+
+    # Clear filters entirely
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={
+            "filters": [],
+        },
+    )
+    data = response.json()
+    assert data["version"] == "v1.2"
+
+    response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
+    assert response.json()["cube_filters"] is None
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_with_existing_cube_materialization(
     client_with_repairs_cube: AsyncClient,
     module__query_service_client: QueryServiceClient,
@@ -3340,7 +3386,7 @@ async def test_cube_materialization_metadata(
         default_DOT_hard_hats.manager,
         default_DOT_hard_hats.contractor_id
       FROM roads.hard_hats AS default_DOT_hard_hats
-      WHERE  default_DOT_hard_hats.hire_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
+      WHERE  default_DOT_hard_hats.state = 'AZ' AND default_DOT_hard_hats.hire_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
     ),
     default_DOT_dispatcher AS (
       SELECT
@@ -3377,7 +3423,7 @@ async def test_cube_materialization_metadata(
       FROM default_DOT_repair_orders_fact INNER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
       INNER JOIN default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
       INNER JOIN default_DOT_municipality_dim ON default_DOT_repair_orders_fact.municipality_id = default_DOT_municipality_dim.municipality_id
-      WHERE  default_DOT_hard_hat.hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
+      WHERE  default_DOT_hard_hat.state = 'AZ' AND default_DOT_hard_hat.hire_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)
     )
 
     SELECT  default_DOT_repair_orders_fact_built.default_DOT_hard_hat_DOT_country,

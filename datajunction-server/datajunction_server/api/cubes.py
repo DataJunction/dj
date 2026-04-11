@@ -460,7 +460,7 @@ async def materialize_cube(
             session=session,
             metrics=cube_revision.cube_node_metrics,
             dimensions=cube_revision.cube_node_dimensions,
-            filters=None,
+            filters=cube_revision.cube_filters or None,
             dialect=Dialect.SPARK,
         )
     except Exception as e:  # pragma: no cover
@@ -612,6 +612,7 @@ async def materialize_cube(
             request_headers=request_headers,
         )
         workflow_urls = mat_result.urls
+        workflow_names = mat_result.workflow_names
         message = (
             f"Cube materialization workflow created. "
             f"Workflow waits on {len(preagg_tables)} pre-agg table(s) before Druid ingestion. "
@@ -624,6 +625,7 @@ async def materialize_cube(
             str(e),
         )
         workflow_urls = []
+        workflow_names = []
         message = (
             f"Cube materialization prepared (workflow creation failed: {e}). "
             f"Druid workflow should wait on {len(preagg_tables)} pre-agg table(s) before ingestion."
@@ -668,6 +670,7 @@ async def materialize_cube(
         timestamp_column=timestamp_column,
         timestamp_format=timestamp_format or "yyyyMMdd",
         workflow_urls=workflow_urls,
+        workflow_names=workflow_names,
     )
 
     if existing_mats:
@@ -756,25 +759,48 @@ async def deactivate_cube_materialization(
 
     mat = existing_mats[0]
 
-    # Try to deactivate the workflow in the query service
+    # Extract stored workflow names from the materialization config
+    mat_config = mat.config if isinstance(mat.config, dict) else {}
+    workflow_names = mat_config.get("workflow_names", [])
+
+    # Deactivate workflows in the query service using stored names
     request_headers = dict(request.headers)
-    try:
-        query_service_client.deactivate_cube_workflow(
-            name,
-            version=cube_revision.version,
-            request_headers=request_headers,
-        )
-        _logger.info(
-            "Deactivated workflow for cube=%s version=%s",
-            name,
-            cube_revision.version,
-        )
-    except Exception as e:
-        _logger.warning(
-            "Failed to deactivate workflow for cube=%s: %s (continuing with deletion)",
-            name,
-            str(e),
-        )
+    if workflow_names:
+        try:
+            query_service_client.deactivate_workflows(
+                workflow_names=workflow_names,
+                request_headers=request_headers,
+            )
+            _logger.info(
+                "Deactivated workflows for cube=%s: %s",
+                name,
+                workflow_names,
+            )
+        except Exception as e:
+            _logger.warning(
+                "Failed to deactivate workflows for cube=%s: %s (continuing with deletion)",
+                name,
+                str(e),
+            )
+    else:
+        # Fallback to old endpoint for backwards compatibility
+        try:
+            query_service_client.deactivate_cube_workflow(
+                name,
+                version=cube_revision.version,
+                request_headers=request_headers,
+            )
+            _logger.info(
+                "Deactivated workflow for cube=%s version=%s (legacy)",
+                name,
+                cube_revision.version,
+            )
+        except Exception as e:
+            _logger.warning(
+                "Failed to deactivate workflow for cube=%s: %s (continuing with deletion)",
+                name,
+                str(e),
+            )
 
     # Delete the materialization record
     await session.delete(mat)
