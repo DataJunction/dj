@@ -486,6 +486,37 @@ class QueryServiceClient:
         )
         return result
 
+    def deactivate_workflows(
+        self,
+        workflow_names: List[str],
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deactivate workflows by their exact workflow names.
+
+        Uses POST /workflows/deactivate which takes explicit workflow names
+        rather than reconstructing them from cube/preagg identifiers.
+        """
+        response = self.requests_session.post(
+            "/workflows/deactivate",
+            json={"workflow_names": workflow_names},
+            headers=self.requests_session.headers,
+            timeout=20,
+        )
+        if response.status_code not in (200, 201, 204):
+            _logger.warning(
+                "[DJQS] Failed to deactivate workflows %s: %s",
+                workflow_names,
+                response.text,
+            )
+            return {"status": "failed", "message": response.text}
+        result = response.json() if response.text else {}
+        _logger.info(
+            "[DJQS] Deactivated workflows: %s",
+            workflow_names,
+        )
+        return result
+
     def run_preagg_backfill(
         self,
         backfill_input: "BackfillInput",

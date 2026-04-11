@@ -125,6 +125,7 @@ class MaterializationInfo(BaseModel):
 
     output_tables: List[str]
     urls: List[str]
+    workflow_names: List[str] = []
 
 
 class MaterializationConfigOutput(BaseModel):
