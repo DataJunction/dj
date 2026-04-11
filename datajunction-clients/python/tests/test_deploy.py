@@ -1476,3 +1476,60 @@ def test_djdeploymentfailure_str_with_no_errors():
     exc = DJDeploymentFailure(project_name="my.namespace", errors=[])
     assert str(exc) == exc.message
     assert "my.namespace" in str(exc)
+
+
+def test_push_raises_on_file_name_mismatch(monkeypatch, tmp_path):
+    """push() raises after successful deploy if filename doesn't match node name."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    # File is "wrong.yaml" but node name is "foo.bar" (short name "bar")
+    (tmp_path / "wrong.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJClientException, match="Fix file name mismatches"):
+        svc.push(tmp_path)
+
+
+def test_collect_nodes_skips_validation_for_unnamed_node(tmp_path):
+    """A YAML file with no 'name' field should still be collected without warnings."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "unnamed.yaml").write_text(yaml.safe_dump({"query": "SELECT 1"}))
+
+    svc = DeploymentService(MagicMock())
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
+
+    # Node should be collected
+    assert len(spec["nodes"]) == 1
+    assert spec["nodes"][0]["query"] == "SELECT 1"
+    # No warnings since there's no name to validate
+    assert warnings == []
+
+
+def test_collect_nodes_warns_on_duplicate_names(tmp_path):
+    """Duplicate node names produce a deduplication warning."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    sub = tmp_path / "subdir"
+    sub.mkdir()
+    (tmp_path / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}),
+    )
+    (sub / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 2"}),
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
+
+    # Should deduplicate, keeping last occurrence
+    assert len(spec["nodes"]) == 1
+    # Should have a duplicate warning
+    assert any("Duplicate node" in w for w in warnings)
