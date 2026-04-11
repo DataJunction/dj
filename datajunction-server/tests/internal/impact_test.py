@@ -2,6 +2,8 @@
 Unit tests for datajunction_server.internal.impact.propagate_impact
 """
 
+from unittest import mock
+
 import pytest
 
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
@@ -779,3 +781,202 @@ async def test_propagate_impact_cube_node_recovery(session, current_user: User):
     assert impact.current_status == NodeStatus.INVALID
     assert impact.predicted_status == NodeStatus.VALID
     assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_process_validity_recovery_skips_candidate_with_no_parents(
+    session,
+    current_user: User,
+):
+    """Directly test _process_validity_recovery: candidate with no parent edges is skipped."""
+    from datajunction_server.internal.impact import _process_validity_recovery
+    from datajunction_server.models.impact import DownstreamImpact
+
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Create a node that will be passed as a recovery candidate
+    orphan = Node(
+        name="ns.orphan",
+        type=NodeType.SOURCE,
+        current_version="v1.0",
+        created_by_id=current_user.id,
+        namespace="ns",
+    )
+    orphan_rev = NodeRevision(
+        name="ns.orphan",
+        type=NodeType.SOURCE,
+        node=orphan,
+        version="v1.0",
+        status=NodeStatus.INVALID,
+        query=None,
+        created_by_id=current_user.id,
+    )
+    await _persist(session, orphan, orphan_rev)
+
+    # Create a placeholder result that _process_validity_recovery can update
+    results = [
+        DownstreamImpact(
+            name="ns.orphan",
+            node_type=NodeType.SOURCE,
+            current_status=NodeStatus.INVALID,
+            predicted_status=NodeStatus.INVALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="test",
+            depth=1,
+        ),
+    ]
+
+    # Pass orphan as a recovery candidate — it has NO NodeRelationship rows
+    candidates = [(orphan.id, orphan, 1, 0)]
+    recovered = await _process_validity_recovery(
+        session,
+        candidates,
+        visited_nodes_by_id={orphan.id: orphan},
+        results=results,
+    )
+
+    # Should not recover (no parents found → skipped)
+    assert recovered == 0
+    assert orphan_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_recovery_skips_candidate_with_missing_parent_node(
+    session,
+    current_user: User,
+):
+    """Recovery candidate whose parent Node row can't be loaded is skipped."""
+    from datajunction_server.internal.impact import _process_validity_recovery
+    from datajunction_server.models.impact import DownstreamImpact
+
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    # Create a second parent that is linked to child
+    other_parent, other_parent_rev = _make_node(
+        "ns.other_parent",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+
+    await _persist(
+        session,
+        source,
+        source_rev,
+        other_parent,
+        other_parent_rev,
+        child,
+        child_rev,
+    )
+    await _persist(session, _link(source, child_rev))
+    await _persist(session, _link(other_parent, child_rev))
+
+    results = [
+        DownstreamImpact(
+            name="ns.transform",
+            node_type=NodeType.TRANSFORM,
+            current_status=NodeStatus.INVALID,
+            predicted_status=NodeStatus.INVALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="test",
+            depth=1,
+        ),
+    ]
+
+    # Call _process_validity_recovery directly.
+    # visited_nodes_by_id includes source but NOT other_parent.
+    # The function will load missing parents (other_parent) from DB, so it
+    # would normally find it. We mock the load query to return empty so
+    # other_parent stays missing from visited_nodes_by_id.
+    original_execute = session.execute
+    call_count = 0
+
+    async def _intercept_execute(stmt, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # The 2nd query is the missing-parent load (select Node where id in ...)
+        # Return an empty result to simulate a missing parent
+        if call_count == 2:
+            empty_result = mock.MagicMock()
+            empty_result.unique.return_value = empty_result
+            empty_result.scalars.return_value = empty_result
+            empty_result.all.return_value = []
+            return empty_result
+        return await original_execute(stmt, *args, **kwargs)
+
+    # Pre-load source with its .current relationship to avoid lazy loads
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload as jl
+
+    source_loaded = (
+        (
+            await session.execute(
+                select(Node).where(Node.id == source.id).options(jl(Node.current)),
+            )
+        )
+        .unique()
+        .scalar_one()
+    )
+
+    candidates = [(child.id, child, 1, 0)]
+    with mock.patch.object(session, "execute", side_effect=_intercept_execute):
+        recovered = await _process_validity_recovery(
+            session,
+            candidates,
+            visited_nodes_by_id={child.id: child, source.id: source_loaded},
+            results=results,
+        )
+
+    # Should not recover because other_parent can't be found
+    assert recovered == 0
+    assert child_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_recovery_handles_validation_exception(
+    session,
+    current_user: User,
+):
+    """If validate_node_data raises, the candidate is skipped (not recovered)."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+    )
+
+    await _persist(session, source, source_rev, child, child_rev)
+    await _persist(session, _link(source, child_rev))
+
+    with mock.patch(
+        "datajunction_server.internal.impact.validate_node_data",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = await propagate_impact(session, "ns", {"ns.source"})
+
+    # child should NOT recover because validation raised an exception
+    child_impacts = [r for r in result if r.name == "ns.transform"]
+    assert len(child_impacts) == 1
+    assert child_impacts[0].impact_type != ImpactType.WILL_RECOVER
+    # Status should remain INVALID
+    assert child_rev.status == NodeStatus.INVALID
