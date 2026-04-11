@@ -166,7 +166,8 @@ async def build_cube_materialization(
         session=session,
         metrics=current_revision.cube_node_metrics,
         dimensions=current_revision.cube_node_dimensions,
-        filters=[
+        filters=(current_revision.cube_filters or [])
+        + [
             generate_partition_filter_sql(
                 temporal_partition,
                 upsert_input.lookback_window,  # type: ignore
