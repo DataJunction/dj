@@ -674,7 +674,7 @@ def test_reconstruct_deployment_spec(tmp_path):
     node_file.write_text(yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}))
 
     svc = DeploymentService(MagicMock())
-    spec = svc._reconstruct_deployment_spec(tmp_path)
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
     assert spec["namespace"] == "foo"
     assert spec["tags"] == ["t1"]
     assert spec["nodes"][0]["name"] == "foo.bar"
@@ -684,7 +684,7 @@ def test_reconstruct_deployment_spec(tmp_path):
 def test_push_waits_until_success(monkeypatch, tmp_path):
     # Create a fake project structure so _reconstruct_deployment_spec returns something
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
-    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
     # Fake client that returns "pending" once then "success"
     client = MagicMock()
@@ -707,7 +707,7 @@ def test_push_waits_until_success(monkeypatch, tmp_path):
 def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
     """push(force=True) must include {"force": True} in the spec sent to client.deploy."""
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
-    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
     client = MagicMock()
     client.deploy.return_value = {
@@ -729,7 +729,7 @@ def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
 def test_push_without_force_does_not_set_flag(monkeypatch, tmp_path):
     """push() without force must not include force in the spec (server default handles it)."""
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
-    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
     client = MagicMock()
     client.deploy.return_value = {
@@ -751,7 +751,7 @@ def test_push_without_force_does_not_set_flag(monkeypatch, tmp_path):
 def test_push_times_out(monkeypatch, tmp_path):
     # minimal project structure so _reconstruct_deployment_spec works
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
-    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
     # Fake client: deploy returns a uuid, check_deployment always 'pending'
     client = MagicMock()
@@ -788,7 +788,7 @@ def test_push_times_out(monkeypatch, tmp_path):
 @pytest.mark.timeout(2)
 def test_push_raises_on_failed_deployment(monkeypatch, tmp_path):
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
-    (tmp_path / "foo.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
 
     failed_results = [
         {
@@ -1009,7 +1009,7 @@ class TestBuildDeploymentSource:
         monkeypatch.setenv("DJ_DEPLOY_BRANCH", "feature-branch")
 
         svc = DeploymentService(MagicMock())
-        spec = svc._reconstruct_deployment_spec(tmp_path)
+        spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
 
         assert "source" in spec
         assert spec["source"]["type"] == "git"
@@ -1030,7 +1030,7 @@ class TestBuildDeploymentSource:
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
 
         svc = DeploymentService(MagicMock())
-        spec = svc._reconstruct_deployment_spec(tmp_path)
+        spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
 
         # Now we always track local deploys
         assert "source" in spec
@@ -1330,7 +1330,9 @@ class TestPushBranchDetection:
     def test_push_derives_namespace_from_git_branch(self, monkeypatch, tmp_path):
         """When no namespace is passed, push() derives it from the git branch."""
         (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
-        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
 
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.setattr(
@@ -1356,7 +1358,9 @@ class TestPushBranchDetection:
     def test_push_explicit_namespace_overrides_git(self, monkeypatch, tmp_path):
         """An explicit namespace argument always wins over git detection."""
         (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
-        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
 
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.setattr(
@@ -1377,7 +1381,9 @@ class TestPushBranchDetection:
     def test_push_no_git_repo_uses_dj_yaml_namespace(self, monkeypatch, tmp_path):
         """When git is unavailable, falls back to the namespace in dj.yaml."""
         (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
-        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
 
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         import subprocess as sp
@@ -1416,7 +1422,9 @@ class TestPushBranchDetection:
     def test_push_git_config_failure_is_warned_not_raised(self, monkeypatch, tmp_path):
         """When _set_namespace_git_config raises, push() prints a warning and continues."""
         (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
-        (tmp_path / "node.yaml").write_text(yaml.safe_dump({"name": "project.my_node"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
 
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
         monkeypatch.setattr(
@@ -1468,3 +1476,60 @@ def test_djdeploymentfailure_str_with_no_errors():
     exc = DJDeploymentFailure(project_name="my.namespace", errors=[])
     assert str(exc) == exc.message
     assert "my.namespace" in str(exc)
+
+
+def test_push_raises_on_file_name_mismatch(monkeypatch, tmp_path):
+    """push() raises after successful deploy if filename doesn't match node name."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    # File is "wrong.yaml" but node name is "foo.bar" (short name "bar")
+    (tmp_path / "wrong.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJClientException, match="Fix file name mismatches"):
+        svc.push(tmp_path)
+
+
+def test_collect_nodes_skips_validation_for_unnamed_node(tmp_path):
+    """A YAML file with no 'name' field should still be collected without warnings."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "unnamed.yaml").write_text(yaml.safe_dump({"query": "SELECT 1"}))
+
+    svc = DeploymentService(MagicMock())
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
+
+    # Node should be collected
+    assert len(spec["nodes"]) == 1
+    assert spec["nodes"][0]["query"] == "SELECT 1"
+    # No warnings since there's no name to validate
+    assert warnings == []
+
+
+def test_collect_nodes_warns_on_duplicate_names(tmp_path):
+    """Duplicate node names produce a deduplication warning."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    sub = tmp_path / "subdir"
+    sub.mkdir()
+    (tmp_path / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}),
+    )
+    (sub / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 2"}),
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, warnings = svc._reconstruct_deployment_spec(tmp_path)
+
+    # Should deduplicate, keeping last occurrence
+    assert len(spec["nodes"]) == 1
+    # Should have a duplicate warning
+    assert any("Duplicate node" in w for w in warnings)

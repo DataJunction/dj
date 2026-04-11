@@ -364,6 +364,7 @@ class LinkableNodeSpec(NodeSpec):
                 compare_types=True if self.node_type == NodeType.SOURCE else False,
             )
             and dimension_links_equal
+            and set(self.primary_key or []) == set(other.primary_key or [])
         )
 
 
