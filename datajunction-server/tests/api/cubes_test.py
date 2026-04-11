@@ -603,6 +603,9 @@ async def test_create_cube(
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube")
     cube = response.json()
 
+    # Cube filters should be exposed on the /cubes/ endpoint
+    assert cube["cube_filters"] == ["default.hard_hat.state='AZ'"]
+
     # Make sure it matches the original metrics order
     metrics = [
         "default.discounted_orders_rate",

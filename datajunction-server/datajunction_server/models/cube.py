@@ -103,6 +103,7 @@ class CubeRevisionMetadata(BaseModel):
     cube_elements: List[CubeElementMetadata]
     cube_node_metrics: List[str]
     cube_node_dimensions: List[str]
+    cube_filters: Optional[List[str]] = None
     query: Optional[str] = None
     columns: List[ColumnOutput]
     sql_columns: Optional[List[ColumnOutput]] = None
