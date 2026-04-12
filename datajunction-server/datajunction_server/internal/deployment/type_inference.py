@@ -20,6 +20,9 @@ from datajunction_server.errors import DJNotImplementedException
 from datajunction_server.sql.parsing.types import (
     BooleanType,
     ColumnType,
+    IntegerType,
+    ListType,
+    MapType,
     NullType,
     StringType,
     UnknownType,
@@ -63,20 +66,6 @@ class QueryValidationResult:
 
 class TypeResolutionError(Exception):
     """Raised when type resolution fails (missing table, missing column, etc.)."""
-
-
-def resolve_output_columns(
-    query_str: str,
-    parent_columns_map: ParentColumnsMap,
-) -> OutputColumns:
-    """Convenience wrapper — raises TypeResolutionError on first error.
-
-    Prefer validate_node_query for new code.
-    """
-    result = validate_node_query(query_str, parent_columns_map)
-    if result.errors:
-        raise TypeResolutionError("; ".join(result.errors))
-    return result.output_columns
 
 
 def validate_node_query(
@@ -147,11 +136,15 @@ def _resolve_query(
         return [], []
 
     try:
-        tables = _build_table_scope(select, parent_columns_map, cte_registry)
+        tables, table_errors = _build_table_scope(
+            select,
+            parent_columns_map,
+            cte_registry,
+        )
     except TypeResolutionError as exc:
         return [], [str(exc)]
 
-    scope = TypeScope(tables=tables, parent_map=parent_columns_map)
+    scope = TypeScope(tables=tables, parent_map=parent_columns_map, errors=table_errors)
 
     output: OutputColumns = []
     for expr in select.projection:
@@ -162,6 +155,15 @@ def _resolve_query(
 
     # Validate column references in non-projection clauses
     _validate_non_projection_clauses(select, scope)
+
+    # Validate set operations (UNION/EXCEPT/INTERSECT right side)
+    if select.set_op and select.set_op.right:
+        _, set_op_errors = _resolve_query(
+            ast.Query(select=select.set_op.right),
+            parent_columns_map,
+            cte_registry,
+        )
+        scope.errors.extend(set_op_errors)
 
     return output, scope.errors
 
@@ -211,22 +213,27 @@ def _build_table_scope(
     select: ast.Select,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
-) -> TableScope:
+) -> tuple[TableScope, list[str]]:
     """
     Build a mapping of table alias/name → {column_name: column_type} for all
-    tables available in this query's scope.
+    tables available in this query's scope. Returns (scope, errors).
     """
     if select.from_ is None:
-        return {"__derived__": _build_derived_scope(parent_columns_map)}
+        return {"__derived__": _build_derived_scope(parent_columns_map)}, []
 
     scope: TableScope = {}
+    errors: list[str] = []
     for relation in select.from_.relations:
-        scope.update(
-            _collect_tables_from_relation(relation, parent_columns_map, cte_registry),
+        tables, errs = _collect_tables_from_relation(
+            relation,
+            parent_columns_map,
+            cte_registry,
         )
+        scope.update(tables)
+        errors.extend(errs)
     for view in select.lateral_views:
         scope.update(_collect_lateral_view_columns(view, scope))
-    return scope
+    return scope, errors
 
 
 def _build_derived_scope(parent_columns_map: ParentColumnsMap) -> dict[str, ColumnType]:
@@ -248,27 +255,28 @@ def _collect_tables_from_relation(
     node: ast.Node,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
-) -> TableScope:
-    """Collect table scopes from a FROM relation. Returns discovered tables."""
+) -> tuple[TableScope, list[str]]:
+    """Collect table scopes from a FROM relation. Returns (tables, errors)."""
     result: TableScope = {}
+    errors: list[str] = []
 
     if isinstance(node, ast.Relation):
-        result.update(
-            _collect_tables_from_relation(
-                node.primary,
-                parent_columns_map,
-                cte_registry,
-            ),
+        tables, errs = _collect_tables_from_relation(
+            node.primary,
+            parent_columns_map,
+            cte_registry,
         )
+        result.update(tables)
+        errors.extend(errs)
         for ext in node.extensions:
             if isinstance(ext, ast.Join):  # pragma: no branch
-                result.update(
-                    _collect_tables_from_relation(
-                        ext.right,
-                        parent_columns_map,
-                        cte_registry,
-                    ),
+                tables, errs = _collect_tables_from_relation(
+                    ext.right,
+                    parent_columns_map,
+                    cte_registry,
                 )
+                result.update(tables)
+                errors.extend(errs)
 
     elif isinstance(node, ast.Table):
         table_name = node.identifier(quotes=False)
@@ -286,8 +294,9 @@ def _collect_tables_from_relation(
 
     elif isinstance(node, ast.Query):
         sub_alias = node.alias.name if node.alias else "__subquery__"
-        sub_columns, _ = _resolve_query(node, parent_columns_map, cte_registry)
+        sub_columns, sub_errors = _resolve_query(node, parent_columns_map, cte_registry)
         result[sub_alias] = {name: typ for name, typ in sub_columns}
+        errors.extend(sub_errors)
 
     elif isinstance(node, ast.FunctionTableExpression):  # pragma: no branch
         alias = node.alias.name if node.alias else "__func_table__"
@@ -295,47 +304,36 @@ def _collect_tables_from_relation(
         if func_cols:  # pragma: no branch
             result[alias] = func_cols
 
-    return result
+    return result, errors
 
 
 def _collect_lateral_view_columns(
     view: ast.LateralView,
     from_scope: TableScope,
 ) -> TableScope:
-    """
-    Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
-    Returns {alias: {col_name: type}} for the exploded columns.
+    """Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
 
-    Attempts to resolve actual element types from the source column's
-    ListType/MapType. Falls back to UnknownType if the source type
-    can't be determined.
+    Resolves element types from the source column's ListType/MapType
+    when possible, falls back to UnknownType otherwise.
     """
-
     func = view.func
     alias = func.alias.name if func.alias else "__lateral__"
     col_list = func.column_list or []
     if not col_list:
         return {}
 
-    # Try to resolve the element type from the EXPLODE/POSEXPLODE arg
     element_types = _resolve_lateral_element_types(func, from_scope)
-
     func_name = func.name.name.upper() if hasattr(func, "name") and func.name else ""
     is_posexplode = "POS" in func_name
 
     lateral_cols: dict[str, ColumnType] = {}
     for i, col in enumerate(col_list):
-        if element_types:
-            if is_posexplode and i == 0:
-                from datajunction_server.sql.parsing.types import IntegerType
-
-                lateral_cols[col.name.name] = IntegerType()
-            elif is_posexplode and i == 1 and len(element_types) >= 1:
-                lateral_cols[col.name.name] = element_types[0]
-            elif not is_posexplode and i < len(element_types):
-                lateral_cols[col.name.name] = element_types[i]
-            else:
-                lateral_cols[col.name.name] = UnknownType()
+        if is_posexplode and i == 0:
+            lateral_cols[col.name.name] = IntegerType()
+        elif is_posexplode and i == 1 and element_types:
+            lateral_cols[col.name.name] = element_types[0]
+        elif not is_posexplode and i < len(element_types):
+            lateral_cols[col.name.name] = element_types[i]
         else:
             lateral_cols[col.name.name] = UnknownType()
 
@@ -346,22 +344,11 @@ def _resolve_lateral_element_types(
     func: ast.FunctionTableExpression,
     from_scope: TableScope,
 ) -> list[ColumnType]:
-    """Try to resolve the element types for an EXPLODE/UNNEST function.
-
-    Returns a list of ColumnType for the exploded columns, or empty list
-    if the source type can't be determined.
-    """
-    from datajunction_server.sql.parsing.types import ListType, MapType
-
-    if not func.args:
+    """Resolve element types for an EXPLODE/UNNEST function argument."""
+    if not func.args or not isinstance(func.args[0], ast.Column):
         return []
 
-    arg = func.args[0]
-    if not isinstance(arg, ast.Column):
-        return []
-
-    # Look up the column's type from the FROM scope
-    col_name = arg.name.name
+    col_name = func.args[0].name.name
     for table_cols in from_scope.values():
         if col_name in table_cols:
             col_type = table_cols[col_name]
@@ -370,7 +357,6 @@ def _resolve_lateral_element_types(
             if isinstance(col_type, MapType):
                 return [col_type.key.type, col_type.value.type]
             return []
-
     return []
 
 
@@ -411,6 +397,14 @@ def _resolve_projection_expr(
     if isinstance(expr, ast.Column):
         col_type = _resolve_column_type(expr, scope)
         return [(output_name, col_type)]
+
+    # Scalar subquery in projection: (SELECT ... ) AS alias
+    if isinstance(expr, ast.Query):
+        sub_columns, sub_errors = _resolve_query(expr, scope.parent_map, {})
+        scope.errors.extend(sub_errors)
+        if sub_columns:
+            return [(output_name, sub_columns[0][1])]
+        return [(output_name, UnknownType())]
 
     # For expressions (Function, BinaryOp, Cast, literals, etc.)
     col_type = _resolve_expr_type(expr, scope)
@@ -465,6 +459,16 @@ def _validate_non_projection_clauses(select: ast.Select, scope: TypeScope):
     if select.from_:
         for relation in select.from_.relations:
             _collect_join_conditions(relation, clauses_to_check)
+
+    # Window function OVER clauses (PARTITION BY, ORDER BY)
+    for proj_item in select.projection:
+        proj_node: ast.Node = proj_item  # type: ignore[assignment]
+        for func in proj_node.find_all(ast.Function):
+            if hasattr(func, "over") and func.over:
+                for partition_expr in func.over.partition_by:
+                    clauses_to_check.append(partition_expr)
+                for sort_item in func.over.order_by:
+                    clauses_to_check.append(sort_item.expr)
 
     for clause in clauses_to_check:
         _validate_columns_in_clause(clause, scope)
@@ -621,7 +625,7 @@ def _resolve_expr_type(
     Note: may mutate _type on AST Column nodes as a side effect, since the
     AST's built-in type properties (Function.infer_type, BinaryOp.type, etc.)
     read _type from child nodes. The AST is throwaway — parsed fresh per
-    resolve_output_columns call.
+    validate_node_query call.
     """
     if isinstance(expr, ast.Column):
         return _resolve_column_type(expr, scope)
@@ -707,14 +711,15 @@ def _prepare_function_arg_types(
     Set _type on function argument AST nodes so Function.infer_type can dispatch.
 
     Mutates the AST in place. This is intentional - the AST is a throwaway object
-    created per resolve_output_columns call and discarded after.
+    created per validate_node_query call and discarded after.
     """
     for arg in func.args:
         if isinstance(arg, ast.Column) and arg._type is None:
             try:
                 arg._type = _resolve_column_type(arg, scope)
-            except TypeResolutionError:
+            except TypeResolutionError as exc:
                 arg._type = UnknownType()
+                scope.errors.append(str(exc))
         elif isinstance(arg, ast.Function):
             _prepare_function_arg_types(arg, scope)
         elif isinstance(arg, (ast.Wildcard, ast.Number, ast.String)):
@@ -736,8 +741,9 @@ def _prepare_column_types_recursive(
     if isinstance(node, ast.Column) and node._type is None:
         try:
             node._type = _resolve_column_type(node, scope)
-        except TypeResolutionError:
+        except TypeResolutionError as exc:
             node._type = UnknownType()
+            scope.errors.append(str(exc))
     if isinstance(node, ast.Function):
         _prepare_function_arg_types(node, scope)
         return
