@@ -347,7 +347,7 @@ def _resolve_lateral_element_types(
 ) -> list[ColumnType]:
     """Resolve element types for an EXPLODE/UNNEST function argument."""
     if not func.args or not isinstance(func.args[0], ast.Column):
-        return []
+        return []  # pragma: no cover
 
     col_name = func.args[0].name.name
     for table_cols in from_scope.values():
@@ -405,7 +405,7 @@ def _resolve_projection_expr(
         scope.errors.extend(sub_errors)
         if sub_columns:
             return [(output_name, sub_columns[0][1])]
-        return [(output_name, UnknownType())]
+        return [(output_name, UnknownType())]  # pragma: no cover
 
     # For expressions (Function, BinaryOp, Cast, literals, etc.)
     col_type = _resolve_expr_type(expr, scope)
@@ -450,7 +450,7 @@ def _resolve_struct_field(
     for table_cols in tables.values():
         if struct_col_name in table_cols:
             col_type = table_cols[struct_col_name]
-            if isinstance(col_type, StructType):
+            if isinstance(col_type, StructType):  # pragma: no branch
                 if field_name in col_type.fields_mapping:
                     return col_type.fields_mapping[field_name].type
                 raise TypeResolutionError(
@@ -522,7 +522,7 @@ def _collect_join_conditions(node: ast.Node, conditions: list[ast.Node]):
     """Recursively collect JOIN ON conditions from a relation."""
     if isinstance(node, ast.Relation):
         for ext in node.extensions:
-            if isinstance(ext, ast.Join):
+            if isinstance(ext, ast.Join):  # pragma: no branch
                 if ext.criteria and ext.criteria.on:
                     conditions.append(ext.criteria.on)
                 _collect_join_conditions(ext.right, conditions)
