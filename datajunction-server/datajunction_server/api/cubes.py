@@ -776,7 +776,7 @@ async def deactivate_cube_materialization(
                 name,
                 workflow_names,
             )
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             _logger.warning(
                 "Failed to deactivate workflows for cube=%s: %s (continuing with deletion)",
                 name,
