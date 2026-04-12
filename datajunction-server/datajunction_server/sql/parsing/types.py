@@ -860,6 +860,24 @@ class WildcardType(PrimitiveType, Singleton):
         super().__init__("wildcard", "WildcardType()")
 
 
+class UnknownType(ColumnType, Singleton):
+    """Represents a type that could not be resolved.
+
+    Used by the lightweight type inference in deployment propagation when a
+    column's type cannot be determined (e.g., unregistered function, failed
+    expression inference). Callers can check for this type to decide whether
+    to mark a node as needing full revalidation.
+
+    Example:
+        >>> column_foo = UnknownType()
+        >>> isinstance(column_foo, UnknownType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("unknown", "UnknownType()")
+
+
 # Define the primitive data types and their corresponding Python classes
 PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "bool": BooleanType(),
