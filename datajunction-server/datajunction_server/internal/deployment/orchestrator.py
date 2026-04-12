@@ -1110,6 +1110,7 @@ class DeploymentOrchestrator:
         plan: DeploymentPlan,
     ) -> tuple[list[DeploymentResult], dict[str, Node]]:
         """Deploy nodes in the plan"""
+        start = time.perf_counter()
 
         deployed_results, deployed_nodes = [], {}
 
@@ -1143,10 +1144,19 @@ class DeploymentOrchestrator:
                 self.registry.add_nodes(nodes)
 
         logger.info("Finished deploying %d non-cube nodes", len(deployed_nodes))
+        get_metrics_provider().timer(
+            "dj.deployment.deploy_nodes_ms",
+            (time.perf_counter() - start) * 1000,
+        )
+        get_metrics_provider().gauge(
+            "dj.deployment.deploy_nodes_count",
+            len(deployed_nodes),
+        )
         return deployed_results, deployed_nodes
 
     async def _deploy_links(self, plan: DeploymentPlan) -> list[DeploymentResult]:
         """Deploy dimension links for nodes in the plan"""
+        start = time.perf_counter()
         deployed_links = []
 
         # Load dimension nodes — serve from registry if already deployed, DB otherwise
@@ -1202,6 +1212,14 @@ class DeploymentOrchestrator:
                 deployed_links.append(link_result)
         await self.session.flush()
         logger.info("Finished deploying %d dimension links", len(deployed_links))
+        get_metrics_provider().timer(
+            "dj.deployment.deploy_links_ms",
+            (time.perf_counter() - start) * 1000,
+        )
+        get_metrics_provider().gauge(
+            "dj.deployment.deploy_links_count",
+            len(deployed_links),
+        )
         return deployed_links
 
     async def _bulk_delete_links(self, to_delete, node_spec) -> list[DeploymentResult]:
@@ -1473,10 +1491,19 @@ class DeploymentOrchestrator:
             )
         self.registry.add_nodes(all_nodes)
 
+        elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "Deployed %d cubes in %.3fs",
             len(nodes),
-            time.perf_counter() - start,
+            elapsed_ms / 1000,
+        )
+        get_metrics_provider().timer(
+            "dj.deployment.deploy_cubes_ms",
+            elapsed_ms,
+        )
+        get_metrics_provider().gauge(
+            "dj.deployment.deploy_cubes_count",
+            len(nodes),
         )
         return deployment_results
 

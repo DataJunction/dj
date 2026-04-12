@@ -3,6 +3,7 @@ import asyncio
 import collections
 import decimal
 import logging
+import time as _time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -39,6 +40,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.utils import refresh_if_needed
 from datajunction_server.construction.utils import get_dj_node, to_namespaced_name
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -1179,6 +1181,16 @@ class Column(Aliasable, Named, Expression):
         if self.is_compiled():
             return
 
+        _start = _time.monotonic()
+        try:
+            return await self._compile_inner(ctx)
+        finally:
+            get_metrics_provider().timer(
+                "dj.compile.column_compile_ms",
+                (_time.monotonic() - _start) * 1000,
+            )
+
+    async def _compile_inner(self, ctx: CompileContext):
         # check if the column was already given a table
         if self.table and isinstance(self.table.parent, Column):
             await self.table.add_ref_column(self, ctx)
@@ -1700,6 +1712,7 @@ class Table(TableExpression, Named):
         if self.is_compiled():
             return
 
+        _start = _time.monotonic()
         self._is_compiled = True
 
         table_name = self.identifier(quotes=False)
@@ -1750,6 +1763,11 @@ class Table(TableExpression, Named):
             # Don't cache failed lookups - the node might be created later
             # Only the pattern-based checks above should add to the cache
             ctx.exception.errors.append(exc.dj_error)
+        finally:
+            get_metrics_provider().timer(
+                "dj.compile.table_compile_ms",
+                (_time.monotonic() - _start) * 1000,
+            )
 
 
 class Operation(Expression):
@@ -3151,6 +3169,16 @@ class Query(TableExpression, UnNamed):
         if self._is_compiled:
             return
 
+        _start = _time.monotonic()
+        try:
+            return await self._compile_query_inner(ctx)
+        finally:
+            get_metrics_provider().timer(
+                "dj.compile.query_compile_ms",
+                (_time.monotonic() - _start) * 1000,
+            )
+
+    async def _compile_query_inner(self, ctx: CompileContext):
         # A Query whose select is an InlineTable arises from (VALUES ...) AS alias(cols).
         # Its columns are already set on the InlineTable; just expose them and return.
         if isinstance(self.select, InlineTable):

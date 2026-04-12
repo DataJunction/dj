@@ -2,6 +2,7 @@
 Utilities used around construction
 """
 
+import time
 from typing import TYPE_CHECKING, Optional, Set, Union
 
 from sqlalchemy import select
@@ -24,6 +25,7 @@ async def get_dj_node(
     current: bool = True,
 ) -> NodeRevision:
     """Return the DJ Node with a given name from a set of node types"""
+    start = time.monotonic()
     query = select(Node).filter(Node.name == node_name)
     if kinds:
         query = query.filter(Node.type.in_(kinds))  # type: ignore
@@ -53,6 +55,14 @@ async def get_dj_node(
                 message=f"No node `{node_name}` exists of kind {kind_msg}.",
             ),
         ) from no_result_exc
+    finally:
+        from datajunction_server.instrumentation.provider import get_metrics_provider  # noqa: PLC0415
+
+        get_metrics_provider().timer(
+            "dj.compile.get_dj_node_ms",
+            (time.monotonic() - start) * 1000,
+        )
+        get_metrics_provider().counter("dj.compile.get_dj_node_count")
     return match.current if match and current else match
 
 

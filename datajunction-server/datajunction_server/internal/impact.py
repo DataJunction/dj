@@ -3,6 +3,7 @@ Downstream impact propagation for deployments.
 """
 
 import logging
+import time
 
 from sqlalchemy import select
 from sqlalchemy.sql.operators import is_
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus
 
@@ -39,6 +41,7 @@ async def propagate_impact(
     Returns:
         List of DownstreamImpact describing each affected downstream node.
     """
+    start = time.perf_counter()
     all_root_names = changed_node_names | deleted_node_names
     if not all_root_names:
         return []
@@ -169,9 +172,25 @@ async def propagate_impact(
         frontier_ids = next_frontier
         depth += 1
 
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    will_invalidate_count = sum(
+        1 for r in results if r.impact_type == ImpactType.WILL_INVALIDATE
+    )
     logger.info(
         "Impact analysis: %d downstream nodes (%d will_invalidate)",
         len(results),
-        sum(1 for r in results if r.impact_type == ImpactType.WILL_INVALIDATE),
+        will_invalidate_count,
+    )
+    get_metrics_provider().timer(
+        "dj.deployment.propagate_impact_ms",
+        elapsed_ms,
+    )
+    get_metrics_provider().gauge(
+        "dj.deployment.propagate_impact.nodes_affected",
+        len(results),
+    )
+    get_metrics_provider().gauge(
+        "dj.deployment.propagate_impact.will_invalidate",
+        will_invalidate_count,
     )
     return results
