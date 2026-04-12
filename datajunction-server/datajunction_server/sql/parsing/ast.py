@@ -1350,7 +1350,7 @@ class Wildcard(Named, Expression):
     Wildcard or '*' expression
     """
 
-    name: Name = field(init=False, repr=False, default=Name("*"))
+    name: Name = field(init=False, repr=False, default_factory=lambda: Name("*"))
     _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
