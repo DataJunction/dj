@@ -13,6 +13,7 @@ class ImpactType(str, Enum):
     """Type of impact on a downstream node"""
 
     WILL_INVALIDATE = "will_invalidate"  # Certain to break
+    WILL_RECOVER = "will_recover"  # Was INVALID, will become VALID
     MAY_AFFECT = "may_affect"  # Might need revalidation
     UNCHANGED = "unchanged"  # No predicted impact
 

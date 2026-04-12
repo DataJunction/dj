@@ -1477,7 +1477,8 @@ class DJCLI:
                     verbose=args.verbose,
                     force=args.force,
                 )
-            except DJDeploymentFailure:
+            except DJClientException as exc:
+                Console().print(f"[red bold]ERROR:[/red bold] {exc}")
                 raise SystemExit(1)
         elif args.command == "generate-codeowners":
             count = DeploymentService.build_codeowners(

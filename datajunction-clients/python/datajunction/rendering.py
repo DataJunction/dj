@@ -179,7 +179,11 @@ def _render_result_rows(
     for result in regular_results:
         color = _RESULT_COLORS.get(result.status, TerminalColor.WHITE)
         icon = _RESULT_ICONS.get(result.status, " ")
-        if not verbose and result.operation == "noop":
+        if (
+            not verbose
+            and result.operation == "noop"
+            and result.status not in _ERROR_STATUSES
+        ):
             continue
         if rows:
             rows.append("\n")

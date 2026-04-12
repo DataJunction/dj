@@ -38,7 +38,6 @@ from datajunction_server.errors import (
 )
 from datajunction_server.database.node import Node
 from datajunction_server.models.node import (
-    NodeMode,
     NodeType,
 )
 import pytest
@@ -534,7 +533,7 @@ def test_find_upstreams_for_derived_metric():
         node_type=NodeType.METRIC,
         query="SELECT example.metric_a / example.metric_b",
     )
-    name, upstreams = _find_upstreams_for_node(derived_metric)
+    name, upstreams, _ = _find_upstreams_for_node(derived_metric)
     assert name == "example.derived_ratio"
     # Should extract both the full metric reference and the parent namespace
     assert "example.metric_a" in upstreams
@@ -546,7 +545,7 @@ def test_find_upstreams_for_derived_metric():
         node_type=NodeType.METRIC,
         query="SELECT ns.other_metric * ns.dimension.column_value",
     )
-    name, upstreams = _find_upstreams_for_node(derived_with_dim)
+    name, upstreams, _ = _find_upstreams_for_node(derived_with_dim)
     assert name == "example.filtered_metric"
     # Should include both the full column reference and the parent (dimension node)
     assert "ns.other_metric" in upstreams
@@ -631,7 +630,7 @@ async def test_catalog_not_shadowed_by_virtual_catalog_parent(
     )
     orchestrator = create_orchestrator(session, current_user, [transform_spec])
     await orchestrator._setup_deployment_resources()
-    plan = await orchestrator._create_deployment_plan()
+    plan, _ = await orchestrator._create_deployment_plan()
     _, deployed_nodes = await orchestrator.bulk_deploy_nodes_in_level(
         [transform_spec],
         plan.node_graph,
@@ -1994,7 +1993,7 @@ async def test_auto_register_sources_success(session: AsyncSession):
     await orchestrator._validate_deployment_resources()
 
     # Auto-registration happens during deployment plan creation
-    plan = await orchestrator._create_deployment_plan()
+    plan, _ = await orchestrator._create_deployment_plan()
 
     # Verify query service was called
     mock_query_service.get_columns_for_tables_batch.assert_called_once_with(
@@ -2052,7 +2051,7 @@ async def test_auto_register_sources_disabled(session: AsyncSession):
 
     # With auto_register_sources=False, nodes with missing deps stay in to_deploy
     # so they are deployed as INVALID (not pre-filtered) and downstream impact is tracked.
-    plan = await orchestrator._create_deployment_plan()
+    plan, _ = await orchestrator._create_deployment_plan()
     assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
         "Node with missing dep should remain in to_deploy for natural validation"
     )
@@ -2089,7 +2088,7 @@ async def test_auto_register_sources_catalog_not_found(session: AsyncSession):
 
     # auto_register_sources=True but catalog doesn't exist → node stays in to_deploy
     # so it is deployed as INVALID and its downstream impact is tracked.
-    plan = await orchestrator._create_deployment_plan()
+    plan, _ = await orchestrator._create_deployment_plan()
     assert any(spec.rendered_name == "test.my_transform" for spec in plan.to_deploy), (
         "Node with unregistrable dep should remain in to_deploy for natural validation"
     )
@@ -2371,239 +2370,6 @@ class TestDiffColumnMetadata:
         combined = " ".join(notes)
         assert "display_name" in combined
         assert "description changed" in combined
-
-
-class TestLogSpecDiff:
-    """Unit tests for DeploymentOrchestrator._log_spec_diff."""
-
-    def _make_orchestrator(self):
-        from datajunction_server.internal.deployment.orchestrator import (
-            DeploymentOrchestrator,
-        )
-        from datajunction_server.internal.deployment.utils import DeploymentContext
-
-        user = MagicMock()
-        user.username = "test"
-        context = DeploymentContext(current_user=user)
-        spec = DeploymentSpec(namespace="test")
-        return DeploymentOrchestrator(
-            deployment_spec=spec,
-            deployment_id="test-id",
-            session=MagicMock(),
-            context=context,
-        )
-
-    def test_node_type_change(self):
-        """node_type difference is logged (line 2273)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 1 AS x")
-        old_spec = MetricSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT count(1) AS cnt",
-        )
-        # Should not raise
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_display_name_change(self):
-        """display_name difference is logged (line 2280)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            display_name="New Name",
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            display_name="Old Name",
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_description_change(self):
-        """description difference is logged (line 2286)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            description="New desc",
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            description=None,
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_owners_change(self):
-        """owners difference is logged (line 2290)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            owners=["alice"],
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            owners=["bob"],
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_tags_change(self):
-        """tags difference is logged (line 2294)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            tags=["new_tag"],
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            tags=[],
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_mode_change(self):
-        """mode difference is logged (line 2298)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            mode=NodeMode.DRAFT,
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            mode=NodeMode.PUBLISHED,
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_query_change(self):
-        """query difference is logged (line 2301->2306)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 2 AS x")
-        old_spec = TransformSpec(namespace="test", name="node_a", query="SELECT 1 AS x")
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_source_catalog_change(self):
-        """Source catalog difference is logged (line 2313)."""
-        orch = self._make_orchestrator()
-        new_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="new_cat",
-            schema_="s",
-            table="t",
-        )
-        old_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="old_cat",
-            schema_="s",
-            table="t",
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_source_schema_change(self):
-        """Source schema difference is logged (line 2321)."""
-        orch = self._make_orchestrator()
-        new_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="cat",
-            schema_="new_schema",
-            table="t",
-        )
-        old_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="cat",
-            schema_="old_schema",
-            table="t",
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_source_table_change(self):
-        """Source table difference is logged (line 2329)."""
-        orch = self._make_orchestrator()
-        new_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="cat",
-            schema_="s",
-            table="new_table",
-        )
-        old_spec = SourceSpec(
-            namespace="test",
-            name="my_source",
-            catalog="cat",
-            schema_="s",
-            table="old_table",
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_cube_metrics_change(self):
-        """Cube metrics difference is logged (lines 2357-2360)."""
-        orch = self._make_orchestrator()
-        new_spec = CubeSpec(
-            namespace="test",
-            name="my_cube",
-            metrics=["test.m1", "test.m2"],
-            dimensions=[],
-        )
-        old_spec = CubeSpec(
-            namespace="test",
-            name="my_cube",
-            metrics=["test.m1"],
-            dimensions=[],
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_cube_dimensions_change(self):
-        """Cube dimensions difference is logged (lines 2361-2364)."""
-        orch = self._make_orchestrator()
-        new_spec = CubeSpec(
-            namespace="test",
-            name="my_cube",
-            metrics=["test.m1"],
-            dimensions=["test.d2"],
-        )
-        old_spec = CubeSpec(
-            namespace="test",
-            name="my_cube",
-            metrics=["test.m1"],
-            dimensions=["test.d1"],
-        )
-        orch._log_spec_diff(new_spec, old_spec)
-
-    def test_custom_metadata_change(self):
-        """custom_metadata difference is logged (line 2374)."""
-        orch = self._make_orchestrator()
-        new_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            custom_metadata={"key": "new"},
-        )
-        old_spec = TransformSpec(
-            namespace="test",
-            name="node_a",
-            query="SELECT 1 AS x",
-            custom_metadata={"key": "old"},
-        )
-        orch._log_spec_diff(new_spec, old_spec)
 
 
 class TestFallbackCatalogAndInferCubeCatalog:

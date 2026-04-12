@@ -4,12 +4,19 @@ Unit tests for datajunction_server.internal.impact.propagate_impact
 
 import pytest
 
+from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
-from datajunction_server.internal.impact import propagate_impact
-from datajunction_server.models.impact import ImpactType
+from datajunction_server.internal.impact import _merge_impacts, propagate_impact
+from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.sql.parsing.types import (
+    BigIntType,
+    DoubleType,
+    IntegerType,
+    StringType,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -23,8 +30,10 @@ def _make_node(
     status: NodeStatus,
     user_id: int,
     version: str = "v1.0",
+    query: str = "SELECT 1",
+    columns: list[tuple[str, object]] | None = None,
 ) -> tuple[Node, NodeRevision]:
-    """Create an unsaved (Node, NodeRevision) pair."""
+    """Create an unsaved (Node, NodeRevision) pair with optional columns."""
     node = Node(
         name=name,
         type=node_type,
@@ -38,9 +47,13 @@ def _make_node(
         node=node,
         version=version,
         status=status,
-        query="SELECT 1",
+        query=query,
         created_by_id=user_id,
     )
+    if columns:
+        rev.columns = [
+            DBColumn(name=col_name, type=col_type) for col_name, col_type in columns
+        ]
     return node, rev
 
 
@@ -132,12 +145,15 @@ async def test_propagate_impact_invalid_parent_will_invalidate(
         NodeType.SOURCE,
         NodeStatus.INVALID,
         current_user.id,
+        columns=[("id", IntegerType())],
     )
     child, child_rev = _make_node(
         "ns.transform",
         NodeType.TRANSFORM,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
     )
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
@@ -166,12 +182,15 @@ async def test_propagate_impact_deleted_node_will_invalidate(
         NodeType.SOURCE,
         NodeStatus.VALID,
         current_user.id,
+        columns=[("id", IntegerType())],
     )
     child, child_rev = _make_node(
         "ns.transform",
         NodeType.TRANSFORM,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
     )
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
@@ -199,18 +218,23 @@ async def test_propagate_impact_transitive_invalidation(session, current_user: U
         NodeType.SOURCE,
         NodeStatus.INVALID,
         current_user.id,
+        columns=[("id", IntegerType())],
     )
     child1, child1_rev = _make_node(
         "ns.transform",
         NodeType.TRANSFORM,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
     )
     child2, child2_rev = _make_node(
         "ns.metric",
         NodeType.METRIC,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT SUM(id) ns_DOT_metric FROM ns.transform",
+        columns=[("ns_DOT_metric", BigIntType())],
     )
     await _persist(session, root, root_rev, child1, child1_rev, child2, child2_rev)
     await _persist(session, _link(root, child1_rev), _link(child1, child2_rev))
@@ -267,12 +291,15 @@ async def test_propagate_impact_already_invalid_not_duplicated(
         NodeType.SOURCE,
         NodeStatus.INVALID,
         current_user.id,
+        columns=[("id", IntegerType())],
     )
     child, child_rev = _make_node(
         "ns.transform",
         NodeType.TRANSFORM,
         NodeStatus.INVALID,
         current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
     )
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
@@ -337,18 +364,23 @@ async def test_propagate_impact_cause_names_in_result(session, current_user: Use
         NodeType.SOURCE,
         NodeStatus.VALID,
         current_user.id,
+        columns=[("id", IntegerType())],
     )
     child, child_rev = _make_node(
         "ns.transform",
         NodeType.TRANSFORM,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
     )
     grandchild, grandchild_rev = _make_node(
         "ns.metric",
         NodeType.METRIC,
         NodeStatus.VALID,
         current_user.id,
+        query="SELECT SUM(id) ns_DOT_metric FROM ns.transform",
+        columns=[("ns_DOT_metric", BigIntType())],
     )
     await _persist(
         session,
@@ -367,3 +399,731 @@ async def test_propagate_impact_cause_names_in_result(session, current_user: Use
     # Both should trace back to ns.source
     assert by_name["ns.transform"].caused_by == ["ns.source"]
     assert by_name["ns.metric"].caused_by == ["ns.source"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Revalidation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_revalidation_recovery_invalid_to_valid(session, current_user: User):
+    """INVALID node with all parents now VALID and query resolves → WILL_RECOVER."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    # Transform was INVALID but parent is now VALID
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    assert impact.impact_type == ImpactType.WILL_RECOVER
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.VALID
+    assert transform_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_recovery_fails(session, current_user: User):
+    """INVALID node, parent VALID, but query references nonexistent column → stays INVALID."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", IntegerType())],
+    )
+    # Transform references 'nonexistent' which doesn't exist on source
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+        query="SELECT nonexistent FROM ns.source",
+        columns=[("nonexistent", StringType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    assert impact.impact_type == ImpactType.WILL_INVALIDATE
+    assert impact.predicted_status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_invalid_parent_still_invalid_no_recovery(
+    session,
+    current_user: User,
+):
+    """INVALID node with one parent still INVALID → no recovery attempt."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.INVALID,
+        current_user.id,
+        columns=[("user_id", IntegerType())],
+    )
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+        query="SELECT user_id FROM ns.source",
+        columns=[("user_id", IntegerType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    # Parent is INVALID → child gets WILL_INVALIDATE, not recovery
+    assert by_name["ns.transform"].impact_type == ImpactType.WILL_INVALIDATE
+
+
+@pytest.mark.asyncio
+async def test_revalidation_column_type_change(session, current_user: User):
+    """Parent column type changes (INT→BIGINT) → downstream columns updated."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Source with BIGINT now (was INT before, but deploy updated it)
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", BigIntType()), ("amount", DoubleType())],
+    )
+    # Transform still has old INT type
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert "Column types changed" in impact.impact_reason
+    # The transform's column type should be updated to BIGINT
+    col_types = {col.name: col.type for col in transform_rev.columns}
+    assert isinstance(col_types["user_id"], BigIntType)
+
+
+@pytest.mark.asyncio
+async def test_revalidation_column_renamed_breaks_downstream(
+    session,
+    current_user: User,
+):
+    """Parent column renamed → downstream can't resolve → WILL_INVALIDATE."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Source now has 'uid' instead of 'user_id'
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("uid", IntegerType()), ("amount", DoubleType())],
+    )
+    # Transform still references 'user_id'
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    assert by_name["ns.transform"].impact_type == ImpactType.WILL_INVALIDATE
+    assert transform_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_unchanged_columns_passthrough(
+    session,
+    current_user: User,
+):
+    """Parent query changed but column signature unchanged → node passes through."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    # Columns unchanged, status unchanged → MAY_AFFECT passthrough
+    assert by_name["ns.transform"].impact_type == ImpactType.MAY_AFFECT
+    assert transform_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_source_node_skipped(session, current_user: User):
+    """Source nodes as MAY_AFFECT → skipped (no query to validate), passes through."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    parent_source, parent_source_rev = _make_node(
+        "ns.catalog_source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    # Another source that depends on the first (unusual but possible)
+    child_source, child_source_rev = _make_node(
+        "ns.derived_source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    await _persist(
+        session,
+        parent_source,
+        parent_source_rev,
+        child_source,
+        child_source_rev,
+    )
+    await _persist(session, _link(parent_source, child_source_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.catalog_source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.derived_source" in by_name
+    assert by_name["ns.derived_source"].impact_type == ImpactType.MAY_AFFECT
+    # Status should not change
+    assert child_source_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_three_level_cascade(session, current_user: User):
+    """Three-level chain: source → transform → metric.
+
+    Source column type changes (INT→BIGINT). Transform's output type changes.
+    Metric sees transform's updated type and its output type changes too.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", BigIntType()), ("amount", DoubleType())],
+    )
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT SUM(user_id) ns_DOT_metric FROM ns.transform",
+        columns=[("ns_DOT_metric", BigIntType())],
+    )
+    await _persist(
+        session,
+        source,
+        source_rev,
+        transform,
+        transform_rev,
+        metric,
+        metric_rev,
+    )
+    await _persist(
+        session,
+        _link(source, transform_rev),
+        _link(transform, metric_rev),
+    )
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    assert "ns.metric" in by_name
+
+    # Transform should have updated column types
+    transform_cols = {col.name: col.type for col in transform_rev.columns}
+    assert isinstance(transform_cols["user_id"], BigIntType)
+
+    # Metric should see the updated transform and still resolve
+    assert by_name["ns.metric"].impact_type in (
+        ImpactType.MAY_AFFECT,
+        ImpactType.WILL_RECOVER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_revalidation_three_level_cascade_middle_breaks(
+    session,
+    current_user: User,
+):
+    """Three-level chain where middle node breaks.
+
+    Source column renamed → transform can't resolve → WILL_INVALIDATE.
+    Metric depends on transform → should also become WILL_INVALIDATE since
+    its parent is now INVALID.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    # Source renamed 'user_id' to 'uid'
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("uid", IntegerType()), ("amount", DoubleType())],
+    )
+    # Transform still references 'user_id'
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT SUM(amount) ns_DOT_metric FROM ns.transform",
+        columns=[("ns_DOT_metric", DoubleType())],
+    )
+    await _persist(
+        session,
+        source,
+        source_rev,
+        transform,
+        transform_rev,
+        metric,
+        metric_rev,
+    )
+    await _persist(
+        session,
+        _link(source, transform_rev),
+        _link(transform, metric_rev),
+    )
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    assert "ns.metric" in by_name
+
+    # Transform breaks — column renamed
+    assert by_name["ns.transform"].impact_type == ImpactType.WILL_INVALIDATE
+    assert transform_rev.status == NodeStatus.INVALID
+
+    # Metric should also be WILL_INVALIDATE since its parent broke
+    assert by_name["ns.metric"].impact_type == ImpactType.WILL_INVALIDATE
+    assert metric_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_revalidation_recovery_with_column_type_change(
+    session,
+    current_user: User,
+):
+    """INVALID node recovers AND its column types change during recovery.
+
+    Source was updated (INT→BIGINT). Transform was INVALID but now resolves
+    with the new column types → WILL_RECOVER with updated columns.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", BigIntType()), ("amount", DoubleType())],
+    )
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.INVALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, transform, transform_rev)
+    await _persist(session, _link(source, transform_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    assert impact.impact_type == ImpactType.WILL_RECOVER
+    assert impact.current_status == NodeStatus.INVALID
+    assert impact.predicted_status == NodeStatus.VALID
+    assert transform_rev.status == NodeStatus.VALID
+    # Column types should be updated during recovery
+    col_types = {col.name: col.type for col in transform_rev.columns}
+    assert isinstance(col_types["user_id"], BigIntType)
+
+
+@pytest.mark.asyncio
+async def test_column_type_change_cascades_through_three_levels(
+    session,
+    current_user: User,
+):
+    """Column type changes propagate through multiple levels.
+
+    Source: user_id INT→BIGINT. Transform picks it up (INT→BIGINT).
+    Metric's SUM(user_id) output type also changes accordingly.
+    All nodes stay VALID, but types cascade downward.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", BigIntType()), ("amount", DoubleType())],
+    )
+    transform, transform_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT SUM(user_id) ns_DOT_metric FROM ns.transform",
+        columns=[("ns_DOT_metric", IntegerType())],
+    )
+    await _persist(
+        session,
+        source,
+        source_rev,
+        transform,
+        transform_rev,
+        metric,
+        metric_rev,
+    )
+    await _persist(
+        session,
+        _link(source, transform_rev),
+        _link(transform, metric_rev),
+    )
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    by_name = {r.name: r for r in result}
+    # Transform's user_id should update from INT to BIGINT
+    assert by_name["ns.transform"].impact_type == ImpactType.MAY_AFFECT
+    transform_cols = {col.name: col.type for col in transform_rev.columns}
+    assert isinstance(transform_cols["user_id"], BigIntType)
+
+    # Metric's output type should also update (SUM(BIGINT) → BIGINT)
+    assert by_name["ns.metric"].impact_type == ImpactType.MAY_AFFECT
+    metric_cols = {col.name: col.type for col in metric_rev.columns}
+    assert isinstance(metric_cols["ns_DOT_metric"], BigIntType)
+
+
+@pytest.mark.asyncio
+async def test_mixed_valid_invalid_parents(session, current_user: User):
+    """Node with one VALID parent and one INVALID parent → WILL_INVALIDATE.
+
+    The INVALID parent is in failed_names, so its columns are excluded from the
+    parent_columns_map. The child's query references both parents → fails.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    valid_parent, valid_parent_rev = _make_node(
+        "ns.source_a",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    invalid_parent, invalid_parent_rev = _make_node(
+        "ns.source_b",
+        NodeType.SOURCE,
+        NodeStatus.INVALID,
+        current_user.id,
+        columns=[("name", StringType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT a.id, b.name FROM ns.source_a a JOIN ns.source_b b ON a.id = b.id",
+        columns=[("id", IntegerType()), ("name", StringType())],
+    )
+    await _persist(
+        session,
+        valid_parent,
+        valid_parent_rev,
+        invalid_parent,
+        invalid_parent_rev,
+        child,
+        child_rev,
+    )
+    await _persist(
+        session,
+        _link(valid_parent, child_rev),
+        _link(invalid_parent, child_rev),
+    )
+
+    result = await propagate_impact(
+        session,
+        "ns",
+        {"ns.source_a", "ns.source_b"},
+    )
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    assert by_name["ns.transform"].impact_type == ImpactType.WILL_INVALIDATE
+    assert child_rev.status == NodeStatus.INVALID
+
+
+@pytest.mark.asyncio
+async def test_multiple_roots_same_downstream(session, current_user: User):
+    """Two changed parents both affect the same child — caused_by lists both."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    parent_a, parent_a_rev = _make_node(
+        "ns.source_a",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    parent_b, parent_b_rev = _make_node(
+        "ns.source_b",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("name", StringType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT a.id, b.name FROM ns.source_a a JOIN ns.source_b b ON a.id = b.id",
+        columns=[("id", IntegerType()), ("name", StringType())],
+    )
+    await _persist(
+        session,
+        parent_a,
+        parent_a_rev,
+        parent_b,
+        parent_b_rev,
+        child,
+        child_rev,
+    )
+    await _persist(
+        session,
+        _link(parent_a, child_rev),
+        _link(parent_b, child_rev),
+    )
+
+    result = await propagate_impact(
+        session,
+        "ns",
+        {"ns.source_a", "ns.source_b"},
+    )
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    # Both roots should appear in caused_by
+    assert sorted(by_name["ns.transform"].caused_by) == [
+        "ns.source_a",
+        "ns.source_b",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_dimension_link_stub(session, current_user: User):
+    """Passing changed_link_node_names exercises the dimension link stub."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    await _persist(session, source, source_rev)
+
+    result = await propagate_impact(
+        session,
+        "ns",
+        set(),
+        frozenset(),
+        changed_link_node_names={"ns.source"},
+    )
+    assert result == []
+
+
+def test_merge_impacts_deduplicates_by_severity():
+    """_merge_impacts keeps the higher-severity impact when the same node appears in both."""
+    parent_impact = DownstreamImpact(
+        name="ns.child",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.VALID,
+        impact_type=ImpactType.MAY_AFFECT,
+        impact_reason="parent graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+    link_impact = DownstreamImpact(
+        name="ns.child",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.INVALID,
+        impact_type=ImpactType.WILL_INVALIDATE,
+        impact_reason="link graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+
+    # Higher severity (WILL_INVALIDATE) wins over MAY_AFFECT
+    merged = _merge_impacts([parent_impact], [link_impact])
+    assert len(merged) == 1
+    assert merged[0].impact_type == ImpactType.WILL_INVALIDATE
+    assert merged[0].impact_reason == "link graph"
+
+
+def test_merge_impacts_adds_new_from_link():
+    """_merge_impacts adds link-only impacts that don't appear in parent graph."""
+    parent_impact = DownstreamImpact(
+        name="ns.a",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.VALID,
+        impact_type=ImpactType.MAY_AFFECT,
+        impact_reason="parent graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+    link_only = DownstreamImpact(
+        name="ns.b",
+        node_type=NodeType.METRIC,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.VALID,
+        impact_type=ImpactType.MAY_AFFECT,
+        impact_reason="link graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+
+    merged = _merge_impacts([parent_impact], [link_only])
+    assert len(merged) == 2
+    by_name = {m.name: m for m in merged}
+    assert "ns.a" in by_name
+    assert "ns.b" in by_name
+
+
+def test_merge_impacts_lower_severity_kept():
+    """_merge_impacts keeps parent impact when link impact has lower severity."""
+    parent_impact = DownstreamImpact(
+        name="ns.child",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.INVALID,
+        impact_type=ImpactType.WILL_INVALIDATE,
+        impact_reason="parent graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+    link_impact = DownstreamImpact(
+        name="ns.child",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.VALID,
+        impact_type=ImpactType.MAY_AFFECT,
+        impact_reason="link graph",
+        depth=1,
+        caused_by=["ns.root"],
+        is_external=False,
+    )
+
+    merged = _merge_impacts([parent_impact], [link_impact])
+    assert len(merged) == 1
+    assert merged[0].impact_type == ImpactType.WILL_INVALIDATE
+    assert merged[0].impact_reason == "parent graph"
