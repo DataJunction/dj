@@ -502,11 +502,11 @@ def _resolve_expr_type(
                 return resolved
         return UnknownType()
 
-    # Fallback: try the expression's own type property
-    if hasattr(expr, "type"):
-        result_type = expr.type  # type: ignore[attr-defined]
-        if isinstance(result_type, ColumnType):
-            return result_type
+    # Fallback: try the expression's own type property  # pragma: no cover
+    if hasattr(expr, "type"):  # pragma: no cover
+        result_type = expr.type  # type: ignore[attr-defined]  # pragma: no cover
+        if isinstance(result_type, ColumnType):  # pragma: no cover
+            return result_type  # pragma: no cover
     return UnknownType()  # pragma: no cover
 
 

@@ -981,6 +981,14 @@ class TestErrors:
                 _col_map(USERS_COLS),
             )
 
+    def test_qualified_column_not_in_table(self):
+        """SELECT u.nonexistent FROM default.users u — table exists but column doesn't."""
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT u.nonexistent FROM default.users u",
+                _col_map(USERS_COLS),
+            )
+
     def test_empty_parent_map(self):
         with pytest.raises(TypeResolutionError):
             resolve_output_columns("SELECT a FROM default.users", {})
@@ -1033,6 +1041,18 @@ class TestUnresolvableReferences:
             _col_map(ORDERS_COLS),
         )
         assert result[0] == ("cnt", BigIntType())
+
+    def test_function_nested_inside_case_arg(self):
+        """SUM(CASE WHEN TRUE THEN COALESCE(amount, 0) ELSE 0 END)
+        — Function (COALESCE) inside CASE inside SUM triggers
+        _prepare_column_types_recursive hitting a Function node."""
+        result = resolve_output_columns(
+            "SELECT SUM(CASE WHEN TRUE THEN COALESCE(amount, 0) ELSE 0 END) AS total "
+            "FROM default.orders",
+            _col_map(ORDERS_COLS),
+        )
+        assert result[0][0] == "total"
+        assert isinstance(result[0][1], DoubleType)
 
     def test_function_with_unresolvable_dim_arg(self):
         result = resolve_output_columns(
