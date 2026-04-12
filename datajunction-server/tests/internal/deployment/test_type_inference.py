@@ -800,6 +800,51 @@ class TestTableValuedFunctions:
         assert result[1][0] == "pos"
         assert result[2][0] == "tag"
 
+    def test_explode_with_list_type(self):
+        """EXPLODE on a ListType column → element type is resolved."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        typed_events = _col_map(
+            (
+                "default.events",
+                [
+                    ("event_id", IntegerType()),
+                    ("tags", ListType(element_type=StringType())),
+                ],
+            ),
+        )
+        result = resolve_output_columns(
+            "SELECT event_id, tag "
+            "FROM default.events "
+            "LATERAL VIEW EXPLODE(tags) t AS tag",
+            typed_events,
+        )
+        assert result[0] == ("event_id", IntegerType())
+        assert result[1] == ("tag", StringType())
+
+    def test_posexplode_with_list_type(self):
+        """POSEXPLODE on a ListType → pos is IntegerType, element is resolved."""
+        from datajunction_server.sql.parsing.types import ListType
+
+        typed_events = _col_map(
+            (
+                "default.events",
+                [
+                    ("event_id", IntegerType()),
+                    ("tags", ListType(element_type=StringType())),
+                ],
+            ),
+        )
+        result = resolve_output_columns(
+            "SELECT event_id, pos, tag "
+            "FROM default.events "
+            "LATERAL VIEW POSEXPLODE(tags) t AS pos, tag",
+            typed_events,
+        )
+        assert result[0] == ("event_id", IntegerType())
+        assert result[1] == ("pos", IntegerType())
+        assert result[2] == ("tag", StringType())
+
     def test_cross_join_unnest(self):
         murals = _col_map(
             ("default.murals", [("mural_id", IntegerType()), ("colors", StringType())]),
@@ -941,6 +986,51 @@ class TestInlineTable:
 
 
 class TestNonProjectionClauses:
+    def test_where_valid_column(self):
+        result = resolve_output_columns(
+            "SELECT username FROM default.users WHERE user_id > 10",
+            _col_map(USERS_COLS),
+        )
+        assert result[0] == ("username", StringType())
+
+    def test_where_invalid_column(self):
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT user_id FROM default.users WHERE nonexistent > 5",
+                _col_map(USERS_COLS),
+            )
+
+    def test_group_by_invalid_column(self):
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT user_id, COUNT(*) AS cnt "
+                "FROM default.orders GROUP BY nonexistent",
+                _col_map(ORDERS_COLS),
+            )
+
+    def test_having_invalid_column(self):
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT user_id FROM default.orders "
+                "GROUP BY user_id HAVING SUM(nonexistent) > 1",
+                _col_map(ORDERS_COLS),
+            )
+
+    def test_order_by_invalid_column(self):
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT user_id FROM default.orders ORDER BY nonexistent",
+                _col_map(ORDERS_COLS),
+            )
+
+    def test_join_condition_invalid_column(self):
+        with pytest.raises(TypeResolutionError, match="nonexistent"):
+            resolve_output_columns(
+                "SELECT u.user_id FROM default.users u "
+                "JOIN default.orders o ON u.user_id = o.nonexistent",
+                _col_map(USERS_COLS, ORDERS_COLS),
+            )
+
     def test_where_doesnt_add_columns(self):
         result = resolve_output_columns(
             "SELECT username FROM default.users WHERE user_id > 10",
