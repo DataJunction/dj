@@ -25,6 +25,7 @@ from datajunction_server.sql.parsing.types import (
     MapType,
     NullType,
     StringType,
+    StructType,
     UnknownType,
 )
 
@@ -434,6 +435,31 @@ def _resolve_wildcard(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_struct_field(
+    struct_col_name: str,
+    field_name: str,
+    tables: TableScope,
+) -> Optional[ColumnType]:
+    """Try to resolve a struct field access like metadata.name.
+
+    Searches all tables for a column named struct_col_name. If found and
+    the column's type is a StructType, looks up field_name in its fields.
+    Returns the field type, or raises TypeResolutionError if the struct
+    exists but the field doesn't. Returns None if no struct column found.
+    """
+    for table_cols in tables.values():
+        if struct_col_name in table_cols:
+            col_type = table_cols[struct_col_name]
+            if isinstance(col_type, StructType):
+                if field_name in col_type.fields_mapping:
+                    return col_type.fields_mapping[field_name].type
+                raise TypeResolutionError(
+                    f"Field `{field_name}` not found in struct column `{struct_col_name}`. "
+                    f"Available fields: {list(col_type.fields_mapping.keys())}",
+                )
+    return None
+
+
 def _validate_non_projection_clauses(select: ast.Select, scope: TypeScope):
     """Validate column references in WHERE, GROUP BY, HAVING, ORDER BY, and JOINs.
 
@@ -574,6 +600,13 @@ def _resolve_column_type(
                 f"Column `{col_name}` not found in table `{table_alias}`. "
                 f"Available: {list(scope.tables[table_alias].keys())}",
             )
+
+        # Check if this is a struct field access (e.g., metadata.name where
+        # metadata is a StructType column). The namespace would be the column
+        # name, and col_name would be the struct field name.
+        struct_result = _resolve_struct_field(table_alias, col_name, scope.tables)
+        if struct_result is not None:
+            return struct_result
 
         # Multi-part namespace not matching any FROM table - likely a DJ
         # dimension attribute reference (e.g., ads.report.dim.date.year).

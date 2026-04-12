@@ -486,6 +486,127 @@ class TestSubqueries:
         assert any("nonexistent" in e for e in result.errors)
         assert result.output_columns[0] == ("x", IntegerType())
 
+    def test_correlated_subquery(self):
+        """Correlated subquery references outer query's column.
+        The inner subquery uses u.user_id from the outer FROM clause.
+        Currently the outer column resolves as UnknownType (dim ref fallback)
+        rather than being passed into the inner scope.
+        """
+        result = validate_node_query(
+            "SELECT u.user_id, "
+            "(SELECT COUNT(*) FROM default.orders o WHERE o.user_id = u.user_id) AS cnt "
+            "FROM default.users u",
+            _col_map(USERS_COLS, ORDERS_COLS),
+        )
+        assert result.output_columns[0] == ("user_id", IntegerType())
+        # cnt is from COUNT(*) which always returns BigIntType
+        assert result.output_columns[1][0] == "cnt"
+        assert isinstance(result.output_columns[1][1], BigIntType)
+
+    def test_select_star_in_subquery(self):
+        """SELECT * inside a subquery — parent columns change, subquery output changes."""
+        result = validate_node_query(
+            "SELECT user_id, username FROM (  SELECT * FROM default.users) sub",
+            _col_map(USERS_COLS),
+        )
+        assert result.output_columns == [
+            ("user_id", IntegerType()),
+            ("username", StringType()),
+        ]
+
+    def test_select_star_in_subquery_column_added(self):
+        """Source gains a column — subquery SELECT * picks it up."""
+        extended_users = _col_map(
+            (
+                "default.users",
+                [
+                    ("user_id", IntegerType()),
+                    ("username", StringType()),
+                    ("email", StringType()),
+                    ("created_at", TimestampType()),
+                    ("new_col", BooleanType()),  # Added column
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT * FROM (SELECT * FROM default.users) sub",
+            extended_users,
+        )
+        col_names = [name for name, _ in result.output_columns]
+        assert "new_col" in col_names
+        assert len(result.output_columns) == 5
+
+
+# ---------------------------------------------------------------------------
+# Struct field access
+# ---------------------------------------------------------------------------
+
+
+STRUCT_SOURCE = _col_map(
+    (
+        "default.events",
+        [
+            ("event_id", IntegerType()),
+            ("metadata", StringType()),  # In real usage would be StructType
+        ],
+    ),
+)
+
+
+class TestStructFieldAccess:
+    def test_struct_field_resolves(self):
+        """SELECT metadata.name FROM default.events — struct field access."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        struct_source = _col_map(
+            (
+                "default.events",
+                [
+                    ("event_id", IntegerType()),
+                    (
+                        "metadata",
+                        StructType(
+                            NestedField(Name("name"), StringType(), True),
+                            NestedField(Name("value"), IntegerType(), True),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT metadata.name FROM default.events",
+            struct_source,
+        )
+        assert result.errors == []
+        assert result.output_columns[0] == ("name", StringType())
+
+    def test_struct_field_nonexistent(self):
+        """SELECT metadata.nonexistent FROM default.events — bad struct field."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        struct_source = _col_map(
+            (
+                "default.events",
+                [
+                    ("event_id", IntegerType()),
+                    (
+                        "metadata",
+                        StructType(
+                            NestedField(Name("name"), StringType(), True),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT metadata.nonexistent FROM default.events",
+            struct_source,
+        )
+        assert any("nonexistent" in e for e in result.errors)
+        assert any("struct" in e.lower() for e in result.errors)
+
 
 # ---------------------------------------------------------------------------
 # CTEs
