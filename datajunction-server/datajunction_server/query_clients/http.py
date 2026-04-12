@@ -182,6 +182,17 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             request_headers=request_headers,
         )
 
+    def deactivate_workflows(
+        self,
+        workflow_names: List[str],
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Deactivate workflows by exact names via HTTP query service."""
+        return self._client.deactivate_workflows(
+            workflow_names=workflow_names,
+            request_headers=request_headers,
+        )
+
     def run_preagg_backfill(
         self,
         backfill_input: "BackfillInput",

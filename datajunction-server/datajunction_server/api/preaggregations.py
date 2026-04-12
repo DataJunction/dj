@@ -1009,15 +1009,11 @@ async def delete_preagg_workflow(
             message="No workflow exists for this pre-aggregation",
         )
 
-    # Compute output_table - the resource identifier that Query Service uses
+    request_headers = dict(request.headers)
     output_table = _compute_output_table(
         preagg.node_revision.name,
         preagg.preagg_hash,
     )
-
-    # Call query service to deactivate using the resource identifier (output_table)
-    # Query Service owns the workflow naming patterns and reconstructs them from output_table
-    request_headers = dict(request.headers)
     try:
         query_service_client.deactivate_preagg_workflow(
             output_table,
@@ -1131,24 +1127,11 @@ async def bulk_deactivate_preagg_workflows(
             skipped_count += 1
             continue
 
-        # Compute output_table for workflow identification
-        output_table = _compute_output_table(
-            preagg.node_revision.name,
-            preagg.preagg_hash,
-        )
-
-        # Extract workflow name from URLs if available
-        workflow_name = None
-        if preagg.workflow_urls:  # pragma: no branch
-            for wf_url in preagg.workflow_urls:  # pragma: no branch
-                if (
-                    hasattr(wf_url, "label") and wf_url.label == "scheduled"
-                ):  # pragma: no branch
-                    # Extract workflow name from URL path
-                    workflow_name = wf_url.url.split("/")[-1] if wf_url.url else None
-                    break
-
         try:
+            output_table = _compute_output_table(
+                preagg.node_revision.name,
+                preagg.preagg_hash,
+            )
             query_service_client.deactivate_preagg_workflow(
                 output_table,
                 request_headers=request_headers,
@@ -1164,7 +1147,7 @@ async def bulk_deactivate_preagg_workflows(
             deactivated.append(
                 DeactivatedWorkflowInfo(
                     id=preagg.id,
-                    workflow_name=workflow_name,
+                    workflow_name=output_table,
                 ),
             )
 

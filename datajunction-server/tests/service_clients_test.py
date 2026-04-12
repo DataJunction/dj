@@ -928,6 +928,50 @@ class TestQueryServiceClient:
             )
         assert "Query service error" in str(exc_info.value)
 
+    def test_deactivate_workflows_success(self, mocker: MockerFixture) -> None:
+        """Test deactivate_workflows sends POST with workflow names."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"deactivated": 2}'
+        mock_response.json.return_value = {"deactivated": 2}
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.deactivate_workflows(
+            workflow_names=["wf_one", "wf_two"],
+        )
+
+        mock_request.assert_called_with(
+            "/workflows/deactivate",
+            json={"workflow_names": ["wf_one", "wf_two"]},
+            headers=ANY,
+            timeout=20,
+        )
+        assert response == {"deactivated": 2}
+
+    def test_deactivate_workflows_failure(self, mocker: MockerFixture) -> None:
+        """Test deactivate_workflows returns failure on non-200 status."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.deactivate_workflows(
+            workflow_names=["bad_wf"],
+        )
+
+        assert response["status"] == "failed"
+        assert "Internal Server Error" in response["message"]
+
     def test_run_preagg_backfill(self, mocker: MockerFixture) -> None:
         """
         Test run_preagg_backfill via query service client.

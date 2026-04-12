@@ -660,6 +660,10 @@ class DruidCubeV3Config(BaseModel):
         default_factory=list,
         description="URLs for the materialization workflow",
     )
+    workflow_names: List[str] = Field(
+        default_factory=list,
+        description="Workflow names for deactivation",
+    )
 
     @computed_field  # type: ignore[misc]
     @property
