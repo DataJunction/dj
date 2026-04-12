@@ -20,8 +20,12 @@ from datajunction_server.errors import DJNotImplementedException
 from datajunction_server.sql.parsing.types import (
     BooleanType,
     ColumnType,
+    IntegerType,
+    ListType,
+    MapType,
     NullType,
     StringType,
+    StructType,
     UnknownType,
 )
 
@@ -49,17 +53,34 @@ class TypeScope:
     # in FROM but can be referenced via dimension attributes.
     parent_map: ParentColumnsMap = field(default_factory=dict)
 
+    # Collected errors during resolution (instead of raising immediately)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class QueryValidationResult:
+    """Result of validating a node's query."""
+
+    output_columns: OutputColumns
+    errors: list[str] = field(default_factory=list)
+
 
 class TypeResolutionError(Exception):
     """Raised when type resolution fails (missing table, missing column, etc.)."""
 
 
-def resolve_output_columns(
+def validate_node_query(
     query_str: str,
     parent_columns_map: ParentColumnsMap,
-) -> OutputColumns:
+) -> QueryValidationResult:
     """
-    Resolve output column names and types for a SQL query.
+    Validate that all column references in a SQL query resolve against
+    the provided parent columns, and return the output column types.
+
+    Checks all clauses: SELECT, WHERE, GROUP BY, HAVING, ORDER BY,
+    JOIN conditions, and CTE internals.
+
+    Collects all errors rather than stopping at the first one.
 
     Args:
         query_str: The SQL query to analyze.
@@ -67,45 +88,85 @@ def resolve_output_columns(
             column name→type mappings.
 
     Returns:
-        List of (column_name, column_type) for each projection column.
-
-    Raises:
-        TypeResolutionError: If a referenced table or column cannot be resolved.
+        QueryValidationResult with output_columns and any errors found.
     """
     try:
         query = parse(query_str)
     except Exception as exc:
-        raise TypeResolutionError(f"Failed to parse query: {exc}") from exc
+        return QueryValidationResult(
+            output_columns=[],
+            errors=[f"Failed to parse query: {exc}"],
+        )
 
     cte_registry: dict[str, OutputColumns] = {}
+    all_errors: list[str] = []
+
     for cte in query.ctes:
         cte_name = cte.alias_or_name.name
-        cte_columns = _resolve_query(cte, parent_columns_map, cte_registry)
+        cte_columns, cte_errors = _resolve_query(cte, parent_columns_map, cte_registry)
         cte_registry[cte_name] = cte_columns
+        all_errors.extend(cte_errors)
 
-    return _resolve_query(query, parent_columns_map, cte_registry)
+    output_columns, query_errors = _resolve_query(
+        query,
+        parent_columns_map,
+        cte_registry,
+    )
+    all_errors.extend(query_errors)
+
+    return QueryValidationResult(
+        output_columns=output_columns,
+        errors=all_errors,
+    )
 
 
 def _resolve_query(
     query: ast.Query,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
-) -> OutputColumns:
-    """Resolve output columns for a single query (may be a subquery or CTE)."""
+) -> tuple[OutputColumns, list[str]]:
+    """Resolve output columns for a single query (may be a subquery or CTE).
+
+    Returns (output_columns, errors) — collects errors instead of raising.
+    """
     select = query.select
     if isinstance(select, ast.InlineTable):
-        return _resolve_inline_table(query)
+        return _resolve_inline_table(query), []
 
     if not isinstance(select, ast.Select):  # pragma: no cover
-        return []
+        return [], []
 
-    tables = _build_table_scope(select, parent_columns_map, cte_registry)
-    scope = TypeScope(tables=tables, parent_map=parent_columns_map)
+    try:
+        tables, table_errors = _build_table_scope(
+            select,
+            parent_columns_map,
+            cte_registry,
+        )
+    except TypeResolutionError as exc:
+        return [], [str(exc)]
+
+    scope = TypeScope(tables=tables, parent_map=parent_columns_map, errors=table_errors)
 
     output: OutputColumns = []
     for expr in select.projection:
-        output.extend(_resolve_projection_expr(expr, scope))
-    return output
+        try:
+            output.extend(_resolve_projection_expr(expr, scope))
+        except TypeResolutionError as exc:
+            scope.errors.append(str(exc))
+
+    # Validate column references in non-projection clauses
+    _validate_non_projection_clauses(select, scope)
+
+    # Validate set operations (UNION/EXCEPT/INTERSECT right side)
+    if select.set_op and select.set_op.right:
+        _, set_op_errors = _resolve_query(
+            ast.Query(select=select.set_op.right),
+            parent_columns_map,
+            cte_registry,
+        )
+        scope.errors.extend(set_op_errors)
+
+    return output, scope.errors
 
 
 # ---------------------------------------------------------------------------
@@ -153,22 +214,27 @@ def _build_table_scope(
     select: ast.Select,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
-) -> TableScope:
+) -> tuple[TableScope, list[str]]:
     """
     Build a mapping of table alias/name → {column_name: column_type} for all
-    tables available in this query's scope.
+    tables available in this query's scope. Returns (scope, errors).
     """
     if select.from_ is None:
-        return {"__derived__": _build_derived_scope(parent_columns_map)}
+        return {"__derived__": _build_derived_scope(parent_columns_map)}, []
 
     scope: TableScope = {}
+    errors: list[str] = []
     for relation in select.from_.relations:
-        scope.update(
-            _collect_tables_from_relation(relation, parent_columns_map, cte_registry),
+        tables, errs = _collect_tables_from_relation(
+            relation,
+            parent_columns_map,
+            cte_registry,
         )
+        scope.update(tables)
+        errors.extend(errs)
     for view in select.lateral_views:
-        scope.update(_collect_lateral_view_columns(view))
-    return scope
+        scope.update(_collect_lateral_view_columns(view, scope))
+    return scope, errors
 
 
 def _build_derived_scope(parent_columns_map: ParentColumnsMap) -> dict[str, ColumnType]:
@@ -190,27 +256,28 @@ def _collect_tables_from_relation(
     node: ast.Node,
     parent_columns_map: ParentColumnsMap,
     cte_registry: dict[str, OutputColumns],
-) -> TableScope:
-    """Collect table scopes from a FROM relation. Returns discovered tables."""
+) -> tuple[TableScope, list[str]]:
+    """Collect table scopes from a FROM relation. Returns (tables, errors)."""
     result: TableScope = {}
+    errors: list[str] = []
 
     if isinstance(node, ast.Relation):
-        result.update(
-            _collect_tables_from_relation(
-                node.primary,
-                parent_columns_map,
-                cte_registry,
-            ),
+        tables, errs = _collect_tables_from_relation(
+            node.primary,
+            parent_columns_map,
+            cte_registry,
         )
+        result.update(tables)
+        errors.extend(errs)
         for ext in node.extensions:
             if isinstance(ext, ast.Join):  # pragma: no branch
-                result.update(
-                    _collect_tables_from_relation(
-                        ext.right,
-                        parent_columns_map,
-                        cte_registry,
-                    ),
+                tables, errs = _collect_tables_from_relation(
+                    ext.right,
+                    parent_columns_map,
+                    cte_registry,
                 )
+                result.update(tables)
+                errors.extend(errs)
 
     elif isinstance(node, ast.Table):
         table_name = node.identifier(quotes=False)
@@ -228,8 +295,9 @@ def _collect_tables_from_relation(
 
     elif isinstance(node, ast.Query):
         sub_alias = node.alias.name if node.alias else "__subquery__"
-        sub_columns = _resolve_query(node, parent_columns_map, cte_registry)
+        sub_columns, sub_errors = _resolve_query(node, parent_columns_map, cte_registry)
         result[sub_alias] = {name: typ for name, typ in sub_columns}
+        errors.extend(sub_errors)
 
     elif isinstance(node, ast.FunctionTableExpression):  # pragma: no branch
         alias = node.alias.name if node.alias else "__func_table__"
@@ -237,20 +305,60 @@ def _collect_tables_from_relation(
         if func_cols:  # pragma: no branch
             result[alias] = func_cols
 
-    return result
+    return result, errors
 
 
-def _collect_lateral_view_columns(view: ast.LateralView) -> TableScope:
-    """
-    Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
-    Returns {alias: {col_name: type}} for the exploded columns.
+def _collect_lateral_view_columns(
+    view: ast.LateralView,
+    from_scope: TableScope,
+) -> TableScope:
+    """Collect columns from a LATERAL VIEW (e.g., EXPLODE) expression.
+
+    Resolves element types from the source column's ListType/MapType
+    when possible, falls back to UnknownType otherwise.
     """
     func = view.func
     alias = func.alias.name if func.alias else "__lateral__"
-    lateral_cols = {col.name.name: UnknownType() for col in (func.column_list or [])}
-    if lateral_cols:
-        return {alias: lateral_cols}
-    return {}
+    col_list = func.column_list or []
+    if not col_list:
+        return {}
+
+    element_types = _resolve_lateral_element_types(func, from_scope)
+    func_name = func.name.name.upper() if hasattr(func, "name") and func.name else ""
+    is_posexplode = "POS" in func_name
+
+    lateral_cols: dict[str, ColumnType] = {}
+    for i, col in enumerate(col_list):
+        if is_posexplode and i == 0:
+            lateral_cols[col.name.name] = IntegerType()
+        elif is_posexplode and i == 1 and element_types:
+            lateral_cols[col.name.name] = element_types[0]
+        elif not is_posexplode and i < len(element_types):
+            lateral_cols[col.name.name] = element_types[i]
+        else:
+            lateral_cols[col.name.name] = UnknownType()
+
+    return {alias: lateral_cols}
+
+
+def _resolve_lateral_element_types(
+    func: ast.FunctionTableExpression,
+    from_scope: TableScope,
+) -> list[ColumnType]:
+    """Resolve element types for an EXPLODE/UNNEST function argument."""
+    if not func.args or not isinstance(func.args[0], ast.Column):
+        return []  # pragma: no cover
+
+    col_name = func.args[0].name.name
+    for table_cols in from_scope.values():
+        if col_name in table_cols:
+            col_type = table_cols[col_name]
+            if isinstance(col_type, ListType):
+                return [col_type.element.type]
+            if isinstance(col_type, MapType):
+                return [col_type.key.type, col_type.value.type]
+            return []
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +399,14 @@ def _resolve_projection_expr(
         col_type = _resolve_column_type(expr, scope)
         return [(output_name, col_type)]
 
+    # Scalar subquery in projection: (SELECT ... ) AS alias
+    if isinstance(expr, ast.Query):
+        sub_columns, sub_errors = _resolve_query(expr, scope.parent_map, {})
+        scope.errors.extend(sub_errors)
+        if sub_columns:
+            return [(output_name, sub_columns[0][1])]
+        return [(output_name, UnknownType())]  # pragma: no cover
+
     # For expressions (Function, BinaryOp, Cast, literals, etc.)
     col_type = _resolve_expr_type(expr, scope)
     return [(output_name, col_type)]
@@ -312,6 +428,104 @@ def _resolve_wildcard(
     for cols in tables.values():
         result.extend(cols.items())
     return result
+
+
+# ---------------------------------------------------------------------------
+# Non-projection clause validation
+# ---------------------------------------------------------------------------
+
+
+def _resolve_struct_field(
+    struct_col_name: str,
+    field_name: str,
+    tables: TableScope,
+) -> Optional[ColumnType]:
+    """Try to resolve a struct field access like metadata.name.
+
+    Searches all tables for a column named struct_col_name. If found and
+    the column's type is a StructType, looks up field_name in its fields.
+    Returns the field type, or raises TypeResolutionError if the struct
+    exists but the field doesn't. Returns None if no struct column found.
+    """
+    for table_cols in tables.values():
+        if struct_col_name in table_cols:
+            col_type = table_cols[struct_col_name]
+            if isinstance(col_type, StructType):  # pragma: no branch
+                if field_name in col_type.fields_mapping:
+                    return col_type.fields_mapping[field_name].type
+                raise TypeResolutionError(
+                    f"Field `{field_name}` not found in struct column `{struct_col_name}`. "
+                    f"Available fields: {list(col_type.fields_mapping.keys())}",
+                )
+    return None
+
+
+def _validate_non_projection_clauses(select: ast.Select, scope: TypeScope):
+    """Validate column references in WHERE, GROUP BY, HAVING, ORDER BY, and JOINs.
+
+    Only validates columns that belong to this query's scope — columns inside
+    nested subqueries are validated when those subqueries are resolved.
+
+    Appends errors to scope.errors instead of raising.
+    """
+    clauses_to_check: list[ast.Node] = []
+
+    if select.where:
+        clauses_to_check.append(select.where)
+    for expr in select.group_by:
+        clauses_to_check.append(expr)
+    if select.having:
+        clauses_to_check.append(select.having)
+    if select.organization:
+        for item in select.organization.order:
+            clauses_to_check.append(item.expr)
+        for item in select.organization.sort:
+            clauses_to_check.append(item.expr)
+
+    if select.from_:
+        for relation in select.from_.relations:
+            _collect_join_conditions(relation, clauses_to_check)
+
+    # Window function OVER clauses (PARTITION BY, ORDER BY)
+    for proj_item in select.projection:
+        proj_node: ast.Node = proj_item  # type: ignore[assignment]
+        for func in proj_node.find_all(ast.Function):
+            if hasattr(func, "over") and func.over:
+                for partition_expr in func.over.partition_by:
+                    clauses_to_check.append(partition_expr)
+                for sort_item in func.over.order_by:
+                    clauses_to_check.append(sort_item.expr)
+
+    for clause in clauses_to_check:
+        _validate_columns_in_clause(clause, scope)
+
+
+def _validate_columns_in_clause(clause: ast.Node, scope: TypeScope):
+    """Validate column references in a clause, skipping nested subqueries.
+
+    Walks the AST but stops recursing when it hits a Query or Select node
+    (subquery). Appends errors to scope.errors.
+    """
+    if isinstance(clause, (ast.Query, ast.Select)):
+        return
+    if isinstance(clause, ast.Column):
+        try:
+            _resolve_column_type(clause, scope)
+        except TypeResolutionError as exc:
+            scope.errors.append(str(exc))
+        return
+    for child in clause.children:
+        _validate_columns_in_clause(child, scope)
+
+
+def _collect_join_conditions(node: ast.Node, conditions: list[ast.Node]):
+    """Recursively collect JOIN ON conditions from a relation."""
+    if isinstance(node, ast.Relation):
+        for ext in node.extensions:
+            if isinstance(ext, ast.Join):  # pragma: no branch
+                if ext.criteria and ext.criteria.on:
+                    conditions.append(ext.criteria.on)
+                _collect_join_conditions(ext.right, conditions)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +601,13 @@ def _resolve_column_type(
                 f"Available: {list(scope.tables[table_alias].keys())}",
             )
 
+        # Check if this is a struct field access (e.g., metadata.name where
+        # metadata is a StructType column). The namespace would be the column
+        # name, and col_name would be the struct field name.
+        struct_result = _resolve_struct_field(table_alias, col_name, scope.tables)
+        if struct_result is not None:
+            return struct_result
+
         # Multi-part namespace not matching any FROM table - likely a DJ
         # dimension attribute reference (e.g., ads.report.dim.date.year).
         result = _resolve_dj_node_column(col, scope.parent_map)
@@ -437,7 +658,7 @@ def _resolve_expr_type(
     Note: may mutate _type on AST Column nodes as a side effect, since the
     AST's built-in type properties (Function.infer_type, BinaryOp.type, etc.)
     read _type from child nodes. The AST is throwaway — parsed fresh per
-    resolve_output_columns call.
+    validate_node_query call.
     """
     if isinstance(expr, ast.Column):
         return _resolve_column_type(expr, scope)
@@ -523,14 +744,15 @@ def _prepare_function_arg_types(
     Set _type on function argument AST nodes so Function.infer_type can dispatch.
 
     Mutates the AST in place. This is intentional - the AST is a throwaway object
-    created per resolve_output_columns call and discarded after.
+    created per validate_node_query call and discarded after.
     """
     for arg in func.args:
         if isinstance(arg, ast.Column) and arg._type is None:
             try:
                 arg._type = _resolve_column_type(arg, scope)
-            except TypeResolutionError:
+            except TypeResolutionError as exc:
                 arg._type = UnknownType()
+                scope.errors.append(str(exc))
         elif isinstance(arg, ast.Function):
             _prepare_function_arg_types(arg, scope)
         elif isinstance(arg, (ast.Wildcard, ast.Number, ast.String)):
@@ -552,8 +774,9 @@ def _prepare_column_types_recursive(
     if isinstance(node, ast.Column) and node._type is None:
         try:
             node._type = _resolve_column_type(node, scope)
-        except TypeResolutionError:
+        except TypeResolutionError as exc:
             node._type = UnknownType()
+            scope.errors.append(str(exc))
     if isinstance(node, ast.Function):
         _prepare_function_arg_types(node, scope)
         return
