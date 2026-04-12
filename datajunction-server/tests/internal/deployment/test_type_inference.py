@@ -514,7 +514,7 @@ class TestDerivedMetricWithDimension:
     def test_metric_and_dimension_attr(self):
         """
         SELECT default.total_revenue, default.date_dim.week
-        — both a metric ref and a dimension attribute ref.
+        — both a metric ref and a dimension attribute ref (no FROM clause).
         """
         metric_and_dim_cols = _col_map(
             ("default.total_revenue", [("default_DOT_total_revenue", DoubleType())]),
@@ -528,9 +528,215 @@ class TestDerivedMetricWithDimension:
         assert isinstance(result[0][1], DoubleType)
         assert isinstance(result[1][1], StringType)
 
+    def test_dimension_attr_in_case_with_from(self):
+        """
+        SELECT SUM(CASE WHEN default.date_dim.dateint = 20260101 THEN amount ELSE 0 END) AS filtered
+        FROM default.orders
+        — dimension attribute referenced inline in a query that HAS a FROM clause.
+        """
+        result = resolve_output_columns(
+            "SELECT SUM(CASE WHEN default.date_dim.dateint = 20260101 "
+            "THEN amount ELSE 0 END) AS filtered "
+            "FROM default.orders",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "default.date_dim",
+                    [("dateint", IntegerType()), ("year", IntegerType())],
+                ),
+            ),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "filtered"
+
+    def test_dimension_attr_in_where_with_from(self):
+        """
+        SELECT SUM(amount) AS total
+        FROM default.orders
+        WHERE default.date_dim.year = 2026
+        — dimension attribute in WHERE clause.
+        """
+        result = resolve_output_columns(
+            "SELECT SUM(amount) AS total "
+            "FROM default.orders "
+            "WHERE default.date_dim.year = 2026",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "default.date_dim",
+                    [("dateint", IntegerType()), ("year", IntegerType())],
+                ),
+            ),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "total"
+
+    def test_dimension_attr_in_group_by_with_from(self):
+        """
+        SELECT default.date_dim.year, SUM(amount) AS total
+        FROM default.orders
+        GROUP BY default.date_dim.year
+        — dimension attribute in both SELECT and GROUP BY.
+        """
+        result = resolve_output_columns(
+            "SELECT default.date_dim.year, SUM(amount) AS total "
+            "FROM default.orders "
+            "GROUP BY default.date_dim.year",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "default.date_dim",
+                    [("dateint", IntegerType()), ("year", IntegerType())],
+                ),
+            ),
+        )
+        assert len(result) == 2
+        assert isinstance(result[0][1], IntegerType)
+        assert result[1][0] == "total"
+
+    def test_dimension_attr_without_dim_in_map(self):
+        """
+        SELECT default.date_dim.year, SUM(amount) AS total
+        FROM default.orders
+        GROUP BY default.date_dim.year
+        — dimension node NOT in parent_columns_map → UnknownType fallback.
+        """
+        result = resolve_output_columns(
+            "SELECT default.date_dim.year, SUM(amount) AS total "
+            "FROM default.orders "
+            "GROUP BY default.date_dim.year",
+            _col_map(ORDERS_COLS),  # No date_dim in map
+        )
+        assert len(result) == 2
+        assert isinstance(result[0][1], UnknownType)  # Can't resolve without dim node
+        assert result[1][0] == "total"
+
+    def test_dimension_attr_in_aggregation(self):
+        """
+        SELECT SUM(default.date_dim.dateint) AS sum_dates
+        FROM default.orders
+        — dimension attribute used as the aggregation argument itself.
+        """
+        result = resolve_output_columns(
+            "SELECT SUM(default.date_dim.dateint) AS sum_dates FROM default.orders",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "default.date_dim",
+                    [("dateint", IntegerType()), ("year", IntegerType())],
+                ),
+            ),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "sum_dates"
+        # SUM(IntegerType) → BigIntType
+        assert isinstance(result[0][1], BigIntType)
+
 
 # ===================================================================
-# 18. UNION / SET operations
+# 18. Deep namespace resolution
+# ===================================================================
+
+
+class TestDeepNamespaces:
+    def test_deep_namespace_dimension_attr(self):
+        """
+        SELECT ads.report.dims.date.year, SUM(amount) AS total
+        FROM default.orders
+        GROUP BY ads.report.dims.date.year
+        — deep namespace dimension attribute reference.
+        """
+        result = resolve_output_columns(
+            "SELECT ads.report.dims.date.year, SUM(amount) AS total "
+            "FROM default.orders "
+            "GROUP BY ads.report.dims.date.year",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "ads.report.dims.date",
+                    [
+                        ("year", IntegerType()),
+                        ("month", IntegerType()),
+                        ("dateint", IntegerType()),
+                    ],
+                ),
+            ),
+        )
+        assert len(result) == 2
+        assert isinstance(result[0][1], IntegerType)
+        assert result[1][0] == "total"
+
+    def test_deep_namespace_derived_metric(self):
+        """
+        SELECT ads.report.metrics.total_revenue
+        — derived metric with deep namespace.
+        """
+        result = resolve_output_columns(
+            "SELECT ads.report.metrics.total_revenue",
+            _col_map(
+                (
+                    "ads.report.metrics.total_revenue",
+                    [("ads_DOT_report_DOT_metrics_DOT_total_revenue", DoubleType())],
+                ),
+            ),
+        )
+        assert len(result) == 1
+        assert isinstance(result[0][1], DoubleType)
+
+    def test_deep_namespace_dim_attr_in_aggregation(self):
+        """
+        SELECT SUM(ads.report.dims.date.dateint) AS sum_dates
+        FROM default.orders
+        """
+        result = resolve_output_columns(
+            "SELECT SUM(ads.report.dims.date.dateint) AS sum_dates FROM default.orders",
+            _col_map(
+                ORDERS_COLS,
+                (
+                    "ads.report.dims.date",
+                    [("dateint", IntegerType()), ("year", IntegerType())],
+                ),
+            ),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "sum_dates"
+        assert isinstance(result[0][1], BigIntType)
+
+    def test_deep_namespace_not_in_map_fallback(self):
+        """
+        SELECT ads.report.dims.date.year FROM default.orders
+        — deep namespace dim NOT in parent map → UnknownType.
+        """
+        result = resolve_output_columns(
+            "SELECT ads.report.dims.date.year, amount FROM default.orders",
+            _col_map(ORDERS_COLS),  # No deep dim in map
+        )
+        assert len(result) == 2
+        assert isinstance(result[0][1], UnknownType)
+        assert isinstance(result[1][1], DoubleType)
+
+    def test_ambiguous_namespace_prefers_longest_match(self):
+        """
+        If both 'ads.report' and 'ads.report.dims' exist as nodes,
+        a reference to 'ads.report.dims.date.year' should match
+        'ads.report.dims' with column 'date' (if it exists), not
+        'ads.report' with column 'dims'.
+        """
+        result = resolve_output_columns(
+            "SELECT ads.report.dims.year FROM default.orders",
+            _col_map(
+                ORDERS_COLS,
+                ("ads.report", [("dims", StringType())]),
+                ("ads.report.dims", [("year", IntegerType())]),
+            ),
+        )
+        assert len(result) == 1
+        # Should match ads.report.dims (longer prefix) with column year
+        assert isinstance(result[0][1], IntegerType)
+
+
+# ===================================================================
+# 19. UNION / SET operations
 # ===================================================================
 
 
@@ -545,6 +751,40 @@ class TestSetOperations:
         result = resolve_output_columns(
             "SELECT user_id FROM default.users "
             "UNION "
+            "SELECT user_id FROM default.orders",
+            _col_map(USERS_COLS, ORDERS_COLS),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "user_id"
+        assert isinstance(result[0][1], IntegerType)
+
+    def test_except(self):
+        """
+        SELECT user_id FROM default.users
+        EXCEPT
+        SELECT user_id FROM default.orders
+        — output takes types from the first SELECT.
+        """
+        result = resolve_output_columns(
+            "SELECT user_id FROM default.users "
+            "EXCEPT "
+            "SELECT user_id FROM default.orders",
+            _col_map(USERS_COLS, ORDERS_COLS),
+        )
+        assert len(result) == 1
+        assert result[0][0] == "user_id"
+        assert isinstance(result[0][1], IntegerType)
+
+    def test_intersect(self):
+        """
+        SELECT user_id FROM default.users
+        INTERSECT
+        SELECT user_id FROM default.orders
+        — output takes types from the first SELECT.
+        """
+        result = resolve_output_columns(
+            "SELECT user_id FROM default.users "
+            "INTERSECT "
             "SELECT user_id FROM default.orders",
             _col_map(USERS_COLS, ORDERS_COLS),
         )
