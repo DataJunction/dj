@@ -528,6 +528,7 @@ class DJClient(_internal.DJClient):
         metrics = node_dict["cube_node_metrics"]
         node_dict["metrics"] = metrics
         node_dict["dimensions"] = dimensions
+        node_dict["filters"] = node_dict.get("cube_filters")
         return Cube.from_dict(dj_client=self, data=node_dict)
 
     def node(self, node_name: str):

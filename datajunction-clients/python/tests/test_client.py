@@ -679,3 +679,5 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert cube_two.name == "default.cube_two"
         assert cube_two.metrics == ["default.num_repair_orders"]
         assert cube_two.dimensions == ["default.municipality_dim.local_region"]
+        assert cube_two.filters == ["default.municipality_dim.state_id = 1"]
+        assert cube_two.custom_metadata == {"team": "data-eng"}
