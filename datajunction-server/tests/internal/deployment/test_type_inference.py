@@ -378,6 +378,7 @@ class TestConditionals:
             _col_map(ORDERS_COLS),
         )
         assert result.output_columns[0] == ("val", UnknownType())
+        assert any("Unable to infer type for column `val`" in e for e in result.errors)
 
     def test_coalesce(self):
         result = validate_node_query(
@@ -580,6 +581,208 @@ class TestStructFieldAccess:
         )
         assert result.errors == []
         assert result.output_columns[0] == ("name", StringType())
+
+    def test_table_qualified_struct_field(self):
+        """SELECT t.metadata.name FROM default.events t — table.struct.field access."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        struct_source = _col_map(
+            (
+                "default.events",
+                [
+                    ("event_id", IntegerType()),
+                    (
+                        "metadata",
+                        StructType(
+                            NestedField(Name("name"), StringType(), True),
+                            NestedField(Name("value"), IntegerType(), True),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT t.metadata.name FROM default.events t",
+            struct_source,
+        )
+        assert result.errors == []
+        assert result.output_columns[0] == ("name", StringType())
+
+    def test_struct_field_in_subquery_projects_flat_columns(self):
+        """Struct field access inside a subquery produces flat columns for the outer query.
+
+        Pattern: outer query references m.is_flag, where m is a subquery that
+        projects t.details.is_flag AS is_flag from a source with a struct column.
+        """
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        source = _col_map(
+            (
+                "default.events",
+                [
+                    ("id", IntegerType()),
+                    (
+                        "details",
+                        StructType(
+                            NestedField(Name("is_flag"), BooleanType(), True),
+                            NestedField(Name("ts"), BigIntType(), True),
+                        ),
+                    ),
+                    ("status", IntegerType()),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            """
+            SELECT m.id, m.is_flag, m.ts
+            FROM (
+                SELECT
+                    t.id,
+                    t.details.is_flag AS is_flag,
+                    t.details.ts AS ts
+                FROM default.events AS t
+                WHERE t.status = 1
+
+                UNION ALL
+
+                SELECT
+                    t.id,
+                    t.details.is_flag AS is_flag,
+                    t.details.ts AS ts
+                FROM default.events AS t
+                WHERE t.status = 0
+            ) AS m
+            """,
+            source,
+        )
+        assert not result.errors, result.errors
+        assert len(result.output_columns) == 3
+        assert result.output_columns[0] == ("id", IntegerType())
+        assert result.output_columns[1] == ("is_flag", BooleanType())
+        assert result.output_columns[2] == ("ts", BigIntType())
+
+    def test_nested_struct_chain(self):
+        """deal_price.cpm.amount — two levels of struct nesting, no table alias."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        source = _col_map(
+            (
+                "default.deals",
+                [
+                    ("id", IntegerType()),
+                    (
+                        "deal_price",
+                        StructType(
+                            NestedField(
+                                Name("cpm"),
+                                StructType(
+                                    NestedField(Name("amount"), StringType(), True),
+                                    NestedField(Name("currency"), StringType(), True),
+                                    NestedField(Name("micros"), BigIntType(), True),
+                                ),
+                                True,
+                            ),
+                            NestedField(Name("deal_price_type"), StringType(), True),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            """SELECT
+                id,
+                deal_price.deal_price_type AS price_type,
+                deal_price.cpm.amount AS cpm_amount,
+                deal_price.cpm.currency AS cpm_currency,
+                deal_price.cpm.micros AS cpm_micros
+            FROM default.deals""",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert len(result.output_columns) == 5
+        assert result.output_columns[0] == ("id", IntegerType())
+        assert result.output_columns[1] == ("price_type", StringType())
+        assert result.output_columns[2] == ("cpm_amount", StringType())
+        assert result.output_columns[3] == ("cpm_currency", StringType())
+        assert result.output_columns[4] == ("cpm_micros", BigIntType())
+
+    def test_table_qualified_nested_struct_chain(self):
+        """t.deal_price.cpm.amount — table alias + two levels of struct nesting."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        source = _col_map(
+            (
+                "default.deals",
+                [
+                    ("id", IntegerType()),
+                    (
+                        "price",
+                        StructType(
+                            NestedField(
+                                Name("details"),
+                                StructType(
+                                    NestedField(Name("val"), DoubleType(), True),
+                                ),
+                                True,
+                            ),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT t.id, t.price.details.val AS deep_val FROM default.deals t",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert len(result.output_columns) == 2
+        assert result.output_columns[0] == ("id", IntegerType())
+        assert result.output_columns[1] == ("deep_val", DoubleType())
+
+    def test_three_level_struct_chain(self):
+        """a.b.c.d — three levels of struct nesting."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        source = _col_map(
+            (
+                "default.data",
+                [
+                    (
+                        "a",
+                        StructType(
+                            NestedField(
+                                Name("b"),
+                                StructType(
+                                    NestedField(
+                                        Name("c"),
+                                        StructType(
+                                            NestedField(
+                                                Name("d"),
+                                                IntegerType(),
+                                                True,
+                                            ),
+                                        ),
+                                        True,
+                                    ),
+                                ),
+                                True,
+                            ),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT a.b.c.d AS deep FROM default.data",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0] == ("deep", IntegerType())
 
     def test_struct_field_nonexistent(self):
         """SELECT metadata.nonexistent FROM default.events — bad struct field."""
@@ -1100,6 +1303,17 @@ class TestTableValuedFunctions:
         assert result.output_columns[1] == ("k", StringType())
         assert result.output_columns[2] == ("v", IntegerType())
 
+    def test_explode_sequence_function(self):
+        """LATERAL VIEW EXPLODE(SEQUENCE(1, 90)) infers IntegerType from SEQUENCE args."""
+        result = validate_node_query(
+            "SELECT h.horizon "
+            "FROM (SELECT 1 AS dummy) t "
+            "LATERAL VIEW EXPLODE(SEQUENCE(1, 90)) h AS horizon",
+            {},
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0] == ("horizon", IntegerType())
+
     def test_explode_unresolvable_arg(self):
         """EXPLODE on a column not in scope → UnknownType."""
         result = validate_node_query(
@@ -1124,10 +1338,14 @@ class TestTableValuedFunctions:
         assert result.output_columns[0] == ("mural_id", IntegerType())
         assert result.output_columns[1][0] == "color_name"
         assert isinstance(result.output_columns[1][1], UnknownType)
+        assert any(
+            "Unable to infer type for column `color_name`" in e for e in result.errors
+        )
 
     def test_range_in_from(self):
         result = validate_node_query("SELECT id FROM RANGE(10) t(id)", {})
         assert result.output_columns[0] == ("id", UnknownType())
+        assert any("Unable to infer type for column `id`" in e for e in result.errors)
 
     def test_range_cross_join(self):
         result = validate_node_query(
@@ -1136,6 +1354,7 @@ class TestTableValuedFunctions:
         )
         assert result.output_columns[0] == ("user_id", IntegerType())
         assert result.output_columns[1] == ("idx", UnknownType())
+        assert any("Unable to infer type for column `idx`" in e for e in result.errors)
 
     def test_lateral_view_no_column_alias(self):
         """LATERAL VIEW EXPLODE(tags) t — no AS col_name."""
@@ -1155,6 +1374,48 @@ class TestTableValuedFunctions:
 
 
 class TestRegisteredFunctions:
+    def test_struct_constructor_simple(self):
+        """struct(col AS name) should infer StructType."""
+        result = validate_node_query(
+            "SELECT struct(user_id AS id) AS s FROM default.users",
+            _col_map(USERS_COLS),
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0][0] == "s"
+
+    def test_struct_constructor_with_max(self):
+        """struct(MAX(col) AS name) should work."""
+        result = validate_node_query(
+            "SELECT struct(MAX(flag) AS max_flag) AS s FROM default.data d",
+            _col_map(("default.data", [("flag", IntegerType())])),
+        )
+        assert not result.errors, result.errors
+
+    def test_struct_constructor_with_if(self):
+        """struct(IF(flag = 1, 1, 0) AS name) should work."""
+        result = validate_node_query(
+            "SELECT struct(IF(flag = 1, 1, 0) AS val) AS s FROM default.data d",
+            _col_map(("default.data", [("flag", IntegerType())])),
+        )
+        assert not result.errors, result.errors
+
+    def test_struct_constructor_with_aggregation(self):
+        """struct(expr AS name, agg AS name) should infer StructType from its args."""
+        result = validate_node_query(
+            """SELECT
+                struct(
+                    d.dateint AS snapshot_date,
+                    MAX(IF(flag = 1, 1, 0)) AS is_active
+                ) AS status_struct
+            FROM default.data d""",
+            _col_map(
+                ("default.data", [("dateint", IntegerType()), ("flag", IntegerType())]),
+            ),
+        )
+        assert not result.errors, result.errors
+        assert len(result.output_columns) == 1
+        assert result.output_columns[0][0] == "status_struct"
+
     def test_hll_sketch_estimate(self):
         from datajunction_server.sql.parsing.types import LongType
 
@@ -1180,17 +1441,131 @@ class TestRegisteredFunctions:
         assert isinstance(result.output_columns[0][1], IntegerType)
 
     def test_unregistered_function(self):
-        """Unknown function gracefully falls back to UnknownType."""
+        """Unknown function produces UnknownType and an error."""
         result = validate_node_query(
             "SELECT SOME_UNKNOWN_FUNC(user_id) AS x FROM default.users",
             _col_map(USERS_COLS),
         )
         assert result.output_columns[0] == ("x", UnknownType())
+        assert any("Unable to infer type for column `x`" in e for e in result.errors)
 
 
 # ---------------------------------------------------------------------------
 # Inline tables (VALUES)
 # ---------------------------------------------------------------------------
+
+
+class TestSubscript:
+    """Subscript expressions: col['key'] for maps and structs."""
+
+    def test_struct_subscript(self):
+        """col['field'] on a StructType resolves the field type."""
+        from datajunction_server.sql.parsing.types import StructType
+        from datajunction_server.sql.parsing.ast import NestedField, Name
+
+        source = _col_map(
+            (
+                "default.data",
+                [
+                    ("id", IntegerType()),
+                    (
+                        "info",
+                        StructType(
+                            NestedField(Name("price"), DoubleType(), True),
+                            NestedField(Name("name"), StringType(), True),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT info['price'] AS p, info['name'] AS n FROM default.data",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0] == ("p", DoubleType())
+        assert result.output_columns[1] == ("n", StringType())
+
+    def test_map_subscript(self):
+        """col['key'] on a MapType resolves to the value type."""
+        from datajunction_server.sql.parsing.types import MapType
+
+        source = _col_map(
+            (
+                "default.data",
+                [
+                    ("id", IntegerType()),
+                    ("props", MapType(StringType(), DoubleType())),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            "SELECT props['weight'] AS w FROM default.data",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert result.output_columns[0] == ("w", DoubleType())
+
+
+class TestLambdaFunctions:
+    """Higher-order functions with lambda expressions (AGGREGATE, FILTER, TRANSFORM)."""
+
+    def test_aggregate_with_filter_and_lambda(self):
+        """AGGREGATE(FILTER(arr, c -> ...), init, (acc, c) -> ...) should not crash."""
+
+        source = _col_map(
+            (
+                "default.events",
+                [
+                    ("id", IntegerType()),
+                    (
+                        "scores",
+                        # Array of structs — represented as a ListType in practice,
+                        # but for this test UnknownType suffices since we just need
+                        # the query to not crash.
+                        UnknownType(),
+                    ),
+                ],
+            ),
+        )
+        result = validate_node_query(
+            """SELECT
+                id,
+                AGGREGATE(
+                    FILTER(scores, c -> c.name = 'X'),
+                    CAST(0.0 AS DOUBLE),
+                    (acc, c) -> CAST(acc + c.value AS DOUBLE)
+                ) AS total_score
+            FROM default.events""",
+            source,
+        )
+        assert not result.errors, result.errors
+        assert len(result.output_columns) == 2
+        assert result.output_columns[0] == ("id", IntegerType())
+        # AGGREGATE return type inferred from initial value CAST(0.0 AS DOUBLE)
+        assert result.output_columns[1] == ("total_score", DoubleType())
+
+    def test_filter_returns_same_type_as_input(self):
+        """FILTER(array, predicate) → same type as the array arg."""
+        source = _col_map(
+            ("default.events", [("id", IntegerType()), ("tags", UnknownType())]),
+        )
+        result = validate_node_query(
+            "SELECT FILTER(tags, t -> t > 0) AS filtered FROM default.events",
+            source,
+        )
+        assert result.output_columns[0][0] == "filtered"
+
+    def test_transform_returns_same_type_as_input(self):
+        """TRANSFORM(array, func) → same type as the array arg."""
+        source = _col_map(
+            ("default.events", [("id", IntegerType()), ("vals", UnknownType())]),
+        )
+        result = validate_node_query(
+            "SELECT TRANSFORM(vals, v -> v * 2) AS doubled FROM default.events",
+            source,
+        )
+        assert result.output_columns[0][0] == "doubled"
 
 
 class TestInlineTable:
@@ -1220,6 +1595,7 @@ class TestInlineTable:
         assert result.output_columns[0][0] == "id"
         assert isinstance(result.output_columns[0][1], IntegerType)
         assert result.output_columns[1] == ("val", UnknownType())
+        assert any("Unable to infer type for column `val`" in e for e in result.errors)
 
     def test_values_with_boolean(self):
         result = validate_node_query(
@@ -1244,6 +1620,26 @@ class TestInlineTable:
             assert len(result.output_columns) >= 1
         except TypeResolutionError:
             pass
+
+    def test_top_level_values_with_column_aliases(self):
+        """FROM VALUES ... AS t(col1, col2) — top-level InlineTable, not a subquery."""
+        result = validate_node_query(
+            """SELECT status_key, code, label
+            FROM VALUES
+              (0, 'A', 'Alpha'),
+              (1, 'B', 'Beta'),
+              (2, 'C', 'Gamma')
+            AS t(status_key, code, label)""",
+            {},
+        )
+        assert not result.errors
+        assert len(result.output_columns) == 3
+        assert result.output_columns[0][0] == "status_key"
+        assert isinstance(result.output_columns[0][1], IntegerType)
+        assert result.output_columns[1][0] == "code"
+        assert isinstance(result.output_columns[1][1], StringType)
+        assert result.output_columns[2][0] == "label"
+        assert isinstance(result.output_columns[2][1], StringType)
 
 
 # ---------------------------------------------------------------------------
@@ -1490,8 +1886,8 @@ class TestUnresolvableReferences:
 
     def test_function_nested_inside_case_arg(self):
         """SUM(CASE WHEN TRUE THEN COALESCE(amount, 0) ELSE 0 END)
-        — Function (COALESCE) inside CASE inside SUM triggers
-        _prepare_column_types_recursive hitting a Function node."""
+        — Function (COALESCE) inside CASE inside SUM requires recursive
+        type stamping through nested expressions."""
         result = validate_node_query(
             "SELECT SUM(CASE WHEN TRUE THEN COALESCE(amount, 0) ELSE 0 END) AS total "
             "FROM default.orders",
@@ -1506,6 +1902,9 @@ class TestUnresolvableReferences:
             _col_map(ORDERS_COLS),
         )
         assert result.output_columns[0] == ("total", UnknownType())
+        assert any(
+            "Unable to infer type for column `total`" in e for e in result.errors
+        )
 
     def test_binary_op_both_unresolvable(self):
         result = validate_node_query(
@@ -1513,6 +1912,7 @@ class TestUnresolvableReferences:
             _col_map(ORDERS_COLS),
         )
         assert result.output_columns[0] == ("z", UnknownType())
+        assert any("Unable to infer type for column `z`" in e for e in result.errors)
 
     def test_nested_case_with_bad_column(self):
         """SUM(CASE WHEN TRUE THEN nonexistent ELSE 0 END) — bare column doesn't exist."""
