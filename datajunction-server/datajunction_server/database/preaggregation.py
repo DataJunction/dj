@@ -266,6 +266,13 @@ class PreAggregation(Base):
     # Workflow status: "active" | "paused" | None (no workflow)
     workflow_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    # Workflow names returned by the query service (used for deactivation)
+    workflow_names: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     # === Availability ===
     availability_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey(

@@ -161,6 +161,7 @@ class PreAggregationInfo(BaseModel):
     workflow_status: Optional[str] = (
         None  # WorkflowStatus.ACTIVE | WorkflowStatus.PAUSED | None
     )
+    workflow_names: Optional[List[str]] = None  # Workflow names for deactivation
 
     # Availability (derived from AvailabilityState)
     status: str = "pending"  # "pending" | "running" | "active"
