@@ -13,6 +13,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from datajunction_server.utils import SEPARATOR
+
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing import ast
@@ -366,20 +368,15 @@ def _resolve_lateral_element_types(
 
     arg = func.args[0]
 
-    # Resolve the argument's type — could be a column, function, or expression
-    col_type: Optional[ColumnType] = None
-    if isinstance(arg, ast.Column):
-        col_name = arg.name.name
-        for table_cols in from_scope.values():
-            if col_name in table_cols:
-                col_type = table_cols[col_name]
-                break
-    elif isinstance(arg, ast.Function):
-        # e.g., EXPLODE(SEQUENCE(1, 90)) — resolve the function's return type
-        scope = TypeScope(tables=from_scope, parent_map={})
+    # Resolve the argument's type using the standard expression resolver.
+    # Handles all cases uniformly:
+    #   EXPLODE(tags)            — Column reference to a ListType/MapType column
+    #   EXPLODE(SEQUENCE(1, 90)) — Function returning ListType via the registry
+    #   EXPLODE(col['key'])      — Subscript on a map/struct
+    scope = TypeScope(tables=from_scope, parent_map={})
+    try:
         col_type = _resolve_expr_type(arg, scope)
-
-    if col_type is None:
+    except (TypeResolutionError, Exception):
         return []
 
     if isinstance(col_type, ListType):
@@ -470,21 +467,21 @@ def _resolve_struct_chain(
 ) -> ColumnType:
     """Walk a chain of struct field accesses.
 
-    Given a StructType and a list of field names like ["cpm", "amount"],
-    resolves struct_col.cpm.amount by walking into nested structs.
+    Given a StructType and a list of field names like ["inner", "value"],
+    resolves struct_col.inner.value by walking into nested structs.
     """
     current = col_type
     traversed: list[str] = [root_name]
     for field_name in field_path:
         if not isinstance(current, StructType):  # pragma: no cover
             raise TypeResolutionError(
-                f"`{'_DOT_'.join(traversed)}` is not a struct type, "
+                f"`{SEPARATOR.join(traversed)}` is not a struct type, "
                 f"cannot access field `{field_name}`.",
             )
         if field_name not in current.fields_mapping:
             raise TypeResolutionError(
                 f"Field `{field_name}` not found in struct column "
-                f"`{'_DOT_'.join(traversed)}`. "
+                f"`{SEPARATOR.join(traversed)}`. "
                 f"Available fields: {list(current.fields_mapping.keys())}",
             )
         current = current.fields_mapping[field_name].type
@@ -497,7 +494,7 @@ def _resolve_struct_field(
     field_path: list[str],
     tables: TableScope,
 ) -> Optional[ColumnType]:
-    """Try to resolve a struct field access like metadata.name or deal_price.cpm.amount.
+    """Try to resolve a struct field access like metadata.name or data.inner.value.
 
     Searches all tables for a column named struct_col_name. If found and
     the column's type is a StructType, walks the field_path chain.
@@ -650,7 +647,7 @@ def _resolve_column_type(
                 return scope.tables[table_alias][col_name]
 
             # Multi-part namespace: table.struct_col[.nested...].field
-            # e.g., m.cancel_data.is_voluntary_cancel or t.deal_price.cpm.amount
+            # e.g., m.details.is_flag or t.data.inner.value
             if len(col.namespace) > 1:
                 struct_col_name = col.namespace[1].name
                 if struct_col_name in scope.tables[table_alias]:
@@ -677,7 +674,7 @@ def _resolve_column_type(
             )
 
         # Check if this is a struct field access (e.g., metadata.name or
-        # deal_price.cpm.amount). The first namespace part is the column name,
+        # data.inner.value). The first namespace part is the column name,
         # remaining namespace parts + col_name form the field path.
         field_path = [n.name for n in col.namespace[1:]] + [col_name]
         struct_result = _resolve_struct_field(table_alias, field_path, scope.tables)
