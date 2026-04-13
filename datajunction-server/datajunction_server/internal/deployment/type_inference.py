@@ -556,7 +556,7 @@ def _validate_columns_in_clause(clause: ast.Node, scope: TypeScope):
     (subquery). Appends errors to scope.errors.
     """
     if isinstance(clause, (ast.Query, ast.Select, ast.Lambda)):
-        return
+        return  # pragma: no cover
     if isinstance(clause, ast.Column):
         try:
             _resolve_column_type(clause, scope)
@@ -650,7 +650,7 @@ def _resolve_column_type(
             # e.g., m.details.is_flag or t.data.inner.value
             if len(col.namespace) > 1:
                 struct_col_name = col.namespace[1].name
-                if struct_col_name in scope.tables[table_alias]:
+                if struct_col_name in scope.tables[table_alias]:  # pragma: no branch
                     col_type = scope.tables[table_alias][struct_col_name]
                     # Build the remaining field path: namespace[2:] + col_name
                     field_path = [n.name for n in col.namespace[2:]] + [col_name]

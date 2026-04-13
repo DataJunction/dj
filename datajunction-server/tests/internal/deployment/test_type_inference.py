@@ -664,28 +664,28 @@ class TestStructFieldAccess:
         assert result.output_columns[2] == ("ts", BigIntType())
 
     def test_nested_struct_chain(self):
-        """deal_price.cpm.amount — two levels of struct nesting, no table alias."""
+        """data.nested.value — two levels of struct nesting, no table alias."""
         from datajunction_server.sql.parsing.types import StructType
         from datajunction_server.sql.parsing.ast import NestedField, Name
 
         source = _col_map(
             (
-                "default.deals",
+                "default.events",
                 [
                     ("id", IntegerType()),
                     (
-                        "deal_price",
+                        "data",
                         StructType(
                             NestedField(
-                                Name("cpm"),
+                                Name("nested"),
                                 StructType(
-                                    NestedField(Name("amount"), StringType(), True),
-                                    NestedField(Name("currency"), StringType(), True),
-                                    NestedField(Name("micros"), BigIntType(), True),
+                                    NestedField(Name("x"), StringType(), True),
+                                    NestedField(Name("y"), StringType(), True),
+                                    NestedField(Name("z"), BigIntType(), True),
                                 ),
                                 True,
                             ),
-                            NestedField(Name("deal_price_type"), StringType(), True),
+                            NestedField(Name("kind"), StringType(), True),
                         ),
                     ),
                 ],
@@ -694,23 +694,23 @@ class TestStructFieldAccess:
         result = validate_node_query(
             """SELECT
                 id,
-                deal_price.deal_price_type AS price_type,
-                deal_price.cpm.amount AS cpm_amount,
-                deal_price.cpm.currency AS cpm_currency,
-                deal_price.cpm.micros AS cpm_micros
-            FROM default.deals""",
+                data.kind AS kind,
+                data.nested.x AS ix,
+                data.nested.y AS iy,
+                data.nested.z AS iz
+            FROM default.events""",
             source,
         )
         assert not result.errors, result.errors
         assert len(result.output_columns) == 5
         assert result.output_columns[0] == ("id", IntegerType())
-        assert result.output_columns[1] == ("price_type", StringType())
-        assert result.output_columns[2] == ("cpm_amount", StringType())
-        assert result.output_columns[3] == ("cpm_currency", StringType())
-        assert result.output_columns[4] == ("cpm_micros", BigIntType())
+        assert result.output_columns[1] == ("kind", StringType())
+        assert result.output_columns[2] == ("ix", StringType())
+        assert result.output_columns[3] == ("iy", StringType())
+        assert result.output_columns[4] == ("iz", BigIntType())
 
     def test_table_qualified_nested_struct_chain(self):
-        """t.deal_price.cpm.amount — table alias + two levels of struct nesting."""
+        """t.price.details.val — table alias + two levels of struct nesting."""
         from datajunction_server.sql.parsing.types import StructType
         from datajunction_server.sql.parsing.ast import NestedField, Name
 
