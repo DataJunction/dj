@@ -247,6 +247,7 @@ async def test_crud_materialization(module__client_with_basic: AsyncClient):
         "info": {
             "output_tables": ["common.a", "common.b"],
             "urls": ["http://fake.url/job"],
+            "workflow_names": [],
         },
         "message": "The same materialization config with name "
         "`spark_sql__full` already exists for node "
@@ -1148,7 +1149,11 @@ async def test_spark_sql_full(
             ),
         ],
     )
-    assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
+    assert response.json() == {
+        "output_tables": [],
+        "urls": ["http://fake.url/job"],
+        "workflow_names": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -1261,7 +1266,11 @@ async def test_spark_sql_incremental(
             ),
         ],
     )
-    assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
+    assert response.json() == {
+        "output_tables": [],
+        "urls": ["http://fake.url/job"],
+        "workflow_names": [],
+    }
 
     # [success] A transform/dimension with a time partition and additional usage of
     # DJ_LOGICAL_TIMESTAMP() should work

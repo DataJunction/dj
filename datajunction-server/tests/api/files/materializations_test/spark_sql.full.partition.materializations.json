@@ -130,5 +130,6 @@
    ],
    "urls":[
       "http://fake.url/job"
-   ]
+   ],
+   "workflow_names":[]
 }

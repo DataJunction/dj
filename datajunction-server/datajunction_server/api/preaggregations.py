@@ -201,6 +201,7 @@ async def _preagg_to_info(
         lookback_window=preagg.lookback_window,
         workflow_urls=preagg.workflow_urls,  # PydanticListType handles conversion
         workflow_status=preagg.workflow_status,
+        workflow_names=preagg.workflow_names,
         status=preagg.status,
         materialized_table_ref=preagg.materialized_table_ref,
         max_partition=preagg.max_partition,
@@ -877,6 +878,7 @@ async def materialize_preaggregation(
             preagg.workflow_urls = labeled_urls
 
     preagg.workflow_status = WorkflowStatus.ACTIVE
+    preagg.workflow_names = mat_result.get("workflow_names", [])
     # Also update schedule if it wasn't set (using default)
     if not preagg.schedule:
         preagg.schedule = schedule
@@ -1009,20 +1011,23 @@ async def delete_preagg_workflow(
             message="No workflow exists for this pre-aggregation",
         )
 
-    # Compute output_table - the resource identifier that Query Service uses
-    output_table = _compute_output_table(
-        preagg.node_revision.name,
-        preagg.preagg_hash,
-    )
-
-    # Call query service to deactivate using the resource identifier (output_table)
-    # Query Service owns the workflow naming patterns and reconstructs them from output_table
     request_headers = dict(request.headers)
     try:
-        query_service_client.deactivate_preagg_workflow(
-            output_table,
-            request_headers=request_headers,
-        )
+        if preagg.workflow_names:
+            query_service_client.deactivate_workflows(
+                workflow_names=preagg.workflow_names,
+                request_headers=request_headers,
+            )
+        else:
+            # Fallback for preaggs created before workflow_names was stored
+            output_table = _compute_output_table(
+                preagg.node_revision.name,
+                preagg.preagg_hash,
+            )
+            query_service_client.deactivate_preagg_workflow(
+                output_table,
+                request_headers=request_headers,
+            )
     except Exception as e:
         _logger.exception(
             "Failed to deactivate workflow for preagg_id=%s: %s",
@@ -1039,6 +1044,7 @@ async def delete_preagg_workflow(
     preagg.lookback_window = None
     preagg.workflow_urls = None
     preagg.workflow_status = None
+    preagg.workflow_names = None
     await session.commit()
 
     _logger.info(
@@ -1131,28 +1137,26 @@ async def bulk_deactivate_preagg_workflows(
             skipped_count += 1
             continue
 
-        # Compute output_table for workflow identification
-        output_table = _compute_output_table(
-            preagg.node_revision.name,
-            preagg.preagg_hash,
-        )
-
-        # Extract workflow name from URLs if available
-        workflow_name = None
-        if preagg.workflow_urls:  # pragma: no branch
-            for wf_url in preagg.workflow_urls:  # pragma: no branch
-                if (
-                    hasattr(wf_url, "label") and wf_url.label == "scheduled"
-                ):  # pragma: no branch
-                    # Extract workflow name from URL path
-                    workflow_name = wf_url.url.split("/")[-1] if wf_url.url else None
-                    break
-
         try:
-            query_service_client.deactivate_preagg_workflow(
-                output_table,
-                request_headers=request_headers,
-            )
+            if preagg.workflow_names:
+                query_service_client.deactivate_workflows(
+                    workflow_names=preagg.workflow_names,
+                    request_headers=request_headers,
+                )
+                workflow_name = (
+                    preagg.workflow_names[0] if preagg.workflow_names else None
+                )
+            else:
+                # Fallback for preaggs created before workflow_names was stored
+                output_table = _compute_output_table(
+                    preagg.node_revision.name,
+                    preagg.preagg_hash,
+                )
+                query_service_client.deactivate_preagg_workflow(
+                    output_table,
+                    request_headers=request_headers,
+                )
+                workflow_name = output_table
 
             # Clear workflow state
             preagg.strategy = None
@@ -1160,6 +1164,7 @@ async def bulk_deactivate_preagg_workflows(
             preagg.lookback_window = None
             preagg.workflow_urls = None
             preagg.workflow_status = None
+            preagg.workflow_names = None
 
             deactivated.append(
                 DeactivatedWorkflowInfo(

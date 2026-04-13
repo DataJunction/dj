@@ -1203,6 +1203,37 @@ class TestDeletePreaggWorkflow:
         mock_qs_for_preaggs.deactivate_preagg_workflow.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_deactivate_workflow_with_stored_names(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+    ):
+        """Test deactivation uses stored workflow_names when available."""
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg5 = client_with_preaggs["preagg5"]
+
+        preagg = await session.get(PreAggregation, preagg5.id)
+        preagg.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/test-456"),
+        ]
+        preagg.workflow_status = "active"
+        preagg.workflow_names = ["my_scheduled_workflow"]
+        await session.commit()
+
+        response = await client.delete(f"/preaggs/{preagg5.id}/workflow")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "none"
+        assert "deactivated" in data["message"].lower()
+
+        # Verify deactivate_workflows was called with stored names
+        mock_qs_for_preaggs.deactivate_workflows.assert_called_once()
+        call_kwargs = mock_qs_for_preaggs.deactivate_workflows.call_args.kwargs
+        assert call_kwargs["workflow_names"] == ["my_scheduled_workflow"]
+
+    @pytest.mark.asyncio
     async def test_deactivate_workflow_not_found(self, client_with_preaggs):
         """Test deactivating workflow for non-existent pre-agg returns 404."""
         client = client_with_preaggs["client"]
@@ -1295,6 +1326,45 @@ class TestBulkDeactivateWorkflows:
         deactivated_ids = {item["id"] for item in data["deactivated"]}
         assert preagg8.id in deactivated_ids
         assert preagg9.id in deactivated_ids
+
+    @pytest.mark.asyncio
+    async def test_bulk_deactivate_with_stored_workflow_names(
+        self,
+        client_with_preaggs,
+        mock_qs_for_preaggs,
+    ):
+        """Bulk deactivate uses stored workflow_names when available."""
+        client = client_with_preaggs["client"]
+        session = client_with_preaggs["session"]
+        preagg8 = client_with_preaggs["preagg8"]
+        preagg9 = client_with_preaggs["preagg9"]
+
+        preagg8_obj = await session.get(PreAggregation, preagg8.id)
+        preagg8_obj.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/p8"),
+        ]
+        preagg8_obj.workflow_status = "active"
+        preagg8_obj.workflow_names = ["wf_preagg8"]
+
+        preagg9_obj = await session.get(PreAggregation, preagg9.id)
+        preagg9_obj.workflow_urls = [
+            WorkflowUrl(label="scheduled", url="http://scheduler/workflow/p9"),
+        ]
+        preagg9_obj.workflow_status = "active"
+        preagg9_obj.workflow_names = ["wf_preagg9"]
+        await session.commit()
+
+        response = await client.delete(
+            "/preaggs/workflows",
+            params={"node_name": "v3.page_views_enriched"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deactivated_count"] == 2
+
+        # Verify deactivate_workflows was called (not deactivate_preagg_workflow)
+        assert mock_qs_for_preaggs.deactivate_workflows.call_count == 2
 
     @pytest.mark.asyncio
     async def test_bulk_deactivate_stale_only(
