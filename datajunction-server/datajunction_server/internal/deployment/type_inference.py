@@ -13,6 +13,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from datajunction_server.utils import SEPARATOR
+
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing import ast
@@ -30,6 +32,8 @@ from datajunction_server.sql.parsing.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SENTINEL = object()
 
 # Type alias: maps node name → {column_name: ColumnType}
 ParentColumnsMap = dict[str, dict[str, ColumnType]]
@@ -151,8 +155,16 @@ def _resolve_query(
     for expr in select.projection:
         try:
             output.extend(_resolve_projection_expr(expr, scope))
-        except TypeResolutionError as exc:
+        except Exception as exc:
             scope.errors.append(str(exc))
+
+    # Flag any output columns with unresolved types
+    for col_name, col_type in output:
+        if isinstance(col_type, UnknownType):
+            scope.errors.append(
+                f"Unable to infer type for column `{col_name}`. "
+                f"This may indicate an unsupported function or expression.",
+            )
 
     # Validate column references in non-projection clauses
     _validate_non_projection_clauses(select, scope)
@@ -299,6 +311,11 @@ def _collect_tables_from_relation(
         result[sub_alias] = {name: typ for name, typ in sub_columns}
         errors.extend(sub_errors)
 
+    elif isinstance(node, ast.InlineTable):
+        alias = node.alias.name if node.alias else "__inline__"
+        inline_columns = _resolve_inline_table(ast.Query(select=node))  # type: ignore[arg-type]
+        result[alias] = {name: typ for name, typ in inline_columns}
+
     elif isinstance(node, ast.FunctionTableExpression):  # pragma: no branch
         alias = node.alias.name if node.alias else "__func_table__"
         func_cols = {col.name.name: UnknownType() for col in (node.column_list or [])}
@@ -346,18 +363,26 @@ def _resolve_lateral_element_types(
     from_scope: TableScope,
 ) -> list[ColumnType]:
     """Resolve element types for an EXPLODE/UNNEST function argument."""
-    if not func.args or not isinstance(func.args[0], ast.Column):
+    if not func.args:
         return []  # pragma: no cover
 
-    col_name = func.args[0].name.name
-    for table_cols in from_scope.values():
-        if col_name in table_cols:
-            col_type = table_cols[col_name]
-            if isinstance(col_type, ListType):
-                return [col_type.element.type]
-            if isinstance(col_type, MapType):
-                return [col_type.key.type, col_type.value.type]
-            return []
+    arg = func.args[0]
+
+    # Resolve the argument's type using the standard expression resolver.
+    # Handles all cases uniformly:
+    #   EXPLODE(tags)            — Column reference to a ListType/MapType column
+    #   EXPLODE(SEQUENCE(1, 90)) — Function returning ListType via the registry
+    #   EXPLODE(col['key'])      — Subscript on a map/struct
+    scope = TypeScope(tables=from_scope, parent_map={})
+    try:
+        col_type = _resolve_expr_type(arg, scope)
+    except (TypeResolutionError, Exception):
+        return []
+
+    if isinstance(col_type, ListType):
+        return [col_type.element.type]
+    if isinstance(col_type, MapType):
+        return [col_type.key.type, col_type.value.type]
     return []
 
 
@@ -435,28 +460,52 @@ def _resolve_wildcard(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_struct_chain(
+    col_type: ColumnType,
+    field_path: list[str],
+    root_name: str,
+) -> ColumnType:
+    """Walk a chain of struct field accesses.
+
+    Given a StructType and a list of field names like ["inner", "value"],
+    resolves struct_col.inner.value by walking into nested structs.
+    """
+    current = col_type
+    traversed: list[str] = [root_name]
+    for field_name in field_path:
+        if not isinstance(current, StructType):  # pragma: no cover
+            raise TypeResolutionError(
+                f"`{SEPARATOR.join(traversed)}` is not a struct type, "
+                f"cannot access field `{field_name}`.",
+            )
+        if field_name not in current.fields_mapping:
+            raise TypeResolutionError(
+                f"Field `{field_name}` not found in struct column "
+                f"`{SEPARATOR.join(traversed)}`. "
+                f"Available fields: {list(current.fields_mapping.keys())}",
+            )
+        current = current.fields_mapping[field_name].type
+        traversed.append(field_name)
+    return current
+
+
 def _resolve_struct_field(
     struct_col_name: str,
-    field_name: str,
+    field_path: list[str],
     tables: TableScope,
 ) -> Optional[ColumnType]:
-    """Try to resolve a struct field access like metadata.name.
+    """Try to resolve a struct field access like metadata.name or data.inner.value.
 
     Searches all tables for a column named struct_col_name. If found and
-    the column's type is a StructType, looks up field_name in its fields.
-    Returns the field type, or raises TypeResolutionError if the struct
-    exists but the field doesn't. Returns None if no struct column found.
+    the column's type is a StructType, walks the field_path chain.
+    Returns the resolved type, or raises TypeResolutionError if a field
+    doesn't exist. Returns None if no struct column found.
     """
     for table_cols in tables.values():
         if struct_col_name in table_cols:
             col_type = table_cols[struct_col_name]
             if isinstance(col_type, StructType):  # pragma: no branch
-                if field_name in col_type.fields_mapping:
-                    return col_type.fields_mapping[field_name].type
-                raise TypeResolutionError(
-                    f"Field `{field_name}` not found in struct column `{struct_col_name}`. "
-                    f"Available fields: {list(col_type.fields_mapping.keys())}",
-                )
+                return _resolve_struct_chain(col_type, field_path, struct_col_name)
     return None
 
 
@@ -506,8 +555,8 @@ def _validate_columns_in_clause(clause: ast.Node, scope: TypeScope):
     Walks the AST but stops recursing when it hits a Query or Select node
     (subquery). Appends errors to scope.errors.
     """
-    if isinstance(clause, (ast.Query, ast.Select)):
-        return
+    if isinstance(clause, (ast.Query, ast.Select, ast.Lambda)):
+        return  # pragma: no cover
     if isinstance(clause, ast.Column):
         try:
             _resolve_column_type(clause, scope)
@@ -596,15 +645,39 @@ def _resolve_column_type(
         if table_alias in scope.tables:
             if col_name in scope.tables[table_alias]:
                 return scope.tables[table_alias][col_name]
+
+            # Multi-part namespace: table.struct_col[.nested...].field
+            # e.g., m.details.is_flag or t.data.inner.value
+            if len(col.namespace) > 1:
+                struct_col_name = col.namespace[1].name
+                if struct_col_name in scope.tables[table_alias]:  # pragma: no branch
+                    col_type = scope.tables[table_alias][struct_col_name]
+                    # Build the remaining field path: namespace[2:] + col_name
+                    field_path = [n.name for n in col.namespace[2:]] + [col_name]
+                    if isinstance(col_type, StructType):
+                        return _resolve_struct_chain(
+                            col_type,
+                            field_path,
+                            struct_col_name,
+                        )
+                    if not field_path[:-1]:  # pragma: no cover
+                        # Only one level deep but not a struct
+                        return UnknownType()
+                    raise TypeResolutionError(  # pragma: no cover
+                        f"`{table_alias}.{struct_col_name}` is not a struct type, "
+                        f"cannot access field `{field_path[0]}`.",
+                    )
+
             raise TypeResolutionError(
                 f"Column `{col_name}` not found in table `{table_alias}`. "
                 f"Available: {list(scope.tables[table_alias].keys())}",
             )
 
-        # Check if this is a struct field access (e.g., metadata.name where
-        # metadata is a StructType column). The namespace would be the column
-        # name, and col_name would be the struct field name.
-        struct_result = _resolve_struct_field(table_alias, col_name, scope.tables)
+        # Check if this is a struct field access (e.g., metadata.name or
+        # data.inner.value). The first namespace part is the column name,
+        # remaining namespace parts + col_name form the field path.
+        field_path = [n.name for n in col.namespace[1:]] + [col_name]
+        struct_result = _resolve_struct_field(table_alias, field_path, scope.tables)
         if struct_result is not None:
             return struct_result
 
@@ -641,6 +714,50 @@ def _resolve_column_type(
 
 
 # ---------------------------------------------------------------------------
+# Higher-order function type inference
+# ---------------------------------------------------------------------------
+
+
+def _resolve_higher_order_function(
+    func: ast.Function,
+    scope: "TypeScope",
+) -> Optional[ColumnType]:
+    """Infer the return type of higher-order functions (AGGREGATE, FILTER, TRANSFORM).
+
+    These functions use lambda expressions whose parameters (c, acc, etc.) are
+    not in the table scope, so the AST's built-in type inference fails.  We
+    resolve the return type from the non-lambda arguments instead.
+
+    Returns None if the function is not a known higher-order function or if
+    the return type can't be determined.
+    """
+    name = (
+        func.name.name.upper() if hasattr(func.name, "name") else str(func.name).upper()
+    )
+    args = func.args
+
+    if name == "AGGREGATE" and len(args) >= 2:
+        # AGGREGATE(array, initial_value, merge_fn [, finish_fn])
+        # Return type = type of initial_value (the accumulator seed).
+        # The merge lambda must return the same type, and an optional
+        # finish lambda can transform it — but without resolving lambdas
+        # the initial value is our best signal.
+        return _resolve_expr_type(args[1], scope)
+
+    if name == "FILTER" and len(args) >= 1:
+        # FILTER(array, predicate) → same array type as input
+        return _resolve_expr_type(args[0], scope)
+
+    if name == "TRANSFORM" and len(args) >= 2:
+        # TRANSFORM(array, transform_fn) → array of transform return type.
+        # We can't resolve the lambda return type, so fall back to the
+        # array element type if it's known, otherwise UnknownType.
+        return _resolve_expr_type(args[0], scope)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Expression type resolution
 # ---------------------------------------------------------------------------
 
@@ -664,8 +781,11 @@ def _resolve_expr_type(
         return _resolve_column_type(expr, scope)
 
     if isinstance(expr, ast.Function):
+        # Resolve arg types ourselves and stamp _type on each arg AND all
+        # nested nodes so the function's dispatch mechanism can read them
+        # via .type without re-traversing the uncompiled AST.
+        _stamp_types_recursive(expr, scope)
         try:
-            _prepare_function_arg_types(expr, scope)
             result = expr.type
             if result is not None:  # pragma: no branch
                 return result
@@ -685,6 +805,11 @@ def _resolve_expr_type(
                     for a in expr.args
                 ],
             )
+        # Higher-order functions: infer return type from args when the AST
+        # can't resolve it (lambda body columns aren't in scope).
+        hof_result = _resolve_higher_order_function(expr, scope)
+        if hof_result is not None:
+            return hof_result
         return UnknownType()
 
     if isinstance(expr, ast.Cast):
@@ -712,6 +837,17 @@ def _resolve_expr_type(
                 left_type if not isinstance(left_type, UnknownType) else UnknownType()
             )
 
+    if isinstance(expr, ast.Subscript):
+        # Subscript: col['key'] (map or struct access) or col[0] (array access).
+        base_type = _resolve_expr_type(expr.expr, scope)
+        if isinstance(base_type, MapType):
+            return base_type.value.type
+        if isinstance(base_type, StructType) and isinstance(expr.index, ast.String):
+            field_name = expr.index.value.strip("'\"")
+            if field_name in base_type.fields_mapping:
+                return base_type.fields_mapping[field_name].type
+        return UnknownType()  # pragma: no cover
+
     if isinstance(expr, ast.Case):
         for case_result in expr.results:
             resolved = _resolve_expr_type(case_result, scope)
@@ -724,64 +860,48 @@ def _resolve_expr_type(
         return UnknownType()
 
     # Fallback: try the expression's own type property  # pragma: no cover
-    if hasattr(expr, "type"):  # pragma: no cover
-        result_type = expr.type  # type: ignore[attr-defined]  # pragma: no cover
+    try:  # pragma: no cover
+        result_type = getattr(expr, "type", None)  # pragma: no cover
         if isinstance(result_type, ColumnType):  # pragma: no cover
             return result_type  # pragma: no cover
+    except Exception:  # pragma: no cover
+        pass  # pragma: no cover
     return UnknownType()  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Function argument type resolution
+# Recursive type stamping
 # ---------------------------------------------------------------------------
 
 
-def _prepare_function_arg_types(
-    func: ast.Function,
-    scope: TypeScope,
-):
+def _stamp_types_recursive(node: ast.Node, scope: "TypeScope"):
+    """Set _type on all nodes in a subtree so the AST's dispatch chain works.
+
+    The function dispatch mechanism calls arg.type which chains through
+    Alias.type → child.type → Function.type → ... If any intermediate node
+    doesn't have _type set, it tries to resolve via the uncompiled AST and
+    fails. This function resolves types top-down using our scope and stamps
+    _type on every node that has the attribute.
     """
-    Set _type on function argument AST nodes so Function.infer_type can dispatch.
-
-    Mutates the AST in place. This is intentional - the AST is a throwaway object
-    created per validate_node_query call and discarded after.
-    """
-    for arg in func.args:
-        if isinstance(arg, ast.Column) and arg._type is None:
-            try:
-                arg._type = _resolve_column_type(arg, scope)
-            except TypeResolutionError as exc:
-                arg._type = UnknownType()
-                scope.errors.append(str(exc))
-        elif isinstance(arg, ast.Function):
-            _prepare_function_arg_types(arg, scope)
-        elif isinstance(arg, (ast.Wildcard, ast.Number, ast.String)):
-            pass
-        elif isinstance(arg, ast.Expression):  # pragma: no branch
-            _prepare_column_types_recursive(arg, scope)
-
-
-def _prepare_column_types_recursive(
-    node: ast.Node,
-    scope: TypeScope,
-):
-    """Set _type on all unresolved Column nodes in an AST subtree.
-
-    Mutates the AST in place so that expression .type properties (e.g., Case.type)
-    can resolve without hitting DJParseException. Same mutation contract as
-    _prepare_function_arg_types.
-    """
-    if isinstance(node, ast.Column) and node._type is None:
-        try:
-            node._type = _resolve_column_type(node, scope)
-        except TypeResolutionError as exc:
-            node._type = UnknownType()
-            scope.errors.append(str(exc))
-    if isinstance(node, ast.Function):
-        _prepare_function_arg_types(node, scope)
+    if isinstance(node, ast.Lambda):
         return
+    if isinstance(node, (ast.Query, ast.Select)):  # pragma: no cover
+        return
+
+    # Resolve and stamp this node's type
+    _type = getattr(node, "_type", _SENTINEL)
+    if _type is not _SENTINEL and _type is None:
+        try:
+            node._type = _resolve_expr_type(node, scope)  # type: ignore[union-attr]
+        except TypeResolutionError as exc:
+            node._type = UnknownType()  # type: ignore[union-attr]
+            scope.errors.append(str(exc))
+        except Exception:  # pragma: no cover
+            node._type = UnknownType()  # type: ignore[union-attr]
+
+    # Recurse into children
     for child in node.children:
-        _prepare_column_types_recursive(child, scope)
+        _stamp_types_recursive(child, scope)
 
 
 # ---------------------------------------------------------------------------
