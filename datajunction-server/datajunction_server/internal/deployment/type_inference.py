@@ -18,6 +18,7 @@ from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.errors import DJNotImplementedException
 from datajunction_server.sql.parsing.types import (
     BooleanType,
@@ -73,9 +74,15 @@ class TypeResolutionError(Exception):
     """Raised when type resolution fails (missing table, missing column, etc.)."""
 
 
+def parse_query(query_str: str) -> ast.Query:
+    """Parse a SQL query string into an AST. Thread-safe — suitable for threadpool."""
+    return parse(query_str)
+
+
 def validate_node_query(
     query_str: str,
     parent_columns_map: ParentColumnsMap,
+    pre_parsed: ast.Query | None = None,
 ) -> QueryValidationResult:
     """
     Validate that all column references in a SQL query resolve against
@@ -90,17 +97,23 @@ def validate_node_query(
         query_str: The SQL query to analyze.
         parent_columns_map: Pre-loaded map of parent node names to their
             column name→type mappings.
+        pre_parsed: Optional pre-parsed AST (from threadpool). Skips
+            ANTLR parsing if provided.
 
     Returns:
         QueryValidationResult with output_columns and any errors found.
     """
-    try:
-        query = parse(query_str)
-    except Exception as exc:
-        return QueryValidationResult(
-            output_columns=[],
-            errors=[f"Failed to parse query: {exc}"],
-        )
+    if pre_parsed is not None:
+        query = pre_parsed
+    else:
+        try:
+            with fast_parse_mode():
+                query = parse(query_str)
+        except Exception as exc:
+            return QueryValidationResult(
+                output_columns=[],
+                errors=[f"Failed to parse query: {exc}"],
+            )
 
     cte_registry: dict[str, OutputColumns] = {}
     all_errors: list[str] = []

@@ -1,11 +1,11 @@
 from fastapi import Request, BackgroundTasks
 
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.database.user import User
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.models.deployment import (
     NodeSpec,
     CubeSpec,
@@ -15,6 +15,7 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.errors import DJGraphCycleException
 import logging
@@ -24,29 +25,44 @@ logger = logging.getLogger(__name__)
 
 def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
     """
-    Extract the node graph from a list of nodes
+    Extract the node graph from a list of nodes.
+
+    Parsed ASTs are cached on each spec for reuse by downstream validation.
+
+    Returns:
+        dependencies_map: node name → list of upstream dependency names.
     """
     logger.info("Extracting node graph for %d nodes", len(nodes))
     dependencies_map: dict[str, list[str]] = {}
-    with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(_find_upstreams_for_node, node) for node in nodes]
-        for future in as_completed(futures):
-            name, deps = future.result()
-            dependencies_map[name] = deps
+    for node in nodes:
+        with fast_parse_mode():
+            name, deps, parsed = _find_upstreams_for_node(node)
+        dependencies_map[name] = deps
+        if parsed is not None:
+            node._query_ast = parsed
 
     logger.info("Extracted node graph with %d entries", len(dependencies_map))
     return dependencies_map
 
 
-def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
+def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query | None]:
     """
     Find the upstream dependencies for a given node.
+    Returns (name, deps, parsed_ast_or_none).
     """
     if (
         isinstance(node, (TransformSpec, DimensionSpec, MetricSpec))
         and node.rendered_query
     ):
-        query_ast = parse(node.rendered_query)
+        # For metrics, parse the aliased version so the AST can be reused
+        # by validation (which expects the metric-aliased form).
+        query_str = node.rendered_query
+        if isinstance(node, MetricSpec):
+            query_str = NodeRevision.format_metric_alias(
+                query_str,
+                node.rendered_name,
+            )
+        query_ast = parse(query_str)
         cte_names = [cte.alias_or_name.identifier() for cte in query_ast.ctes]
         tables = {
             t.name.identifier()
@@ -71,11 +87,11 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str]]:
                     if SEPARATOR in parent_path:  # Only if there's still a namespace
                         tables.add(parent_path)
 
-        return node.rendered_name, sorted(list(tables))
+        return node.rendered_name, sorted(list(tables)), query_ast
     if isinstance(node, CubeSpec):
         dimension_nodes = [dim.rsplit(".", 1)[0] for dim in node.rendered_dimensions]
-        return node.rendered_name, node.rendered_metrics + dimension_nodes
-    return node.rendered_name, []
+        return node.rendered_name, node.rendered_metrics + dimension_nodes, None
+    return node.rendered_name, [], None
 
 
 def topological_levels(

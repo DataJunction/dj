@@ -190,7 +190,11 @@ def parse_sql_with_sll_fallback(string, rule, converter=None, debug=False):
         return converter(tree) if converter else tree
     except Exception:
         # SLL failed, fall back to LL mode
-        logger.debug(f"SLL parsing failed, falling back to LL mode for query")
+        logger.info(
+            "SLL parsing failed, falling back to LL mode for query of length %d: %.60s...",
+            len(string),
+            string,
+        )
         return parse_sql(string, rule, converter, debug)
 
 

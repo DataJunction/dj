@@ -582,7 +582,9 @@ class TestOrchestrationFlow:
             # Configure deployment plan
             mock_plan = Mock(spec=DeploymentPlan)
             mock_plan.is_empty.return_value = False
-            mock_create_plan.return_value = mock_plan
+            mock_plan.to_deploy = []
+            mock_plan.to_delete = []
+            mock_create_plan.return_value = (mock_plan, [])
 
             # Execute
             await orchestrator.execute()
@@ -606,7 +608,9 @@ class TestOrchestrationFlow:
             # Configure empty deployment plan
             mock_plan = Mock(spec=DeploymentPlan)
             mock_plan.is_empty.return_value = True
-            mock_create_plan.return_value = mock_plan
+            mock_plan.to_deploy = []
+            mock_plan.to_delete = []
+            mock_create_plan.return_value = (mock_plan, [])
 
             mock_handle_no_changes.return_value = []
 
@@ -1839,7 +1843,7 @@ async def test_create_deployment_plan_all_auto_sources_already_exist(
         "check_external_deps",
         side_effect=[(set(), [auto_source], []), (set(), [], [])],
     ):
-        plan = await orchestrator._create_deployment_plan()
+        plan, _ = await orchestrator._create_deployment_plan()
 
     # The existing source was found in DB and added to existing_specs (lines 743-747)
     assert "ext_cat.s.t" in plan.existing_specs
@@ -1915,7 +1919,6 @@ async def test_deploy_reference_link_on_invalid_node(
     result = await orch._process_node_dimension_link(
         node_spec=transform_spec,
         link_spec=ref_link,
-        validation_results={},
     )
 
     assert result.status == DeploymentResult.Status.FAILED
@@ -2101,58 +2104,3 @@ async def test_execute_deployment_plan_dry_run_savepoint_rollback(
 
     # Dry-run should roll back the SAVEPOINT and return empty downstream
     assert downstream == []
-
-
-@pytest.mark.asyncio
-async def test_process_node_dimension_link_validation_exception(
-    session,
-    current_user: User,
-    mock_deployment_context,
-):
-    """When validation_results contains an Exception for a link, the error branch
-    at orchestrator.py lines 1169-1174 is reached.
-    """
-    valid_node = MagicMock()
-    valid_node.name = "test.my_dim"
-    valid_node.current.status = NodeStatus.VALID
-    valid_node.current.columns = [MagicMock(name="col", type="string")]
-
-    dimension_node = MagicMock()
-    dimension_node.name = "test.some_dim"
-
-    join_link = DimensionJoinLinkSpec(
-        dimension_node="test.some_dim",
-        join_type="inner",
-        join_on="test.my_dim.col = test.some_dim.col",
-    )
-    join_link.namespace = "test"
-
-    transform_spec = TransformSpec(
-        name="my_dim",
-        namespace="test",
-        query="SELECT col FROM test.source_table",
-    )
-
-    orchestrator = DeploymentOrchestrator(
-        deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
-        deployment_id="val-err-test",
-        session=session,
-        context=mock_deployment_context,
-        dry_run=True,
-    )
-    orchestrator.registry.nodes["test.my_dim"] = valid_node
-    orchestrator.registry.nodes["test.some_dim"] = dimension_node
-
-    validation_error = ValueError("Join path is broken")
-    validation_results: dict[tuple[str, str, str | None], Exception | None] = {
-        ("test.my_dim", "test.some_dim", None): validation_error,
-    }
-
-    result = await orchestrator._process_node_dimension_link(
-        node_spec=transform_spec,
-        link_spec=join_link,
-        validation_results=validation_results,
-    )
-
-    assert result.status == DeploymentResult.Status.FAILED
-    assert "Join path is broken" in result.message
