@@ -94,6 +94,36 @@ from datajunction_server.utils import (
 logger = logging.getLogger(__name__)
 
 
+def _extract_dimension_refs_from_filters(
+    filters: list[str],
+) -> list[tuple[str, str]]:
+    """Extract (node_name, column_name) pairs from filter expressions.
+
+    Parses all filters as a single WHERE clause (joined with AND) and
+    collects namespaced column references.  For example,
+    ``ns.hard_hat.state = 'CA'`` yields ``('ns.hard_hat', 'state')``.
+
+    Returns a list of (node_name, column_name) tuples.  Dimension node
+    names are identified by having at least one SEPARATOR in the namespace.
+    """
+    from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+
+    if not filters:
+        return []
+    combined = " AND ".join(f"({f})" for f in filters)
+    try:
+        tree = parse(f"SELECT 1 WHERE {combined}")
+    except Exception:
+        return []  # Unparseable — skip, will be caught at query time
+    refs: list[tuple[str, str]] = []
+    for col in tree.find_all(ast.Column):
+        if col.namespace and len(col.namespace) >= 1:
+            node_name = SEPARATOR.join(n.name for n in col.namespace)
+            if SEPARATOR in node_name:
+                refs.append((node_name, col.name.name))
+    return refs
+
+
 def _diff_column_metadata(
     new_cols: "list | None",
     old_cols: "list | None",
@@ -1660,6 +1690,15 @@ class DeploymentOrchestrator:
             for cube in cube_specs
             for dim in (cube.rendered_dimensions or [])
         }
+        # Also include dimension nodes referenced in filters
+        for cube in cube_specs:
+            if cube.rendered_filters:
+                all_dim_node_names |= {
+                    node_name
+                    for node_name, _ in _extract_dimension_refs_from_filters(
+                        cube.rendered_filters,
+                    )
+                }
         reachability = await DimensionReachability.build(
             self.session,
             all_parent_rev_ids,
@@ -1885,15 +1924,24 @@ class DeploymentOrchestrator:
                 dependencies=[],
             )
 
+        # Collect parent revision IDs for this cube's metrics (used by both
+        # dimension and filter reachability checks below).
+        cube_parent_rev_ids = {
+            p.current.id
+            for metric_name in (cube_spec.rendered_metrics or [])
+            for p in metric_to_parents.get(metric_name, [])
+            if p.current
+        }
+        rev_id_to_parent = {
+            p.current.id: p.name
+            for parents in metric_to_parents.values()
+            for p in parents
+            if p.current
+        }
+
         # Check dimension reachability using the pre-computed batched BFS
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            cube_parent_rev_ids = {
-                p.current.id
-                for metric_name in (cube_spec.rendered_metrics or [])
-                for p in metric_to_parents.get(metric_name, [])
-                if p.current
-            }
             requested_dim_nodes = {
                 dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
             }
@@ -1901,13 +1949,6 @@ class DeploymentOrchestrator:
                 cube_parent_rev_ids,
                 requested_dim_nodes,
             )
-            # Build parent rev_id → name lookup for error messages
-            rev_id_to_parent = {
-                p.current.id: p.name
-                for parents in metric_to_parents.values()
-                for p in parents
-                if p.current
-            }
             for dim_name, missing_from_ids in unreachable.items():
                 parent_names = sorted(
                     rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
@@ -1922,6 +1963,50 @@ class DeploymentOrchestrator:
                         ),
                     ),
                 )
+
+        # Validate that dimensions referenced in filters are reachable
+        # and that the specific columns exist on those dimension nodes.
+        if cube_spec.rendered_filters and cube_parent_rev_ids:
+            filter_refs = _extract_dimension_refs_from_filters(
+                cube_spec.rendered_filters,
+            )
+            filter_dim_nodes = {node_name for node_name, _ in filter_refs}
+            unreachable_filter_dims = reachability.unreachable_dimensions(
+                cube_parent_rev_ids,
+                filter_dim_nodes,
+            )
+            for dim_name, missing_from_ids in unreachable_filter_dims.items():
+                parent_names = sorted(
+                    rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
+                )
+                dim_compat_errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_DIMENSION,
+                        message=(
+                            f"Filter references dimension `{dim_name}` which is not "
+                            f"reachable from parent node(s): {', '.join(parent_names)}. "
+                            f"Add a dimension link to make it available."
+                        ),
+                    ),
+                )
+            # Check that filter columns exist on the dimension nodes
+            for node_name, col_name in filter_refs:
+                dim_node = self.registry.nodes.get(node_name) or dimension_mapping.get(
+                    f"{node_name}{SEPARATOR}{col_name}",
+                )
+                if dim_node and dim_node.current:
+                    col_names = {c.name for c in dim_node.current.columns}
+                    if col_name not in col_names:
+                        dim_compat_errors.append(
+                            DJError(
+                                code=ErrorCode.INVALID_COLUMN,
+                                message=(
+                                    f"Filter references column `{col_name}` on "
+                                    f"dimension `{node_name}`, but that column does "
+                                    f"not exist. Available: {sorted(col_names)}"
+                                ),
+                            ),
+                        )
 
         # Get dimensions for this cube from batch-loaded data
         cube_dimension_nodes = []

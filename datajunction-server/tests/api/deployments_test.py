@@ -1922,6 +1922,101 @@ class TestDeployments:
         assert "is not reachable from parent node" in failed_result["message"]
 
     @pytest.mark.asyncio
+    async def test_deploy_cube_filter_bad_column(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube filter referencing a nonexistent column on a reachable dimension
+        should produce a clear invalid error.
+        """
+        namespace = "cube_filter_col"
+        cube = CubeSpec(
+            name="default.filter_cube",
+            display_name="Filter Cube",
+            description="Cube for filter column validation",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            filters=["${prefix}default.hard_hat.nonexistent_col = 'X'"],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            default_hard_hat,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        cube_result = next(
+            r
+            for r in data["results"]
+            if r["name"] == f"{namespace}.default.filter_cube"
+        )
+        assert cube_result["status"] == "invalid"
+        assert "nonexistent_col" in cube_result["message"]
+        assert "does not exist" in cube_result["message"]
+
+    @pytest.mark.asyncio
+    async def test_deploy_cube_filter_unreachable_dim(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_dispatchers,
+        default_dispatcher,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube filter referencing a dimension not reachable from the cube's
+        metrics should produce a clear invalid error.
+        """
+        namespace = "cube_filter_dim"
+        cube = CubeSpec(
+            name="default.filter_dim_cube",
+            display_name="Filter Dim Cube",
+            description="Cube for filter dimension validation",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            filters=["${prefix}default.dispatcher.company_name = 'X'"],
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            default_hard_hat,
+            default_dispatchers,
+            default_dispatcher,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        cube_result = next(
+            r
+            for r in data["results"]
+            if r["name"] == f"{namespace}.default.filter_dim_cube"
+        )
+        assert cube_result["status"] == "invalid"
+        assert "is not reachable from parent node" in cube_result["message"]
+
+    @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_links(
         self,
         client,

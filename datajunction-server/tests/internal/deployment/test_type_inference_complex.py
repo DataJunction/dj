@@ -5,12 +5,9 @@ Part 1: SQL Complexity — gnarly standalone queries against a small set of sour
 Part 2: DAG Depth — topological resolution chain simulating deployment propagation.
 """
 
-import pytest
-
 from datajunction_server.internal.deployment.type_inference import (
     validate_node_query,
     columns_signature_changed,
-    TypeResolutionError,
 )
 from datajunction_server.sql.parsing.types import (
     BigIntType,
@@ -21,13 +18,13 @@ from datajunction_server.sql.parsing.types import (
     IntegerType,
     StringType,
     TimestampType,
-    UnknownType,
 )
 
 
 # =====================================================================
 # Shared source tables for SQL complexity tests
 # =====================================================================
+
 
 def _col_map(*tables):
     return {
@@ -448,9 +445,15 @@ class TestComplexExpressions:
         assert result.output_columns[2][0] == "running_total"
         assert isinstance(result.output_columns[2][1], DoubleType)
         assert result.output_columns[3][0] == "prev_amount"
-        assert isinstance(result.output_columns[3][1], DoubleType)  # LAG returns arg's type
+        assert isinstance(
+            result.output_columns[3][1],
+            DoubleType,
+        )  # LAG returns arg's type
         assert result.output_columns[4][0] == "amount_rank"
-        assert isinstance(result.output_columns[4][1], IntegerType)  # RANK returns IntegerType
+        assert isinstance(
+            result.output_columns[4][1],
+            IntegerType,
+        )  # RANK returns IntegerType
 
     def test_max_case_greatest_coalesce(self):
         """The gnarliest nested expression: MAX(CASE WHEN GREATEST(COALESCE(...), ...) > 0 THEN ...)"""
@@ -537,25 +540,34 @@ class TestTopologicalResolution:
 
     # ---- Source tables (level 0 — given, not resolved) ----
     SOURCES = _col_map(
-        ("ns.raw_events", [
-            ("event_id", IntegerType()),
-            ("user_id", IntegerType()),
-            ("amount", DoubleType()),
-            ("tags", StringType()),
-            ("created_at", TimestampType()),
-        ]),
-        ("ns.raw_users", [
-            ("user_id", IntegerType()),
-            ("username", StringType()),
-            ("country", StringType()),
-            ("signup_date", DateType()),
-        ]),
-        ("ns.date_dim", [
-            ("date_id", DateType()),
-            ("year", IntegerType()),
-            ("month", IntegerType()),
-            ("week", StringType()),
-        ]),
+        (
+            "ns.raw_events",
+            [
+                ("event_id", IntegerType()),
+                ("user_id", IntegerType()),
+                ("amount", DoubleType()),
+                ("tags", StringType()),
+                ("created_at", TimestampType()),
+            ],
+        ),
+        (
+            "ns.raw_users",
+            [
+                ("user_id", IntegerType()),
+                ("username", StringType()),
+                ("country", StringType()),
+                ("signup_date", DateType()),
+            ],
+        ),
+        (
+            "ns.date_dim",
+            [
+                ("date_id", DateType()),
+                ("year", IntegerType()),
+                ("month", IntegerType()),
+                ("week", StringType()),
+            ],
+        ),
     )
 
     # ---- Level 1: transforms that reference sources ----
@@ -607,12 +619,10 @@ class TestTopologicalResolution:
     # ---- Metrics (reference various levels) ----
     METRIC_NODES = {
         "ns.total_revenue": (
-            "SELECT SUM(amount) AS ns_DOT_total_revenue "
-            "FROM ns.events_enriched"
+            "SELECT SUM(amount) AS ns_DOT_total_revenue FROM ns.events_enriched"
         ),
         "ns.avg_daily_revenue": (
-            "SELECT AVG(daily_total) AS ns_DOT_avg_daily_revenue "
-            "FROM ns.daily_summary"
+            "SELECT AVG(daily_total) AS ns_DOT_avg_daily_revenue FROM ns.daily_summary"
         ),
     }
 
@@ -637,7 +647,9 @@ class TestTopologicalResolution:
         # Level 1
         for name, query in self.LEVEL_1_NODES.items():
             result = validate_node_query(query, parent_map)
-            parent_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            parent_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         # Verify level 1: events_enriched
         assert isinstance(parent_map["ns.events_enriched"]["event_id"], IntegerType)
@@ -653,7 +665,9 @@ class TestTopologicalResolution:
         # Level 2
         for name, query in self.LEVEL_2_NODES.items():
             result = validate_node_query(query, parent_map)
-            parent_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            parent_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         # Verify level 2: daily_summary
         assert isinstance(parent_map["ns.daily_summary"]["user_id"], IntegerType)
@@ -667,7 +681,9 @@ class TestTopologicalResolution:
         # Level 3
         for name, query in self.LEVEL_3_NODES.items():
             result = validate_node_query(query, parent_map)
-            parent_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            parent_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         # Verify level 3: user_weekly_stats
         assert isinstance(parent_map["ns.user_weekly_stats"]["user_id"], IntegerType)
@@ -677,7 +693,9 @@ class TestTopologicalResolution:
         # Metrics
         for name, query in self.METRIC_NODES.items():
             result = validate_node_query(query, parent_map)
-            parent_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            parent_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         # Metrics: single output column each
         assert isinstance(
@@ -692,7 +710,9 @@ class TestTopologicalResolution:
         # Derived metrics
         for name, query in self.DERIVED_METRIC_NODES.items():
             result = validate_node_query(query, parent_map)
-            parent_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            parent_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         assert len(parent_map["ns.revenue_health"]) == 1
         # revenue / avg_daily → DoubleType / DoubleType → DoubleType
@@ -714,7 +734,9 @@ class TestTopologicalResolution:
         original_map = dict(self.SOURCES)
         for name, query in self.LEVEL_1_NODES.items():
             result = validate_node_query(query, original_map)
-            original_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            original_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         original_enriched = [
             (name, typ) for name, typ in original_map["ns.events_enriched"].items()
@@ -734,7 +756,9 @@ class TestTopologicalResolution:
         changed_map = dict(changed_sources)
         for name, query in self.LEVEL_1_NODES.items():
             result = validate_node_query(query, changed_map)
-            changed_map[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            changed_map[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         changed_enriched = [
             (name, typ) for name, typ in changed_map["ns.events_enriched"].items()
@@ -797,12 +821,16 @@ class TestTopologicalResolution:
         map1 = dict(self.SOURCES)
         for name, query in self.LEVEL_1_NODES.items():
             result = validate_node_query(query, map1)
-            map1[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            map1[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         map2 = dict(self.SOURCES)
         for name, query in self.LEVEL_1_NODES.items():
             result = validate_node_query(query, map2)
-            map2[name] = {col_name: col_type for col_name, col_type in result.output_columns}
+            map2[name] = {
+                col_name: col_type for col_name, col_type in result.output_columns
+            }
 
         # events_enriched has no UnknownType — signatures should be identical
         sig1 = list(map1["ns.events_enriched"].items())
@@ -812,4 +840,6 @@ class TestTopologicalResolution:
         # events_exploded has UnknownType (from LATERAL VIEW) — always "changed"
         sig1 = list(map1["ns.events_exploded"].items())
         sig2 = list(map2["ns.events_exploded"].items())
-        assert columns_signature_changed(sig1, sig2) is True  # Expected: UnknownType triggers this
+        assert (
+            columns_signature_changed(sig1, sig2) is True
+        )  # Expected: UnknownType triggers this

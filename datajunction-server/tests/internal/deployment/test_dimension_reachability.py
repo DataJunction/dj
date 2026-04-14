@@ -152,3 +152,60 @@ class TestDimensionReachabilityBuild:
         )
         assert r.is_reachable(10, "node.self")
         assert not r.is_reachable(10, "dim.other")
+
+
+class TestExtractDimensionRefsFromFilters:
+    """Tests for _extract_dimension_refs_from_filters."""
+
+    def test_single_filter(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(
+            ["ns.hard_hat.state = 'CA'"],
+        )
+        assert result == [("ns.hard_hat", "state")]
+
+    def test_multiple_filters(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(
+            ["ns.hard_hat.state = 'CA'", "ns.date_dim.year > 2020"],
+        )
+        assert sorted(result) == [("ns.date_dim", "year"), ("ns.hard_hat", "state")]
+
+    def test_empty_filters(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        assert _extract_dimension_refs_from_filters([]) == []
+
+    def test_unparseable_filter(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(["not valid sql !!!"])
+        assert result == []
+
+    def test_filter_with_no_namespace(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(["x > 5"])
+        assert result == []
+
+    def test_filter_with_multiple_refs_in_one_expression(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(
+            ["ns.dim_a.col1 > 5 AND ns.dim_b.col2 = 'x'"],
+        )
+        assert sorted(result) == [("ns.dim_a", "col1"), ("ns.dim_b", "col2")]
