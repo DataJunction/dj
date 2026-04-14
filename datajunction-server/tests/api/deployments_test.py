@@ -1919,7 +1919,7 @@ class TestDeployments:
         failed_result = next(
             r for r in data["results"] if r["status"] in ("failed", "invalid")
         )
-        assert "is not available on every metric" in failed_result["message"]
+        assert "is not reachable from parent node" in failed_result["message"]
 
     @pytest.mark.asyncio
     async def test_deploy_failed_with_bad_node_spec_links(
@@ -2767,7 +2767,7 @@ class TestDeployments:
         cube_result = next(r for r in node_results if "cube.user_analysis" in r["name"])
         assert cube_result["status"] in ("failed", "invalid")
         # The failure is about dimension reachability, not a missing namespace prefix
-        assert "is not available on every metric" in cube_result["message"]
+        assert "is not reachable from parent node" in cube_result["message"]
         assert not any(
             "external.dimension" in r.get("message", "")
             and "missing" in r.get("message", "")
