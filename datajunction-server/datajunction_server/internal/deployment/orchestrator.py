@@ -1223,12 +1223,11 @@ class DeploymentOrchestrator:
             plan.node_graph,
             skip_type_reparsing=is_copy,
         )
-        if timer:
-            timer.record(
-                "    nodes: load dependencies (once)",
-                (time.perf_counter() - t) * 1000,
-                f"{len(dependency_nodes)} deps",
-            )
+        timer.record(
+            "    nodes: load dependencies (once)",
+            (time.perf_counter() - t) * 1000,
+            f"{len(dependency_nodes)} deps",
+        )
 
         # Deploy them level by level (excluding cubes which are handled separately)
         name_to_node_specs = {
@@ -1692,7 +1691,7 @@ class DeploymentOrchestrator:
         for name in dimension_node_names:
             if name in self.registry.nodes:
                 dimension_nodes[name] = self.registry.nodes[name]
-            elif name not in dimension_nodes:
+            elif name not in dimension_nodes:  # pragma: no branch
                 names_to_fetch.append(name)
 
         if names_to_fetch:

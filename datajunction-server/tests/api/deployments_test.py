@@ -4410,3 +4410,72 @@ class TestDeploymentRevalidation:
         assert len(restored_rows) == 1, (
             "_create_node_revision should have written correct parent relationships"
         )
+
+
+@pytest.mark.asyncio
+async def test_validate_reference_dimension_link_bad_attribute():
+    """
+    validate_reference_dimension_link raises when the dimension attribute
+    does not exist on the dimension node's columns.
+    """
+    from datajunction_server.internal.deployment.orchestrator import (
+        validate_reference_dimension_link,
+    )
+    from datajunction_server.errors import DJInvalidInputException
+
+    # Build a reference link pointing to a non-existent column
+    link = DimensionReferenceLinkSpec(
+        node_column="state",
+        dimension="ns.dim_node.nonexistent_col",
+    )
+    link.namespace = "ns"
+
+    # Build a minimal dim node with columns that do NOT include 'nonexistent_col'
+    dim_rev = MagicMock()
+    dim_rev.columns = [
+        MagicMock(name="id"),
+        MagicMock(name="state_short"),
+    ]
+    # MagicMock(name=...) sets the mock's internal name, not .name attribute
+    dim_rev.columns[0].name = "id"
+    dim_rev.columns[1].name = "state_short"
+
+    dim_node = MagicMock()
+    dim_node.current = dim_rev
+
+    node = MagicMock()
+    node.name = "ns.some_node"
+
+    with pytest.raises(DJInvalidInputException, match="nonexistent_col"):
+        await validate_reference_dimension_link(link, node, dim_node)
+
+
+@pytest.mark.asyncio
+async def test_validate_reference_dimension_link_good_attribute():
+    """
+    validate_reference_dimension_link does NOT raise when the dimension
+    attribute exists on the dimension node's columns.
+    """
+    from datajunction_server.internal.deployment.orchestrator import (
+        validate_reference_dimension_link,
+    )
+
+    link = DimensionReferenceLinkSpec(
+        node_column="state",
+        dimension="ns.dim_node.state_short",
+    )
+    link.namespace = "ns"
+
+    dim_rev = MagicMock()
+    dim_rev.columns = [MagicMock(), MagicMock()]
+    dim_rev.columns[0].name = "id"
+    dim_rev.columns[1].name = "state_short"
+
+    dim_node = MagicMock()
+    dim_node.current = dim_rev
+
+    node = MagicMock()
+    node.name = "ns.some_node"
+
+    # Should not raise
+    await validate_reference_dimension_link(link, node, dim_node)

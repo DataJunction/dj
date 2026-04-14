@@ -1692,3 +1692,99 @@ class TestDimLinkValidationExtended:
         assert validator._dim_link_nodes["test.existing_dim"] is dim_node
         # Column names should be pre-computed for the dim link target
         assert "id" in validator._dim_link_col_names.get("test.existing_dim", set())
+
+
+class TestToColumnSpecsPreservesMetadata:
+    """Test _to_column_specs preserving display_name/description when type is None."""
+
+    @pytest.mark.asyncio
+    async def test_inferred_type_used_when_spec_type_is_none(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """
+        When a spec column has display_name and description but type=None,
+        _to_column_specs should use the inferred type while preserving metadata.
+        """
+        # Create a transform spec with columns that have metadata but no explicit type
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    type=None,
+                    display_name="User ID",
+                    description="The primary identifier",
+                ),
+                ColumnSpec(
+                    name="name",
+                    type=None,
+                    display_name="User Name",
+                    description="The user's full name",
+                ),
+            ],
+        )
+
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        # Inferred output columns from SQL parsing (simulating what type inference returns)
+        output_columns = [
+            ("id", IntegerType()),
+            ("name", StringType()),
+        ]
+        result = validator._to_column_specs(output_columns, spec)
+
+        # The inferred type should be used
+        assert result[0].type == str(IntegerType())
+        assert result[1].type == str(StringType())
+
+        # Metadata should be preserved
+        assert result[0].display_name == "User ID"
+        assert result[0].description == "The primary identifier"
+        assert result[1].display_name == "User Name"
+        assert result[1].description == "The user's full name"
+
+    @pytest.mark.asyncio
+    async def test_explicit_type_takes_precedence(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """When a spec column has an explicit type, it takes precedence over inferred."""
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    type="bigint",
+                    display_name="User ID",
+                    description="The primary identifier",
+                ),
+            ],
+        )
+
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        output_columns = [("id", IntegerType())]
+        result = validator._to_column_specs(output_columns, spec)
+
+        # Explicit type should win
+        assert result[0].type == "bigint"
+        assert result[0].display_name == "User ID"

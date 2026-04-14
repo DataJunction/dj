@@ -2,6 +2,8 @@
 Unit tests for datajunction_server.internal.impact.propagate_impact
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from datajunction_server.database.column import Column as DBColumn
@@ -1127,3 +1129,60 @@ def test_merge_impacts_lower_severity_kept():
     assert len(merged) == 1
     assert merged[0].impact_type == ImpactType.WILL_INVALIDATE
     assert merged[0].impact_reason == "parent graph"
+
+
+@pytest.mark.asyncio
+async def test_propagate_impact_unparseable_query_falls_back_gracefully(
+    session,
+    current_user: User,
+):
+    """When a downstream node has a query that fails threadpool parsing,
+    the exception is caught (lines 381-382) and converted to None (line 404),
+    so the node falls back to inline parse in _revalidate_single_node.
+
+    We mock parse_query to raise for the child node to simulate an unparseable query.
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    # Child has a valid-looking query, but we'll make parse_query raise for it
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT user_id, amount FROM ns.source",
+        columns=[("user_id", IntegerType()), ("amount", DoubleType())],
+    )
+    await _persist(session, source, source_rev, child, child_rev)
+    await _persist(session, _link(source, child_rev))
+
+    original_parse_query = None
+
+    def _failing_parse_query(query_str):
+        """Simulate a parse failure for any query."""
+        raise RuntimeError("Simulated ANTLR parse failure")
+
+    with patch(
+        "datajunction_server.internal.impact.parse_query",
+        side_effect=_failing_parse_query,
+    ):
+        result = await propagate_impact(session, "ns", {"ns.source"})
+
+    # The child should still appear in results — the exception in threadpool parse
+    # is caught and the node falls back to inline parse (which also uses parse,
+    # but _revalidate_single_node catches inline parse failures too).
+    # The node should be handled gracefully, not crash.
+    assert len(result) >= 1
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    # The node should either be MAY_AFFECT (if inline parse succeeds)
+    # or WILL_INVALIDATE (if inline parse also fails)
+    assert impact.impact_type in (ImpactType.MAY_AFFECT, ImpactType.WILL_INVALIDATE)
