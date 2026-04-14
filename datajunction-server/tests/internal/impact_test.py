@@ -1163,8 +1163,6 @@ async def test_propagate_impact_unparseable_query_falls_back_gracefully(
     await _persist(session, source, source_rev, child, child_rev)
     await _persist(session, _link(source, child_rev))
 
-    original_parse_query = None
-
     def _failing_parse_query(query_str):
         """Simulate a parse failure for any query."""
         raise RuntimeError("Simulated ANTLR parse failure")
