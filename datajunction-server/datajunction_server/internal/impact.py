@@ -81,24 +81,15 @@ async def propagate_impact(
     if not all_root_names and not changed_link_node_names:
         return []
 
-    t0 = time.perf_counter()
     ctx = await _build_propagation_context(
         session,
         namespace,
         changed_node_names,
         deleted_node_names,
     )
-    t1 = time.perf_counter()
-    logger.info("propagate_impact: context built in %.1fms", (t1 - t0) * 1000)
 
     # Phase 1: discover affected nodes via SQL parent graph
     parent_graph_impacts = await _propagate_via_parent_graph(session, ctx)
-    t2 = time.perf_counter()
-    logger.info(
-        "propagate_impact: Phase 1 (parent graph BFS) found %d nodes in %.1fms",
-        len(parent_graph_impacts),
-        (t2 - t1) * 1000,
-    )
 
     # Phase 2: discover affected nodes via dimension link graph
     link_impacts = await _propagate_via_dimension_links(
@@ -106,24 +97,12 @@ async def propagate_impact(
         ctx,
         changed_link_node_names or set(),
     )
-    t3 = time.perf_counter()
-    logger.info(
-        "propagate_impact: Phase 2 (dimension links) found %d nodes in %.1fms",
-        len(link_impacts),
-        (t3 - t2) * 1000,
-    )
 
     # Merge discoveries
     all_impacts = _merge_impacts(parent_graph_impacts, link_impacts)
 
     # Phase 3: revalidate all downstream nodes and apply status changes
     results = await _revalidate_and_apply(session, ctx, all_impacts)
-    t4 = time.perf_counter()
-    logger.info(
-        "propagate_impact: Phase 3 (revalidation) processed %d nodes in %.1fms",
-        len(results),
-        (t4 - t3) * 1000,
-    )
 
     _emit_metrics(start, results)
     return results
@@ -386,7 +365,6 @@ async def _revalidate_and_apply(
     # - DB load is async IO (awaitable)
     # - ANTLR parsing is CPU-bound (threadpool)
     all_names = [impact.name for impact in impacts]
-    t_load_start = time.perf_counter()
 
     async def _parse_all_queries() -> dict[str, ast.Query | Exception]:
         """Parse all queries in a threadpool."""
@@ -404,17 +382,10 @@ async def _revalidate_and_apply(
                     parsed[name] = exc
         return parsed
 
+    # Run DB load and ANTLR parsing concurrently
     loaded_nodes, pre_parsed = await asyncio.gather(
         _batch_load_nodes_for_revalidation(session, all_names),
         _parse_all_queries(),
-    )
-
-    t_load_end = time.perf_counter()
-    logger.info(
-        "  Phase 3: batch loaded %d nodes + pre-parsed %d queries in %.1fms",
-        len(loaded_nodes),
-        len(pre_parsed),
-        (t_load_end - t_load_start) * 1000,
     )
 
     # Seed with deleted and invalid root nodes — their children should
@@ -425,11 +396,8 @@ async def _revalidate_and_apply(
         if n.current and n.current.status == NodeStatus.INVALID
     }
 
-    t_reval_start = time.perf_counter()
-    slowest_nodes: list[tuple[str, float]] = []
     for depth in sorted(by_depth.keys()):
         for impact in by_depth[depth]:
-            t_node = time.perf_counter()
             # Use pre-parsed AST if available (parsed in threadpool)
             parsed_ast = pre_parsed.get(impact.name)
             if isinstance(parsed_ast, Exception):
@@ -442,23 +410,9 @@ async def _revalidate_and_apply(
                 failed_names,
                 pre_parsed_query=parsed_ast,
             )
-            node_ms = (time.perf_counter() - t_node) * 1000
-            if node_ms > 10:  # Only track nodes taking >10ms
-                slowest_nodes.append((impact.name, node_ms))
             if revalidated.impact_type == ImpactType.WILL_INVALIDATE:
                 failed_names.add(impact.name)
             results.append(revalidated)
-
-    t_reval_end = time.perf_counter()
-    logger.info(
-        "  Phase 3: revalidated %d nodes in %.1fms",
-        len(results),
-        (t_reval_end - t_reval_start) * 1000,
-    )
-    if slowest_nodes:
-        slowest_nodes.sort(key=lambda x: x[1], reverse=True)
-        for name, ms in slowest_nodes[:5]:
-            logger.info("  Phase 3: slow node %s took %.1fms", name, ms)
 
     return results
 
