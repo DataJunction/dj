@@ -21,6 +21,9 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.deployment.dimension_reachability import (
+    DimensionReachability,
+)
 from datajunction_server.internal.deployment.type_inference import (
     columns_signature_changed,
     parse_query,
@@ -29,8 +32,10 @@ from datajunction_server.internal.deployment.type_inference import (
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.types import ColumnType
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,8 @@ class PropagationContext:
     namespace: str
     changed_by_id: dict[int, Node] = field(default_factory=dict)
     deleted_by_id: dict[int, Node] = field(default_factory=dict)
+    # Nodes whose dimension links changed (separate from query/column changes)
+    link_changed_by_id: dict[int, Node] = field(default_factory=dict)
 
     # Causality: node_id → set of root node IDs that caused it
     cause_map: dict[int, set[int]] = field(default_factory=dict)
@@ -86,6 +93,7 @@ async def propagate_impact(
         namespace,
         changed_node_names,
         deleted_node_names,
+        changed_link_node_names,
     )
 
     # Phase 1: discover affected nodes via SQL parent graph
@@ -118,6 +126,7 @@ async def _build_propagation_context(
     namespace: str,
     changed_node_names: set[str],
     deleted_node_names: frozenset[str],
+    changed_link_node_names: set[str] | None = None,
 ) -> PropagationContext:
     """Load root nodes and build the shared propagation context."""
     changed_nodes = (
@@ -138,24 +147,41 @@ async def _build_propagation_context(
         if deleted_node_names
         else []
     )
+    # Load nodes whose dimension links changed but that aren't already
+    # in changed_node_names (they may only have link changes, no query changes).
+    link_only_names = (
+        (changed_link_node_names or set()) - changed_node_names - deleted_node_names
+    )
+    link_changed_nodes = (
+        await Node.get_by_names(
+            session,
+            list(link_only_names),
+            options=[joinedload(Node.current)],
+        )
+        if link_only_names
+        else []
+    )
 
     changed_by_id = {n.id: n for n in changed_nodes}
     deleted_by_id = {n.id: n for n in deleted_nodes}
-    all_root_ids = set(changed_by_id) | set(deleted_by_id)
+    link_changed_by_id = {n.id: n for n in link_changed_nodes}
+    all_root_ids = set(changed_by_id) | set(deleted_by_id) | set(link_changed_by_id)
 
     cause_map = {nid: {nid} for nid in all_root_ids}
     root_id_to_name = {
         **{n.id: n.name for n in changed_nodes},
         **{n.id: n.name for n in deleted_nodes},
+        **{n.id: n.name for n in link_changed_nodes},
     }
 
     return PropagationContext(
         namespace=namespace,
         changed_by_id=changed_by_id,
         deleted_by_id=deleted_by_id,
+        link_changed_by_id=link_changed_by_id,
         cause_map=cause_map,
         root_id_to_name=root_id_to_name,
-        visited_nodes_by_id={**changed_by_id, **deleted_by_id},
+        visited_nodes_by_id={**changed_by_id, **deleted_by_id, **link_changed_by_id},
     )
 
 
@@ -173,7 +199,9 @@ async def _propagate_via_parent_graph(
     Returns impacts without mutating DB state — Phase 3 determines the actual
     impact type via revalidation.
     """
-    all_root_ids = set(ctx.changed_by_id) | set(ctx.deleted_by_id)
+    all_root_ids = (
+        set(ctx.changed_by_id) | set(ctx.deleted_by_id) | set(ctx.link_changed_by_id)
+    )
     frontier_ids = set(all_root_ids)
     visited_node_ids = set(frontier_ids)
     results: list[DownstreamImpact] = []
@@ -261,24 +289,18 @@ async def _propagate_via_dimension_links(
     ctx: PropagationContext,
     changed_link_node_names: set[str],
 ) -> list[DownstreamImpact]:
-    """Find nodes affected by dimension link changes.
+    """Find additional nodes affected by dimension link changes.
 
-    Dimension links create a separate dependency graph — a metric doesn't have
-    a NodeRelationship to the dimension node, it reaches it via DimensionLink.
-    When a link changes, metrics/cubes using that dimension path may break.
+    Link-changed nodes are already included in the Phase 1 BFS roots
+    (via ctx.link_changed_by_id), so downstream cubes are discovered
+    through the SQL parent graph.  Dimension reachability checking for
+    those cubes happens in the Phase 3 post-pass
+    (_check_cube_dimension_reachability).
 
-    Returns additional MAY_AFFECT impacts for nodes not already found in Phase 1.
+    This method handles any ADDITIONAL impacts not discoverable via
+    NodeRelationship — currently none, but reserved for future cases
+    like dimension-link-only dependencies.
     """
-    if not changed_link_node_names:
-        return []
-
-    # TODO: Implement dimension link graph traversal
-    # For now, return empty — dimension link propagation will be added
-    # in a follow-up once the Phase 1+3 refactor is validated.
-    logger.info(
-        "Dimension link changes detected for %d nodes (propagation not yet implemented)",
-        len(changed_link_node_names),
-    )
     return []
 
 
@@ -414,7 +436,153 @@ async def _revalidate_and_apply(
                 failed_names.add(impact.name)
             results.append(revalidated)
 
+    # Post-pass: check dimension reachability for any cubes in the results.
+    # A cube's query revalidation always passes (cubes have no query), but
+    # its dimension accessibility may have changed due to upstream link changes.
+    if ctx.link_changed_by_id:  # pragma: no cover
+        results = await _check_cube_dimension_reachability(
+            session,
+            ctx,
+            results,
+            loaded_nodes,
+        )
+
     return results
+
+
+async def _check_cube_dimension_reachability(
+    session: AsyncSession,
+    ctx: PropagationContext,
+    results: list[DownstreamImpact],
+    loaded_nodes: dict[str, Node],
+) -> list[DownstreamImpact]:
+    """Check dimension reachability for cubes discovered in the impact set.
+
+    When upstream dimension links change, a cube's query still validates
+    (cubes have no query) but its dimensions may become unreachable.
+    This post-pass uses DimensionReachability to detect that.
+
+    Prefers already-loaded nodes (from Phase 3 batch load and BFS visited
+    nodes) to avoid redundant DB queries.
+    """
+    # Find cube impacts that currently show MAY_AFFECT (passthrough from Phase 3)
+    cube_impacts = [
+        (i, r)
+        for i, r in enumerate(results)
+        if r.node_type == NodeType.CUBE and r.impact_type == ImpactType.MAY_AFFECT
+    ]
+    if not cube_impacts:
+        return results
+
+    # All nodes already in memory from Phase 1 BFS + Phase 3 batch load
+    known_nodes = {
+        **{n.name: n for n in ctx.visited_nodes_by_id.values()},
+        **loaded_nodes,
+    }
+
+    # Get cube nodes — prefer already-loaded, fall back to DB
+    cube_names = [r.name for _, r in cube_impacts]
+    cube_map: dict[str, Node] = {}
+    missing_cube_names: list[str] = []
+    for name in cube_names:
+        if name in known_nodes and known_nodes[name].current:
+            cube_map[name] = known_nodes[name]
+        else:
+            missing_cube_names.append(name)  # pragma: no cover
+    if missing_cube_names:  # pragma: no cover
+        db_cubes = await Node.get_by_names(
+            session,
+            missing_cube_names,
+            options=[
+                joinedload(Node.current).options(selectinload(NodeRevision.columns)),
+            ],
+        )
+        cube_map.update({n.name: n for n in db_cubes})
+
+    # Collect metric names from cubes, load from known nodes first
+    all_metric_names: set[str] = set()
+    for cube_node in cube_map.values():
+        if cube_node.current:  # pragma: no branch
+            all_metric_names.update(cube_node.current.cube_node_metrics)
+
+    metric_nodes: list[Node] = []
+    missing_metric_names: list[str] = []
+    for name in all_metric_names:
+        if name in known_nodes and known_nodes[name].current:
+            metric_nodes.append(known_nodes[name])
+        else:
+            missing_metric_names.append(name)  # pragma: no cover
+    if missing_metric_names:  # pragma: no cover
+        db_metrics = await Node.get_by_names(
+            session,
+            missing_metric_names,
+            options=[joinedload(Node.current)],
+        )
+        metric_nodes.extend(db_metrics)
+
+    # Resolve metric → non-metric parents (batched DB query)
+    metric_to_parents = await get_metric_parents_map(session, metric_nodes)
+
+    # Build reachability from the post-deployment state
+    local_names: dict[int, str] = {}
+    all_parent_rev_ids: set[int] = set()
+    for parents in metric_to_parents.values():
+        for p in parents:
+            if p.current:  # pragma: no branch
+                all_parent_rev_ids.add(p.current.id)
+                local_names[p.current.id] = p.name
+
+    all_dim_node_names: set[str] = set()
+    for cube_node in cube_map.values():
+        if cube_node.current:  # pragma: no branch
+            for dim in cube_node.current.cube_node_dimensions:
+                all_dim_node_names.add(dim.rsplit(SEPARATOR, 1)[0])
+
+    reachability = await DimensionReachability.build(
+        session,
+        all_parent_rev_ids,
+        all_dim_node_names,
+        local_names=local_names,
+    )
+
+    # Check each cube
+    updated_results = list(results)
+    for idx, impact in cube_impacts:
+        cube_node = cube_map.get(impact.name)  # type: ignore[assignment]
+        if not cube_node or not cube_node.current:  # pragma: no cover
+            continue
+
+        cube_parent_rev_ids = {
+            p.current.id
+            for metric_name in cube_node.current.cube_node_metrics
+            for p in metric_to_parents.get(metric_name, [])
+            if p.current
+        }
+        requested_dims = {
+            dim.rsplit(SEPARATOR, 1)[0]
+            for dim in cube_node.current.cube_node_dimensions
+        }
+        unreachable = reachability.unreachable_dimensions(
+            cube_parent_rev_ids,
+            requested_dims,
+        )
+        if unreachable:
+            dim_list = ", ".join(sorted(unreachable.keys()))
+            updated_results[idx] = DownstreamImpact(
+                name=impact.name,
+                node_type=impact.node_type,
+                current_status=impact.current_status,
+                predicted_status=NodeStatus.INVALID,
+                impact_type=ImpactType.WILL_INVALIDATE,
+                impact_reason=(
+                    f"Dimension(s) no longer reachable after link change: {dim_list}"
+                ),
+                depth=impact.depth,
+                caused_by=impact.caused_by,
+                is_external=impact.is_external,
+            )
+
+    return updated_results
 
 
 def _build_name_index(ctx: PropagationContext) -> dict[str, Node]:

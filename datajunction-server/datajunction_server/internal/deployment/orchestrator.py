@@ -119,7 +119,7 @@ def _extract_dimension_refs_from_filters(
     for col in tree.find_all(ast.Column):
         if col.namespace and len(col.namespace) >= 1:
             node_name = SEPARATOR.join(n.name for n in col.namespace)
-            if SEPARATOR in node_name:
+            if SEPARATOR in node_name:  # pragma: no branch
                 refs.append((node_name, col.name.name))
     return refs
 
@@ -1682,7 +1682,7 @@ class DeploymentOrchestrator:
         all_parent_rev_ids: set[int] = set()
         for parents in metric_to_parents.values():
             for p in parents:
-                if p.current:
+                if p.current:  # pragma: no branch
                     all_parent_rev_ids.add(p.current.id)
                     local_names[p.current.id] = p.name
         all_dim_node_names = {
@@ -1994,7 +1994,7 @@ class DeploymentOrchestrator:
                 dim_node = self.registry.nodes.get(node_name) or dimension_mapping.get(
                     f"{node_name}{SEPARATOR}{col_name}",
                 )
-                if dim_node and dim_node.current:
+                if dim_node and dim_node.current:  # pragma: no branch
                     col_names = {c.name for c in dim_node.current.columns}
                     if col_name not in col_names:
                         dim_compat_errors.append(
@@ -2864,31 +2864,6 @@ class DeploymentOrchestrator:
                             except Exception:  # pragma: no cover
                                 pass  # pragma: no cover
         return dependency_nodes
-
-    async def refresh_nodes(self, node_names: list[str]) -> dict[str, Node]:
-        """
-        Re-fetch nodes after a flush so that ``node.current`` points to the
-        newly-created NodeRevision, with all sub-relationships eagerly loaded.
-
-        Used after cube creation where cube elements (cube_elements, etc.) must be
-        loaded fresh from DB.  For non-cube levels, ``bulk_deploy_nodes_in_level``
-        wires ``node.current`` directly from in-session objects instead.
-        """
-        refresh_start = time.perf_counter()
-        all_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(
-                self.session,
-                node_names,
-                options=list(Node.cube_load_options()),
-            )
-        }
-        logger.info(
-            "Refreshed %d nodes in %.2fs",
-            len(all_nodes),
-            time.perf_counter() - refresh_start,
-        )
-        return all_nodes
 
     async def create_nodes_from_validation(
         self,

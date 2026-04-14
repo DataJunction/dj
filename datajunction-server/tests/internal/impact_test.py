@@ -1184,3 +1184,212 @@ async def test_propagate_impact_unparseable_query_falls_back_gracefully(
     # The node should either be MAY_AFFECT (if inline parse succeeds)
     # or WILL_INVALIDATE (if inline parse also fails)
     assert impact.impact_type in (ImpactType.MAY_AFFECT, ImpactType.WILL_INVALIDATE)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 post-pass: cube dimension reachability
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_cube_dimension_reachability_no_cubes(session):
+    """No cube impacts → returns results unchanged."""
+    from datajunction_server.internal.impact import (
+        PropagationContext,
+        _check_cube_dimension_reachability,
+    )
+
+    ctx = PropagationContext(namespace="ns", link_changed_by_id={1: None})
+    results = [
+        DownstreamImpact(
+            name="ns.transform",
+            node_type=NodeType.TRANSFORM,
+            current_status=NodeStatus.VALID,
+            predicted_status=NodeStatus.VALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="test",
+            depth=1,
+            caused_by=["ns.source"],
+            is_external=False,
+        ),
+    ]
+    out = await _check_cube_dimension_reachability(session, ctx, results, {})
+    assert out == results
+
+
+@pytest.mark.asyncio
+async def test_check_cube_dimension_reachability_cube_unreachable(
+    session,
+    current_user: User,
+):
+    """A cube whose dimension becomes unreachable after a link change
+    should be upgraded from MAY_AFFECT to WILL_INVALIDATE."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from datajunction_server.internal.impact import (
+        PropagationContext,
+        _check_cube_dimension_reachability,
+    )
+
+    # Build a mock cube node with dimensions and metrics
+    cube_node = MagicMock()
+    cube_node.name = "ns.my_cube"
+    cube_node.current.status = NodeStatus.VALID
+    cube_node.current.cube_node_metrics = ["ns.my_metric"]
+    cube_node.current.cube_node_dimensions = ["ns.some_dim.col"]
+
+    # Build a mock metric node
+    metric_node = MagicMock()
+    metric_node.name = "ns.my_metric"
+    metric_node.current.id = 100
+    metric_node.current_version = "v1.0"
+
+    # The link-changed node
+    link_node = MagicMock()
+    link_node.id = 999
+
+    ctx = PropagationContext(
+        namespace="ns",
+        link_changed_by_id={999: link_node},
+        visited_nodes_by_id={},
+    )
+
+    # Cube impact from Phase 1 — currently MAY_AFFECT
+    results = [
+        DownstreamImpact(
+            name="ns.my_cube",
+            node_type=NodeType.CUBE,
+            current_status=NodeStatus.VALID,
+            predicted_status=NodeStatus.VALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="test",
+            depth=2,
+            caused_by=["ns.source"],
+            is_external=False,
+        ),
+    ]
+
+    loaded_nodes = {"ns.my_cube": cube_node, "ns.my_metric": metric_node}
+
+    # Mock get_metric_parents_map to return a parent with no dim path
+    parent_node = MagicMock()
+    parent_node.name = "ns.parent"
+    parent_node.current.id = 200
+
+    with (
+        patch(
+            "datajunction_server.internal.impact.get_metric_parents_map",
+            new_callable=AsyncMock,
+            return_value={"ns.my_metric": [parent_node]},
+        ),
+        patch(
+            "datajunction_server.internal.impact.DimensionReachability.build",
+            new_callable=AsyncMock,
+        ) as mock_build,
+    ):
+        from datajunction_server.internal.deployment.dimension_reachability import (
+            DimensionReachability,
+        )
+
+        # Empty reachability — ns.some_dim is NOT reachable from parent 200
+        mock_build.return_value = DimensionReachability(
+            {},
+            local_names={200: "ns.parent"},
+        )
+
+        out = await _check_cube_dimension_reachability(
+            session,
+            ctx,
+            results,
+            loaded_nodes,
+        )
+
+    assert len(out) == 1
+    assert out[0].impact_type == ImpactType.WILL_INVALIDATE
+    assert "ns.some_dim" in out[0].impact_reason
+    assert "no longer reachable" in out[0].impact_reason
+
+
+@pytest.mark.asyncio
+async def test_check_cube_dimension_reachability_cube_still_reachable(
+    session,
+    current_user: User,
+):
+    """A cube whose dimensions are still reachable stays MAY_AFFECT."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from datajunction_server.internal.impact import (
+        PropagationContext,
+        _check_cube_dimension_reachability,
+    )
+
+    cube_node = MagicMock()
+    cube_node.name = "ns.my_cube"
+    cube_node.current.status = NodeStatus.VALID
+    cube_node.current.cube_node_metrics = ["ns.my_metric"]
+    cube_node.current.cube_node_dimensions = ["ns.some_dim.col"]
+
+    metric_node = MagicMock()
+    metric_node.name = "ns.my_metric"
+    metric_node.current.id = 100
+    metric_node.current_version = "v1.0"
+
+    link_node = MagicMock()
+    link_node.id = 999
+
+    ctx = PropagationContext(
+        namespace="ns",
+        link_changed_by_id={999: link_node},
+        visited_nodes_by_id={},
+    )
+
+    results = [
+        DownstreamImpact(
+            name="ns.my_cube",
+            node_type=NodeType.CUBE,
+            current_status=NodeStatus.VALID,
+            predicted_status=NodeStatus.VALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="test",
+            depth=2,
+            caused_by=["ns.source"],
+            is_external=False,
+        ),
+    ]
+
+    loaded_nodes = {"ns.my_cube": cube_node, "ns.my_metric": metric_node}
+
+    parent_node = MagicMock()
+    parent_node.name = "ns.parent"
+    parent_node.current.id = 200
+
+    with (
+        patch(
+            "datajunction_server.internal.impact.get_metric_parents_map",
+            new_callable=AsyncMock,
+            return_value={"ns.my_metric": [parent_node]},
+        ),
+        patch(
+            "datajunction_server.internal.impact.DimensionReachability.build",
+            new_callable=AsyncMock,
+        ) as mock_build,
+    ):
+        from datajunction_server.internal.deployment.dimension_reachability import (
+            DimensionReachability,
+        )
+
+        # Dimension IS reachable
+        mock_build.return_value = DimensionReachability(
+            {(200, "ns.some_dim", ""): [1]},
+            local_names={200: "ns.parent"},
+        )
+
+        out = await _check_cube_dimension_reachability(
+            session,
+            ctx,
+            results,
+            loaded_nodes,
+        )
+
+    assert len(out) == 1
+    assert out[0].impact_type == ImpactType.MAY_AFFECT  # unchanged
