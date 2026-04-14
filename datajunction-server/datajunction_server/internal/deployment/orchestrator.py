@@ -1567,16 +1567,11 @@ class DeploymentOrchestrator:
             self.session.add_all(revisions)
             await self.session.flush()
 
-        with timer.phase("    cubes: refresh"):
-            if all(spec._skip_validation for spec in cubes_to_deploy):
-                for node_obj, revision in zip(nodes, revisions):
-                    node_obj.current = revision
-                all_nodes = {node_obj.name: node_obj for node_obj in nodes}
-            else:
-                all_nodes = await self.refresh_nodes(
-                    [cube.rendered_name for cube in cubes_to_deploy],
-                )
-        self.registry.add_nodes(all_nodes)
+        # Wire node.current directly — no refresh needed since nothing
+        # downstream accesses cube_elements from the registry.
+        for node_obj, revision in zip(nodes, revisions):
+            node_obj.current = revision
+        self.registry.add_nodes({n.name: n for n in nodes})
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
@@ -1900,8 +1895,7 @@ class DeploymentOrchestrator:
                 if p.current
             }
             requested_dim_nodes = {
-                dim.rsplit(SEPARATOR, 1)[0]
-                for dim in cube_spec.rendered_dimensions
+                dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
             }
             unreachable = reachability.unreachable_dimensions(
                 cube_parent_rev_ids,
