@@ -1866,12 +1866,18 @@ async def test_validate_single_cube_with_invalid_metric(
         dimensions=[],
     )
 
-    result = await orchestrator._validate_single_cube(
+    from datajunction_server.internal.deployment.dimension_reachability import (
+        DimensionReachability,
+    )
+
+    result = orchestrator._validate_single_cube(
         cube_spec=cube_spec,
         metric_nodes_map={"broken_metric": invalid_metric},
         missing_metrics=set(),
         missing_dimensions=set(),
         dimension_mapping={},
+        reachability=DimensionReachability({}),
+        metric_to_parents={},
     )
 
     assert result.status == NodeStatus.INVALID

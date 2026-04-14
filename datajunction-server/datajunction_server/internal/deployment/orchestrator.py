@@ -42,13 +42,16 @@ from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
 )
 from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.deployment.dimension_reachability import (
+    DimensionReachability,
+)
 from datajunction_server.internal.deployment.validation import (
     NodeValidationResult,
     CubeValidationData,
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
-from datajunction_server.construction.build import validate_shared_dimensions
+from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.internal.nodes import (
     hard_delete_node,
 )
@@ -89,6 +92,36 @@ from datajunction_server.utils import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_dimension_refs_from_filters(
+    filters: list[str],
+) -> list[tuple[str, str]]:
+    """Extract (node_name, column_name) pairs from filter expressions.
+
+    Parses all filters as a single WHERE clause (joined with AND) and
+    collects namespaced column references.  For example,
+    ``ns.hard_hat.state = 'CA'`` yields ``('ns.hard_hat', 'state')``.
+
+    Returns a list of (node_name, column_name) tuples.  Dimension node
+    names are identified by having at least one SEPARATOR in the namespace.
+    """
+    from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+
+    if not filters:
+        return []
+    combined = " AND ".join(f"({f})" for f in filters)
+    try:
+        tree = parse(f"SELECT 1 WHERE {combined}")
+    except Exception:
+        return []  # Unparseable — skip, will be caught at query time
+    refs: list[tuple[str, str]] = []
+    for col in tree.find_all(ast.Column):
+        if col.namespace and len(col.namespace) >= 1:
+            node_name = SEPARATOR.join(n.name for n in col.namespace)
+            if SEPARATOR in node_name:  # pragma: no branch
+                refs.append((node_name, col.name.name))
+    return refs
 
 
 def _diff_column_metadata(
@@ -1564,16 +1597,11 @@ class DeploymentOrchestrator:
             self.session.add_all(revisions)
             await self.session.flush()
 
-        with timer.phase("    cubes: refresh"):
-            if all(spec._skip_validation for spec in cubes_to_deploy):
-                for node_obj, revision in zip(nodes, revisions):
-                    node_obj.current = revision
-                all_nodes = {node_obj.name: node_obj for node_obj in nodes}
-            else:
-                all_nodes = await self.refresh_nodes(
-                    [cube.rendered_name for cube in cubes_to_deploy],
-                )
-        self.registry.add_nodes(all_nodes)
+        # Wire node.current directly — no refresh needed since nothing
+        # downstream accesses cube_elements from the registry.
+        for node_obj, revision in zip(nodes, revisions):
+            node_obj.current = revision
+        self.registry.add_nodes({n.name: n for n in nodes})
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
@@ -1595,7 +1623,7 @@ class DeploymentOrchestrator:
         self,
         cube_specs: list[CubeSpec],
     ) -> list[NodeValidationResult]:
-        """Bulk validate cube specifications efficiently with batched DB queries"""
+        """Bulk validate cube specifications with batched dimension reachability."""
         if not cube_specs:
             return []  # pragma: no cover
 
@@ -1604,7 +1632,7 @@ class DeploymentOrchestrator:
             cube_specs,
         )
 
-        # Batch load all metrics and dimensions
+        # Batch load (registry-first, DB fallback)
         metric_nodes_map, missing_metrics = await self._batch_load_metrics(
             all_metric_names,
         )
@@ -1612,17 +1640,83 @@ class DeploymentOrchestrator:
             all_dimension_names,
         )
 
-        # Validate each cube
-        # TODO: batch validate_shared_dimensions across all cubes to avoid
-        # redundant get_dimensions DB calls for shared parent nodes (~1.4s for 22 cubes)
+        # Resolve metric → non-metric parent mapping (batched).
+        # Replace DB-returned nodes with registry versions where available
+        # (registry nodes have .current eagerly loaded; DB nodes may not).
+        all_metric_nodes = list(metric_nodes_map.values())
+        raw_metric_to_parents = await get_metric_parents_map(
+            self.session,
+            all_metric_nodes,
+        )
+        metric_to_parents: dict[str, list[Node]] = {}
+        parents_needing_current: list[str] = []
+        for metric_name, parents in raw_metric_to_parents.items():
+            resolved = []
+            for p in parents:
+                registry_node = self.registry.nodes.get(p.name)
+                if registry_node:
+                    resolved.append(registry_node)
+                else:
+                    parents_needing_current.append(p.name)
+                    resolved.append(p)
+            metric_to_parents[metric_name] = resolved
+
+        # Batch-load .current for any parents not in the registry
+        if parents_needing_current:
+            loaded = await Node.get_by_names(
+                self.session,
+                parents_needing_current,
+                options=[joinedload(Node.current)],
+            )
+            loaded_map = {n.name: n for n in loaded}
+            for metric_name, parents in metric_to_parents.items():
+                metric_to_parents[metric_name] = [
+                    loaded_map.get(p.name, p) if p.name in loaded_map else p
+                    for p in parents
+                ]
+
+        # One batched BFS for dimension reachability across ALL cubes.
+        # local_names maps rev_id → node_name so each parent is always
+        # reachable from itself (local dimensions like hard_hat.state).
+        local_names: dict[int, str] = {}
+        all_parent_rev_ids: set[int] = set()
+        for parents in metric_to_parents.values():
+            for p in parents:
+                if p.current:  # pragma: no branch
+                    all_parent_rev_ids.add(p.current.id)
+                    local_names[p.current.id] = p.name
+        all_dim_node_names = {
+            dim.rsplit(SEPARATOR, 1)[0]
+            for cube in cube_specs
+            for dim in (cube.rendered_dimensions or [])
+        }
+        # Also include dimension nodes referenced in filters
+        for cube in cube_specs:
+            if cube.rendered_filters:
+                all_dim_node_names |= {
+                    node_name
+                    for node_name, _ in _extract_dimension_refs_from_filters(
+                        cube.rendered_filters,
+                    )
+                }
+        reachability = await DimensionReachability.build(
+            self.session,
+            all_parent_rev_ids,
+            all_dim_node_names,
+            local_names=local_names,
+        )
+
+        # Per-cube validation — dimension checks are now pure in-memory
         validation_results = []
         for cube_spec in cube_specs:
-            validation_result = await self._validate_single_cube(
+            validation_result = self._validate_single_cube(
                 cube_spec,
                 metric_nodes_map,
                 missing_metrics,
                 missing_dimensions,
                 dimension_mapping,
+                reachability,
+                metric_to_parents,
             )
             validation_results.append(validation_result)
         return validation_results
@@ -1770,13 +1864,15 @@ class DeploymentOrchestrator:
             )
         return errors
 
-    async def _validate_single_cube(
+    def _validate_single_cube(
         self,
         cube_spec: CubeSpec,
         metric_nodes_map: dict[str, Node],
         missing_metrics: set[str],
         missing_dimensions: set[str],
         dimension_mapping: dict[str, Node],
+        reachability: "DimensionReachability",
+        metric_to_parents: dict[str, list[Node]],
     ) -> NodeValidationResult:
         cube_metric_nodes = [
             metric_nodes_map[metric_name]
@@ -1828,19 +1924,89 @@ class DeploymentOrchestrator:
                 dependencies=[],
             )
 
-        # Validate that each requested dimension is reachable from every metric
+        # Collect parent revision IDs for this cube's metrics (used by both
+        # dimension and filter reachability checks below).
+        cube_parent_rev_ids = {
+            p.current.id
+            for metric_name in (cube_spec.rendered_metrics or [])
+            for p in metric_to_parents.get(metric_name, [])
+            if p.current
+        }
+        rev_id_to_parent = {
+            p.current.id: p.name
+            for parents in metric_to_parents.values()
+            for p in parents
+            if p.current
+        }
+
+        # Check dimension reachability using the pre-computed batched BFS
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            try:
-                await validate_shared_dimensions(
-                    self.session,
-                    cube_metric_nodes,
-                    cube_spec.rendered_dimensions,
+            requested_dim_nodes = {
+                dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
+            }
+            unreachable = reachability.unreachable_dimensions(
+                cube_parent_rev_ids,
+                requested_dim_nodes,
+            )
+            for dim_name, missing_from_ids in unreachable.items():
+                parent_names = sorted(
+                    rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
                 )
-            except DJInvalidInputException as exc:
-                # Collect the error but continue to build dimension data so we can
-                # write the cube with its elements intact (just marked INVALID).
-                dim_compat_errors = exc.errors
+                dim_compat_errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_DIMENSION,
+                        message=(
+                            f"The dimension attribute `{dim_name}` is not "
+                            f"reachable from parent node(s): {', '.join(parent_names)}. "
+                            f"Add a dimension link to make it available."
+                        ),
+                    ),
+                )
+
+        # Validate that dimensions referenced in filters are reachable
+        # and that the specific columns exist on those dimension nodes.
+        if cube_spec.rendered_filters and cube_parent_rev_ids:
+            filter_refs = _extract_dimension_refs_from_filters(
+                cube_spec.rendered_filters,
+            )
+            filter_dim_nodes = {node_name for node_name, _ in filter_refs}
+            unreachable_filter_dims = reachability.unreachable_dimensions(
+                cube_parent_rev_ids,
+                filter_dim_nodes,
+            )
+            for dim_name, missing_from_ids in unreachable_filter_dims.items():
+                parent_names = sorted(
+                    rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
+                )
+                dim_compat_errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_DIMENSION,
+                        message=(
+                            f"Filter references dimension `{dim_name}` which is not "
+                            f"reachable from parent node(s): {', '.join(parent_names)}. "
+                            f"Add a dimension link to make it available."
+                        ),
+                    ),
+                )
+            # Check that filter columns exist on the dimension nodes
+            for node_name, col_name in filter_refs:
+                dim_node = self.registry.nodes.get(node_name) or dimension_mapping.get(
+                    f"{node_name}{SEPARATOR}{col_name}",
+                )
+                if dim_node and dim_node.current:  # pragma: no branch
+                    col_names = {c.name for c in dim_node.current.columns}
+                    if col_name not in col_names:
+                        dim_compat_errors.append(
+                            DJError(
+                                code=ErrorCode.INVALID_COLUMN,
+                                message=(
+                                    f"Filter references column `{col_name}` on "
+                                    f"dimension `{node_name}`, but that column does "
+                                    f"not exist. Available: {sorted(col_names)}"
+                                ),
+                            ),
+                        )
 
         # Get dimensions for this cube from batch-loaded data
         cube_dimension_nodes = []
@@ -2698,31 +2864,6 @@ class DeploymentOrchestrator:
                             except Exception:  # pragma: no cover
                                 pass  # pragma: no cover
         return dependency_nodes
-
-    async def refresh_nodes(self, node_names: list[str]) -> dict[str, Node]:
-        """
-        Re-fetch nodes after a flush so that ``node.current`` points to the
-        newly-created NodeRevision, with all sub-relationships eagerly loaded.
-
-        Used after cube creation where cube elements (cube_elements, etc.) must be
-        loaded fresh from DB.  For non-cube levels, ``bulk_deploy_nodes_in_level``
-        wires ``node.current`` directly from in-session objects instead.
-        """
-        refresh_start = time.perf_counter()
-        all_nodes = {
-            node.name: node
-            for node in await Node.get_by_names(
-                self.session,
-                node_names,
-                options=list(Node.cube_load_options()),
-            )
-        }
-        logger.info(
-            "Refreshed %d nodes in %.2fs",
-            len(all_nodes),
-            time.perf_counter() - refresh_start,
-        )
-        return all_nodes
 
     async def create_nodes_from_validation(
         self,
