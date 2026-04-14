@@ -110,6 +110,7 @@ class CubeRevisionMetadata(BaseModel):
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
     tags: Optional[List[TagOutput]] = None
+    custom_metadata: Optional[dict] = None
     measures: list[MetricMeasures] | None = None
 
     model_config = ConfigDict(

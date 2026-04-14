@@ -643,6 +643,7 @@ async def create_cube_node_revision(
         created_by_id=current_user.id,
         mode=data.mode,
         cube_filters=data.filters or None,
+        custom_metadata=data.custom_metadata,
     )
     return node_revision
 

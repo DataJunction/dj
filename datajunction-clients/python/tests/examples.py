@@ -1107,6 +1107,8 @@ EXAMPLES = (  # type: ignore
             "name": "default.cube_two",
             "metrics": ["default.num_repair_orders"],
             "dimensions": ["default.municipality_dim.local_region"],
+            "filters": ["default.municipality_dim.state_id = 1"],
+            "custom_metadata": {"team": "data-eng"},
         },
     ),
     (
