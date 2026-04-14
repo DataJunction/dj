@@ -1382,65 +1382,34 @@ class TestDeployments:
                 ],
             ),
         )
-        assert data == {
-            "status": "failed",
-            "uuid": mock.ANY,
-            "namespace": namespace,
-            "results": [
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)\n"
-                    "[invalid] Some columns in the primary key ['hard_hat_id'] were "
-                    "not found in the list of available columns for the node "
-                    f"{namespace}.default.hard_hat.; "
-                    f"Column 'state' referenced in join_on for "
-                    f"'{namespace}.default.us_state' not found on node "
-                    f"'{namespace}.default.hard_hat'",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "invalid",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "link",
-                    "message": "Join link successfully deployed\n"
-                    f"[invalid] Node '{namespace}.default.hard_hat' is INVALID "
-                    "— link may not function until the node is fixed",
-                    "name": f"{namespace}.default.hard_hat -> {namespace}.default.us_state",
-                    "operation": "create",
-                    "status": "success",
-                    "changed_fields": [],
-                },
-            ],
-            "created_at": None,
-            "created_by": None,
-            "downstream_impacts": [],
-            "source": None,
+        # Node is INVALID due to PK error; link validation error is reported
+        # separately during link deployment (not duplicated in node message)
+        assert data["uuid"] == mock.ANY
+        assert data["namespace"] == namespace
+
+        node_results = {
+            r["name"]: r for r in data["results"] if r["deploy_type"] == "node"
         }
+        link_results = {
+            r["name"]: r for r in data["results"] if r["deploy_type"] == "link"
+        }
+
+        # Sources created successfully
+        assert node_results[f"{namespace}.default.hard_hats"]["status"] == "success"
+        assert node_results[f"{namespace}.default.us_states"]["status"] == "success"
+        assert node_results[f"{namespace}.default.us_state"]["status"] == "success"
+
+        # Dimension with bad PK is INVALID
+        hard_hat = node_results[f"{namespace}.default.hard_hat"]
+        assert hard_hat["status"] == "invalid"
+        assert "primary key ['hard_hat_id']" in hard_hat["message"]
+
+        # Link is created but warns about INVALID node
+        link = link_results[
+            f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+        ]
+        assert link["status"] == "success"
+        assert "INVALID" in link["message"]
 
     @pytest.mark.asyncio
     async def test_deploy_with_dimension_link_removal(
@@ -1726,7 +1695,7 @@ class TestDeployments:
         )
         assert update_us_state == {
             "deploy_type": "node",
-            "message": "Node node_update.default.us_state is unchanged.",
+            "message": "Unchanged",
             "name": "node_update.default.us_state",
             "operation": "noop",
             "changed_fields": [],
@@ -1768,7 +1737,7 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
-        assert data["status"] == "failed"
+        assert data["status"] == "success"
         metric_result = next(
             res
             for res in data["results"]
@@ -1858,7 +1827,7 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
-        assert data["status"] == "failed"
+        assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
             "message": "Updated cube (v2.0)\n[invalid] One or more dimensions not found for cube "
@@ -1946,7 +1915,7 @@ class TestDeployments:
             client,
             DeploymentSpec(namespace=namespace, nodes=nodes_list),
         )
-        assert data["status"] == "failed"
+        assert data["status"] == "success"
         failed_result = next(
             r for r in data["results"] if r["status"] in ("failed", "invalid")
         )
@@ -1997,7 +1966,7 @@ class TestDeployments:
             ),
         )
         assert data == {
-            "status": "failed",
+            "status": "success",
             "uuid": mock.ANY,
             "namespace": namespace,
             "results": [
@@ -2249,7 +2218,7 @@ class TestDeployments:
         assert data["results"] == [
             {
                 "deploy_type": "node",
-                "message": "Node node_update.default.us_states is unchanged.",
+                "message": "Unchanged",
                 "name": "node_update.default.us_states",
                 "operation": "noop",
                 "changed_fields": [],
@@ -4441,3 +4410,72 @@ class TestDeploymentRevalidation:
         assert len(restored_rows) == 1, (
             "_create_node_revision should have written correct parent relationships"
         )
+
+
+@pytest.mark.asyncio
+async def test_validate_reference_dimension_link_bad_attribute():
+    """
+    validate_reference_dimension_link raises when the dimension attribute
+    does not exist on the dimension node's columns.
+    """
+    from datajunction_server.internal.deployment.orchestrator import (
+        validate_reference_dimension_link,
+    )
+    from datajunction_server.errors import DJInvalidInputException
+
+    # Build a reference link pointing to a non-existent column
+    link = DimensionReferenceLinkSpec(
+        node_column="state",
+        dimension="ns.dim_node.nonexistent_col",
+    )
+    link.namespace = "ns"
+
+    # Build a minimal dim node with columns that do NOT include 'nonexistent_col'
+    dim_rev = MagicMock()
+    dim_rev.columns = [
+        MagicMock(name="id"),
+        MagicMock(name="state_short"),
+    ]
+    # MagicMock(name=...) sets the mock's internal name, not .name attribute
+    dim_rev.columns[0].name = "id"
+    dim_rev.columns[1].name = "state_short"
+
+    dim_node = MagicMock()
+    dim_node.current = dim_rev
+
+    node = MagicMock()
+    node.name = "ns.some_node"
+
+    with pytest.raises(DJInvalidInputException, match="nonexistent_col"):
+        await validate_reference_dimension_link(link, node, dim_node)
+
+
+@pytest.mark.asyncio
+async def test_validate_reference_dimension_link_good_attribute():
+    """
+    validate_reference_dimension_link does NOT raise when the dimension
+    attribute exists on the dimension node's columns.
+    """
+    from datajunction_server.internal.deployment.orchestrator import (
+        validate_reference_dimension_link,
+    )
+
+    link = DimensionReferenceLinkSpec(
+        node_column="state",
+        dimension="ns.dim_node.state_short",
+    )
+    link.namespace = "ns"
+
+    dim_rev = MagicMock()
+    dim_rev.columns = [MagicMock(), MagicMock()]
+    dim_rev.columns[0].name = "id"
+    dim_rev.columns[1].name = "state_short"
+
+    dim_node = MagicMock()
+    dim_node.current = dim_rev
+
+    node = MagicMock()
+    node.name = "ns.some_node"
+
+    # Should not raise
+    await validate_reference_dimension_link(link, node, dim_node)

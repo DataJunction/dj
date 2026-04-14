@@ -210,6 +210,7 @@ class InProcessExecutor(DeploymentExecutor):
                         in (
                             DeploymentResult.Status.SUCCESS,
                             DeploymentResult.Status.SKIPPED,
+                            DeploymentResult.Status.INVALID,
                         )
                         for r in results
                     )

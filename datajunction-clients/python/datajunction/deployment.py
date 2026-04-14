@@ -251,7 +251,11 @@ class DeploymentService:
         if deployment.status == DeploymentStatus.SUCCESS:
             console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
         if deployment.status == DeploymentStatus.FAILED:
-            errors = [r for r in deployment.results if r.status == ResultStatus.FAILED]
+            errors = [
+                r
+                for r in deployment.results
+                if r.status in (ResultStatus.FAILED, ResultStatus.INVALID)
+            ]
             raise DJDeploymentFailure(
                 project_name=deployment_spec.get("namespace", source_path),
                 errors=[r.__dict__ for r in (errors if errors else deployment.results)],

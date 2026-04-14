@@ -31,7 +31,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User, OAuthProvider
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, MapType, StringType
 from datajunction_server.errors import ErrorCode
 
@@ -103,18 +103,10 @@ class TestValidateQuery:
     ) -> ValidationContext:
         """Create a real ValidationContext with actual dependencies"""
 
-        # Create a real compile context
-        compile_context = ast.CompileContext(
-            session=session,
-            exception=ast.DJException(),
-            dependencies_cache={parent_node.name: parent_node},
-        )
-
         return ValidationContext(
             session=session,
             node_graph={"test.transform": ["test.parent"]},
             dependency_nodes={parent_node.name: parent_node},
-            compile_context=compile_context,
         )
 
     @pytest.fixture
@@ -146,24 +138,20 @@ class TestValidateQuery:
         validation_context: ValidationContext,
         transform_spec: TransformSpec,
     ):
-        """Test exception when parsing fails due to malformed SQL"""
+        """Test that a query referencing a missing table produces errors"""
         bad_spec = TransformSpec(
             name="bad_transform",
-            query="SELECT 1a FROM some_table",  # Invalid SQL
+            query="SELECT x FROM nonexistent.table",
             description="Bad transform",
             mode="published",
-            primary_key=["id"],  # To avoid primary key inference issues
+            primary_key=["id"],
         )
-        parsed_ast = parse(bad_spec.query)
         validator = NodeSpecBulkValidator(validation_context)
-        result = await validator.validate_query_node(bad_spec, parsed_ast)
+        result = validator.validate_query_node(bad_spec)
         assert result.spec == bad_spec
         assert result.status == NodeStatus.INVALID
-        assert result.inferred_columns == []
         error_codes = [e.code for e in result.errors]
         assert ErrorCode.TYPE_INFERENCE in error_codes
-        type_err = next(e for e in result.errors if e.code == ErrorCode.TYPE_INFERENCE)
-        assert "Unable to infer type for column `1a`" in type_err.message
 
     @pytest.mark.asyncio
     async def test_validate_query_node_later_exception(
@@ -174,7 +162,6 @@ class TestValidateQuery:
         """
         Test exception during later validation steps with real AST
         """
-        parsed_ast = parse("SELECT 1a FROM some_table")
         validator = NodeSpecBulkValidator(validation_context)
         # mock _check_inferred_columns to raise an exception
         with patch.object(
@@ -182,72 +169,30 @@ class TestValidateQuery:
             "_check_inferred_columns",
             side_effect=ValueError("Column inference failed"),
         ):
-            result = await validator.validate_query_node(transform_spec, parsed_ast)
+            result = validator.validate_query_node(transform_spec)
             assert result.status == NodeStatus.INVALID
             assert len(result.errors) == 1
             assert result.errors[0].code == ErrorCode.INVALID_SQL_QUERY
 
     @pytest.mark.asyncio
-    async def test_validate_query_node_dependency_extraction_failure(
+    async def test_validate_query_node_validate_node_query_failure(
         self,
         validation_context: ValidationContext,
         transform_spec: TransformSpec,
     ):
-        """Test exception during dependency extraction with real AST"""
-
-        # Parse a valid query
-        parsed_ast = parse(transform_spec.query)
-
-        # Mock the compile context to throw during extraction
-        with patch.object(
-            validation_context.compile_context,
-            "exception",
-            side_effect=Exception("Dependency extraction failed"),
-        ):
-            # Patch extract_dependencies to throw
-            with patch.object(
-                parsed_ast.bake_ctes(),
-                "extract_dependencies",
-                side_effect=Exception("Dependency extraction failed"),
-            ):
-                validator = NodeSpecBulkValidator(validation_context)
-
-                # This should hit the exception handler
-                result = await validator.validate_query_node(transform_spec, parsed_ast)
-
-        # Verify proper error handling
-        assert result.status == NodeStatus.INVALID
-        assert len(result.errors) == 1
-        assert result.errors[0].code == ErrorCode.INVALID_SQL_QUERY
-        assert "Dependency extraction failed" in result.errors[0].message
-
-    @pytest.mark.asyncio
-    async def test_validate_query_node_column_inference_failure(
-        self,
-        validation_context: ValidationContext,
-        transform_spec: TransformSpec,
-    ):
-        """Test exception during column inference with real objects"""
-
-        # Parse a valid query
-        parsed_ast = parse(transform_spec.query)
-
-        # Create validator and patch _infer_columns to fail
+        """Test exception during validate_node_query with real AST"""
         validator = NodeSpecBulkValidator(validation_context)
 
-        with patch.object(
-            validator,
-            "_infer_columns",
-            side_effect=AttributeError("Column inference failed - missing attribute"),
+        with patch(
+            "datajunction_server.internal.deployment.validation.validate_node_query",
+            side_effect=RuntimeError("Unexpected validation failure"),
         ):
-            # This should hit the exception handler
-            result = await validator.validate_query_node(transform_spec, parsed_ast)
+            result = validator.validate_query_node(transform_spec)
 
-        # Verify the exception was caught and handled
         assert result.status == NodeStatus.INVALID
         assert len(result.errors) == 1
         assert result.errors[0].code == ErrorCode.INVALID_SQL_QUERY
-        assert "Column inference failed" in result.errors[0].message
+        assert "Unexpected validation failure" in result.errors[0].message
 
     @pytest.mark.asyncio
     async def test_validate_query_node_metric_validation_exception(
@@ -258,7 +203,6 @@ class TestValidateQuery:
         """Test exception during metric-specific validation"""
 
         # Parse the metric query
-        parsed_ast = parse(metric_spec.query)
 
         # Create validator and patch metric validation to fail
         validator = NodeSpecBulkValidator(validation_context)
@@ -269,7 +213,7 @@ class TestValidateQuery:
             side_effect=ValueError("Metric validation failed"),
         ):
             # This should hit the exception handler
-            result = await validator.validate_query_node(metric_spec, parsed_ast)
+            result = validator.validate_query_node(metric_spec)
 
         # Verify proper error handling
         assert result.status == NodeStatus.INVALID
@@ -285,14 +229,11 @@ class TestValidateQuery:
     ):
         """Test the successful path to ensure our exception tests are meaningful"""
 
-        # Parse a valid query
-        parsed_ast = parse(transform_spec.query)
-
         # Create validator
         validator = NodeSpecBulkValidator(validation_context)
 
         # This should succeed (not hit exception handler)
-        result = await validator.validate_query_node(transform_spec, parsed_ast)
+        result = validator.validate_query_node(transform_spec)
 
         # Verify success (this ensures our exception tests are testing real failures)
         assert result.status in [
@@ -328,9 +269,8 @@ class TestValidateQuery:
         )
         spec._skip_validation = True  # Set the private flag
 
-        parsed_ast = parse(spec.query)
         validator = NodeSpecBulkValidator(validation_context)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         # Should use the spec's columns directly without re-inference
         assert result.inferred_columns == spec.columns
@@ -377,16 +317,10 @@ class TestValidateQuery:
         invalid_parent_node: Node,
     ):
         """Transform whose parent is INVALID should itself be INVALID with INVALID_PARENT error"""
-        compile_context = ast.CompileContext(
-            session=session,
-            exception=ast.DJException(),
-            dependencies_cache={invalid_parent_node.name: invalid_parent_node},
-        )
         context = ValidationContext(
             session=session,
             node_graph={"test.child_transform": [invalid_parent_node.name]},
             dependency_nodes={invalid_parent_node.name: invalid_parent_node},
-            compile_context=compile_context,
         )
         spec = TransformSpec(
             name="test.child_transform",
@@ -395,9 +329,8 @@ class TestValidateQuery:
             mode="published",
         )
 
-        parsed_ast = parse(spec.query)
         validator = NodeSpecBulkValidator(context)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.INVALID
         error_codes = [e.code for e in result.errors]
@@ -558,11 +491,6 @@ class TestBulkValidateSkipValidation:
             session=session,
             node_graph={"test.direct": []},
             dependency_nodes={},
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache={},
-            ),
         )
         validator = NodeSpecBulkValidator(context)
         result = validator._validate_without_parsing(spec)
@@ -601,16 +529,10 @@ class TestRequiredDimensions:
         parent_node: Node,
     ) -> ValidationContext:
         dep_nodes = {parent_node.name: parent_node}
-        compile_context = ast.CompileContext(
-            session=session,
-            exception=ast.DJException(),
-            dependencies_cache=dep_nodes,
-        )
         return ValidationContext(
             session=session,
             node_graph={"test.metric": [parent_node.name]},
             dependency_nodes=dep_nodes,
-            compile_context=compile_context,
         )
 
     # ------------------------------------------------------------------ unit tests (no DB query needed)
@@ -634,7 +556,8 @@ class TestRequiredDimensions:
         validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
 
         parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        spec._query_ast = parsed_ast
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.VALID
         error_codes = [e.code for e in result.errors]
@@ -656,9 +579,7 @@ class TestRequiredDimensions:
         )
         validator = NodeSpecBulkValidator(context)
         validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
-
-        parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.INVALID
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
@@ -681,9 +602,7 @@ class TestRequiredDimensions:
         validator = NodeSpecBulkValidator(context)
         # _all_dim_nodes has no entry for "ghost.dim"
         validator._all_dim_nodes = dict(context.dependency_nodes)
-
-        parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.INVALID
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
@@ -706,9 +625,7 @@ class TestRequiredDimensions:
         )
         validator = NodeSpecBulkValidator(context)
         validator._all_dim_nodes = dict(context.dependency_nodes)
-
-        parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.VALID
         error_codes = [e.code for e in result.errors]
@@ -729,9 +646,7 @@ class TestRequiredDimensions:
         )
         validator = NodeSpecBulkValidator(context)
         validator._all_dim_nodes = dict(context.dependency_nodes)
-
-        parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         assert result.status == NodeStatus.INVALID
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
@@ -752,9 +667,7 @@ class TestRequiredDimensions:
         )
         validator = NodeSpecBulkValidator(context)
         validator._all_dim_nodes = dict(context.dependency_nodes)
-
-        parsed_ast = parse(spec.rendered_query)
-        result = await validator.validate_query_node(spec, parsed_ast)
+        result = validator.validate_query_node(spec)
 
         error_codes = [e.code for e in result.errors]
         assert ErrorCode.INVALID_COLUMN not in error_codes
@@ -874,18 +787,12 @@ class TestCrossFactDimensions:
             base_metric_a.name: base_metric_a,
             base_metric_b.name: base_metric_b,
         }
-        compile_context = ast.CompileContext(
-            session=session,
-            exception=ast.DJException(),
-            dependencies_cache=dep_nodes,
-        )
         return ValidationContext(
             session=session,
             node_graph={
                 "test.derived": [base_metric_a.name, base_metric_b.name],
             },
             dependency_nodes=dep_nodes,
-            compile_context=compile_context,
         )
 
     # ------------------------------------------------------------------ unit tests (direct method calls)
@@ -950,11 +857,6 @@ class TestCrossFactDimensions:
             session=session,
             node_graph={"test.derived": [ma.name]},
             dependency_nodes=dep_nodes,
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache=dep_nodes,
-            ),
         )
         spec = MetricSpec(
             name="test.derived",
@@ -994,11 +896,6 @@ class TestCrossFactDimensions:
             session=session,
             node_graph={},
             dependency_nodes={},
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache={},
-            ),
         )
         spec = TransformSpec(
             name="test.transform",
@@ -1068,11 +965,6 @@ class TestCrossFactDimensions:
                 "test.derived2": [ma.name, mb.name],
             },
             dependency_nodes=dep_nodes,
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache=dep_nodes,
-            ),
         )
         specs = [
             MetricSpec(
@@ -1111,11 +1003,6 @@ class TestCrossFactDimensions:
             session=session,
             node_graph={"test.simple_derived": [ma.name]},
             dependency_nodes=dep_nodes,
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache=dep_nodes,
-            ),
         )
         spec = MetricSpec(
             name="test.simple_derived",
@@ -1143,11 +1030,6 @@ def _make_validator(session: AsyncSession) -> NodeSpecBulkValidator:
         session=session,
         node_graph={},
         dependency_nodes={},
-        compile_context=ast.CompileContext(
-            session=session,
-            exception=ast.DJException(),
-            dependencies_cache={},
-        ),
     )
     return NodeSpecBulkValidator(context)
 
@@ -1722,11 +1604,6 @@ class TestDimLinkValidationExtended:
             session=session,
             node_graph={},
             dependency_nodes={},
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache={},
-            ),
         )
         spec = SourceSpec(
             name="facts",
@@ -1763,11 +1640,6 @@ class TestDimLinkValidationExtended:
             session=session,
             node_graph={},
             dependency_nodes={parent_node.name: parent_node},
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache={parent_node.name: parent_node},
-            ),
         )
         spec = SourceSpec(
             name="facts",
@@ -1797,11 +1669,6 @@ class TestDimLinkValidationExtended:
             session=session,
             node_graph={},
             dependency_nodes={dim_node.name: dim_node},
-            compile_context=ast.CompileContext(
-                session=session,
-                exception=ast.DJException(),
-                dependencies_cache={dim_node.name: dim_node},
-            ),
         )
         spec = SourceSpec(
             name="facts",
@@ -1827,20 +1694,97 @@ class TestDimLinkValidationExtended:
         assert "id" in validator._dim_link_col_names.get("test.existing_dim", set())
 
 
-class TestCreateColumnSpecTypeError:
-    """Tests for _create_column_spec raising TypeError when type cannot be inferred (line 626)."""
+class TestToColumnSpecsPreservesMetadata:
+    """Test _to_column_specs preserving display_name/description when type is None."""
 
-    def test_create_column_spec_raises_when_type_unresolvable(
+    @pytest.mark.asyncio
+    async def test_inferred_type_used_when_spec_type_is_none(
         self,
         session: AsyncSession,
+        parent_node: Node,
     ):
-        """_create_column_spec raises TypeError when no existing_spec.type and AST column
-        has no resolvable type (line 626 - the raise TypeError branch)."""
-        validator = _make_validator(session)
+        """
+        When a spec column has display_name and description but type=None,
+        _to_column_specs should use the inferred type while preserving metadata.
+        """
+        # Create a transform spec with columns that have metadata but no explicit type
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    type=None,
+                    display_name="User ID",
+                    description="The primary identifier",
+                ),
+                ColumnSpec(
+                    name="name",
+                    type=None,
+                    display_name="User Name",
+                    description="The user's full name",
+                ),
+            ],
+        )
 
-        # Create a mock AST column with no resolvable type
-        ast_col = MagicMock(spec=ast.Column)
-        ast_col.type = None
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
 
-        with pytest.raises(TypeError, match="Cannot resolve type"):
-            validator._create_column_spec("my_col", ast_col, existing_spec=None)
+        # Inferred output columns from SQL parsing (simulating what type inference returns)
+        output_columns = [
+            ("id", IntegerType()),
+            ("name", StringType()),
+        ]
+        result = validator._to_column_specs(output_columns, spec)
+
+        # The inferred type should be used
+        assert result[0].type == str(IntegerType())
+        assert result[1].type == str(StringType())
+
+        # Metadata should be preserved
+        assert result[0].display_name == "User ID"
+        assert result[0].description == "The primary identifier"
+        assert result[1].display_name == "User Name"
+        assert result[1].description == "The user's full name"
+
+    @pytest.mark.asyncio
+    async def test_explicit_type_takes_precedence(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """When a spec column has an explicit type, it takes precedence over inferred."""
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(
+                    name="id",
+                    type="bigint",
+                    display_name="User ID",
+                    description="The primary identifier",
+                ),
+            ],
+        )
+
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.transform": ["test.parent"]},
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        output_columns = [("id", IntegerType())]
+        result = validator._to_column_specs(output_columns, spec)
+
+        # Explicit type should win
+        assert result[0].type == "bigint"
+        assert result[0].display_name == "User ID"
