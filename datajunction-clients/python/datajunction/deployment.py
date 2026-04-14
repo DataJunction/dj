@@ -190,7 +190,9 @@ class DeploymentService:
         deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
 
         base_namespace = deployment_spec.get("namespace") or ""
-        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        branch = os.getenv("DJ_DEPLOY_BRANCH") or DeploymentService._detect_git_branch(
+            cwd=source_path,
+        )
         source = deployment_spec.get("source", {})
         if namespace:
             deployment_spec["namespace"] = namespace
@@ -286,7 +288,9 @@ class DeploymentService:
         deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
         deployment_spec["namespace"] = namespace or deployment_spec.get("namespace")
         source = deployment_spec.get("source", {})
-        branch = DeploymentService._detect_git_branch(cwd=source_path)
+        branch = os.getenv("DJ_DEPLOY_BRANCH") or DeploymentService._detect_git_branch(
+            cwd=source_path,
+        )
         if display:
             print_deployment_header(
                 mode="dry run",
