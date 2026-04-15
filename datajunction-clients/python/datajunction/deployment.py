@@ -211,9 +211,9 @@ class DeploymentService:
         )
 
         if branch:
-            # Only set parent_namespace when we derived it from dj.yaml (not when
-            # --namespace was passed explicitly, since we can't reliably infer the parent)
-            parent_namespace = base_namespace if not namespace else None
+            # Use base_namespace from dj.yaml as parent, whether --namespace was
+            # passed explicitly or derived automatically
+            parent_namespace = base_namespace or None
             try:
                 self.client._set_namespace_git_config(
                     deployment_spec["namespace"],
