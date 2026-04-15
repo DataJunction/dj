@@ -4,8 +4,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from datajunction_server.api.graphql.dataloaders import (
+    batch_load_git_info,
     batch_load_nodes,
     batch_load_nodes_by_name_only,
+    create_git_info_loader,
     create_node_by_name_loader,
 )
 
@@ -280,4 +282,105 @@ def test_create_node_by_name_loader(mock_dataloader):
     assert callable(call_kwargs["load_fn"])
 
     # Verify result is the DataLoader instance
+    assert result == mock_loader_instance
+
+
+@pytest.mark.asyncio
+@patch("datajunction_server.api.graphql.dataloaders.session_context")
+async def test_batch_load_git_info_with_fk_hop(mock_session_context):
+    """Test batch_load_git_info when a branch namespace has a parent_namespace
+    outside the string hierarchy, triggering the FK hop query."""
+    mock_session = AsyncMock()
+    mock_session_context.return_value.__aenter__.return_value = mock_session
+
+    # Create namespace mocks:
+    # "project" is the git root (has github_repo_path)
+    # "project.feature" is the branch namespace (has git_branch, parent_namespace
+    #   points to "other_root" which is outside the string ancestors)
+    # "other_root" is the FK hop target (has github_repo_path)
+    ns_project = MagicMock()
+    ns_project.namespace = "project"
+    ns_project.git_branch = None
+    ns_project.github_repo_path = None
+    ns_project.parent_namespace = None
+
+    ns_feature = MagicMock()
+    ns_feature.namespace = "project.feature"
+    ns_feature.git_branch = "feature-branch"
+    ns_feature.parent_namespace = "other_root"  # outside string hierarchy
+    ns_feature.github_repo_path = None
+
+    ns_other_root = MagicMock()
+    ns_other_root.namespace = "other_root"
+    ns_other_root.github_repo_path = "owner/repo"
+    ns_other_root.git_branch = None
+    ns_other_root.default_branch = "main"
+    ns_other_root.git_path = "/path"
+    ns_other_root.git_only = False
+    ns_other_root.parent_namespace = None
+
+    # First query returns project + project.feature (not other_root)
+    # Second query (FK hop) returns other_root
+    mock_result_1 = MagicMock()
+    mock_result_1.scalars.return_value.all.return_value = [ns_project, ns_feature]
+    mock_result_2 = MagicMock()
+    mock_result_2.scalars.return_value.all.return_value = [ns_other_root]
+    mock_session.execute.side_effect = [mock_result_1, mock_result_2]
+
+    mock_request = MagicMock()
+    result = await batch_load_git_info(
+        ["project.feature.cubes"],
+        mock_request,
+    )
+
+    # Two queries should have been executed (ancestors + FK hop)
+    assert mock_session.execute.call_count == 2
+    assert len(result) == 1
+    assert result[0] is not None
+    assert result[0]["repo"] == "owner/repo"
+    assert result[0]["branch"] == "feature-branch"
+
+
+@pytest.mark.asyncio
+@patch("datajunction_server.api.graphql.dataloaders.session_context")
+async def test_batch_load_git_info_no_fk_hop(mock_session_context):
+    """Test batch_load_git_info when no FK hop is needed (single query)."""
+    mock_session = AsyncMock()
+    mock_session_context.return_value.__aenter__.return_value = mock_session
+
+    ns_root = MagicMock()
+    ns_root.namespace = "project"
+    ns_root.git_branch = "main"
+    ns_root.github_repo_path = "owner/repo"
+    ns_root.parent_namespace = None
+    ns_root.default_branch = "main"
+    ns_root.git_path = "/"
+    ns_root.git_only = False
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [ns_root]
+    mock_session.execute.return_value = mock_result
+
+    mock_request = MagicMock()
+    result = await batch_load_git_info(["project"], mock_request)
+
+    # Only one query — no FK hop needed
+    assert mock_session.execute.call_count == 1
+    assert len(result) == 1
+    assert result[0]["repo"] == "owner/repo"
+
+
+@patch("datajunction_server.api.graphql.dataloaders.DataLoader")
+def test_create_git_info_loader(mock_dataloader):
+    """Test create_git_info_loader creates DataLoader with correct load_fn."""
+    mock_request = MagicMock()
+    mock_loader_instance = MagicMock()
+    mock_dataloader.return_value = mock_loader_instance
+
+    result = create_git_info_loader(mock_request)
+
+    assert mock_dataloader.called
+    call_kwargs = mock_dataloader.call_args[1]
+    assert "load_fn" in call_kwargs
+    assert callable(call_kwargs["load_fn"])
     assert result == mock_loader_instance

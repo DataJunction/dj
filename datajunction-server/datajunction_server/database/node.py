@@ -48,7 +48,7 @@ from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.nodeowner import NodeOwner
-from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJInvalidInputException,
@@ -652,14 +652,20 @@ class Node(Base):
 
         nodes_with_tags = []
         if tags:
+            # Only fetch node IDs — no need to load full Tag/Node objects
+            # or their relationships (created_by, etc.)
             statement = (
-                select(Tag).where(Tag.name.in_(tags)).options(joinedload(Tag.nodes))
+                select(Node.id)
+                .join(
+                    TagNodeRelationship,
+                    Node.id == TagNodeRelationship.node_id,
+                )
+                .join(Tag, Tag.id == TagNodeRelationship.tag_id)
+                .where(Tag.name.in_(tags))
             )
-            nodes_with_tags = [
-                node.id
-                for tag in (await session.execute(statement)).unique().scalars().all()
-                for node in tag.nodes
-            ]
+            nodes_with_tags = list(
+                (await session.execute(statement)).scalars().all(),
+            )
             if not nodes_with_tags:  # pragma: no cover
                 return []
 
