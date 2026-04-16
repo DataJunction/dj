@@ -374,6 +374,7 @@ class TestDJSQLFilterOnlyDimensions:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
