@@ -101,7 +101,9 @@ async def _attach_raw_columns(session, nodes):
         )
 
     for node in nodes:
-        if node.current is not None and node.type == NodeType_.CUBE:  # pragma: no branch
+        if (
+            node.current is not None and node.type == NodeType_.CUBE
+        ):  # pragma: no branch
             rev_id = node.current.id
             set_committed_value(
                 node.current,
