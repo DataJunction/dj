@@ -958,9 +958,8 @@ def _push_dimension_filters_to_ctes(
     """Push user-supplied filters into the appropriate CTE.
 
     For each filter, extracts the dimension node name from the filter reference
-    (e.g., ``common.dimensions.xp.ab_test`` from ``common.dimensions.xp.ab_test.test_id IN (77019)``),
-    rewrites the column reference to the FK column name, and injects the filter
-    into that node's CTE.
+    (e.g., ``date.dateint`` from ``date.dateint IN (20250101)``), rewrites the
+    column reference to the FK column name, and injects the filter into that node's CTE.
 
     If the filter resolves to a FK column on the parent node (via dimension link),
     it goes into the parent's CTE instead.
