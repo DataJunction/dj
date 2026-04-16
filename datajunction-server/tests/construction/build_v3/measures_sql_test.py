@@ -356,6 +356,7 @@ class TestDimensionJoins:
             v3_customer AS (
                 SELECT customer_id, name
                 FROM default.v3.customers
+                WHERE name = 'Abcd'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity, oi.quantity * oi.unit_price AS line_total
@@ -831,6 +832,7 @@ class TestMeasuresSQLRoles:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
+                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -2367,6 +2369,7 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2401,6 +2404,7 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2435,10 +2439,12 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             ),
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2469,6 +2475,7 @@ class TestMeasuresSQLFilters:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
+                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -2504,6 +2511,7 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status IN ('completed', 'pending')
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2774,6 +2782,7 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date > 20200101
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -3711,9 +3720,9 @@ class TestCombinedMeasuresSQLEndpoint:
         """
         Test that preagg_tables source uses configured catalog and schema.
         """
-        # The default settings are:
-        # preagg_catalog = "default"
-        # preagg_schema = "dj_preaggs"
+        from datajunction_server.config import Settings
+
+        settings = Settings()
 
         response = await client_with_build_v3.get(
             "/sql/measures/v3/combined",
@@ -3727,18 +3736,21 @@ class TestCombinedMeasuresSQLEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # Source tables should include the default catalog.schema prefix
+        expected_table = (
+            f"{settings.preagg_catalog}.{settings.preagg_schema}"
+            f".v3_order_details_preagg_d344b4e3"
+        )
+
+        # Source tables should include the configured catalog.schema prefix
         assert len(data["source_tables"]) >= 1
-        assert data["source_tables"] == [
-            "default.dj_preaggs.v3_order_details_preagg_d344b4e3",
-        ]
+        assert data["source_tables"] == [expected_table]
 
         # Verify the SQL also references this table
         assert_sql_equal(
             data["sql"],
-            """
+            f"""
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
-            FROM default.dj_preaggs.v3_order_details_preagg_d344b4e3
+            FROM {expected_table}
             GROUP BY status
             """,
         )
@@ -4003,6 +4015,7 @@ class TestFilterOnlyDimensions:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -4063,6 +4076,7 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1

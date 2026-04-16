@@ -27,6 +27,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
+    parse_filter,
 )
 from datajunction_server.construction.build_v3.utils import (
     extract_columns_from_expression,
@@ -794,14 +795,6 @@ def build_select_ast(
                 injected_cte_filters[upstream_node.name] = unaliased_filter_ast
                 temporal_filter_ast = None  # Don't also apply on the outer query
 
-    # Build CTEs for all non-source nodes with column filtering
-    ctes, scanned_sources = collect_node_ctes(
-        ctx,
-        nodes_for_ctes,
-        needed_columns_by_node,
-        injected_filters=injected_cte_filters or None,
-    )
-
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
     table_name = make_name(SEPARATOR.join(table_parts))
@@ -897,6 +890,30 @@ def build_select_ast(
                 parent_node,
             )
 
+    # Push dimension filters into upstream CTEs when possible.
+    # If a filter references a dimension that maps to a FK column on the parent
+    # (e.g., date.dateint -> event_utc_date), push it into the
+    # parent's CTE so the engine doesn't scan the full table before filtering.
+    if all_filters:
+        _push_dimension_filters_to_ctes(
+            all_filters,
+            filter_column_aliases,
+            parent_node,
+            main_alias,
+            injected_cte_filters,
+            nodes_for_ctes=nodes_for_ctes,
+        )
+
+    # Build CTEs for all non-source nodes with column filtering.
+    # This runs after filter pushdown so that the CTE builder injects
+    # pushed-down filters into WHERE clauses.
+    ctes, scanned_sources = collect_node_ctes(
+        ctx,
+        nodes_for_ctes,
+        needed_columns_by_node,
+        injected_filters=injected_cte_filters or None,
+    )
+
     # Combine user filters with temporal filter
     if temporal_filter_ast:
         if where_clause:
@@ -928,6 +945,88 @@ def build_select_ast(
         query.ctes = cte_list
 
     return query, scanned_sources
+
+
+def _push_dimension_filters_to_ctes(
+    filters: list[str],
+    filter_column_aliases: dict[str, str],
+    parent_node: Node,
+    main_alias: str,
+    injected_cte_filters: dict[str, ast.Expression],
+    nodes_for_ctes: list[Node] | None = None,
+) -> None:
+    """Push user-supplied filters into the appropriate CTE.
+
+    For each filter, extracts the dimension node name from the filter reference
+    (e.g., ``date.dateint`` from ``date.dateint IN (20250101)``), rewrites the
+    column reference to the FK column name, and injects the filter into that node's CTE.
+
+    If the filter resolves to a FK column on the parent node (via dimension link),
+    it goes into the parent's CTE instead.
+
+    Mutates ``injected_cte_filters`` in place.
+    """
+    from datajunction_server.construction.build_v3.dimensions import (
+        parse_dimension_ref,
+    )
+
+    # Build set of node names that become CTEs (non-source)
+    cte_node_names: set[str] = set()
+    if parent_node.type != NodeType.SOURCE:  # pragma: no branch
+        cte_node_names.add(parent_node.name)
+    for node in nodes_for_ctes or []:  # pragma: no branch
+        if node.type != NodeType.SOURCE:  # pragma: no branch
+            cte_node_names.add(node.name)
+
+    parent_col_names = (
+        {col.name for col in (parent_node.current.columns or [])}
+        if parent_node.current
+        else set()
+    )
+
+    for filter_str in filters:
+        # Find the dimension reference in the filter to determine the target node
+        target: str | None = None
+        fk_col: str | None = None
+
+        for dim_ref, resolved_col in filter_column_aliases.items():  # pragma: no branch
+            if dim_ref not in filter_str:
+                continue
+            # Check if this resolves to a parent FK column (via dimension link)
+            if resolved_col in parent_col_names and parent_node.name in cte_node_names:
+                target = parent_node.name
+                fk_col = resolved_col
+                break
+            # Otherwise, extract the dimension node name from the reference
+            parsed = parse_dimension_ref(dim_ref)
+            if (
+                parsed.node_name and parsed.node_name in cte_node_names
+            ):  # pragma: no branch
+                target = parsed.node_name
+                fk_col = resolved_col
+                break
+
+        if not target or not fk_col:  # pragma: no cover
+            continue
+
+        # Rewrite the filter using the resolved column name
+        rewritten = filter_str
+        for dim_ref, resolved_col in filter_column_aliases.items():
+            if dim_ref in rewritten:
+                rewritten = rewritten.replace(dim_ref, resolved_col)
+
+        try:
+            pushdown_ast = parse_filter(rewritten)
+        except Exception:  # pragma: no cover
+            continue
+
+        if target in injected_cte_filters:
+            injected_cte_filters[target] = ast.BinaryOp.And(
+                injected_cte_filters[target],
+                pushdown_ast,
+            )
+        else:
+            injected_cte_filters[target] = pushdown_ast
 
 
 def build_temporal_filter(
