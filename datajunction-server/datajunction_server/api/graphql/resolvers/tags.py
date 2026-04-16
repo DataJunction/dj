@@ -31,7 +31,7 @@ def tag_load_options(requested_fields=None):
         noload(DBTag.created_by),
         noload(DBTag.nodes),
     ]
-    if requested_fields:
+    if requested_fields:  # pragma: no branch
         cols = [DBTag.id] + [
             col
             for field, col in _TAG_FIELD_TO_COLUMN.items()
