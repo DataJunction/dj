@@ -92,11 +92,11 @@ class TestLoadNodeOptions:
         assert has_noload_for(options, "current")
 
     def test_with_created_by(self):
-        """created_by field requested - should selectinload created_by."""
+        """created_by field requested - should joinedload created_by."""
         fields = {"created_by": {"username": {}}}
         options = load_node_options(fields)
 
-        assert has_selectinload_for(options, "created_by")
+        assert has_joinedload_for(options, "created_by")
 
     def test_with_owners(self):
         """owners field requested - should selectinload owners."""
@@ -140,7 +140,7 @@ class TestLoadNodeOptions:
 
         assert has_joinedload_for(options, "current")
         assert has_joinedload_for(options, "revisions")
-        assert has_selectinload_for(options, "created_by")
+        assert has_joinedload_for(options, "created_by")
         assert has_selectinload_for(options, "owners")
         assert has_selectinload_for(options, "history")
         assert has_selectinload_for(options, "tags")
@@ -252,19 +252,25 @@ class TestLoadNodeRevisionOptions:
         # Should load minimal columns for cube request
         assert has_selectinload_for(options, "columns")
 
-    def test_with_cube_elements_direct(self):
-        """cube_elements field requested directly - should selectinload."""
-        fields = {"cube_elements": {}}
+    def test_without_cube_request_noloads_cube_elements(self):
+        """No cube fields requested — cube_elements should be noloaded."""
+        fields = {"description": {}}
         options = load_node_revision_options(fields)
 
-        assert has_selectinload_for(options, "cube_elements")
+        assert has_noload_for(options, "cube_elements")
 
-    def test_cube_request_loads_minimal_columns(self):
-        """Cube requests should load columns (for matching cube elements)."""
+    def test_cube_name_only_noloads_columns(self):
+        """Name-only cube requests noload columns (fetched as raw tuples post-query)."""
         fields = {"cube_metrics": {"name": {}}}
         options = load_node_revision_options(fields)
 
-        # Cube requests should selectinload columns with minimal fields
+        assert has_noload_for(options, "columns")
+
+    def test_cube_full_request_loads_minimal_columns(self):
+        """Non-name-only cube requests should selectinload columns."""
+        fields = {"cube_metrics": {"name": {}, "description": {}}}
+        options = load_node_revision_options(fields)
+
         assert has_selectinload_for(options, "columns")
 
     def test_query_ast_always_deferred(self):
@@ -450,7 +456,7 @@ class TestLoadOptionsIntegration:
 
         # Should load tags and created_by
         assert has_selectinload_for(options, "tags")
-        assert has_selectinload_for(options, "created_by")
+        assert has_joinedload_for(options, "created_by")
         # Should load current
         assert has_joinedload_for(options, "current")
         # Should noload unused relationships

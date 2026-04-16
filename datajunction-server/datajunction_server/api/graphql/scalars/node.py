@@ -22,7 +22,6 @@ from datajunction_server.api.graphql.scalars.column import (
     Partition,
 )
 from datajunction_server.api.graphql.scalars.git_info import GitRepositoryInfo
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.api.graphql.scalars.materialization import (
     Backfill,
     MaterializationConfig,
@@ -54,6 +53,22 @@ NodeStatus = strawberry.enum(NodeStatus_)
 NodeMode = strawberry.enum(NodeMode_)
 JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
+
+
+_DOT = "_DOT_"
+
+
+class _NameOnlyRevision:
+    """
+    Minimal stand-in returned by the cube_metrics fast path when only ``name``
+    is requested.  A plain object is ~100x cheaper to construct than a full
+    ``DBNodeRevision`` ORM instance.
+    """
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str):
+        self.name = name
 
 
 @strawberry.enum
@@ -365,18 +380,30 @@ class NodeRevision:
 
     # Only cubes will have these fields
     @strawberry.field
-    def cube_metrics(self, root: "DBNodeRevision") -> List["NodeRevision"]:
+    def cube_metrics(self, root: "DBNodeRevision", info: Info) -> List["NodeRevision"]:  # type: ignore[return-value]
         """
         Metrics for a cube node
         """
         if root.type != NodeType.CUBE:
             return []
         ordering = root.ordering()
+
+        # Name-only path: metric names pre-fetched by _attach_raw_columns.
+        if info.context.get("cube_name_only"):  # type: ignore
+            metric_names: set[str] = getattr(root, "_cube_metric_names", set())
+            stubs: list = [
+                _NameOnlyRevision(name=col.name)
+                for col in root.columns
+                if col.name in metric_names
+            ]
+            return sorted(stubs, key=lambda x: ordering[x.name])
+
+        # Full path: node_revision loaded on each cube element
         return sorted(
             [
                 node_revision
                 for _, node_revision in root.cube_elements_with_nodes()
-                if node_revision and node_revision.type == NodeType.METRIC
+                if node_revision and node_revision.type == NodeType_.METRIC
             ],
             key=lambda x: ordering[x.name],
         )
@@ -391,12 +418,41 @@ class NodeRevision:
         return root.cube_filters or []
 
     @strawberry.field
-    def cube_dimensions(self, root: "DBNodeRevision") -> List[DimensionAttribute]:
+    def cube_dimensions(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+    ) -> List[DimensionAttribute]:
         """
         Dimensions for a cube node
         """
         if root.type != NodeType.CUBE:
             return []
+
+        # Name-only path: metric names pre-fetched by _attach_raw_columns.
+        if info.context.get("cube_name_only"):  # type: ignore
+            metric_names: set[str] = getattr(root, "_cube_metric_names", set())
+            ordering = root.ordering()
+            return sorted(
+                [
+                    DimensionAttribute(  # type: ignore
+                        name=col.name + (col.dimension_column or ""),
+                        attribute=None,
+                        role=col.dimension_column,
+                        _dimension_node=None,
+                        type=str(col.type) if col.type else "",
+                        properties=[],
+                    )
+                    for col in root.columns
+                    if col.name not in metric_names
+                ],
+                key=lambda x: ordering.get(
+                    x.name,
+                    ordering.get(x.name.split("[")[0], 0),
+                ),
+            )
+
+        # Full path: node_revision loaded on each cube element
         dimension_to_roles = {col.name: col.dimension_column for col in root.columns}
         ordering = root.ordering()
         return sorted(
@@ -466,8 +522,8 @@ class Node:
         """
         Git repository information for this node's namespace
         """
-        session = info.context["session"]  # type: ignore
-        git_info_dict = await get_git_info_for_namespace(session, root.namespace)
+        git_info_loader = info.context["git_info_loader"]  # type: ignore
+        git_info_dict = await git_info_loader.load(root.namespace)
         if git_info_dict:
             return GitRepositoryInfo.from_pydantic(  # type: ignore
                 PydanticGitRepositoryInfo(**git_info_dict),

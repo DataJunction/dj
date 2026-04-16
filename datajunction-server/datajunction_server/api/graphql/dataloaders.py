@@ -3,7 +3,7 @@ DataLoaders for batching and caching GraphQL queries.
 """
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,7 +12,12 @@ from starlette.requests import Request
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.database.collection import Collection as DBCollection
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node as DBNode
+from datajunction_server.internal.namespaces import (
+    get_parent_namespaces,
+    resolve_git_info_from_map,
+)
 from datajunction_server.utils import session_context
 
 
@@ -165,4 +170,69 @@ def create_collection_nodes_loader(
     """
     return DataLoader(
         load_fn=lambda keys: batch_load_collection_nodes(keys, request),
+    )
+
+
+async def batch_load_git_info(
+    namespaces: list[str],
+    request: Request,
+) -> list[Optional[dict]]:
+    """
+    Batch load git info for multiple namespaces in a single query.
+
+    Collects all ancestor namespaces across all requested namespaces,
+    loads them in one query, then resolves git info for each from the
+    shared map.
+    """
+    # Collect all unique namespace names we need to look up
+    all_ancestor_names: set[str] = set()
+    for ns in namespaces:
+        ancestors = get_parent_namespaces(ns) + [ns]
+        all_ancestor_names.update(ancestors)
+
+    async with session_context(request) as session:
+        # Single query to load all namespace rows
+        stmt = select(NodeNamespace).where(
+            NodeNamespace.namespace.in_(all_ancestor_names),
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+        ns_map = {ns.namespace: ns for ns in rows}
+
+        # Handle FK hops: some branch namespaces point to a parent outside
+        # the string hierarchy. Collect missing parent_namespace values and
+        # load them in one extra query.
+        missing_fk_parents: set[str] = set()
+        for ns in namespaces:
+            ancestors = get_parent_namespaces(ns) + [ns]
+            for name in reversed(ancestors):
+                row = ns_map.get(name)
+                if row and row.git_branch:
+                    if row.parent_namespace and row.parent_namespace not in ns_map:
+                        missing_fk_parents.add(row.parent_namespace)
+                    break
+
+        if missing_fk_parents:
+            fk_stmt = select(NodeNamespace).where(
+                NodeNamespace.namespace.in_(missing_fk_parents),
+            )
+            fk_rows = (await session.execute(fk_stmt)).scalars().all()
+            for fk_row in fk_rows:
+                ns_map[fk_row.namespace] = fk_row
+
+    # Resolve git info for each requested namespace using the shared map
+    return [resolve_git_info_from_map(ns, ns_map) for ns in namespaces]
+
+
+def create_git_info_loader(
+    request: Request,
+) -> DataLoader[str, Optional[dict]]:
+    """
+    Create a DataLoader that batches git info lookups by namespace.
+
+    Multiple nodes sharing the same or overlapping namespace hierarchies
+    will be resolved with at most 2 DB queries (ancestors + FK hops)
+    instead of one query per node.
+    """
+    return DataLoader(
+        load_fn=lambda keys: batch_load_git_info(keys, request),
     )
