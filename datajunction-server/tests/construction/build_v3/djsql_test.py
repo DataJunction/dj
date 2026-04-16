@@ -441,6 +441,7 @@ class TestDJSQLFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696

@@ -892,7 +892,7 @@ def build_select_ast(
 
     # Push dimension filters into upstream CTEs when possible.
     # If a filter references a dimension that maps to a FK column on the parent
-    # (e.g., measure_date.dateint → instance_start_utc_date), push it into the
+    # (e.g., date.dateint -> event_utc_date), push it into the
     # parent's CTE so the engine doesn't scan the full table before filtering.
     if all_filters:
         _push_dimension_filters_to_ctes(
@@ -905,8 +905,8 @@ def build_select_ast(
         )
 
     # Build CTEs for all non-source nodes with column filtering.
-    # This runs AFTER filter pushdown so that injected_cte_filters is fully
-    # populated — the CTE builder injects pushed-down filters into WHERE clauses.
+    # This runs after filter pushdown so that the CTE builder injects
+    # pushed-down filters into WHERE clauses.
     ctes, scanned_sources = collect_node_ctes(
         ctx,
         nodes_for_ctes,

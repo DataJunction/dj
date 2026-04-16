@@ -871,6 +871,7 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -930,6 +931,7 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             v3_page_views_enriched AS (
                 SELECT view_id, product_id
@@ -983,6 +985,7 @@ class TestMetricsSQLDerived:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1022,6 +1025,7 @@ class TestMetricsSQLDerived:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status IN ('active', 'completed')
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1061,6 +1065,7 @@ class TestMetricsSQLDerived:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status != 'cancelled'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1100,6 +1105,7 @@ class TestMetricsSQLDerived:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status LIKE 'act%'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1142,10 +1148,12 @@ class TestMetricsSQLDerived:
                 SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'active'
             ),
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1738,6 +1746,7 @@ class TestFilterOnlyDimensionLoop:
                 category,
                 subcategory
               FROM default.v3.products
+              WHERE subcategory = 'tools' AND category = 'electronics'
             ),
             order_details_0 AS (
               SELECT
@@ -3540,6 +3549,7 @@ class TestFilterOnlyDimensions:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE status = 'completed'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -3604,6 +3614,7 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -3831,6 +3842,7 @@ class TestMultiHopIntermediateDimensionColumns:
                 location_id,
                 country
               FROM default.v3.locations
+              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT
@@ -4104,6 +4116,7 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
+                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -4168,6 +4181,7 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
+                WHERE year IN (2023, 2024)
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -4233,6 +4247,7 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
+                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
@@ -4286,6 +4301,7 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
+                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.from_location_id, oi.quantity * oi.unit_price AS line_total
@@ -4462,6 +4478,7 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
+                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -4546,6 +4563,7 @@ class TestMetricsSQLEdgeCases:
                        oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE customer_id = 42
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -4644,6 +4662,7 @@ class TestMetricsSQLEdgeCases:
             WITH v3_customer AS (
                 SELECT customer_id, email
                 FROM default.v3.customers
+                WHERE email LIKE '%@example.com'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.product_id,
