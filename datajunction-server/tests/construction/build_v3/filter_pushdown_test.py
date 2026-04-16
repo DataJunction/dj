@@ -7,7 +7,7 @@ appropriate CTE WHERE clauses, not just applied on the outer query.
 
 import pytest
 
-from tests.construction.build_v3 import get_first_grain_group
+from tests.construction.build_v3 import assert_sql_equal, get_first_grain_group
 
 
 class TestFilterPushdownToParentCTE:
@@ -31,12 +31,30 @@ class TestFilterPushdownToParentCTE:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        sql = data["sql"]
-
-        # The filter should be pushed into the v3_order_details CTE as
-        # order_date >= 20240101 (order_date is the FK to v3.date.date_id)
-        assert "order_date >= 20240101" in sql
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date >= 20240101
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.order_date >= 20240101
+            GROUP BY t2.category
+            """,
+        )
 
 
 class TestFilterPushdownToDimensionCTE:
@@ -59,13 +77,28 @@ class TestFilterPushdownToDimensionCTE:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        sql = data["sql"]
-
-        # The filter should appear in the v3_product CTE WHERE clause
-        # AND in the outer WHERE (redundant but safe)
-        assert sql.count("'Electronics'") >= 2, (
-            f"Filter should appear in both CTE and outer WHERE, got:\n{sql}"
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+              WHERE category = 'Electronics'
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t2.category = 'Electronics'
+            GROUP BY t2.category
+            """,
         )
 
 
@@ -92,13 +125,31 @@ class TestFilterPushdownMultiple:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        sql = data["sql"]
-
-        # Date filter pushed to parent CTE as FK column
-        assert "order_date >= 20240101" in sql
-        # Product filter pushed to dimension CTE
-        assert sql.count("'Electronics'") >= 2
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date >= 20240101
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+              WHERE category = 'Electronics'
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.order_date >= 20240101 AND t2.category = 'Electronics'
+            GROUP BY t2.category
+            """,
+        )
 
 
 class TestFilterPushdownEdgeCases:
@@ -118,28 +169,27 @@ class TestFilterPushdownEdgeCases:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        sql = data["sql"]
-
-        # The v3_order_details CTE should not have a WHERE clause
-        # (only the original query's WHERE, if any)
-        cte_start = sql.lower().find("v3_order_details as")
-        assert cte_start >= 0, "v3_order_details CTE should exist"
-        # Find closing paren for this CTE
-        paren_depth = 0
-        cte_body_start = sql.find("(", cte_start)
-        for i in range(cte_body_start, len(sql)):
-            if sql[i] == "(":
-                paren_depth += 1
-            elif sql[i] == ")":
-                paren_depth -= 1
-                if paren_depth == 0:
-                    cte_body = sql[cte_body_start : i + 1]
-                    break
-        else:
-            cte_body = ""
-        # No WHERE with date filter values
-        assert "20240101" not in cte_body
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_filter_on_local_dimension(
@@ -156,11 +206,21 @@ class TestFilterPushdownEdgeCases:
             },
         )
         assert response.status_code == 200, response.json()
-        data = get_first_grain_group(response.json())
-        sql = data["sql"]
-
-        # status is a local column on v3.order_details — should be pushed
-        # into the v3_order_details CTE
-        assert sql.count("'completed'") >= 2, (
-            f"Local dim filter should appear in CTE and outer WHERE:\n{sql}"
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE status = 'completed'
+            )
+            SELECT t1.status,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            WHERE t1.status = 'completed'
+            GROUP BY t1.status
+            """,
         )

@@ -975,7 +975,7 @@ def _push_dimension_filters_to_ctes(
     if parent_node.type != NodeType.SOURCE:  # pragma: no branch
         cte_node_names.add(parent_node.name)
     for node in nodes_for_ctes or []:  # pragma: no branch
-        if node.type != NodeType.SOURCE:
+        if node.type != NodeType.SOURCE:  # pragma: no branch
             cte_node_names.add(node.name)
 
     parent_col_names = (
