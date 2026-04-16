@@ -17,15 +17,13 @@ from datajunction_server.api.graphql.scalars.sql import CubeDefinition
 from datajunction_server.api.graphql.utils import dedupe_append, extract_fields
 from datajunction_server.database.dimensionlink import DimensionLink
 
-from datajunction_server.database.node import Column, ColumnAttribute
+from datajunction_server.database.node import Column, ColumnAttribute, CubeRelationship
 from datajunction_server.database.node import Node as DBNode
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.api.graphql.resolvers.tags import tag_load_options
 from datajunction_server.api.graphql.resolvers.users import user_load_options
 from datajunction_server.models.node import NodeMode, NodeStatus, NodeType
 
-# cubeMetrics/cubeDimensions fields derivable from the cube's own columns
-# without loading cube_elements at all.
 _CUBE_NAME_ONLY_FIELDS: frozenset[str] = frozenset({"name"})
 
 
@@ -51,19 +49,18 @@ async def _attach_raw_columns(session, nodes):
     Fetch column data and metric names as raw rows and inject into each
     cube node's current revision, bypassing ORM hydration.
     """
-    from datajunction_server.database.node import CubeRelationship
-    from datajunction_server.models.node import NodeType as NodeType_
-
-    rev_ids = [
-        node.current.id
+    cube_nodes = [
+        node
         for node in nodes
-        if node.current is not None and node.type == NodeType_.CUBE
+        if node.current is not None and node.type == NodeType.CUBE
     ]
-    if not rev_ids:
+    if not cube_nodes:
         return
 
+    rev_ids = [node.current.id for node in cube_nodes]
+
     # Fetch cube's own columns as raw tuples
-    col_stmt = (
+    col_result = await session.execute(
         sa_select(
             Column.node_revision_id,
             Column.name,
@@ -72,10 +69,8 @@ async def _attach_raw_columns(session, nodes):
             Column.order,
         )
         .where(Column.node_revision_id.in_(rev_ids))
-        .order_by(Column.node_revision_id, Column.order)
+        .order_by(Column.node_revision_id, Column.order),
     )
-    col_result = await session.execute(col_stmt)
-
     cols_by_rev: dict[int, list] = {}
     for rev_id, name, dim_col, col_type, order in col_result:
         cols_by_rev.setdefault(rev_id, []).append(
@@ -84,33 +79,25 @@ async def _attach_raw_columns(session, nodes):
 
     # Fetch metric element names per cube via the cube join table.
     # Metrics have _DOT_ in the element column name; dimensions don't.
-    metric_stmt = (
+    metric_result = await session.execute(
         sa_select(CubeRelationship.cube_id, Column.name)
         .join(Column, Column.id == CubeRelationship.cube_element_id)
         .where(
             CubeRelationship.cube_id.in_(rev_ids),
             Column.name.like("%\\_DOT\\_%"),
-        )
+        ),
     )
-    metric_result = await session.execute(metric_stmt)
-
     metric_names_by_rev: dict[int, set[str]] = {}
     for cube_id, elem_name in metric_result:
         metric_names_by_rev.setdefault(cube_id, set()).add(
             elem_name.replace("_DOT_", "."),
         )
 
-    for node in nodes:
-        if (
-            node.current is not None and node.type == NodeType_.CUBE
-        ):  # pragma: no branch
-            rev_id = node.current.id
-            set_committed_value(
-                node.current,
-                "columns",
-                cols_by_rev.get(rev_id, []),
-            )
-            node.current._cube_metric_names = metric_names_by_rev.get(rev_id, set())
+    # Inject raw columns and metric names into each cube revision
+    for node in cube_nodes:
+        rev_id = node.current.id
+        set_committed_value(node.current, "columns", cols_by_rev.get(rev_id, []))
+        node.current._cube_metric_names = metric_names_by_rev.get(rev_id, set())
 
 
 def _is_cube_name_only_request(current_fields: dict) -> bool:
