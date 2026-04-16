@@ -259,12 +259,18 @@ class TestLoadNodeRevisionOptions:
 
         assert has_noload_for(options, "cube_elements")
 
-    def test_cube_request_loads_minimal_columns(self):
-        """Cube requests should load columns (for matching cube elements)."""
+    def test_cube_name_only_noloads_columns(self):
+        """Name-only cube requests noload columns (fetched as raw tuples post-query)."""
         fields = {"cube_metrics": {"name": {}}}
         options = load_node_revision_options(fields)
 
-        # Cube requests should selectinload columns with minimal fields
+        assert has_noload_for(options, "columns")
+
+    def test_cube_full_request_loads_minimal_columns(self):
+        """Non-name-only cube requests should selectinload columns."""
+        fields = {"cube_metrics": {"name": {}, "description": {}}}
+        options = load_node_revision_options(fields)
+
         assert has_selectinload_for(options, "columns")
 
     def test_query_ast_always_deferred(self):

@@ -55,6 +55,9 @@ JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
 
 
+_DOT = "_DOT_"
+
+
 class _NameOnlyRevision:
     """
     Minimal stand-in returned by the cube_metrics fast path when only ``name``
@@ -377,7 +380,7 @@ class NodeRevision:
 
     # Only cubes will have these fields
     @strawberry.field
-    def cube_metrics(self, root: "DBNodeRevision") -> List["NodeRevision"]:  # type: ignore[return-value]
+    def cube_metrics(self, root: "DBNodeRevision", info: Info) -> List["NodeRevision"]:  # type: ignore[return-value]
         """
         Metrics for a cube node
         """
@@ -385,17 +388,17 @@ class NodeRevision:
             return []
         ordering = root.ordering()
 
-        # Fast path: when cube_elements were not loaded (name-only query),
-        # derive metric names from the cube's own columns.  Columns without
-        # dimension_column are metrics.
-        if not root.cube_elements:
+        # Name-only path: metric names pre-fetched by _attach_raw_columns.
+        if info.context.get("cube_name_only"):  # type: ignore
+            metric_names: set[str] = getattr(root, "_cube_metric_names", set())
             stubs: list = [
                 _NameOnlyRevision(name=col.name)
                 for col in root.columns
-                if not col.dimension_column
+                if col.name in metric_names
             ]
             return sorted(stubs, key=lambda x: ordering[x.name])
 
+        # Full path: node_revision loaded on each cube element
         return sorted(
             [
                 node_revision
@@ -415,18 +418,20 @@ class NodeRevision:
         return root.cube_filters or []
 
     @strawberry.field
-    def cube_dimensions(self, root: "DBNodeRevision") -> List[DimensionAttribute]:
+    def cube_dimensions(
+        self,
+        root: "DBNodeRevision",
+        info: Info,
+    ) -> List[DimensionAttribute]:
         """
         Dimensions for a cube node
         """
         if root.type != NodeType.CUBE:
             return []
 
-        # Fast path: when cube_elements were not loaded (name-only query),
-        # derive dimension names from the cube's own columns.  Columns with
-        # dimension_column set are dimensions; the column name already
-        # contains the full dotted path (e.g. "default.repair_order.repair_order_id").
-        if not root.cube_elements:
+        # Name-only path: metric names pre-fetched by _attach_raw_columns.
+        if info.context.get("cube_name_only"):  # type: ignore
+            metric_names: set[str] = getattr(root, "_cube_metric_names", set())
             ordering = root.ordering()
             return sorted(
                 [
@@ -439,7 +444,7 @@ class NodeRevision:
                         properties=[],
                     )
                     for col in root.columns
-                    if col.dimension_column
+                    if col.name not in metric_names
                 ],
                 key=lambda x: ordering.get(
                     x.name,
@@ -447,6 +452,7 @@ class NodeRevision:
                 ),
             )
 
+        # Full path: node_revision loaded on each cube element
         dimension_to_roles = {col.name: col.dimension_column for col in root.columns}
         ordering = root.ordering()
         return sorted(

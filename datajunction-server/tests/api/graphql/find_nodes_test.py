@@ -2484,3 +2484,109 @@ async def test_is_derived_metric_field(
     parent_types = [p["type"].lower() for p in node["current"]["parents"]]
     assert "metric" in parent_types
     assert node["current"]["isDerivedMetric"] is True
+
+
+@pytest.mark.asyncio
+async def test_find_cubes_name_only_with_tag_filter(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Test the name-only fast path for cubeMetrics/cubeDimensions with a tag
+    filter.  Exercises: tag ID pre-filter, raw column attachment, _DOT_
+    metric identification, git info DataLoader, user load_only, and tag noload.
+    """
+    # Create a tag
+    await client_with_roads.post(
+        "/tags/",
+        json={
+            "name": "cube_perf_test",
+            "tag_type": "test",
+            "description": "Tag for perf test",
+        },
+    )
+
+    # Create a cube
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": [
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+            ],
+            "description": "Name-only test cube",
+            "mode": "published",
+            "name": "default.name_only_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    # Tag the cube
+    response = await client_with_roads.post(
+        "/nodes/default.name_only_cube/tags/?tag_names=cube_perf_test",
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(tags: ["cube_perf_test"], nodeTypes: [CUBE]) {
+            name
+            tags {
+                name
+            }
+            gitInfo {
+                repo
+                branch
+                defaultBranch
+                isDefaultBranch
+                path
+                parentNamespace
+                gitOnly
+            }
+            createdBy {
+                username
+            }
+            owners {
+                username
+            }
+            currentVersion
+            current {
+                description
+                displayName
+                cubeMetrics {
+                    name
+                }
+                cubeDimensions {
+                    name
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["data"]["findNodes"]) == 1
+    cube = data["data"]["findNodes"][0]
+
+    assert cube["name"] == "default.name_only_cube"
+    assert cube["createdBy"]["username"] == "dj"
+    assert cube["tags"] == [{"name": "cube_perf_test"}]
+    assert cube["currentVersion"] == "v1.0"
+    assert cube["current"]["description"] == "Name-only test cube"
+    assert cube["current"]["displayName"] == "Name Only Cube"
+    assert cube["gitInfo"] is None  # No git config in test fixture
+
+    metric_names = sorted(m["name"] for m in cube["current"]["cubeMetrics"])
+    assert metric_names == [
+        "default.avg_repair_price",
+        "default.num_repair_orders",
+    ]
+
+    dim_names = sorted(d["name"] for d in cube["current"]["cubeDimensions"])
+    assert "default.hard_hat.city" in dim_names
+    assert "default.hard_hat.state" in dim_names
+    assert len(dim_names) == 2

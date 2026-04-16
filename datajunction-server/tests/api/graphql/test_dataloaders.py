@@ -370,6 +370,32 @@ async def test_batch_load_git_info_no_fk_hop(mock_session_context):
     assert result[0]["repo"] == "owner/repo"
 
 
+@pytest.mark.asyncio
+@patch("datajunction_server.api.graphql.dataloaders.session_context")
+async def test_batch_load_git_info_no_git_branch(mock_session_context):
+    """Test batch_load_git_info when no namespace has git_branch set."""
+    mock_session = AsyncMock()
+    mock_session_context.return_value.__aenter__.return_value = mock_session
+
+    ns_root = MagicMock()
+    ns_root.namespace = "project"
+    ns_root.git_branch = None
+    ns_root.github_repo_path = None
+    ns_root.parent_namespace = None
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [ns_root]
+    mock_session.execute.return_value = mock_result
+
+    mock_request = MagicMock()
+    result = await batch_load_git_info(["project"], mock_request)
+
+    # Only one query — no branch found, no FK hop
+    assert mock_session.execute.call_count == 1
+    assert len(result) == 1
+    assert result[0] is None
+
+
 @patch("datajunction_server.api.graphql.dataloaders.DataLoader")
 def test_create_git_info_loader(mock_dataloader):
     """Test create_git_info_loader creates DataLoader with correct load_fn."""
