@@ -1882,6 +1882,14 @@ async def test_validate_single_cube_with_invalid_metric(
 
     assert result.status == NodeStatus.INVALID
     assert any("INVALID" in err.message for err in result.errors)
+    # Validation data should still be built so the cube revision preserves
+    # its metrics/dimensions definition even when INVALID.
+    assert result._cube_validation_data is not None
+    # The invalid metric should still appear in metric_nodes so the cube
+    # knows which metrics it references (even if they can't be resolved).
+    assert invalid_metric in result._cube_validation_data.metric_nodes
+    # No valid metric columns could be extracted (all metrics were INVALID)
+    assert result._cube_validation_data.metric_columns == []
 
 
 @pytest.mark.asyncio
