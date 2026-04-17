@@ -34,3 +34,15 @@ async def test_failed_health(
     response = await client.get("/health/")
     data = response.json()
     assert data == [{"name": "database", "status": "failed"}]
+
+
+@pytest.mark.asyncio
+async def test_server_settings(module__client: AsyncClient) -> None:
+    """
+    Test ``GET /settings/`` returns server configuration.
+    """
+    response = await module__client.get("/settings/")
+    data = response.json()
+    assert "default_catalog" in data
+    assert "virtual_catalog" in data
+    assert data["virtual_catalog"] == "default"

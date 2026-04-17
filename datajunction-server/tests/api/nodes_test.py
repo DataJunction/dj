@@ -535,6 +535,58 @@ class TestNodeCRUD:
         ]
 
     @pytest.mark.asyncio
+    async def test_update_parentless_node_uses_default_catalog(
+        self,
+        client_with_roads: AsyncClient,
+        mocker,
+    ):
+        """
+        Test that updating a parentless dimension uses the server default catalog
+        when configured, instead of keeping the virtual catalog.
+        """
+        # First create a parentless dimension (gets virtual catalog)
+        response = await client_with_roads.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Color codes",
+                "query": "SELECT 1 AS code, 'red' AS color UNION ALL SELECT 2, 'blue'",
+                "mode": "published",
+                "name": "default.colors",
+                "primary_key": ["code"],
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["catalog"]["name"] == "default"
+
+        # Patch the config to set a default catalog name, then update the node.
+        # The "default" catalog (id=1) already exists in the test DB; we configure
+        # the server setting to point at it so the fallback path is exercised.
+        from unittest.mock import patch as _patch
+
+        from datajunction_server.config import SeedSetup
+
+        patched_setup = SeedSetup(default_catalog_name="default")
+        with (
+            _patch(
+                "datajunction_server.internal.nodes.get_settings",
+            ) as mock_settings,
+            _patch(
+                "datajunction_server.database.catalog.get_settings",
+            ) as mock_settings2,
+        ):
+            mock_settings.return_value.seed_setup = patched_setup
+            mock_settings2.return_value.seed_setup = patched_setup
+            response = await client_with_roads.patch(
+                "/nodes/default.colors/",
+                json={"description": "Updated color codes"},
+            )
+        assert response.status_code == 200
+
+        # Verify the node now has the "default" catalog (from server default, not virtual fallback)
+        response = await client_with_roads.get("/nodes/default.colors/")
+        assert response.json()["catalog"]["name"] == "default"
+
+    @pytest.mark.asyncio
     async def test_deleting_node(
         self,
         client_with_basic: AsyncClient,

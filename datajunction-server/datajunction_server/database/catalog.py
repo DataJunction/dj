@@ -97,6 +97,16 @@ class Catalog(Base):
             )
         return catalog
 
+    @classmethod
+    async def get_default_catalog(cls, session: AsyncSession) -> Optional["Catalog"]:
+        """
+        Get the server-configured default catalog, or None if not set.
+        """
+        settings = get_settings()
+        if not settings.seed_setup.default_catalog_name:
+            return None
+        return await cls.get_by_name(session, settings.seed_setup.default_catalog_name)
+
 
 class CatalogEngines(Base):  # type: ignore
     """
