@@ -539,9 +539,15 @@ async def create_node_revision(
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
+    default_catalog = await Catalog.get_default_catalog(session)
+    fallback_catalog_id = (
+        default_catalog.id
+        if default_catalog
+        else (await Catalog.get_virtual_catalog(session)).id
+    )
     catalog_id = next(
         iter(catalog_ids),
-        (await Catalog.get_virtual_catalog(session)).id,
+        fallback_catalog_id,
     )
     parent_refs = (
         (

@@ -2472,3 +2472,42 @@ class TestFallbackCatalogAndInferCubeCatalog:
         )
         result = orch._infer_cube_catalog(cube_spec, None)
         assert result is None
+
+    def test_fallback_catalog_uses_server_default_when_spec_unset(self):
+        """_fallback_catalog uses server default_catalog_name when deployment spec has no default."""
+        mock_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["server_catalog"] = mock_catalog
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = "server_catalog"
+            result = orch._fallback_catalog()
+        assert result == mock_catalog
+
+    def test_fallback_catalog_spec_overrides_server_default(self):
+        """Deployment spec default_catalog takes priority over server default_catalog_name."""
+        spec_catalog = MagicMock()
+        server_catalog = MagicMock()
+        spec = DeploymentSpec(namespace="test", default_catalog="spec_catalog")
+        orch = self._make_orchestrator(spec)
+        orch.registry.catalogs["spec_catalog"] = spec_catalog
+        orch.registry.catalogs["server_catalog"] = server_catalog
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = "server_catalog"
+            result = orch._fallback_catalog()
+        assert result == spec_catalog
+
+    def test_fallback_catalog_none_when_no_defaults(self):
+        """_fallback_catalog returns None when neither spec nor server default is set."""
+        spec = DeploymentSpec(namespace="test")
+        orch = self._make_orchestrator(spec)
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_settings",
+        ) as mock_settings:
+            mock_settings.return_value.seed_setup.default_catalog_name = None
+            result = orch._fallback_catalog()
+        assert result is None
