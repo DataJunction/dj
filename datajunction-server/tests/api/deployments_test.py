@@ -1830,7 +1830,9 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated cube (v2.0)\n[invalid] One or more dimensions not found for cube "
+            "message": "Updated cube (v2.0)\n"
+            "└─ Updated dimensions\n"
+            "[invalid] One or more dimensions not found for cube "
             "cube_update.default.repairs_cube: cube_update.default.us_state.non_existent_column",
             "name": "cube_update.default.repairs_cube",
             "operation": "update",

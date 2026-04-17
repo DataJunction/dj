@@ -2016,7 +2016,9 @@ class DeploymentOrchestrator:
         ]
         for node_name, column_name in dimension_attributes:
             full_key = f"{node_name}{SEPARATOR}{column_name}"
-            dimension_node = dimension_mapping[full_key]
+            dimension_node = dimension_mapping.get(full_key)
+            if not dimension_node:
+                continue
             if dimension_node not in cube_dimension_nodes:  # pragma: no cover
                 cube_dimension_nodes.append(dimension_node)
 
