@@ -150,6 +150,25 @@ class BuildContext:
 
 
 @dataclass
+class PushdownFilters:
+    """User-supplied dimension filters to push into upstream CTEs.
+
+    Built by ``build_select_ast`` during outer-query filter resolution, then
+    passed to ``collect_node_ctes`` so each CTE can independently decide which
+    filters apply to it.
+
+    Attributes:
+        filters: Raw filter strings (e.g. ``["v3.date.date_id[order] >= 20240101"]``).
+        column_aliases: Map from dimension ref to bare column name.  Identity
+            for most dimensions (``category`` → ``category``), but differs when
+            a FK rename is involved (``date_id`` → ``order_date``).
+    """
+
+    filters: list[str]
+    column_aliases: dict[str, str]
+
+
+@dataclass
 class ColumnMetadata:
     """
     Metadata about a column in the generated SQL.

@@ -2369,7 +2369,7 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE status = 'completed'
+                WHERE o.status = 'completed'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2439,7 +2439,7 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.product_id, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE status = 'completed'
+                WHERE o.status = 'completed'
             ),
             v3_product AS (
                 SELECT product_id, category
@@ -2511,7 +2511,7 @@ class TestMeasuresSQLFilters:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE status IN ('completed', 'pending')
+                WHERE o.status IN ('completed', 'pending')
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2782,7 +2782,7 @@ class TestTemporalFilters:
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE order_date > 20200101
+                WHERE o.order_date > 20200101
             )
             SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -4015,7 +4015,7 @@ class TestFilterOnlyDimensions:
                 SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-                WHERE status = 'completed'
+                WHERE o.status = 'completed'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1

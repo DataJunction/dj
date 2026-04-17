@@ -7,12 +7,19 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Optional
 
-from datajunction_server.construction.build_v3.filters import extract_subscript_role
+from datajunction_server.construction.build_v3.filters import (
+    extract_subscript_role,
+    parse_filter,
+)
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
 )
-from datajunction_server.construction.build_v3.types import BuildContext, GrainGroupSQL
+from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    GrainGroupSQL,
+    PushdownFilters,
+)
 from datajunction_server.construction.build_v3.utils import get_cte_name
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
@@ -65,9 +72,9 @@ def extract_dimension_node(dim_ref: str) -> str:
     Extract the dimension node name from a full dimension reference.
 
     For example:
-        "common.dimensions.time.date.dateint" -> "common.dimensions.time.date"
-        "common.dimensions.time.date.week_code" -> "common.dimensions.time.date"
-        "v3.product.hw_category" -> "v3.product"
+        "v3.date.date_id" -> "v3.date"
+        "v3.date.month" -> "v3.date"
+        "v3.product.category" -> "v3.product"
 
     Args:
         dim_ref: Full dimension reference (node.column format)
@@ -91,13 +98,13 @@ def build_alias_to_dimension_node(
 
     Args:
         dim_info: List of (original_dim_ref, col_alias) tuples
-            e.g., [("common.dimensions.time.date.dateint", "dateint"),
-                   ("common.dimensions.time.date.week_code", "week_code")]
+            e.g., [("v3.date.date_id", "date_id"),
+                   ("v3.date.month", "month")]
 
     Returns:
         Mapping from alias to dimension node
-            e.g., {"dateint": "common.dimensions.time.date",
-                   "week_code": "common.dimensions.time.date"}
+            e.g., {"date_id": "v3.date",
+                   "month": "v3.date"}
     """
     return {
         col_alias: extract_dimension_node(dim_ref) for dim_ref, col_alias in dim_info
@@ -502,27 +509,27 @@ def inject_partition_by_into_windows(
     2. Other columns from the same dimension node as the ORDER BY column
 
     The second rule is critical for period-over-period metrics. For example, if ordering
-    by week_code (from common.dimensions.time.date), we should NOT partition by dateint
-    (also from common.dimensions.time.date), because dateint is a finer grain that would
-    break the week-over-week comparison.
+    by month (from v3.date), we should NOT partition by date_id
+    (also from v3.date), because date_id is a finer grain that would
+    break the month-over-month comparison.
 
-    This ensures that comparisons (e.g., week-over-week) are done within each partition
-    (e.g., per country, per product) rather than across the entire result set.
+    This ensures that comparisons (e.g., month-over-month) are done within each partition
+    (e.g., per category, per product) rather than across the entire result set.
 
     IMPORTANT: This only applies to navigation/ranking functions (LAG, LEAD, RANK, etc.).
     Aggregate window functions (SUM, AVG, COUNT, MIN, MAX with OVER ()) are NOT modified,
-    as they often intentionally compute grand totals (e.g., for weighted CPM calculations).
+    as they often intentionally compute grand totals (e.g., for weighted average calculations).
 
     For example, given:
-        LAG(revenue, 1) OVER (ORDER BY week_code)
-    And requested dimensions: [category, dateint, week_code, month_code]
-    Where dateint, week_code, month_code are all from "common.dimensions.time.date"
+        LAG(revenue, 1) OVER (ORDER BY month)
+    And requested dimensions: [category, date_id, month, quarter]
+    Where date_id, month, quarter are all from "v3.date"
 
     This function transforms it to:
-        LAG(revenue, 1) OVER (PARTITION BY category ORDER BY week_code)
+        LAG(revenue, 1) OVER (PARTITION BY category ORDER BY month)
 
-    Note: dateint and month_code are excluded because they're from the same dimension
-    node as week_code.
+    Note: date_id and quarter are excluded because they're from the same dimension
+    node as month.
 
     But this is left unchanged:
         SUM(impressions) OVER ()  -- grand total, no partition injection
@@ -892,14 +899,131 @@ def flatten_inner_ctes(
     return extracted_ctes, inner_cte_renames
 
 
+# ---------------------------------------------------------------------------
+# Filter pushdown into CTEs
+# ---------------------------------------------------------------------------
+
+
+def _inject_filter_into_where(
+    query_ast: ast.Query,
+    filter_expr: ast.Expression,
+) -> None:
+    """AND a filter expression into a query's WHERE clause."""
+    if query_ast.select.where:
+        query_ast.select.where = ast.BinaryOp.And(
+            query_ast.select.where,
+            filter_expr,
+        )
+    else:
+        query_ast.select.where = filter_expr
+
+
+def _resolve_pushdown_filters_for_cte(
+    node: "Node",
+    cte_query: ast.Query,
+    pushdown_filters: list[str],
+    filter_column_aliases: dict[str, str],
+) -> list[ast.Expression]:
+    """Determine which user filters can be pushed into this CTE and return them.
+
+    For each filter, extracts the dimension references, resolves them to bare
+    column names via filter_column_aliases, and checks whether this CTE outputs
+    those columns.  If all referenced columns are present, the filter is rewritten
+    using the CTE's internal table-qualified column names and returned.
+
+    Returns a list of parsed filter AST expressions ready for injection.
+    """
+    node_output_cols = (
+        {col.name for col in (node.current.columns or [])} if node.current else set()
+    )
+
+    if not node_output_cols:  # pragma: no cover
+        return []
+
+    results: list[ast.Expression] = []
+    for filter_str in pushdown_filters:
+        rewritten = _rewrite_filter_for_cte(
+            filter_str,
+            filter_column_aliases,
+            node_output_cols,
+            cte_query,
+        )
+        if rewritten is None:
+            continue
+        results.append(parse_filter(rewritten))
+    return results
+
+
+def _rewrite_filter_for_cte(
+    filter_str: str,
+    filter_column_aliases: dict[str, str],
+    cte_output_cols: set[str],
+    cte_query: ast.Query,
+) -> str | None:
+    """Rewrite a dimension filter for injection into a specific CTE.
+
+    Replaces each dimension reference (e.g., ``v3.product.category``)
+    with the table-qualified column name from the CTE's SELECT projection
+    (e.g., ``p.category``).
+
+    Returns the rewritten filter string, or None if the filter doesn't apply
+    to this CTE (its columns aren't in the CTE's output).
+    """
+    # Build CTE projection map: bare_col → qualified_col
+    projection_map = _build_cte_projection_map(cte_query)
+
+    # Find the longest matching dim ref and resolve to bare col
+    rewritten = filter_str
+    matched = False
+    for dim_ref, bare_col in sorted(
+        filter_column_aliases.items(),
+        key=lambda x: -len(x[0]),
+    ):
+        if dim_ref not in rewritten:
+            continue
+        if bare_col not in cte_output_cols:
+            continue
+        # Use the CTE's qualified version if available
+        qualified = projection_map.get(bare_col, bare_col)
+        rewritten = rewritten.replace(dim_ref, qualified)
+        matched = True
+        break  # One dim ref per filter (filters are single predicates)
+
+    return rewritten if matched else None
+
+
+def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str]:
+    """Build a map from bare column name to table-qualified name from a CTE's SELECT.
+
+    For ``SELECT T.test_id, ...`` returns ``{"test_id": "T.test_id"}``.
+    For ``SELECT test_id, ...`` (no qualifier) returns ``{"test_id": "test_id"}``.
+    """
+    result: dict[str, str] = {}
+    if not cte_query.select:  # pragma: no cover
+        return result
+    for expr in cte_query.select.projection:
+        inner = getattr(expr, "child", expr)
+        if isinstance(inner, ast.Column) and inner.name:
+            bare = inner.name.name
+            if inner.namespace:
+                result[bare] = f"{inner.namespace[0].name}.{bare}"
+            else:
+                result[bare] = bare
+    return result
+
+
 def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
     needed_columns_by_node: Optional[dict[str, set[str]]] = None,
     injected_filters: Optional[dict[str, ast.Expression]] = None,
+    pushdown: Optional[PushdownFilters] = None,
 ) -> tuple[list[tuple[str, ast.Query]], list[str]]:
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
+
+    When ``pushdown`` is provided, each CTE independently checks whether any
+    user-supplied dimension filter can be pushed into its WHERE clause.
 
     This handles the full dependency chain:
     - Source nodes -> replaced with physical table names (catalog.schema.table)
@@ -1030,16 +1154,20 @@ def collect_node_ctes(
         if needed_cols:  # pragma: no branch
             query_ast = filter_cte_projection(query_ast, needed_cols)
 
-        # Inject pushed-down filter (e.g. temporal partition) into this CTE's WHERE clause
+        # Inject filters into this CTE's WHERE clause from two sources:
+        # (1) Temporal/explicit filters targeted at this node by name
+        # (2) User dimension filters that reference columns this CTE outputs
         if injected_filters and node.name in injected_filters:
-            injected = injected_filters[node.name]
-            if query_ast.select.where:  # pragma: no cover
-                query_ast.select.where = ast.BinaryOp.And(
-                    query_ast.select.where,
-                    injected,
-                )
-            else:
-                query_ast.select.where = injected
+            _inject_filter_into_where(query_ast, injected_filters[node.name])
+
+        if pushdown:
+            for filter_ast in _resolve_pushdown_filters_for_cte(
+                node,
+                query_ast,
+                pushdown.filters,
+                pushdown.column_aliases,
+            ):
+                _inject_filter_into_where(query_ast, filter_ast)
 
         ctes.append((cte_name, query_ast))
 
