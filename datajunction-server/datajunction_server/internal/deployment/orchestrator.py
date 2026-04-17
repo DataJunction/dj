@@ -1880,49 +1880,48 @@ class DeploymentOrchestrator:
             if metric_name in metric_nodes_map
         ]
 
-        # Check for INVALID metric nodes before accessing columns — INVALID nodes have
-        # no columns so columns[0] would IndexError.
+        # Collect errors but continue building validation data so the cube
+        # revision preserves its metrics/dimensions even when INVALID.
+        early_errors: list[DJError] = []
+
+        # Check for INVALID metric nodes — filter them out for column
+        # extraction but keep track of the error.
         invalid_metrics = [
             m for m in cube_metric_nodes if m.current.status == NodeStatus.INVALID
         ]
+        valid_metric_nodes = [
+            m for m in cube_metric_nodes if m.current.status != NodeStatus.INVALID
+        ]
         if invalid_metrics:
-            return NodeValidationResult(
-                spec=cube_spec,
-                status=NodeStatus.INVALID,
-                inferred_columns=[],
-                errors=[
-                    DJError(
-                        code=ErrorCode.INVALID_CUBE,
-                        message=(
-                            f"One or more metrics are INVALID for cube "
-                            f"{cube_spec.rendered_name}: "
-                            + ", ".join(m.name for m in invalid_metrics)
-                        ),
+            early_errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_CUBE,
+                    message=(
+                        f"One or more metrics are INVALID for cube "
+                        f"{cube_spec.rendered_name}: "
+                        + ", ".join(m.name for m in invalid_metrics)
                     ),
-                ],
-                dependencies=[],
+                ),
             )
 
-        # Extract metric columns and catalogs
-        metric_columns = [node.current.columns[0] for node in cube_metric_nodes]
-        catalogs = [metric.current.catalog for metric in cube_metric_nodes]
+        # Extract metric columns and catalogs from valid metrics only
+        metric_columns = [
+            node.current.columns[0]
+            for node in valid_metric_nodes
+            if node.current.columns
+        ]
+        catalogs = [metric.current.catalog for metric in valid_metric_nodes]
         catalog = catalogs[0] if catalogs else None
 
         # Collect errors for missing metrics/dimensions or catalog mismatches
-        errors = self._collect_cube_errors(
-            cube_spec,
-            missing_metrics,
-            missing_dimensions,
-            catalogs,
+        early_errors.extend(
+            self._collect_cube_errors(
+                cube_spec,
+                missing_metrics,
+                missing_dimensions,
+                catalogs,
+            ),
         )
-        if errors:
-            return NodeValidationResult(
-                spec=cube_spec,
-                status=NodeStatus.INVALID,
-                inferred_columns=[],
-                errors=errors,
-                dependencies=[],
-            )
 
         # Collect parent revision IDs for this cube's metrics (used by both
         # dimension and filter reachability checks below).
@@ -2048,7 +2047,7 @@ class DeploymentOrchestrator:
             if invalid_dims
             else []
         )
-        all_errors = dim_compat_errors + dim_errors
+        all_errors = early_errors + dim_compat_errors + dim_errors
         return NodeValidationResult(
             spec=cube_spec,
             status=NodeStatus.INVALID if all_errors else NodeStatus.VALID,
@@ -2934,11 +2933,12 @@ class DeploymentOrchestrator:
         self,
         result: NodeValidationResult,
     ) -> tuple[Node, NodeRevision, DeploymentResult]:
-        """Deploy a cube that failed validation as INVALID.
+        """Deploy a cube that failed validation, writing it as INVALID with no elements.
 
-        Preserves cube_elements from the existing revision (if any) so the
-        cube's metrics/dimensions definition isn't lost when an upstream
-        becomes invalid.
+        This is a fallback for cubes where validation failed so badly that no
+        _cube_validation_data could be built (e.g., all metrics are missing).
+        Ensures the namespace is fully populated even when cube metrics/dimensions
+        can't be resolved, so the deployment completes and is idempotent.
         """
         cube_spec = cast(CubeSpec, result.spec)
         logger.warning(
@@ -2964,9 +2964,6 @@ class DeploymentOrchestrator:
         ) or await Catalog.get_virtual_catalog(
             self.session,
         )
-        # Preserve cube_elements and columns from existing revision so the
-        # cube definition isn't wiped when an upstream becomes invalid.
-        existing_revision = existing.current if existing else None
         new_revision = NodeRevision(
             name=cube_spec.rendered_name,
             display_name=cube_spec.display_name,
@@ -2977,8 +2974,7 @@ class DeploymentOrchestrator:
             node=new_node,
             status=NodeStatus.INVALID,
             catalog=catalog,
-            columns=existing_revision.columns if existing_revision else [],
-            cube_elements=existing_revision.cube_elements if existing_revision else [],
+            columns=[],
             created_by_id=self.context.current_user.id,
             custom_metadata=cube_spec.custom_metadata,
         )
