@@ -520,6 +520,296 @@ def collect_cte_nodes_and_needed_columns(
     return nodes_for_ctes, needed_columns_by_node
 
 
+def _build_temporal_pushdown(
+    ctx: BuildContext,
+    parent_node: Node,
+    main_alias: str,
+) -> tuple[Optional[ast.Expression], dict[str, ast.Expression]]:
+    """Build temporal filter and attempt to push it into the upstream date-spine CTE.
+
+    If a temporal partition filter can be pushed into the upstream CTE that
+    drives the date spine, it is removed from the outer query (returns None
+    for the filter AST) and placed in the injected_cte_filters dict instead.
+
+    Returns:
+        (temporal_filter_ast, injected_cte_filters) where temporal_filter_ast
+        is None if the filter was successfully pushed down.
+    """
+    temporal_filter_ast, fk_col_name = build_temporal_filter(
+        ctx,
+        parent_node,
+        main_alias,
+    )
+    injected_cte_filters: dict[str, ast.Expression] = {}
+
+    if temporal_filter_ast and fk_col_name:
+        upstream_node = find_upstream_temporal_source_node(
+            ctx,
+            parent_node,
+            fk_col_name,
+        )
+        if upstream_node:
+            unaliased_filter_ast, _ = build_temporal_filter(ctx, parent_node, None)
+            if unaliased_filter_ast:  # pragma: no branch
+                injected_cte_filters[upstream_node.name] = unaliased_filter_ast
+                temporal_filter_ast = None
+
+    return temporal_filter_ast, injected_cte_filters
+
+
+def _build_filter_column_aliases(
+    ctx: BuildContext,
+    resolved_dimensions: list[ResolvedDimension],
+    parent_node: Node,
+) -> dict[str, str]:
+    """Build a mapping from dimension refs to bare column names for filter resolution.
+
+    Handles three cases:
+    - FK remapping: ``v3.date.date_id[order]`` → ``order_date``
+    - Identity: ``v3.product.category`` → ``category``
+    - Skip-join override: ``dimensions.time.date.dateint`` → ``utc_date``
+
+    Also adds bare-key fallbacks (role suffix stripped) so filters resolve
+    even when the role is missing or mismatched.
+    """
+    aliases: dict[str, str] = {}
+
+    for resolved_dim in resolved_dimensions:
+        col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
+        if not col_alias:
+            col_alias = resolved_dim.column_name
+        aliases[resolved_dim.original_ref] = col_alias
+
+    # Local columns from the parent node (for simple refs like "status")
+    if parent_node.current and parent_node.current.columns:  # pragma: no branch
+        for col in parent_node.current.columns:
+            if col.name not in aliases:  # pragma: no branch
+                aliases[col.name] = col.name
+
+    # Skip-join overrides
+    for dim_ref, local_col in ctx.skip_join_column_mapping.items():
+        aliases[dim_ref] = local_col
+
+    # Bare-key fallbacks (strip role suffix)
+    for original_ref in list(aliases.keys()):
+        if "[" in original_ref:
+            base_ref = original_ref.split("[")[0]
+            if base_ref not in aliases:  # pragma: no branch
+                aliases[base_ref] = aliases[original_ref]
+
+    return aliases
+
+
+def _build_outer_where(
+    filters: list[str],
+    filter_column_aliases: dict[str, str],
+    resolved_dimensions: list[ResolvedDimension],
+    main_alias: str,
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    parent_node: Node,
+) -> Optional[ast.Expression]:
+    """Parse user filters and resolve column references for the outer WHERE clause.
+
+    Returns the combined WHERE expression with table-qualified column names,
+    or None if no filters parse successfully.
+    """
+    where_clause = parse_and_resolve_filters(
+        filters,
+        filter_column_aliases,
+        cte_alias=None,
+    )
+    if where_clause:  # pragma: no branch
+        _add_table_prefixes_to_filter(
+            where_clause,
+            resolved_dimensions,
+            main_alias,
+            dim_aliases,
+            parent_node,
+        )
+    return where_clause
+
+
+def _build_dimension_col_expr(
+    resolved_dim: ResolvedDimension,
+    main_alias: str,
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    clean_alias: str,
+) -> Any:
+    """Build a SELECT expression for a single resolved dimension.
+
+    Returns a column reference, optionally wrapped in COALESCE (when the
+    dimension link has a ``default_value``) and aliased.
+    """
+    table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
+    col_ref = make_column_ref(resolved_dim.column_name, table_alias)
+
+    default_value = None
+    if resolved_dim.join_path and resolved_dim.join_path.links:
+        last_link = resolved_dim.join_path.links[-1]
+        default_value = last_link.default_value
+
+    if default_value is not None:
+        coalesce_func = ast.Function(
+            ast.Name("COALESCE"),
+            args=[col_ref, ast.String(f"'{default_value}'")],
+        )
+        col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
+        col_expr.set_as(True)
+        return col_expr
+
+    if clean_alias != resolved_dim.column_name:
+        col_ref.alias = ast.Name(clean_alias)
+    return col_ref
+
+
+def _build_metric_col_expr(
+    expr: ast.Expression,
+    clean_alias: str,
+    main_alias: str,
+) -> ast.Alias:
+    """Rewrite column references in a metric expression and wrap with an alias.
+
+    Adds the ``main_alias`` table qualifier to every unqualified column in
+    ``expr`` (mutates in place), then returns an ``ast.Alias`` node.
+    """
+    _rewrite_col_refs(expr, main_alias)
+    return ast.Alias(
+        alias=ast.Name(clean_alias),
+        child=expr,  # type: ignore[arg-type]
+    )
+
+
+def _build_group_by(
+    resolved_dimensions: list[ResolvedDimension],
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+    main_alias: str,
+    grain_col_specs: list[tuple[ast.Expression, str]],
+    projected_dim_col_names: set[str],
+    filter_dimensions: set[str],
+) -> list[ast.Expression]:
+    """Build the GROUP BY clause from dimensions and grain columns.
+
+    Dimensions marked as filter-only are excluded.  Grain columns that are
+    simple identifiers already present as a dimension are also skipped to
+    avoid duplicates.
+    """
+    group_by: list[ast.Expression] = []
+
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.original_ref in filter_dimensions:
+            continue
+        table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
+        group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
+
+    for gc_expr, gc_alias in grain_col_specs:
+        if isinstance(gc_expr, ast.Column):
+            if gc_expr.name.name not in projected_dim_col_names:
+                group_by.append(make_column_ref(gc_expr.name.name, main_alias))
+        else:
+            group_by.append(ast.Column(name=ast.Name(gc_alias)))
+
+    return group_by
+
+
+def _parse_grain_col_specs(
+    grain_columns: list[str],
+    grain_col_aliases: dict[str, str] | None,
+) -> list[tuple[ast.Expression, str]]:
+    """Parse grain column strings into (expression, alias) pairs.
+
+    When ``grain_col_aliases`` provides an override (keyed by the raw expression
+    string), that alias is used instead of the raw string.  This lets callers
+    pass ``component.name`` so the SQL alias matches the decompose component
+    identifier exactly.
+    """
+    alias_map = grain_col_aliases or {}
+    specs: list[tuple[ast.Expression, str]] = []
+    for gc in grain_columns:
+        expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
+        alias = alias_map.get(gc) or gc
+        specs.append((expr, alias))
+    return specs
+
+
+def _collect_spark_hints(
+    resolved_dimensions: list[ResolvedDimension],
+    dim_aliases: dict[tuple[str, Optional[str]], str],
+) -> list[ast.Hint]:
+    """Collect Spark join hints (e.g. BROADCAST) from dimension links."""
+    hints: list[ast.Hint] = []
+    for resolved_dim in resolved_dimensions:
+        if not resolved_dim.is_local and resolved_dim.join_path:
+            accumulated_role_parts: list[str] = []
+            for link in resolved_dim.join_path.links:
+                link_role = link.role or ""
+                if link_role:
+                    accumulated_role_parts.append(link_role)
+                accumulated_role = (
+                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
+                )
+                dim_key = (link.dimension.name, accumulated_role)
+                if link.spark_hints and dim_key in dim_aliases:
+                    hint_name = link.spark_hints.value.upper()
+                    dim_alias = dim_aliases[dim_key]
+                    hints.append(
+                        ast.Hint(
+                            name=ast.Name(hint_name),
+                            parameters=[ast.Column(name=ast.Name(dim_alias))],
+                        ),
+                    )
+    return hints
+
+
+def _build_dimension_joins(
+    ctx: BuildContext,
+    resolved_dimensions: list[ResolvedDimension],
+    main_alias: str,
+) -> tuple[dict[tuple[str, Optional[str]], str], list[ast.Join]]:
+    """Build JOIN clauses for non-local dimensions.
+
+    Walks each resolved dimension's join path, deduplicating joins when two
+    dimensions share a common prefix (same dimension node + accumulated role).
+
+    Returns:
+        (dim_aliases, joins) where dim_aliases maps (node_name, accumulated_role)
+        to the table alias used in the JOIN.
+    """
+    dim_aliases: dict[tuple[str, Optional[str]], str] = {}
+    joins: list[ast.Join] = []
+
+    for resolved_dim in resolved_dimensions:
+        if not resolved_dim.is_local and resolved_dim.join_path:
+            current_left_alias = main_alias
+            accumulated_role_parts: list[str] = []
+
+            for link in resolved_dim.join_path.links:
+                dim_node_name = link.dimension.name
+
+                link_role = link.role or ""
+                if link_role:
+                    accumulated_role_parts.append(link_role)
+                accumulated_role = (
+                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
+                )
+
+                dim_key = (dim_node_name, accumulated_role)
+
+                if dim_key not in dim_aliases:  # pragma: no branch
+                    if accumulated_role:
+                        alias_base = accumulated_role.replace("->", "_")
+                    else:
+                        alias_base = get_short_name(dim_node_name)
+                    dim_alias = ctx.next_table_alias(alias_base)
+                    dim_aliases[dim_key] = dim_alias
+
+                    join = build_join_clause(ctx, link, current_left_alias, dim_alias)
+                    joins.append(join)
+
+                current_left_alias = dim_aliases[dim_key]
+
+    return dim_aliases, joins
+
+
 def build_select_ast(
     ctx: BuildContext,
     metric_expressions: list[tuple[str, ast.Expression]],
@@ -564,133 +854,24 @@ def build_select_ast(
     # Generate alias for the main table
     main_alias = ctx.next_table_alias(parent_node.name)
 
-    # Track which dimension nodes need joins and their aliases
-    # Key by (node_name, role) to support multiple joins to same dimension with different roles
-    dim_aliases: dict[tuple[str, Optional[str]], str] = {}  # (node_name, role) -> alias
-    joins: list[ast.Join] = []
-
-    # Process dimensions to build joins
-    for resolved_dim in resolved_dimensions:
-        if not resolved_dim.is_local and resolved_dim.join_path:
-            # Need to add join(s) for this dimension
-            current_left_alias = main_alias
-
-            # Build accumulated role path as we traverse links
-            # This ensures that when two dimensions share a common prefix in their
-            # join paths, we reuse the same joins instead of creating duplicates
-            accumulated_role_parts = []
-
-            for link in resolved_dim.join_path.links:
-                dim_node_name = link.dimension.name
-
-                # Build the accumulated role path up to this link
-                link_role = link.role or ""
-                if link_role:
-                    accumulated_role_parts.append(link_role)
-                accumulated_role = (
-                    "->".join(accumulated_role_parts) if accumulated_role_parts else ""
-                )
-
-                # Key for deduplication: (dimension_node, accumulated_role_up_to_this_point)
-                # This allows different final dimensions to share intermediate joins
-                dim_key = (dim_node_name, accumulated_role)
-
-                # Generate alias for dimension table if not already created
-                # Key includes accumulated role to allow multiple joins to same dimension with different roles
-                if dim_key not in dim_aliases:  # pragma: no branch
-                    # Use accumulated role as part of alias if present to distinguish multiple joins
-                    if accumulated_role:
-                        alias_base = accumulated_role.replace("->", "_")
-                    else:
-                        alias_base = get_short_name(dim_node_name)
-                    dim_alias = ctx.next_table_alias(alias_base)
-                    dim_aliases[dim_key] = dim_alias
-
-                    # Build join clause
-                    join = build_join_clause(ctx, link, current_left_alias, dim_alias)
-                    joins.append(join)
-
-                # For multi-hop, the next join's left is this dimension
-                current_left_alias = dim_aliases[dim_key]
-
-    # Collect Spark join hints from dimension links
-    spark_hints: list[ast.Hint] = []
-    for resolved_dim in resolved_dimensions:
-        if not resolved_dim.is_local and resolved_dim.join_path:
-            _accumulated_role_parts: list[str] = []
-            for link in resolved_dim.join_path.links:
-                link_role = link.role or ""
-                if link_role:
-                    _accumulated_role_parts.append(link_role)
-                _accumulated_role = (
-                    "->".join(_accumulated_role_parts)
-                    if _accumulated_role_parts
-                    else ""
-                )
-                _dim_key = (link.dimension.name, _accumulated_role)
-                if link.spark_hints and _dim_key in dim_aliases:
-                    hint_name = link.spark_hints.value.upper()
-                    dim_alias = dim_aliases[_dim_key]
-                    spark_hints.append(
-                        ast.Hint(
-                            name=ast.Name(hint_name),
-                            parameters=[ast.Column(name=ast.Name(dim_alias))],
-                        ),
-                    )
+    dim_aliases, joins = _build_dimension_joins(ctx, resolved_dimensions, main_alias)
+    spark_hints = _collect_spark_hints(resolved_dimensions, dim_aliases)
 
     # Add dimension columns to projection
     # Filter-only dimensions are excluded from projection but included in GROUP BY
     for resolved_dim in resolved_dimensions:
-        table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
-
-        # Build column reference with table alias
-        col_ref = make_column_ref(resolved_dim.column_name, table_alias)
-
-        # Register alias (needed for filter resolution even if not in projection)
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
-
-        # Check if this dimension has a default_value configured on its link
-        # Use default_value from the last link in the join path (the dimension's direct link)
-        default_value = None
-        if resolved_dim.join_path and resolved_dim.join_path.links:
-            last_link = resolved_dim.join_path.links[-1]
-            default_value = last_link.default_value
-
-        # Apply COALESCE with default_value if configured
-        if default_value is not None:
-            coalesce_func = ast.Function(
-                ast.Name("COALESCE"),
-                args=[col_ref, ast.String(f"'{default_value}'")],
-            )
-            aliased_expr = coalesce_func.set_alias(ast.Name(clean_alias))
-            aliased_expr.set_as(True)
-            col_expr: Any = aliased_expr
-        else:
-            col_expr = col_ref
-            if clean_alias != resolved_dim.column_name:
-                col_expr.alias = ast.Name(clean_alias)
-
-        # Skip filter-only dimensions from projection
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
-
+        col_expr = _build_dimension_col_expr(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+            clean_alias,
+        )
         projection.append(col_expr)
 
-    # Parse grain column strings once into (expression, alias) pairs so that
-    # all subsequent loops can work directly with the AST without re-parsing.
-    # When grain_col_aliases provides an override (keyed by the raw expression
-    # string), that alias is used instead of deriving one from the AST.  This
-    # lets callers pass component.name so the SQL alias matches the decompose
-    # component identifier exactly.
-    grain_col_specs: list[tuple[ast.Expression, str]] = []
-    _gc_alias_map = grain_col_aliases or {}
-    for gc in grain_columns:
-        _gc_expr = cast(ast.Expression, parse(f"SELECT {gc}").select.projection[0])
-        # grain_col_aliases covers all LIMITED and NONE grain expressions; for any
-        # edge case not in the map, fall back to the raw expression string (which is
-        # the column name for plain identifiers).
-        alias = _gc_alias_map.get(gc) or gc
-        grain_col_specs.append((_gc_expr, alias))
+    grain_col_specs = _parse_grain_col_specs(grain_columns, grain_col_aliases)
 
     # Add grain columns for LIMITED aggregability (e.g., customer_id for COUNT DISTINCT)
     # These are added to the output so the result can be re-aggregated.
@@ -720,47 +901,16 @@ def build_select_ast(
     # Add metric expressions
     for alias_name, expr in metric_expressions:
         clean_alias = ctx.alias_registry.register(alias_name)
+        projection.append(_build_metric_col_expr(expr, clean_alias, main_alias))
 
-        # Rewrite column references in expression to use main table alias
-        def add_table_prefix(e):
-            if isinstance(e, ast.Column):
-                if e.name and not (  # pragma: no branch
-                    e.name.namespace and e.name.namespace.name
-                ):
-                    # Add table alias to unqualified columns
-                    e.name = ast.Name(e.name.name, namespace=ast.Name(main_alias))
-            for child in e.children if hasattr(e, "children") else []:
-                if child:  # pragma: no branch
-                    add_table_prefix(child)
-
-        add_table_prefix(expr)
-
-        # Clone expression and add alias
-        aliased_expr = ast.Alias(
-            alias=ast.Name(clean_alias),
-            child=expr,  # type: ignore[arg-type]
-        )
-        projection.append(aliased_expr)
-
-    # Build GROUP BY (use same column references as projection, without aliases)
-    # Skip filter-only dimensions as they're only needed for WHERE clause
-    group_by: list[ast.Expression] = []
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.original_ref in ctx.filter_dimensions:
-            continue
-        table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
-        group_by.append(make_column_ref(resolved_dim.column_name, table_alias))
-
-    # Add grain columns to GROUP BY for LIMITED aggregability.
-    # Simple columns are referenced with the table alias (same as dimensions).
-    # Complex expressions are already aliased in the SELECT, so reference just the alias.
-    # Skip plain columns already present via the dimension loop above.
-    for gc_expr, gc_alias in grain_col_specs:
-        if isinstance(gc_expr, ast.Column):
-            if gc_expr.name.name not in projected_dim_col_names:
-                group_by.append(make_column_ref(gc_expr.name.name, main_alias))
-        else:
-            group_by.append(ast.Column(name=ast.Name(gc_alias)))
+    group_by = _build_group_by(
+        resolved_dimensions,
+        dim_aliases,
+        main_alias,
+        grain_col_specs,
+        projected_dim_col_names,
+        ctx.filter_dimensions,
+    )
 
     # Collect all nodes that need CTEs and the minimal columns each must project
     nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
@@ -771,29 +921,11 @@ def build_select_ast(
         metric_expressions,
     )
 
-    # Build temporal filter and attempt to push it into the upstream date-spine CTE.
-    # Without pushdown, the filter lands on the outer grain-group query AFTER the
-    # rolling join has already been evaluated across all dates, which is very expensive.
-    # Pushdown injects the filter directly into the driving CTE (the date spine)
-    # so the join only runs for the target date(s).
-    temporal_filter_ast, fk_col_name = build_temporal_filter(
+    temporal_filter_ast, injected_cte_filters = _build_temporal_pushdown(
         ctx,
         parent_node,
         main_alias,
     )
-    injected_cte_filters: dict[str, ast.Expression] = {}
-    if temporal_filter_ast and fk_col_name:
-        upstream_node = find_upstream_temporal_source_node(
-            ctx,
-            parent_node,
-            fk_col_name,
-        )
-        if upstream_node:
-            # Build an unaliased version of the filter for injection into the upstream CTE
-            unaliased_filter_ast, _ = build_temporal_filter(ctx, parent_node, None)
-            if unaliased_filter_ast:  # pragma: no branch
-                injected_cte_filters[upstream_node.name] = unaliased_filter_ast
-                temporal_filter_ast = None  # Don't also apply on the outer query
 
     # Build FROM clause with main table (use materialized table if available)
     table_parts, _ = get_table_reference_parts_with_materialization(ctx, parent_node)
@@ -816,81 +948,25 @@ def build_select_ast(
 
     all_filters = list(filters or [])
 
-    # Build WHERE clause from filters
+    # Build outer WHERE clause from filters
     where_clause: Optional[ast.Expression] = None
+    filter_column_aliases: dict[str, str] = {}
     if all_filters:
-        # Build column alias mapping for filter resolution
-        # Maps dimension refs to their table-qualified column names
-        filter_column_aliases: dict[str, str] = {}
-
-        # Add dimension columns with their table aliases
-        for resolved_dim in resolved_dimensions:
-            table_alias = get_dimension_table_alias(
-                resolved_dim,
-                main_alias,
-                dim_aliases,
-            )
-
-            # For dimensions marked as "local" (no join needed), we need to map to the
-            # parent's FK column, not the dimension's column name.
-            # E.g., for filter "v3.date.date_id > X", if the parent has local column order_date,
-            # we should map to "order_date" not "date_id"
-            col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
-
-            # Fallback to the dimension's raw column name.
-            # We use the physical column name (not the registered alias) because
-            # _add_table_prefixes_to_filter uses resolved_dim.column_name as its
-            # col_to_table key, so both must agree on the same name.
-            if not col_alias:
-                col_alias = resolved_dim.column_name
-
-            filter_column_aliases[resolved_dim.original_ref] = col_alias
-
-        # Add local columns from the parent node (for simple column refs like "status")
-        if parent_node.current and parent_node.current.columns:  # pragma: no branch
-            for col in parent_node.current.columns:
-                if col.name not in filter_column_aliases:  # pragma: no branch
-                    filter_column_aliases[col.name] = col.name
-
-        # Override aliases for skip-join dimensions
-        # When skip-join optimization is used, the dimension reference maps to a local column
-        # Example: "dimensions.time.date.dateint" -> "utc_date"
-        for dim_ref, local_col in ctx.skip_join_column_mapping.items():
-            filter_column_aliases[dim_ref] = local_col
-
-        # Add bare keys (without role suffix) as fallbacks for filter resolution.
-        # This mirrors build_dimension_alias_map in metrics.py, so that a filter using
-        # a slightly different or missing role (e.g. "dim.col[typo]" when the registered
-        # dimension is "dim.col[correct_role]") can still resolve via the bare-key fallback
-        # in resolve_filter_references.
-        for original_ref in list(filter_column_aliases.keys()):
-            if "[" in original_ref:
-                base_ref = original_ref.split("[")[0]
-                if base_ref not in filter_column_aliases:  # pragma: no branch
-                    filter_column_aliases[base_ref] = filter_column_aliases[
-                        original_ref
-                    ]
-
-        # Parse and resolve filters
-        # Note: We don't pass a cte_alias because the column references are already
-        # qualified with their table aliases during dimension resolution
-        where_clause = parse_and_resolve_filters(
+        filter_column_aliases = _build_filter_column_aliases(
+            ctx,
+            resolved_dimensions,
+            parent_node,
+        )
+        where_clause = _build_outer_where(
             all_filters,
             filter_column_aliases,
-            cte_alias=None,  # Don't add table prefix - we'll handle it per column
+            resolved_dimensions,
+            main_alias,
+            dim_aliases,
+            parent_node,
         )
 
-        # Now resolve table prefixes for filter columns based on where they come from
-        if where_clause:  # pragma: no branch
-            _add_table_prefixes_to_filter(
-                where_clause,
-                resolved_dimensions,
-                main_alias,
-                dim_aliases,
-                parent_node,
-            )
-
-    # Build CTEs for all non-source nodes.  User dimension filters and their
+    # Build CTEs for all non-source nodes. Requested dimension filters and their
     # resolution map are passed through so each CTE can independently decide
     # whether to push a filter into its own WHERE clause.
     ctes, scanned_sources = collect_node_ctes(
