@@ -2934,10 +2934,11 @@ class DeploymentOrchestrator:
         self,
         result: NodeValidationResult,
     ) -> tuple[Node, NodeRevision, DeploymentResult]:
-        """Deploy a cube that failed validation, writing it as INVALID with no elements.
+        """Deploy a cube that failed validation as INVALID.
 
-        Ensures the namespace is fully populated even when cube metrics/dimensions
-        can't be resolved, so the deployment completes and is idempotent.
+        Preserves cube_elements from the existing revision (if any) so the
+        cube's metrics/dimensions definition isn't lost when an upstream
+        becomes invalid.
         """
         cube_spec = cast(CubeSpec, result.spec)
         logger.warning(
@@ -2963,6 +2964,9 @@ class DeploymentOrchestrator:
         ) or await Catalog.get_virtual_catalog(
             self.session,
         )
+        # Preserve cube_elements and columns from existing revision so the
+        # cube definition isn't wiped when an upstream becomes invalid.
+        existing_revision = existing.current if existing else None
         new_revision = NodeRevision(
             name=cube_spec.rendered_name,
             display_name=cube_spec.display_name,
@@ -2973,7 +2977,8 @@ class DeploymentOrchestrator:
             node=new_node,
             status=NodeStatus.INVALID,
             catalog=catalog,
-            columns=[],
+            columns=existing_revision.columns if existing_revision else [],
+            cube_elements=existing_revision.cube_elements if existing_revision else [],
             created_by_id=self.context.current_user.id,
             custom_metadata=cube_spec.custom_metadata,
         )

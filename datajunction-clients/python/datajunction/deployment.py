@@ -251,6 +251,17 @@ class DeploymentService:
             verbose=verbose,
         )
         if deployment.status == DeploymentStatus.SUCCESS:
+            invalid_results = [
+                r for r in deployment.results if r.status == ResultStatus.INVALID
+            ]
+            if invalid_results:
+                console.print(
+                    "\nDeployment finished: [bold yellow]SUCCESS with invalid nodes[/bold yellow]",
+                )
+                raise DJDeploymentFailure(
+                    project_name=deployment_spec.get("namespace", source_path),
+                    errors=[r.__dict__ for r in invalid_results],
+                )
             console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
         if deployment.status == DeploymentStatus.FAILED:
             errors = [
