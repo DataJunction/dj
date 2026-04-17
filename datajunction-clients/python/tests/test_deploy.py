@@ -818,6 +818,39 @@ def test_push_raises_on_failed_deployment(monkeypatch, tmp_path):
     assert exc_info.value.errors[0]["name"] == "foo.bar"
 
 
+def test_push_raises_on_success_with_invalid_nodes(monkeypatch, tmp_path):
+    """Deployment succeeds but contains INVALID nodes — should raise so CI fails."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    invalid_results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "create",
+            "status": "invalid",
+            "message": "One or more metrics are INVALID",
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "success",
+        "results": invalid_results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path)
+
+    assert "foo" in exc_info.value.message
+    assert len(exc_info.value.errors) == 1
+    assert exc_info.value.errors[0]["name"] == "foo.bar"
+
+
 @pytest.mark.timeout(2)
 def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "ns"}))
