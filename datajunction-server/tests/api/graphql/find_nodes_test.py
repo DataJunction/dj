@@ -5,7 +5,14 @@ Tests for the findNodes / findNodesPaginated GraphQL queries
 from unittest import mock
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
+from datajunction_server.models.node_type import NodeType
 
 
 @pytest.mark.asyncio
@@ -2590,3 +2597,249 @@ async def test_find_cubes_name_only_with_tag_filter(
     assert "default.hard_hat.city" in dim_names
     assert "default.hard_hat.state" in dim_names
     assert len(dim_names) == 2
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_search_by_name(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Search by name fragment filters and ranks nodes by trigram similarity.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, limit: 20) {
+            name
+            type
+        }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "repair_orders"}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    names = [node["name"] for node in data["data"]["findNodes"]]
+    assert "default.repair_orders" in names
+    assert "default.repair_orders_fact" in names
+    # Unrelated nodes must be filtered out.
+    assert "default.contractors" not in names
+    assert "default.hard_hat" not in names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_search_by_description(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Search hits against description, not just name / display_name.
+    """
+    node = Node(
+        name="default.search_description_target",
+        type=NodeType.METRIC,
+        current_version="v1",
+        namespace="default",
+        created_by_id=current_user.id,
+    )
+    revision = NodeRevision(
+        node=node,
+        name=node.name,
+        display_name="Totally Unrelated Label",
+        description="A zenon aardwolf lumbers past the idiosyncratic marmoset.",
+        type=NodeType.METRIC,
+        version="v1",
+        created_by_id=current_user.id,
+    )
+    session.add(revision)
+    await session.commit()
+
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q) { name }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "aardwolf"}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    names = [node["name"] for node in data["data"]["findNodes"]]
+    assert names == ["default.search_description_target"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_search_combined_filter(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Search composes with other filters like nodeTypes.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, nodeTypes: [METRIC]) {
+            name
+            type
+        }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "repair"}},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    results = data["data"]["findNodes"]
+    assert results, "expected at least one metric matching 'repair'"
+    assert all(node["type"] == "METRIC" for node in results)
+    names = {node["name"] for node in results}
+    # Sample of repair metrics present in the ROADS fixture
+    assert {
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+    } <= names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_search_no_results(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Search with a string that matches nothing returns an empty list.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q) { name }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "xyzzy_never_matches_anything"}},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"data": {"findNodes": []}}
+
+
+@pytest_asyncio.fixture
+async def search_with_branch_namespaces(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+) -> AsyncClient:
+    """
+    Create a git-backed namespace pair and two identically-named nodes to verify
+    that the main-branch boost ranks the main node above the feature-branch one.
+    """
+    session.add_all(
+        [
+            NodeNamespace(
+                namespace="search_demo",
+                github_repo_path="corp/search_demo",
+                default_branch="main",
+                parent_namespace=None,
+            ),
+            NodeNamespace(
+                namespace="search_demo.main",
+                github_repo_path="corp/search_demo",
+                git_branch="main",
+                parent_namespace="search_demo",
+            ),
+            NodeNamespace(
+                namespace="search_demo.feature",
+                github_repo_path="corp/search_demo",
+                git_branch="feature",
+                parent_namespace="search_demo",
+            ),
+        ],
+    )
+    await session.commit()
+
+    main_rev = NodeRevision(
+        node=Node(
+            name="search_demo.main.revenue_boost",
+            type=NodeType.METRIC,
+            current_version="v1",
+            namespace="search_demo.main",
+            created_by_id=current_user.id,
+        ),
+        name="search_demo.main.revenue_boost",
+        display_name="Revenue Boost",
+        description="Revenue boost metric on main branch.",
+        type=NodeType.METRIC,
+        version="v1",
+        created_by_id=current_user.id,
+    )
+    feature_rev = NodeRevision(
+        node=Node(
+            name="search_demo.feature.revenue_boost",
+            type=NodeType.METRIC,
+            current_version="v1",
+            namespace="search_demo.feature",
+            created_by_id=current_user.id,
+        ),
+        name="search_demo.feature.revenue_boost",
+        display_name="Revenue Boost",
+        description="Revenue boost metric on feature branch.",
+        type=NodeType.METRIC,
+        version="v1",
+        created_by_id=current_user.id,
+    )
+    session.add_all([main_rev, feature_rev])
+    await session.commit()
+    return client_with_roads
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_search_main_branch_boost(
+    search_with_branch_namespaces: AsyncClient,
+) -> None:
+    """
+    When two nodes match a search query equally well but live on different
+    branches, the main-branch node ranks first.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, nodeTypes: [METRIC]) { name }
+    }
+    """
+    response = await search_with_branch_namespaces.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "revenue_boost"}},
+    )
+    assert response.status_code == 200
+    names = [node["name"] for node in response.json()["data"]["findNodes"]]
+    main_idx = names.index("search_demo.main.revenue_boost")
+    feature_idx = names.index("search_demo.feature.revenue_boost")
+    assert main_idx < feature_idx, names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_with_search(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    findNodesPaginated applies the search filter alongside pagination.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodesPaginated(search: $q, limit: 50) {
+            edges { node { name } }
+            pageInfo { hasNextPage }
+        }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "hard_hat"}},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]["findNodesPaginated"]
+    names = [edge["node"]["name"] for edge in data["edges"]]
+    assert "default.hard_hat" in names
+    assert "default.hard_hats" in names
+    # Node unrelated to hard_hat must not be included.
+    assert "default.contractors" not in names

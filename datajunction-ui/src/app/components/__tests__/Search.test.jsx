@@ -1,334 +1,213 @@
 import React from 'react';
-import { render, fireEvent, waitFor, screen } from '@testing-library/react';
+import { render, fireEvent, waitFor, act } from '@testing-library/react';
 import Search from '../Search';
 import DJClientContext from '../../providers/djclient';
 
-const mockDjClient = {
-  DataJunctionAPI: {
-    nodeDetails: jest.fn(),
-    listTags: jest.fn(),
+const mockNodes = [
+  {
+    name: 'default.test_node',
+    display_name: 'Test Node',
+    description: 'A test node for testing',
+    type: 'transform',
+    kind: 'node',
   },
+  {
+    name: 'default.another_node',
+    display_name: 'Another Node',
+    description: '',
+    type: 'metric',
+    kind: 'node',
+  },
+  {
+    name: 'default.long_description_node',
+    display_name: 'Long Description',
+    description:
+      'This is a very long description that exceeds 100 characters and should be truncated to prevent display issues in the search results interface',
+    type: 'dimension',
+    kind: 'node',
+  },
+];
+
+const mockTags = [
+  {
+    name: 'test_tag',
+    display_name: 'Test Tag',
+    description: 'A test tag',
+    type: 'tag',
+    tag_type: 'business',
+    kind: 'tag',
+  },
+];
+
+const makeClient = overrides => ({
+  DataJunctionAPI: {
+    globalSearch: jest
+      .fn()
+      .mockResolvedValue({ nodes: mockNodes, tags: mockTags }),
+    ...(overrides || {}),
+  },
+});
+
+const flushDebounce = async () => {
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
 };
 
 describe('<Search />', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
   });
 
-  const mockNodes = [
-    {
-      name: 'default.test_node',
-      display_name: 'Test Node',
-      description: 'A test node for testing',
-      type: 'transform',
-    },
-    {
-      name: 'default.another_node',
-      display_name: 'Another Node',
-      description: null, // Test null description
-      type: 'metric',
-    },
-    {
-      name: 'default.long_description_node',
-      display_name: 'Long Description',
-      description:
-        'This is a very long description that exceeds 100 characters and should be truncated to prevent display issues in the search results interface',
-      type: 'dimension',
-    },
-  ];
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 
-  const mockTags = [
-    {
-      name: 'test_tag',
-      display_name: 'Test Tag',
-      description: 'A test tag',
-      tag_type: 'business',
-    },
-  ];
-
-  it('renders search input', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
-
+  it('renders the search input with the idle placeholder', () => {
+    const client = makeClient();
     const { getByPlaceholderText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    expect(getByPlaceholderText('Search nodes...')).toBeInTheDocument();
+    expect(getByPlaceholderText('Search nodes and tags...')).toBeInTheDocument();
   });
 
-  it('fetches and initializes search data on focus (lazy loading)', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
-
+  it('does not query the API for queries shorter than 2 characters', async () => {
+    const client = makeClient();
     const { getByPlaceholderText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    // Data should NOT be fetched on mount
-    expect(mockDjClient.DataJunctionAPI.nodeDetails).not.toHaveBeenCalled();
-
-    // Focus on search input to trigger lazy loading
-    const searchInput = getByPlaceholderText('Search nodes...');
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
-      expect(mockDjClient.DataJunctionAPI.listTags).toHaveBeenCalled();
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'a' },
     });
+    await flushDebounce();
+    expect(client.DataJunctionAPI.globalSearch).not.toHaveBeenCalled();
   });
 
-  it('displays search results when typing', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
-
-    const { getByPlaceholderText, getByText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+  it('calls globalSearch after the debounce interval for a non-trivial query', async () => {
+    const client = makeClient();
+    const { getByPlaceholderText } = render(
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'test' },
     });
-
-    fireEvent.change(searchInput, { target: { value: 'test' } });
-
-    await waitFor(() => {
-      expect(getByText(/Test Node/)).toBeInTheDocument();
-    });
+    await flushDebounce();
+    expect(client.DataJunctionAPI.globalSearch).toHaveBeenCalledWith(
+      'test',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
-  it('displays nodes with correct URLs', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
-
-    const { getByPlaceholderText, container } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+  it('renders both node and tag results returned by the server', async () => {
+    const client = makeClient();
+    const { getByPlaceholderText, container, findByText } = render(
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'test' },
     });
-
-    fireEvent.change(searchInput, { target: { value: 'node' } });
-
-    await waitFor(() => {
-      const links = container.querySelectorAll('a[href^="/nodes/"]');
-      expect(links.length).toBeGreaterThan(0);
-    });
+    await flushDebounce();
+    await findByText(/Test Node/);
+    expect(
+      container.querySelector('a[href="/nodes/default.test_node"]'),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('a[href="/tags/test_tag"]'),
+    ).toBeInTheDocument();
   });
 
-  it('displays tags with correct URLs', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue([]);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(mockTags);
-
-    const { getByPlaceholderText, container } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+  it('truncates descriptions longer than 100 characters', async () => {
+    const client = makeClient({
+      globalSearch: jest
+        .fn()
+        .mockResolvedValue({ nodes: [mockNodes[2]], tags: [] }),
+    });
+    const { getByPlaceholderText, findByText } = render(
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.listTags).toHaveBeenCalled();
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'long' },
     });
-
-    fireEvent.change(searchInput, { target: { value: 'tag' } });
-
-    await waitFor(() => {
-      const links = container.querySelectorAll('a[href^="/tags/"]');
-      expect(links.length).toBeGreaterThan(0);
-    });
+    await flushDebounce();
+    await findByText(/\.\.\./);
   });
 
-  it('truncates long descriptions', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
-    const { getByPlaceholderText, getByText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+  it('clears results when the query drops below the minimum length', async () => {
+    const client = makeClient();
+    const { getByPlaceholderText, container, findByText } = render(
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
+    const input = getByPlaceholderText('Search nodes and tags...');
+    fireEvent.change(input, { target: { value: 'test' } });
+    await flushDebounce();
+    await findByText(/Test Node/);
+    fireEvent.change(input, { target: { value: 'x' } });
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
-    });
-
-    fireEvent.change(searchInput, { target: { value: 'long' } });
-
-    await waitFor(() => {
-      expect(getByText(/\.\.\./)).toBeInTheDocument();
+      expect(container.querySelector('.search-result-item')).toBeNull();
     });
   });
 
-  it('handles null descriptions', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
-    const { getByPlaceholderText, getByText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
-        <Search />
-      </DJClientContext.Provider>,
-    );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
-    });
-
-    fireEvent.change(searchInput, { target: { value: 'another' } });
-
-    await waitFor(() => {
-      expect(getByText(/Another Node/)).toBeInTheDocument();
-    });
-  });
-
-  it('limits search results to 20 items', async () => {
-    const manyNodes = Array.from({ length: 30 }, (_, i) => ({
-      name: `default.node${i}`,
-      display_name: `Node ${i}`,
-      description: `Description ${i}`,
-      type: 'transform',
-    }));
-
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(manyNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
-    const { getByPlaceholderText, container } = render(
-      <DJClientContext.Provider value={mockDjClient}>
-        <Search />
-      </DJClientContext.Provider>,
-    );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
-    });
-
-    fireEvent.change(searchInput, { target: { value: 'node' } });
-
-    await waitFor(() => {
-      const results = container.querySelectorAll('.search-result-item');
-      expect(results.length).toBeLessThanOrEqual(20);
-    });
-  });
-
-  it('handles error when fetching nodes', async () => {
+  it('logs an error but does not throw when the request fails', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-    mockDjClient.DataJunctionAPI.nodeDetails.mockRejectedValue(
-      new Error('Network error'),
-    );
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
+    const client = makeClient({
+      globalSearch: jest.fn().mockRejectedValue(new Error('boom')),
+    });
     const { getByPlaceholderText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    // Focus to trigger lazy loading
-    const searchInput = getByPlaceholderText('Search nodes...');
-    fireEvent.focus(searchInput);
-
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'test' },
+    });
+    await flushDebounce();
     await waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error fetching nodes or tags:',
+        'Search failed:',
         expect.any(Error),
       );
     });
-
     consoleErrorSpy.mockRestore();
   });
 
-  it('renders search input inside nav-search-box container', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue([]);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
-    const { container } = render(
-      <DJClientContext.Provider value={mockDjClient}>
-        <Search />
-      </DJClientContext.Provider>,
-    );
-
-    const searchBox = container.querySelector('.nav-search-box');
-    expect(searchBox).toBeInTheDocument();
-    expect(searchBox.querySelector('input')).toBeInTheDocument();
-  });
-
-  it('handles empty tags array', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue(null);
-
+  it('aborts the in-flight request when a new query is typed', async () => {
+    const aborts = [];
+    const client = makeClient({
+      globalSearch: jest.fn((q, { signal }) => {
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            aborts.push(q);
+            reject(err);
+          });
+        });
+      }),
+    });
     const { getByPlaceholderText } = render(
-      <DJClientContext.Provider value={mockDjClient}>
+      <DJClientContext.Provider value={client}>
         <Search />
       </DJClientContext.Provider>,
     );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.listTags).toHaveBeenCalled();
-    });
-
-    // Should not throw an error
-    expect(searchInput).toBeInTheDocument();
-  });
-
-  it('shows description separator correctly', async () => {
-    mockDjClient.DataJunctionAPI.nodeDetails.mockResolvedValue(mockNodes);
-    mockDjClient.DataJunctionAPI.listTags.mockResolvedValue([]);
-
-    const { getByPlaceholderText, container } = render(
-      <DJClientContext.Provider value={mockDjClient}>
-        <Search />
-      </DJClientContext.Provider>,
-    );
-
-    const searchInput = getByPlaceholderText('Search nodes...');
-    // Focus to trigger lazy loading
-    fireEvent.focus(searchInput);
-
-    await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.nodeDetails).toHaveBeenCalled();
-    });
-
-    fireEvent.change(searchInput, { target: { value: 'test' } });
-
-    await waitFor(() => {
-      const results = container.querySelector('.search-result-item');
-      expect(results).toBeInTheDocument();
-    });
+    const input = getByPlaceholderText('Search nodes and tags...');
+    fireEvent.change(input, { target: { value: 'aaa' } });
+    await flushDebounce();
+    fireEvent.change(input, { target: { value: 'bbb' } });
+    await flushDebounce();
+    await waitFor(() => expect(aborts).toContain('aaa'));
+    expect(client.DataJunctionAPI.globalSearch).toHaveBeenCalledTimes(2);
   });
 });

@@ -311,3 +311,83 @@ async def test_tag_get_nodes(
             ],
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_search_tags_by_name(
+    client_with_tags: AsyncClient,
+) -> None:
+    """
+    searchTags matches by tag name.
+    """
+    query = """
+    query Q($q: String!) { searchTags(search: $q) { name } }
+    """
+    response = await client_with_tags.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "sales"}},
+    )
+    assert response.status_code == 200
+    names = [tag["name"] for tag in response.json()["data"]["searchTags"]]
+    assert names == ["sales_report"]
+
+
+@pytest.mark.asyncio
+async def test_search_tags_by_description(
+    client_with_tags: AsyncClient,
+) -> None:
+    """
+    searchTags matches by description.
+    """
+    query = """
+    query Q($q: String!) { searchTags(search: $q) { name } }
+    """
+    response = await client_with_tags.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "drink"}},
+    )
+    assert response.status_code == 200
+    names = sorted(tag["name"] for tag in response.json()["data"]["searchTags"])
+    assert names == ["coffee", "tea"]
+
+
+@pytest.mark.asyncio
+async def test_search_tags_empty_query_returns_empty(
+    client_with_tags: AsyncClient,
+) -> None:
+    """
+    Empty or whitespace-only search returns an empty list without querying.
+    """
+    query = """
+    query Q($q: String!) { searchTags(search: $q) { name } }
+    """
+    for q in ("", "   "):
+        response = await client_with_tags.post(
+            "/graphql",
+            json={"query": query, "variables": {"q": q}},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"data": {"searchTags": []}}
+
+
+@pytest.mark.asyncio
+async def test_search_tags_limit(
+    client_with_tags: AsyncClient,
+) -> None:
+    """
+    The limit argument caps the number of matching tags returned.
+    """
+    query = """
+    query Q($q: String!, $n: Int!) {
+        searchTags(search: $q, limit: $n) { name }
+    }
+    """
+    response = await client_with_tags.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "report", "n": 1}},
+    )
+    assert response.status_code == 200
+    tags = response.json()["data"]["searchTags"]
+    assert len(tags) == 1
+    # Either match is acceptable; both score similarly on 'report'
+    assert tags[0]["name"] in {"sales_report", "other_report"}

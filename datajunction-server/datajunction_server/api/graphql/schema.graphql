@@ -453,6 +453,11 @@ type Query {
 
   """Find nodes based on the search parameters."""
   findNodes(
+    """
+    Full-text search across node name, display name, and description. Results are ranked by pg_trgm similarity and boosted toward the main branch when a node exists in a git-backed namespace.
+    """
+    search: String = null
+
     """A fragment of a node name to search for"""
     fragment: String = null
 
@@ -505,6 +510,11 @@ type Query {
 
   """Find nodes based on the search parameters with pagination"""
   findNodesPaginated(
+    """
+    Full-text search across node name, display name, and description. When set, results are filtered by trigram match. Ranking by similarity is applied only on the unpaginated `findNodes` query; paginated results keep the normal sort order.
+    """
+    search: String = null
+
     """A fragment of a node name to search for"""
     fragment: String = null
 
@@ -616,6 +626,17 @@ type Query {
 
   """Find DJ node tags based on the search parameters."""
   listTags(tagNames: [String!] = null, tagTypes: [String!] = null): [Tag!]!
+
+  """
+  Trigram-ranked search across tag name, display name, and description. Used by the global search bar for tag autocomplete.
+  """
+  searchTags(
+    """Query string to match against tag name, display name, and description."""
+    search: String!
+
+    """Maximum number of matching tags to return."""
+    limit: Int! = 10
+  ): [Tag!]!
 
   """List all DJ node tag types"""
   listTagTypes: [String!]!

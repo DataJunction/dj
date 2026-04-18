@@ -772,7 +772,7 @@ class Node(Base):
             )
             pattern = f"%{search}%"
             statement = statement.where(
-                or_(
+                sa.or_(
                     NodeRevisionAlias.name.ilike(pattern),
                     NodeRevisionAlias.display_name.ilike(pattern),
                     NodeRevisionAlias.description.ilike(pattern),
