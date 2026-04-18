@@ -371,6 +371,26 @@ async def test_search_tags_empty_query_returns_empty(
 
 
 @pytest.mark.asyncio
+async def test_search_tags_single_char_prefix_mode(
+    client_with_tags: AsyncClient,
+) -> None:
+    """
+    Single-character queries fall back to prefix match on name/display_name.
+    """
+    query = """
+    query Q($q: String!) { searchTags(search: $q) { name } }
+    """
+    response = await client_with_tags.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "c"}},
+    )
+    assert response.status_code == 200
+    names = [tag["name"] for tag in response.json()["data"]["searchTags"]]
+    # Only "coffee" starts with "c".
+    assert names == ["coffee"]
+
+
+@pytest.mark.asyncio
 async def test_search_tags_limit(
     client_with_tags: AsyncClient,
 ) -> None:

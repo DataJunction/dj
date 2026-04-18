@@ -97,20 +97,42 @@ _SEARCH_WEIGHT_DESCRIPTION = 0.4
 _SEARCH_BOOST_MAIN = 1.0
 _SEARCH_BOOST_BRANCH = 0.5
 
+# Popularity factor: nodes with many dependents are more likely what the user
+# wants. Score is multiplied by (1 + w * ln(1 + child_count)); with w=0.2 a node
+# with 5 children gets ~1.4x, 50 children ~1.8x — firm preference without
+# swamping relevance entirely.
+_SEARCH_POPULARITY_WEIGHT = 0.2
 
-def _build_search_score(nr_alias, ns_alias, parent_ns_alias, query: str):
+# Queries shorter than this fall back to prefix matching; trigram similarity is
+# meaningless on single characters (every row matches).
+_SEARCH_MIN_FUZZY_LENGTH = 2
+
+
+def _build_search_score(
+    nr_alias,
+    ns_alias,
+    parent_ns_alias,
+    query: str,
+    *,
+    short_query: bool,
+    child_count_col,
+):
     """
     Build the relevance score SQL expression used to rank search results.
 
-    Score is the max pg_trgm similarity across name/display_name/description
-    with per-field weights, then multiplied by a main-branch boost: nodes on
-    a feature branch rank below equivalent matches on main.
+    For multi-char queries: max weighted pg_trgm similarity across
+    name/display_name/description.  For single-char queries: a flat relevance
+    of 1.0 so the prefix filter is ranked purely by branch + popularity.
+    Multiplied by a main-branch boost and a log-scaled popularity multiplier.
     """
-    base_score = func.greatest(
-        func.similarity(nr_alias.name, query) * _SEARCH_WEIGHT_NAME,
-        func.similarity(nr_alias.display_name, query) * _SEARCH_WEIGHT_DISPLAY_NAME,
-        func.similarity(nr_alias.description, query) * _SEARCH_WEIGHT_DESCRIPTION,
-    )
+    if short_query:
+        relevance = sa.literal(1.0)
+    else:
+        relevance = func.greatest(
+            func.similarity(nr_alias.name, query) * _SEARCH_WEIGHT_NAME,
+            func.similarity(nr_alias.display_name, query) * _SEARCH_WEIGHT_DISPLAY_NAME,
+            func.similarity(nr_alias.description, query) * _SEARCH_WEIGHT_DESCRIPTION,
+        )
     branch_boost = case(
         (parent_ns_alias.namespace.is_(None), _SEARCH_BOOST_MAIN),
         (parent_ns_alias.default_branch.is_(None), _SEARCH_BOOST_MAIN),
@@ -120,7 +142,10 @@ def _build_search_score(nr_alias, ns_alias, parent_ns_alias, query: str):
         ),
         else_=_SEARCH_BOOST_BRANCH,
     )
-    return base_score * branch_boost
+    popularity = 1.0 + _SEARCH_POPULARITY_WEIGHT * func.ln(
+        1 + func.coalesce(child_count_col, 0),
+    )
+    return relevance * branch_boost * popularity
 
 
 class NodeRelationship(Base):
@@ -770,19 +795,51 @@ class Node(Base):
                 parent_ns_alias,
                 ns_alias.parent_namespace == parent_ns_alias.namespace,
             )
-            pattern = f"%{search}%"
-            statement = statement.where(
-                sa.or_(
-                    NodeRevisionAlias.name.ilike(pattern),
-                    NodeRevisionAlias.display_name.ilike(pattern),
-                    NodeRevisionAlias.description.ilike(pattern),
-                ),
+
+            short_query = len(search) < _SEARCH_MIN_FUZZY_LENGTH
+            if short_query:
+                # Single-char queries fall back to prefix match; trigram
+                # similarity would return every row with that character.
+                prefix = f"{search}%"
+                statement = statement.where(
+                    sa.or_(
+                        NodeRevisionAlias.name.ilike(prefix),
+                        NodeRevisionAlias.display_name.ilike(prefix),
+                    ),
+                )
+            else:
+                pattern = f"%{search}%"
+                statement = statement.where(
+                    sa.or_(
+                        NodeRevisionAlias.name.ilike(pattern),
+                        NodeRevisionAlias.display_name.ilike(pattern),
+                        NodeRevisionAlias.description.ilike(pattern),
+                    ),
+                )
+
+            # Popularity proxy: number of NodeRelationship rows that reference
+            # this node as a parent (parent_id is a node.id, child_id a
+            # specific revision). Aggregated once via subquery and LEFT JOINed;
+            # absent rows coalesce to 0.
+            child_counts = (
+                select(
+                    NodeRelationship.parent_id.label("parent_id"),
+                    func.count().label("child_count"),
+                )
+                .group_by(NodeRelationship.parent_id)
+                .subquery()
+            )
+            statement = statement.outerjoin(
+                child_counts,
+                child_counts.c.parent_id == Node.id,
             )
             search_score_expr = _build_search_score(
                 NodeRevisionAlias,
                 ns_alias,
                 parent_ns_alias,
                 search,
+                short_query=short_query,
+                child_count_col=child_counts.c.child_count,
             )
 
         if node_types:

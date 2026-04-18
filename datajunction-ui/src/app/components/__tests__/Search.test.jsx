@@ -50,7 +50,7 @@ const makeClient = overrides => ({
 
 const flushDebounce = async () => {
   await act(async () => {
-    jest.advanceTimersByTime(300);
+    jest.advanceTimersByTime(200);
   });
 };
 
@@ -76,7 +76,7 @@ describe('<Search />', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not query the API for queries shorter than 2 characters', async () => {
+  it('does not query the API for an empty string', async () => {
     const client = makeClient();
     const { getByPlaceholderText } = render(
       <DJClientContext.Provider value={client}>
@@ -84,10 +84,27 @@ describe('<Search />', () => {
       </DJClientContext.Provider>,
     );
     fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
-      target: { value: 'a' },
+      target: { value: '   ' },
     });
     await flushDebounce();
     expect(client.DataJunctionAPI.globalSearch).not.toHaveBeenCalled();
+  });
+
+  it('queries the API for single-character input (server handles prefix)', async () => {
+    const client = makeClient();
+    const { getByPlaceholderText } = render(
+      <DJClientContext.Provider value={client}>
+        <Search />
+      </DJClientContext.Provider>,
+    );
+    fireEvent.change(getByPlaceholderText('Search nodes and tags...'), {
+      target: { value: 'h' },
+    });
+    await flushDebounce();
+    expect(client.DataJunctionAPI.globalSearch).toHaveBeenCalledWith(
+      'h',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('calls globalSearch after the debounce interval for a non-trivial query', async () => {
@@ -145,7 +162,7 @@ describe('<Search />', () => {
     await findByText(/\.\.\./);
   });
 
-  it('clears results when the query drops below the minimum length', async () => {
+  it('clears results when the input is cleared', async () => {
     const client = makeClient();
     const { getByPlaceholderText, container, findByText } = render(
       <DJClientContext.Provider value={client}>
@@ -156,7 +173,7 @@ describe('<Search />', () => {
     fireEvent.change(input, { target: { value: 'test' } });
     await flushDebounce();
     await findByText(/Test Node/);
-    fireEvent.change(input, { target: { value: 'x' } });
+    fireEvent.change(input, { target: { value: '' } });
     await waitFor(() => {
       expect(container.querySelector('.search-result-item')).toBeNull();
     });
@@ -183,6 +200,24 @@ describe('<Search />', () => {
       );
     });
     consoleErrorSpy.mockRestore();
+  });
+
+  it('serves a repeated query from cache without calling the server again', async () => {
+    const client = makeClient();
+    const { getByPlaceholderText } = render(
+      <DJClientContext.Provider value={client}>
+        <Search />
+      </DJClientContext.Provider>,
+    );
+    const input = getByPlaceholderText('Search nodes and tags...');
+    fireEvent.change(input, { target: { value: 'test' } });
+    await flushDebounce();
+    expect(client.DataJunctionAPI.globalSearch).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: 'other' } });
+    await flushDebounce();
+    fireEvent.change(input, { target: { value: 'test' } });
+    await flushDebounce();
+    expect(client.DataJunctionAPI.globalSearch).toHaveBeenCalledTimes(2);
   });
 
   it('aborts the in-flight request when a new query is typed', async () => {

@@ -104,26 +104,41 @@ class Tag(Base):
     ) -> list["Tag"]:
         """
         Trigram-ranked search across tag name, display name, and description.
-        Returned in descending similarity order.
+        Single-char queries fall back to prefix matching on name/display_name
+        since trigram similarity isn't meaningful at that length.
         """
-        pattern = f"%{search}%"
-        score = func.greatest(
-            func.similarity(Tag.name, search),
-            func.similarity(Tag.display_name, search) * 0.9,
-            func.similarity(Tag.description, search) * 0.4,
-        )
-        statement = (
-            select(Tag)
-            .where(
-                or_(
-                    Tag.name.ilike(pattern),
-                    Tag.display_name.ilike(pattern),
-                    Tag.description.ilike(pattern),
-                ),
+        if len(search) < 2:
+            prefix = f"{search}%"
+            statement = (
+                select(Tag)
+                .where(
+                    or_(
+                        Tag.name.ilike(prefix),
+                        Tag.display_name.ilike(prefix),
+                    ),
+                )
+                .order_by(Tag.name.asc())
+                .limit(limit)
             )
-            .order_by(score.desc(), Tag.name.asc())
-            .limit(limit)
-        )
+        else:
+            pattern = f"%{search}%"
+            score = func.greatest(
+                func.similarity(Tag.name, search),
+                func.similarity(Tag.display_name, search) * 0.9,
+                func.similarity(Tag.description, search) * 0.4,
+            )
+            statement = (
+                select(Tag)
+                .where(
+                    or_(
+                        Tag.name.ilike(pattern),
+                        Tag.display_name.ilike(pattern),
+                        Tag.description.ilike(pattern),
+                    ),
+                )
+                .order_by(score.desc(), Tag.name.asc())
+                .limit(limit)
+            )
         return (await session.execute(statement)).scalars().all()
 
     @classmethod

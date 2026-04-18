@@ -2843,3 +2843,125 @@ async def test_find_nodes_paginated_with_search(
     assert "default.hard_hats" in names
     # Node unrelated to hard_hat must not be included.
     assert "default.contractors" not in names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_with_single_char_search_prefix_mode(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Single-character queries use prefix match on name/display_name only;
+    trigram similarity is skipped. All returned names should start with 'h'.
+    """
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q, limit: 200) { name }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "h"}},
+    )
+    assert response.status_code == 200
+    names = [node["name"] for node in response.json()["data"]["findNodes"]]
+    # Plenty of `hard_hat*` and related nodes — assert non-empty and that the
+    # prefix filter actually restricted results.
+    assert names, "prefix search must return at least one match"
+    name_parts = [n.split(".")[-1] for n in names]
+    assert all(
+        part.lower().startswith("h")
+        or any(seg.lower().startswith("h") for seg in n.split("."))
+        for part, n in zip(name_parts, names)
+    ), f"unexpected non-h-prefix in {names}"
+    # Nodes whose name shares no 'h' prefix anywhere must not appear.
+    assert "default.contractors" not in names
+    assert "default.repair_orders" not in names
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_search_prefers_popular_nodes(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    Between two nodes that match the query equally, the one with more
+    downstream dependents ranks first.
+    """
+    # Two fresh source-like nodes with identical-quality matches on "rare_term"
+    # so the only differentiator is popularity (children count).
+    popular = Node(
+        name="default.rare_term_popular",
+        type=NodeType.SOURCE,
+        current_version="v1",
+        namespace="default",
+        created_by_id=current_user.id,
+    )
+    popular_rev = NodeRevision(
+        node=popular,
+        name=popular.name,
+        display_name="Rare Term Popular",
+        description="rare_term",
+        type=NodeType.SOURCE,
+        version="v1",
+        created_by_id=current_user.id,
+    )
+    lonely = Node(
+        name="default.rare_term_lonely",
+        type=NodeType.SOURCE,
+        current_version="v1",
+        namespace="default",
+        created_by_id=current_user.id,
+    )
+    lonely_rev = NodeRevision(
+        node=lonely,
+        name=lonely.name,
+        display_name="Rare Term Lonely",
+        description="rare_term",
+        type=NodeType.SOURCE,
+        version="v1",
+        created_by_id=current_user.id,
+    )
+    session.add_all([popular_rev, lonely_rev])
+    await session.flush()
+
+    # Attach three "children" to the popular node via NodeRelationship;
+    # parent_id references node.id and child_id references noderevision.id.
+    from datajunction_server.database.node import NodeRelationship
+
+    for i in range(3):
+        child = Node(
+            name=f"default.rare_term_child_{i}",
+            type=NodeType.TRANSFORM,
+            current_version="v1",
+            namespace="default",
+            created_by_id=current_user.id,
+        )
+        child_rev = NodeRevision(
+            node=child,
+            name=child.name,
+            type=NodeType.TRANSFORM,
+            version="v1",
+            created_by_id=current_user.id,
+        )
+        session.add(child_rev)
+        await session.flush()
+        session.add(
+            NodeRelationship(parent_id=popular.id, child_id=child_rev.id),
+        )
+    await session.commit()
+
+    query = """
+    query Search($q: String!) {
+        findNodes(search: $q) { name }
+    }
+    """
+    response = await client_with_roads.post(
+        "/graphql",
+        json={"query": query, "variables": {"q": "rare_term"}},
+    )
+    assert response.status_code == 200
+    names = [node["name"] for node in response.json()["data"]["findNodes"]]
+    popular_idx = names.index("default.rare_term_popular")
+    lonely_idx = names.index("default.rare_term_lonely")
+    assert popular_idx < lonely_idx, names
