@@ -427,7 +427,7 @@ class TestRewriteFilterForCte:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert rewritten == "o.placed_on BETWEEN 20260216 AND 20260402"
+        assert str(rewritten) == "o.placed_on BETWEEN 20260216 AND 20260402"
 
     def test_skips_non_column_projection(self):
         """Pushdown is skipped when the target column is projected via a function."""
@@ -468,7 +468,7 @@ class TestRewriteFilterForCte:
             cte_output_cols={"hard_hat_id", "hire_date", "state"},
             cte_query=cte_query,
         )
-        assert rewritten == "state = 'AZ'"
+        assert str(rewritten) == "state = 'AZ'"
 
     def test_does_not_corrupt_substring_collisions(self):
         """A shorter dim_ref must not rewrite inside a longer similarly-prefixed
@@ -487,7 +487,9 @@ class TestRewriteFilterForCte:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert rewritten == ("fact.orders.order_date_extended > 0 OR o.placed_on < 1")
+        assert str(rewritten) == (
+            "fact.orders.order_date_extended > 0 OR o.placed_on < 1"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +517,7 @@ class TestPushdownEdgeCases:
             cte_output_cols={"order_date", "state"},
             cte_query=cte_query,
         )
-        assert rewritten == ("o.placed_on >= 20260101 OR o.status = 'OPEN'")
+        assert str(rewritten) == ("o.placed_on >= 20260101 OR o.status = 'OPEN'")
 
     def test_multiple_dim_refs_crossing_ctes_skip_entirely(self):
         """If an OR-combined predicate references a column this CTE doesn't
@@ -582,7 +584,7 @@ class TestPushdownEdgeCases:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert rewritten == "o.placed_on >= 20260101"
+        assert str(rewritten) == "o.placed_on >= 20260101"
 
     @pytest.mark.xfail(
         strict=True,
@@ -604,4 +606,4 @@ class TestPushdownEdgeCases:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert rewritten == "o.placed_on > 0"
+        assert str(rewritten) == "o.placed_on > 0"
