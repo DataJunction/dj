@@ -814,7 +814,7 @@ class TestCubeDeployment:
         invalid_results = [
             NodeValidationResult(
                 spec=CubeSpec(
-                    name="invalid_cube",
+                    name="test.invalid_cube",
                     node_type="cube",
                     metrics=[],
                     dimensions=[],
@@ -842,9 +842,17 @@ class TestCubeDeployment:
         )
         orchestrator._generate_changelog = AsyncMock(return_value=([], []))
 
-        nodes, revisions, results = await orchestrator._create_cubes_from_validation(
-            invalid_results,
-        )
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
+            new_callable=AsyncMock,
+        ):
+            (
+                nodes,
+                revisions,
+                results,
+            ) = await orchestrator._create_cubes_from_validation(
+                invalid_results,
+            )
 
         assert len(nodes) == 1
         assert len(revisions) == 1
