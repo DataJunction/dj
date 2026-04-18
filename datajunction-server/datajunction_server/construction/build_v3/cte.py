@@ -1045,29 +1045,48 @@ def _rewrite_filter_for_cte(
     # plain-Column pass so we don't double-process them.
     handled_col_ids: set[int] = set()
 
+    # Users can write filters like v3.date.date_id[order] >= 20240101 where
+    # [order] is a role, a disambiguator when the same dimension is linked to
+    # the fact multiple times. A filter like that would be stored in the AST as:
+    #   BinaryOp(
+    #     >=,
+    #     Subscript(
+    #       expr=Column("v3.date.date_id"),
+    #       index=Column("order"),
+    #     ),
+    #     Literal(20240101),
+    #  )
     for subscript in filter_ast.find_all(ast.Subscript):
+        # Skip ones whose target isn't a Column as these are real SQL array subscripts, not role refs
         if not isinstance(subscript.expr, ast.Column):
             continue  # pragma: no cover
+        # Reconstruct the original role-qualified form: base = "v3.date.date_id", role = "order"
         base = get_column_full_name(subscript.expr)
         role = extract_subscript_role(subscript)
         if not role:
             continue  # pragma: no cover
         full_name = f"{base}[{role}]"
+
+        # Look up in the filter alias map. Prefers the role-specific key over the fallback.
         output_col = filter_column_aliases.get(
             full_name,
         ) or filter_column_aliases.get(base)
         if output_col is None:
-            continue
+            continue  # pragma: no cover
         form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
         if form is None:
             return None
         replacement = _column_from_qualified(form)
         subscript_rewrites.append((subscript, replacement))
+
+        # Safety checks and queue for subscript to column swap
         handled_col_ids.add(id(subscript.expr))
         if isinstance(subscript.index, ast.Column):
             handled_col_ids.add(id(subscript.index))
 
+    # Handle dim refs that don't have a role qualifier
     for col in filter_ast.find_all(ast.Column):
+        # Skip columns accounted for in the subscript pass
         if id(col) in handled_col_ids:
             continue
         full_name = get_column_full_name(col)

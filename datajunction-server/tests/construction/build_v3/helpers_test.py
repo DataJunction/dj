@@ -2,6 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from datajunction_server.errors import DJInvalidInputException
+
 from datajunction_server.construction.build_v3.cte import (
     filter_cte_projection,
     flatten_inner_ctes,
@@ -92,12 +96,12 @@ class TestDimensionRefParsing:
         assert ref.column_name == "country"
         assert ref.role == "customer->home"
 
-    def test_dimension_ref_just_column_name(self):
-        """Test parsing a bare column name (no node prefix)."""
-        ref = parse_dimension_ref("status")
-        assert ref.node_name == ""
-        assert ref.column_name == "status"
-        assert ref.role is None
+    def test_dimension_ref_just_column_name_raises(self):
+        """A bare reference with no node prefix can't be routed to a CTE;
+        ``parse_dimension_ref`` rejects it rather than returning a DimensionRef
+        with an empty ``node_name`` that would silently match the wrong node."""
+        with pytest.raises(DJInvalidInputException, match="not fully qualified"):
+            parse_dimension_ref("status")
 
 
 class TestMakeColumnRef:
