@@ -2141,140 +2141,125 @@ class DeploymentOrchestrator:
         deployment_results = []
 
         for result in validation_results:
-            if result.status == NodeStatus.INVALID and not result._cube_validation_data:
-                # No validation data — can't write elements; use the empty-shell path.
-                (
-                    new_node,
-                    new_revision,
-                    deployment_result,
-                ) = await self._deploy_invalid_cube(result)
-                nodes.append(new_node)
-                revisions.append(new_revision)
-                deployment_results.append(deployment_result)
-                continue
+            cube_spec = cast(CubeSpec, result.spec)
+            existing = self.registry.nodes.get(cube_spec.rendered_name)
+            operation = (
+                DeploymentResult.Operation.UPDATE
+                if existing
+                else DeploymentResult.Operation.CREATE
+            )
+
+            # Get pre-computed validation data to avoid re-validation
+            assert result._cube_validation_data is not None
+            validation_data = result._cube_validation_data
+            changelog, changed_fields = await self._generate_changelog(result)
+            if existing:
+                new_node = existing
+                new_node.current_version = str(
+                    Version.parse(new_node.current_version).next_major_version(),
+                )
+                new_node.display_name = cube_spec.display_name
+                new_node.owners = [
+                    self.registry.owners[owner_name]
+                    for owner_name in cube_spec.owners
+                    if owner_name in self.registry.owners
+                ]
+                new_node.tags = [
+                    self.registry.tags[tag_name] for tag_name in cube_spec.tags
+                ]
+                # Create new revision for update
+                # Use no_autoflush to prevent premature flushing of columns without node_revision_id
+                with self.session.no_autoflush:
+                    new_revision = (
+                        await self._create_cube_node_revision_from_validation_data(
+                            cube_spec=cube_spec,
+                            validation_data=validation_data,
+                            new_node=new_node,
+                            status=result.status,
+                        )
+                    )
             else:
-                cube_spec = cast(CubeSpec, result.spec)
-                existing = self.registry.nodes.get(cube_spec.rendered_name)
-                operation = (
-                    DeploymentResult.Operation.UPDATE
-                    if existing
-                    else DeploymentResult.Operation.CREATE
-                )
+                namespace = get_namespace_from_name(cube_spec.rendered_name)
 
-                # Get pre-computed validation data to avoid re-validation
-                if not result._cube_validation_data:
-                    raise DJInvalidDeploymentConfig(  # pragma: no cover
-                        f"Missing validation data for cube {cube_spec.rendered_name}",
+                # Use no_autoflush to prevent premature flushing of columns without node_revision_id
+                # (columns will be created in _create_cube_node_revision_from_validation_data)
+                with self.session.no_autoflush:
+                    await get_node_namespace(
+                        session=self.session,
+                        namespace=namespace,
                     )
-                changelog, changed_fields = await self._generate_changelog(result)
-                if existing:
-                    new_node = existing
-                    new_node.current_version = str(
-                        Version.parse(new_node.current_version).next_major_version(),
+
+                    new_node = Node(
+                        name=cube_spec.rendered_name,
+                        namespace=namespace,
+                        type=NodeType.CUBE,
+                        display_name=cube_spec.display_name,
+                        current_version=(
+                            str(DEFAULT_DRAFT_VERSION)
+                            if cube_spec.mode == NodeMode.DRAFT
+                            else str(DEFAULT_PUBLISHED_VERSION)
+                        ),
+                        tags=[
+                            self.registry.tags[tag_name] for tag_name in cube_spec.tags
+                        ],
+                        created_by_id=self.context.current_user.id,
+                        owners=[
+                            self.registry.owners[owner_name]
+                            for owner_name in cube_spec.owners
+                            if owner_name in self.registry.owners
+                        ],
                     )
-                    new_node.display_name = cube_spec.display_name
-                    new_node.owners = [
-                        self.registry.owners[owner_name]
-                        for owner_name in cube_spec.owners
-                        if owner_name in self.registry.owners
-                    ]
-                    new_node.tags = [
-                        self.registry.tags[tag_name] for tag_name in cube_spec.tags
-                    ]
-                    # Create new revision for update
-                    # Use no_autoflush to prevent premature flushing of columns without node_revision_id
-                    with self.session.no_autoflush:
-                        new_revision = (
-                            await self._create_cube_node_revision_from_validation_data(
-                                cube_spec=cube_spec,
-                                validation_data=result._cube_validation_data,
-                                new_node=new_node,
-                                status=result.status,
-                            )
+
+                    # Create node revision using pre-computed validation data (no re-validation)
+                    new_revision = (
+                        await self._create_cube_node_revision_from_validation_data(
+                            cube_spec=cube_spec,
+                            validation_data=validation_data,
+                            new_node=new_node,
+                            status=result.status,
                         )
-                else:
-                    namespace = get_namespace_from_name(cube_spec.rendered_name)
+                    )
 
-                    # Use no_autoflush to prevent premature flushing of columns without node_revision_id
-                    # (columns will be created in _create_cube_node_revision_from_validation_data)
-                    with self.session.no_autoflush:
-                        await get_node_namespace(
-                            session=self.session,
-                            namespace=namespace,
-                        )
+            # Track history for cube create/update operations
+            activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
+            self.session.add(
+                History(
+                    entity_type=EntityType.NODE,
+                    entity_name=cube_spec.rendered_name,
+                    node=cube_spec.rendered_name,
+                    activity_type=activity_type,
+                    details={
+                        "version": new_node.current_version,
+                        "deployment_id": self.deployment_id,
+                        "metrics": cube_spec.rendered_metrics,
+                        "dimensions": cube_spec.rendered_dimensions,
+                    },
+                    user=self._history_user,
+                ),
+            )
 
-                        new_node = Node(
-                            name=cube_spec.rendered_name,
-                            namespace=namespace,
-                            type=NodeType.CUBE,
-                            display_name=cube_spec.display_name,
-                            current_version=(
-                                str(DEFAULT_DRAFT_VERSION)
-                                if cube_spec.mode == NodeMode.DRAFT
-                                else str(DEFAULT_PUBLISHED_VERSION)
-                            ),
-                            tags=[
-                                self.registry.tags[tag_name]
-                                for tag_name in cube_spec.tags
-                            ],
-                            created_by_id=self.context.current_user.id,
-                            owners=[
-                                self.registry.owners[owner_name]
-                                for owner_name in cube_spec.owners
-                                if owner_name in self.registry.owners
-                            ],
-                        )
+            # Create deployment result
+            invalid_note = (
+                "\n[invalid] " + "; ".join(e.message for e in result.errors)
+                if result.status == NodeStatus.INVALID
+                else ""
+            )
+            deployment_result = DeploymentResult(
+                name=cube_spec.rendered_name,
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.INVALID
+                if result.status == NodeStatus.INVALID
+                else DeploymentResult.Status.SUCCESS,
+                operation=operation,
+                message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
+                + ("\n".join([""] + changelog))
+                + invalid_note,
+                changed_fields=changed_fields,
+            )
 
-                        # Create node revision using pre-computed validation data (no re-validation)
-                        new_revision = (
-                            await self._create_cube_node_revision_from_validation_data(
-                                cube_spec=cube_spec,
-                                validation_data=result._cube_validation_data,
-                                new_node=new_node,
-                                status=result.status,
-                            )
-                        )
-
-                # Track history for cube create/update operations
-                activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
-                self.session.add(
-                    History(
-                        entity_type=EntityType.NODE,
-                        entity_name=cube_spec.rendered_name,
-                        node=cube_spec.rendered_name,
-                        activity_type=activity_type,
-                        details={
-                            "version": new_node.current_version,
-                            "deployment_id": self.deployment_id,
-                            "metrics": cube_spec.rendered_metrics,
-                            "dimensions": cube_spec.rendered_dimensions,
-                        },
-                        user=self._history_user,
-                    ),
-                )
-
-                # Create deployment result
-                invalid_note = (
-                    "\n[invalid] " + "; ".join(e.message for e in result.errors)
-                    if result.status == NodeStatus.INVALID
-                    else ""
-                )
-                deployment_result = DeploymentResult(
-                    name=cube_spec.rendered_name,
-                    deploy_type=DeploymentResult.Type.NODE,
-                    status=DeploymentResult.Status.INVALID
-                    if result.status == NodeStatus.INVALID
-                    else DeploymentResult.Status.SUCCESS,
-                    operation=operation,
-                    message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
-                    + ("\n".join([""] + changelog))
-                    + invalid_note,
-                    changed_fields=changed_fields,
-                )
-
-                deployment_results.append(deployment_result)
-                nodes.append(new_node)
-                revisions.append(new_revision)
+            deployment_results.append(deployment_result)
+            nodes.append(new_node)
+            revisions.append(new_revision)
 
         return nodes, revisions, deployment_results
 
@@ -2930,86 +2915,6 @@ class DeploymentOrchestrator:
         if existing and existing.current and existing.current.catalog:
             return existing.current.catalog
         return None
-
-    async def _deploy_invalid_cube(
-        self,
-        result: NodeValidationResult,
-    ) -> tuple[Node, NodeRevision, DeploymentResult]:
-        """Deploy a cube that failed validation, writing it as INVALID with no elements.
-
-        This is a fallback for cubes where validation failed so badly that no
-        _cube_validation_data could be built (e.g., all metrics are missing).
-        Ensures the namespace is fully populated even when cube metrics/dimensions
-        can't be resolved, so the deployment completes and is idempotent.
-        """
-        cube_spec = cast(CubeSpec, result.spec)
-        logger.warning(
-            "Deploying cube %s with INVALID status: %s",
-            cube_spec.rendered_name,
-            "; ".join(e.message for e in result.errors),
-        )
-        existing = self.registry.nodes.get(cube_spec.rendered_name)
-        operation = (
-            DeploymentResult.Operation.UPDATE
-            if existing
-            else DeploymentResult.Operation.CREATE
-        )
-        new_node = self._create_or_update_node(cube_spec, existing)
-        namespace = get_namespace_from_name(cube_spec.rendered_name)
-        await get_node_namespace(session=self.session, namespace=namespace)
-        # Derive catalog from the cube's metrics (same source as valid cube deployment),
-        # falling back to the existing node's catalog, the deployment default catalog,
-        # then the virtual catalog.
-        catalog = self._infer_cube_catalog(
-            cube_spec,
-            existing,
-        ) or await Catalog.get_virtual_catalog(
-            self.session,
-        )
-        new_revision = NodeRevision(
-            name=cube_spec.rendered_name,
-            display_name=cube_spec.display_name,
-            type=NodeType.CUBE,
-            description=cube_spec.description or "",
-            mode=cube_spec.mode,
-            version=new_node.current_version,
-            node=new_node,
-            status=NodeStatus.INVALID,
-            catalog=catalog,
-            columns=[],
-            created_by_id=self.context.current_user.id,
-            custom_metadata=cube_spec.custom_metadata,
-        )
-        self.session.add(new_node)
-        self.session.add(new_revision)
-        await self.session.flush()
-
-        activity_type = ActivityType.UPDATE if existing else ActivityType.CREATE
-        self.session.add(
-            History(
-                entity_type=EntityType.NODE,
-                entity_name=cube_spec.rendered_name,
-                node=cube_spec.rendered_name,
-                activity_type=activity_type,
-                details={
-                    "version": new_node.current_version,
-                    "deployment_id": self.deployment_id,
-                },
-                user=self._history_user,
-            ),
-        )
-        _, changed_fields = await self._generate_changelog(result)
-        error_note = "; ".join(e.message for e in result.errors)
-        deployment_result = DeploymentResult(
-            name=cube_spec.rendered_name,
-            deploy_type=DeploymentResult.Type.NODE,
-            status=DeploymentResult.Status.INVALID,
-            operation=operation,
-            message=f"{operation.value.title()}d {new_node.type} ({new_node.current_version})"
-            + (f"\n[invalid] {error_note}" if error_note else "\n[invalid]"),
-            changed_fields=changed_fields,
-        )
-        return new_node, new_revision, deployment_result
 
     async def _process_valid_node_deploy(
         self,

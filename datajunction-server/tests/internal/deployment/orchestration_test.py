@@ -809,7 +809,8 @@ class TestCubeDeployment:
 
     @pytest.mark.asyncio
     async def test_create_cubes_from_validation_invalid_cubes(self, orchestrator):
-        """Test creating cubes when validation results contain invalid cubes"""
+        """Test creating cubes when validation results contain invalid cubes.
+        Invalid cubes now go through the normal path with _cube_validation_data."""
         invalid_results = [
             NodeValidationResult(
                 spec=CubeSpec(
@@ -822,22 +823,24 @@ class TestCubeDeployment:
                 inferred_columns=[],
                 errors=[DJError(code=ErrorCode.INVALID_CUBE, message="Invalid cube")],
                 dependencies=[],
+                _cube_validation_data=CubeValidationData(
+                    metric_columns=[],
+                    metric_nodes=[],
+                    dimension_nodes=[],
+                    dimension_columns=[],
+                    catalog=None,
+                ),
             ),
         ]
 
-        # Mock _deploy_invalid_cube — returns (node, revision, result) with SUCCESS status
-        mock_node = Mock()
+        # Mock _create_cube_node_revision_from_validation_data since it
+        # needs full DB setup
         mock_revision = Mock()
-        mock_result = DeploymentResult(
-            name="invalid_cube",
-            deploy_type="node",
-            status="success",
-            operation="create",
-            message="Created cube (v1.0)\n[invalid] Invalid cube",
+        mock_revision.version = "v1.0"
+        orchestrator._create_cube_node_revision_from_validation_data = AsyncMock(
+            return_value=mock_revision,
         )
-        orchestrator._deploy_invalid_cube = AsyncMock(
-            return_value=(mock_node, mock_revision, mock_result),
-        )
+        orchestrator._generate_changelog = AsyncMock(return_value=([], []))
 
         nodes, revisions, results = await orchestrator._create_cubes_from_validation(
             invalid_results,
@@ -846,7 +849,7 @@ class TestCubeDeployment:
         assert len(nodes) == 1
         assert len(revisions) == 1
         assert len(results) == 1
-        assert results[0].status == "success"
+        assert results[0].status == "invalid"
 
     @pytest.mark.asyncio
     async def test_cube_column_partition_applied_from_spec(
