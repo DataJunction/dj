@@ -16,6 +16,9 @@ services:
     environment:
       - DOTENV_FILE=${DOTENV_FILE:-/code/.env}
       - OAUTHLIB_INSECURE_TRANSPORT=1
+      # Allow the slot's UI origin through CORS. The default whitelist only
+      # permits :3000 so slots running on other ports are blocked without this.
+      - CORS_ORIGIN_WHITELIST=["http://localhost:${DJ_UI_PORT:-3000}"]
     build:
       context: ./datajunction-server
       args:
@@ -100,6 +103,10 @@ services:
       - NODE_OPTIONS=--max-old-space-size=4096
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true
+      # Point the UI at the slot's own DJ backend, otherwise the default baked
+      # into datajunction-ui/.env (http://localhost:8000) collides with other
+      # slots running on the same host.
+      - REACT_APP_DJ_URL=http://localhost:${DJ_PORT:-8000}
     mem_limit: 6g
     command: sh -c "yarn && yarn webpack-start --host 0.0.0.0 --port 3000"
 
