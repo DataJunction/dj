@@ -66,7 +66,10 @@ export default function Search() {
       setIsLoading(false);
       return;
     }
-    debounceRef.current = setTimeout(() => runSearch(value.trim()), DEBOUNCE_MS);
+    debounceRef.current = setTimeout(
+      () => runSearch(value.trim()),
+      DEBOUNCE_MS,
+    );
   };
 
   useEffect(() => {

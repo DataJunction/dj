@@ -71,7 +71,9 @@ describe('<Search />', () => {
         <Search />
       </DJClientContext.Provider>,
     );
-    expect(getByPlaceholderText('Search nodes and tags...')).toBeInTheDocument();
+    expect(
+      getByPlaceholderText('Search nodes and tags...'),
+    ).toBeInTheDocument();
   });
 
   it('does not query the API for queries shorter than 2 characters', async () => {

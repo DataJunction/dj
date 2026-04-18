@@ -1775,7 +1775,10 @@ export const DataJunctionAPI = {
     return await response.json();
   },
 
-  globalSearch: async function (query, { signal, nodeLimit = 10, tagLimit = 5 } = {}) {
+  globalSearch: async function (
+    query,
+    { signal, nodeLimit = 10, tagLimit = 5 } = {},
+  ) {
     const gqlQuery = `
       query GlobalSearch($q: String!, $nodeLimit: Int!, $tagLimit: Int!) {
         findNodes(search: $q, limit: $nodeLimit) {
