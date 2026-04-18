@@ -634,7 +634,7 @@ class Node(Base):
         ascending: bool = False,
         options: list[ExecutableOption] = None,
         mode: NodeMode | None = None,
-        owned_by: str | None = None,
+        owned_by: list[str] | None = None,
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
@@ -733,12 +733,13 @@ class Node(Base):
                 Node.name.in_(select(edited_node_subquery.c.entity_name)),
             )
 
-        # Filter by owner username
+        # Filter by owner username (accepts one or more usernames; a node matches
+        # if any listed user or group is an owner).
         if owned_by:
             owned_node_subquery = (
                 select(NodeOwner.node_id)
                 .join(User, NodeOwner.user_id == User.id)
-                .where(User.username == owned_by)
+                .where(User.username.in_(owned_by))
                 .distinct()
                 .subquery()
             )
