@@ -955,6 +955,28 @@ def _resolve_pushdown_filters_for_cte(
     return results
 
 
+def _cte_has_set_operation(cte_query: ast.Query) -> bool:
+    """Detect whether the CTE body is a UNION / INTERSECT / EXCEPT.
+
+    Projection inspection only sees the first arm, so a set operation with
+    asymmetric arms can't be safely pushed into.  Callers should skip
+    pushdown when this returns True.
+    """
+    return bool(cte_query.select and cte_query.select.set_op)
+
+
+def _dim_ref_pattern(dim_ref: str) -> str:
+    """Word-boundary-safe regex for a dim ref.
+
+    Prevents a shorter dim_ref from matching inside a longer similarly-prefixed
+    one (e.g. ``fact.orders.order_date`` must not match
+    ``fact.orders.order_date_extended``).  SQL identifier chars are ASCII
+    alnum + underscore; dots and brackets terminate identifiers so we guard
+    against alnum/underscore on either side only.
+    """
+    return r"(?<![A-Za-z0-9_])" + re.escape(dim_ref) + r"(?![A-Za-z0-9_])"
+
+
 def _rewrite_filter_for_cte(
     filter_str: str,
     filter_column_aliases: dict[str, str],
@@ -964,7 +986,7 @@ def _rewrite_filter_for_cte(
     """Rewrite a dimension filter for injection into a specific CTE.
 
     Resolves each dimension reference (e.g., ``v3.product.category``) to the
-    form that's safe in the CTE's WHERE clause.  Three cases:
+    form that's safe in the CTE's WHERE clause.  Three projection cases:
 
     1. CTE projects the column as a simple (possibly aliased) column: replace
        with the underlying qualified form (e.g., ``p.category``).  This is the
@@ -976,40 +998,57 @@ def _rewrite_filter_for_cte(
     3. CTE projects the column via a non-column expression (e.g.
        ``SUM(x) AS y``): skip — inlining is unsafe.
 
-    Returns the rewritten filter string, or None if no dim_ref applies.
-    """
-    projection_map = _build_cte_projection_map(cte_query)
+    Multi-predicate handling: a single filter may reference several dim refs
+    (``a.x = 1 OR b.y = 2``).  All matching refs are rewritten, but if ANY
+    ref's column isn't exposed by this CTE, the whole filter is skipped —
+    pushing a partial OR-predicate into the wrong CTE produces invalid SQL.
 
-    rewritten = filter_str
-    matched = False
-    for dim_ref, output_col in sorted(
+    Returns the rewritten filter string, or None when the filter can't be
+    safely pushed into this CTE.
+    """
+    # Set-operation CTEs can't be safely pushed into via the first arm alone.
+    if _cte_has_set_operation(cte_query):
+        return None
+
+    projection_map = _build_cte_projection_map(cte_query)
+    sorted_aliases = sorted(
         filter_column_aliases.items(),
         key=lambda x: -len(x[0]),
-    ):
-        if dim_ref not in rewritten:
+    )
+
+    # First pass: find every dim ref that appears in the filter and determine
+    # its CTE-local rewrite.  ``working`` masks already-matched regions so a
+    # bare alias (e.g. ``a.b.c``) can't double-match inside a longer
+    # role-suffixed form (``a.b.c[role]``) we already matched.
+    working = filter_str
+    matches: list[tuple[str, str]] = []
+    for dim_ref, output_col in sorted_aliases:
+        pattern = _dim_ref_pattern(dim_ref)
+        if not re.search(pattern, working):
             continue
         if output_col not in cte_output_cols:
-            continue
+            # Filter references a column this CTE doesn't expose — pushing a
+            # partial rewrite would leave an unresolved name behind and break
+            # the SQL.  Leave the whole filter on the outer query.
+            return None
         if output_col in projection_map:
             qualified = projection_map[output_col]
             if qualified is None:
-                # Non-column expression under this alias — unsafe to inline.
-                continue
+                # Non-column projection; inlining into WHERE is semantically wrong.
+                return None
         else:
-            # Column pruned from the CTE's SELECT; fall through to the bare
-            # name, which the underlying source still exposes.
             qualified = output_col
-        # Word-boundary-safe replacement so a shorter dim_ref doesn't clobber
-        # a longer similarly-prefixed one (e.g. ``fact.orders.order_date`` must
-        # not match ``fact.orders.order_date_extended``).  SQL identifier chars
-        # are ASCII word chars plus underscore; dots terminate identifiers so
-        # we only guard against alnum/underscore on either side.
-        pattern = r"(?<![A-Za-z0-9_])" + re.escape(dim_ref) + r"(?![A-Za-z0-9_])"
-        rewritten = re.sub(pattern, qualified, rewritten)
-        matched = True
-        break  # One dim ref per filter (filters are single predicates)
+        matches.append((dim_ref, qualified))
+        working = re.sub(pattern, "\x00", working)
 
-    return rewritten if matched else None
+    if not matches:
+        return None
+
+    # Second pass: apply replacements to the original filter string.
+    rewritten = filter_str
+    for dim_ref, qualified in matches:
+        rewritten = re.sub(_dim_ref_pattern(dim_ref), qualified, rewritten)
+    return rewritten
 
 
 def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:

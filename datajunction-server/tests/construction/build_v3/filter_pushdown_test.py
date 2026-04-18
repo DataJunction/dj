@@ -152,6 +152,102 @@ class TestFilterPushdownMultiple:
         )
 
 
+class TestFilterPushdownMultiRef:
+    """A single filter predicate can reference multiple dim refs (OR-combined)."""
+
+    @pytest.mark.asyncio
+    async def test_or_predicate_both_refs_in_same_cte_pushed_down(
+        self,
+        client_with_build_v3,
+    ):
+        """OR-combined refs that both resolve to the same CTE push down as
+        one predicate.  ``order_date`` is projected (needed for the outer
+        qualified reference) and uses the qualified ``o.order_date`` form in
+        WHERE; ``status`` is pruned from the projection but still filterable
+        via the bare column name on the underlying source.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": [
+                    "v3.date.date_id[order] >= 20240101 OR status = 'completed'",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.order_date >= 20240101 OR status = 'completed'
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.order_date >= 20240101 OR t1.status = 'completed'
+            GROUP BY t2.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_or_predicate_crossing_ctes_stays_on_outer_query(
+        self,
+        client_with_build_v3,
+    ):
+        """An OR that mixes columns from different CTEs must not push into
+        either CTE — a partial rewrite would reference an unresolved name
+        inside a CTE.  The whole predicate stays on the outer WHERE.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": [
+                    "v3.product.category = 'Electronics' "
+                    "OR v3.date.date_id[order] >= 20240101",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT product_id, category
+              FROM default.v3.products
+            )
+            SELECT t2.category,
+              SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t2.category = 'Electronics' OR t1.order_date >= 20240101
+            GROUP BY t2.category
+            """,
+        )
+
+
 class TestFilterPushdownEdgeCases:
     """Edge cases for filter pushdown."""
 
