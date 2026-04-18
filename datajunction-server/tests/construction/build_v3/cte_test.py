@@ -1,5 +1,7 @@
 """Tests for cte.py - CTE building and AST transformation utilities."""
 
+import pytest
+
 from datajunction_server.construction.build_v3.cte import (
     _build_cte_projection_map,
     _rewrite_filter_for_cte,
@@ -381,16 +383,17 @@ class TestBuildCteProjectionMap:
             "order_date": "o.placed_on",
         }
 
-    def test_non_column_projections_omitted(self):
-        """Function calls and other non-column projections are skipped.
-
-        Callers should treat a missing entry as "don't push this filter into
-        this CTE" so we don't inline an arbitrary expression into WHERE.
+    def test_non_column_projection_maps_to_none(self):
+        """Aggregations and other non-column projections map to None so
+        callers can distinguish "unsafe to inline" from "not projected".
         """
         query = parse(
             "SELECT SUM(x) AS total, t.bare_col FROM t",
         )
-        assert _build_cte_projection_map(query) == {"bare_col": "t.bare_col"}
+        assert _build_cte_projection_map(query) == {
+            "total": None,
+            "bare_col": "t.bare_col",
+        }
 
 
 class TestRewriteFilterForCte:
@@ -439,3 +442,156 @@ class TestRewriteFilterForCte:
             cte_query=cte_query,
         )
         assert rewritten is None
+
+    def test_falls_through_to_bare_name_when_column_pruned(self):
+        """A column that's exposed by the DJ node but pruned from the CTE's
+        SELECT still has a WHERE-safe reference — the bare column name, which
+        the underlying source table exposes.  Column pruning trims what the
+        CTE returns to the outer query, it doesn't remove the column from the
+        underlying scan.
+        """
+        cte_query = parse("SELECT hard_hat_id, hire_date FROM src")
+        rewritten = _rewrite_filter_for_cte(
+            "default.hard_hat.state = 'AZ'",
+            filter_column_aliases={"default.hard_hat.state": "state"},
+            # The node exposes `state` even though this CTE pruned it out.
+            cte_output_cols={"hard_hat_id", "hire_date", "state"},
+            cte_query=cte_query,
+        )
+        assert rewritten == "state = 'AZ'"
+
+    def test_does_not_corrupt_substring_collisions(self):
+        """A shorter dim_ref must not rewrite inside a longer similarly-prefixed
+        reference.  ``fact.orders.order_date`` is in scope; an unrelated
+        ``fact.orders.order_date_extended`` elsewhere in the filter must be
+        left untouched.
+        """
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date FROM src o",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date_extended > 0 OR fact.orders.order_date < 1",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+            },
+            cte_output_cols={"order_date"},
+            cte_query=cte_query,
+        )
+        assert rewritten == ("fact.orders.order_date_extended > 0 OR o.placed_on < 1")
+
+
+# ---------------------------------------------------------------------------
+# Edge cases below document DESIRED behavior via assert_sql_equal-style
+# assertions.  Marked xfail(strict=True) so the suite stays green today but
+# a future fix that starts passing them will be noticed.  See PR description.
+# ---------------------------------------------------------------------------
+
+
+class TestPushdownEdgeCases:
+    """Edge cases in filter pushdown that are not yet fully supported."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Compound predicates with AND across two dim refs aren't fully "
+        "rewritten; the loop breaks after the first match. Upstream filter "
+        "splitting usually prevents this, but OR-combined predicates can't be "
+        "split and would hit the bug.",
+    )
+    def test_multiple_dim_refs_in_one_predicate(self):
+        """A single filter string mentioning two dim refs should rewrite both.
+
+        Today only the first match is replaced — the second dim_ref survives
+        unrewritten and the emitted SQL references a name the CTE doesn't
+        expose.
+        """
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date, o.status AS state FROM src o",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date >= 20260101 OR fact.orders.state = 'OPEN'",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+                "fact.orders.state": "state",
+            },
+            cte_output_cols={"order_date", "state"},
+            cte_query=cte_query,
+        )
+        assert rewritten == ("o.placed_on >= 20260101 OR o.status = 'OPEN'")
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="SQL identifiers are case-insensitive for unquoted names but "
+        "the projection map and alias lookup are case-sensitive dicts. Filter "
+        "rewritten against a different-cased column name should still work.",
+    )
+    def test_case_insensitive_column_match(self):
+        """Unquoted identifiers in SQL are case-insensitive; rewrites should follow."""
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date FROM src o",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.ORDER_DATE > 0",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+            },
+            cte_output_cols={"order_date"},
+            cte_query=cte_query,
+        )
+        assert rewritten == "o.placed_on > 0"
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="_build_cte_projection_map only inspects cte_query.select.projection "
+        "— the first arm of a UNION. If arms differ or the set operation is "
+        "non-trivial we should skip pushdown rather than push a filter only "
+        "valid for one arm.",
+    )
+    def test_union_all_cte_is_handled_safely(self):
+        """A CTE built from UNION ALL should either (a) only push the filter
+        when all arms project the column identically, or (b) skip pushdown.
+        Today we silently build a map from only the first arm.
+        """
+        cte_query = parse(
+            """
+            SELECT a.placed_on AS order_date FROM src_a a
+            UNION ALL
+            SELECT b.order_date FROM src_b b
+            """,
+        )
+        # The two arms rename differently; rewrite against "order_date" is
+        # only valid for arm B.  Desired: either skip (return None) or fail
+        # explicitly rather than emit arm-A's rewrite silently.
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date > 0",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+            },
+            cte_output_cols={"order_date"},
+            cte_query=cte_query,
+        )
+        assert rewritten is None, (
+            "Expected pushdown to refuse a UNION with asymmetric arms, "
+            f"got: {rewritten!r}"
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Role-suffixed dim refs on an aliased column aren't tested; "
+        "strip_role_suffix handles the dim_ref lookup but the filter string "
+        "still carries the [role] suffix into the replacement.",
+    )
+    def test_role_suffix_on_aliased_column(self):
+        """A role-suffixed dim ref targeting an aliased column should rewrite
+        to the underlying qualified reference, stripping the role."""
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date FROM src o",
+        )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date[order] >= 20260101",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+            },
+            cte_output_cols={"order_date"},
+            cte_query=cte_query,
+        )
+        assert rewritten == "o.placed_on >= 20260101"

@@ -4,6 +4,7 @@ CTE building and AST transformation utilities
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Optional
 
@@ -962,16 +963,20 @@ def _rewrite_filter_for_cte(
 ) -> str | None:
     """Rewrite a dimension filter for injection into a specific CTE.
 
-    Replaces each dimension reference (e.g., ``v3.product.category``) with the
-    underlying table-qualified column name from the CTE's SELECT projection
-    (e.g., ``p.category``).  The underlying form is required because Spark SQL
-    (and standard SQL) cannot reference SELECT-list aliases in the same query's
-    WHERE clause — emitting the alias name produces a SQL error at execution
-    time.
+    Resolves each dimension reference (e.g., ``v3.product.category``) to the
+    form that's safe in the CTE's WHERE clause.  Three cases:
 
-    Returns the rewritten filter string, or None if the filter doesn't apply
-    to this CTE (column missing, or projected via a non-column expression that
-    can't be safely inlined into WHERE).
+    1. CTE projects the column as a simple (possibly aliased) column: replace
+       with the underlying qualified form (e.g., ``p.category``).  This is the
+       correctness-critical case — emitting a SELECT-list alias in WHERE is
+       rejected by Spark SQL and standard SQL.
+    2. CTE doesn't project the column at all (pruned): fall through to the
+       bare column name.  Safe because the CTE's underlying source exposes
+       the column, even if it's not selected into the outer query.
+    3. CTE projects the column via a non-column expression (e.g.
+       ``SUM(x) AS y``): skip — inlining is unsafe.
+
+    Returns the rewritten filter string, or None if no dim_ref applies.
     """
     projection_map = _build_cte_projection_map(cte_query)
 
@@ -985,27 +990,44 @@ def _rewrite_filter_for_cte(
             continue
         if output_col not in cte_output_cols:
             continue
-        # Resolve the output column to its underlying qualified form.  When
-        # the CTE projects a non-column expression under this name (e.g.
-        # ``some_fn(x) AS y``), pushdown isn't safe — skip this CTE and let
-        # the filter stay on the outer query.
-        qualified = projection_map.get(output_col)
-        if qualified is None:
-            continue
-        rewritten = rewritten.replace(dim_ref, qualified)
+        if output_col in projection_map:
+            qualified = projection_map[output_col]
+            if qualified is None:
+                # Non-column expression under this alias — unsafe to inline.
+                continue
+        else:
+            # Column pruned from the CTE's SELECT; fall through to the bare
+            # name, which the underlying source still exposes.
+            qualified = output_col
+        # Word-boundary-safe replacement so a shorter dim_ref doesn't clobber
+        # a longer similarly-prefixed one (e.g. ``fact.orders.order_date`` must
+        # not match ``fact.orders.order_date_extended``).  SQL identifier chars
+        # are ASCII word chars plus underscore; dots terminate identifiers so
+        # we only guard against alnum/underscore on either side.
+        pattern = r"(?<![A-Za-z0-9_])" + re.escape(dim_ref) + r"(?![A-Za-z0-9_])"
+        rewritten = re.sub(pattern, qualified, rewritten)
         matched = True
         break  # One dim ref per filter (filters are single predicates)
 
     return rewritten if matched else None
 
 
-def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str]:
+def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:
     """Map a CTE's output column name to its underlying qualified reference.
 
     Output name is the SELECT-list alias when present, else the bare column
-    name.  Value is the form that's safe to reference in a WHERE clause
-    pushed into the same CTE — a table-qualified column when qualified in
-    the projection, else the bare column name.
+    name.  Value is either:
+
+    - A string — the form that's safe to reference in a WHERE clause pushed
+      into this CTE (a table-qualified column when qualified in the
+      projection, else the bare column name).
+    - ``None`` — the projection is a non-column expression under an alias
+      (e.g., ``SUM(x) AS y``); pushdown should skip this CTE to avoid
+      inlining an expression that would be semantically wrong in WHERE.
+
+    Columns that the CTE doesn't project at all are absent from the map;
+    callers should treat that as "fall through to the bare name" since the
+    CTE's underlying source still exposes them.
 
     Examples::
 
@@ -1013,26 +1035,26 @@ def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str]:
           becomes {"order_date": "o.placed_on"}
         SELECT T.test_id
           becomes {"test_id": "T.test_id"}
-        SELECT test_id
-          becomes {"test_id": "test_id"}
-
-    Non-column projections (e.g. ``some_fn(x) AS y``) are intentionally
-    omitted — it isn't safe to inline a function call into WHERE without
-    knowing its side effects, so callers should treat a missing key as
-    "don't push this filter into this CTE".
+        SELECT SUM(x) AS total
+          becomes {"total": None}
     """
-    result: dict[str, str] = {}
+    result: dict[str, str | None] = {}
     if not cte_query.select:  # pragma: no cover
         return result
     for expr in cte_query.select.projection:
         inner = getattr(expr, "child", expr)
-        if not isinstance(inner, ast.Column) or not inner.name:
-            continue
-        bare = inner.name.name
-        underlying = f"{inner.namespace[0].name}.{bare}" if inner.namespace else bare
         alias = getattr(expr, "alias", None)
-        output_name = alias.name if alias else bare
-        result[output_name] = underlying
+        if isinstance(inner, ast.Column) and inner.name:
+            bare = inner.name.name
+            underlying = (
+                f"{inner.namespace[0].name}.{bare}" if inner.namespace else bare
+            )
+            output_name = alias.name if alias else bare
+            result[output_name] = underlying
+        elif alias is not None:
+            # Non-column projection with an output name we can address;
+            # mark as unsafe to inline.
+            result[alias.name] = None
     return result
 
 
