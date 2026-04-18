@@ -332,6 +332,12 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
         # so we don't also add the role-less version in the Column pass below.
         subscript_handled_refs: set[str] = set()
 
+        # Role markers inside subscripts are parsed as Column nodes (e.g. the
+        # `to` in `v3.location.country[to]`) but are not real filter column
+        # references — identify them so the second pass doesn't treat them
+        # as bare column refs and reject them.
+        role_marker_ids: set[int] = set()
+
         # First pass: handle Subscript nodes for role-qualified dimension refs.
         # SQL like "v3.location.country[customer->home]" is parsed as
         # Subscript(Column(v3.location.country), Lambda(customer->home)).
@@ -351,6 +357,17 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
 
             # Mark this base ref as handled so the Column pass skips it
             subscript_handled_refs.add(base_col_ref)
+
+            # Mark any Column nodes used as the role marker so we don't raise
+            # on them as bare refs.
+            if isinstance(subscript.index, ast.Column):
+                role_marker_ids.add(id(subscript.index))
+            for inner_col in (
+                subscript.index.find_all(ast.Column)
+                if hasattr(subscript.index, "find_all")
+                else []
+            ):
+                role_marker_ids.add(id(inner_col))
 
             if full_name in existing_dims:
                 continue
@@ -382,10 +399,13 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
         # Second pass: handle regular Column references.
         # Skip columns that were already added via the subscript pass above.
         for col in filter_ast.find_all(ast.Column):
-            full_name = get_column_full_name(col)
-            if not full_name or SEPARATOR not in full_name:
-                # Simple column name (e.g., "status") - will be resolved from parent node
+            # Role markers inside subscripts (e.g. `to` in `dim.col[to]`) are
+            # parsed as Columns but don't refer to real data columns.
+            if id(col) in role_marker_ids:
                 continue
+            full_name = get_column_full_name(col)
+            if not full_name:
+                continue  # pragma: no cover
 
             # Skip if already handled as a role-qualified subscript ref
             if full_name in subscript_handled_refs:

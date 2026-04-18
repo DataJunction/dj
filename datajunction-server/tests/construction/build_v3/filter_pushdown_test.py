@@ -161,10 +161,9 @@ class TestFilterPushdownMultiRef:
         client_with_build_v3,
     ):
         """OR-combined refs that both resolve to the same CTE push down as
-        one predicate.  ``order_date`` is projected (needed for the outer
-        qualified reference) and uses the qualified ``o.order_date`` form in
-        WHERE; ``status`` is pruned from the projection but still filterable
-        via the bare column name on the underlying source.
+        one predicate.  Both refs are fully qualified — bare column refs in
+        filters are ambiguous across multi-parent builds and aren't a
+        supported input shape.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -172,7 +171,8 @@ class TestFilterPushdownMultiRef:
                 "metrics": ["v3.total_revenue"],
                 "dimensions": ["v3.product.category"],
                 "filters": [
-                    "v3.date.date_id[order] >= 20240101 OR status = 'completed'",
+                    "v3.date.date_id[order] >= 20240101 "
+                    "OR v3.order_details.status = 'completed'",
                 ],
             },
         )
@@ -183,11 +183,12 @@ class TestFilterPushdownMultiRef:
             WITH
             v3_order_details AS (
               SELECT o.order_date,
+                o.status,
                 oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-              WHERE o.order_date >= 20240101 OR status = 'completed'
+              WHERE o.order_date >= 20240101 OR o.status = 'completed'
             ),
             v3_product AS (
               SELECT product_id, category
